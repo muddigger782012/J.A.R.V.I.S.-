@@ -362,10 +362,6 @@ class MainActivity : AppCompatActivity() {
                 findViewById(R.id.tabAuditSection)
             ),
             TabBinding(
-                findViewById(R.id.btnHeaderVoice),
-                findViewById(R.id.tabVoiceSection)
-            ),
-            TabBinding(
                 findViewById(R.id.btnHeaderPermissions),
                 findViewById(R.id.tabPermissionsSection)
             ),
