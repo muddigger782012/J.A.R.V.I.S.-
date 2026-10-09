@@ -16,6 +16,7 @@ data class HybridAssistantReply(
 private enum class PendingPrompt {
     NONE,
     PROJECT_NAME,
+    SHELL_CONFIRMATION,
     REBOOT_CONFIRMATION
 }
 
@@ -27,6 +28,7 @@ class HybridAssistantService(
 ) {
 
     private var pendingPrompt: PendingPrompt = PendingPrompt.NONE
+    private var pendingShellCommand: String? = null
     private val history = ArrayDeque<Pair<String, String>>()
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
@@ -51,6 +53,17 @@ class HybridAssistantService(
                     preface = "Great. Creating project \"$name\" now.",
                     result = result
                 )
+            }
+            PendingPrompt.SHELL_CONFIRMATION -> {
+                pendingPrompt = PendingPrompt.NONE
+                val command = pendingShellCommand
+                pendingShellCommand = null
+                return if (looksLikeYes(normalized) && !command.isNullOrBlank()) {
+                    replyFromResult(userInput, "Executing confirmed privileged command.", assistantEngine.executeAction(actionRegistry.runShellRequest(command, confirmed = true)))
+                } else {
+                    remember(userInput, "Privileged command cancelled.")
+                    HybridAssistantReply("Privileged command cancelled.")
+                }
             }
             PendingPrompt.REBOOT_CONFIRMATION -> {
                 pendingPrompt = PendingPrompt.NONE
@@ -117,12 +130,11 @@ class HybridAssistantService(
 
         if (containsAny(normalized, "run shell", "execute shell", "run command")) {
             val command = extractShellCommand(userInput)
-            val result = assistantEngine.executeAction(actionRegistry.runShellRequest(command, confirmed = true))
-            return replyFromResult(
-                userText = userInput,
-                preface = "Running shell command via Shizuku.",
-                result = result
-            )
+            pendingShellCommand = command
+            pendingPrompt = PendingPrompt.SHELL_CONFIRMATION
+            val response = "This privileged command requires a separate confirmation before execution."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
         }
 
         if (containsAny(normalized, "status", "system status", "show status")) {
