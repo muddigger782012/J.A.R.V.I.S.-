@@ -238,7 +238,8 @@ class JarvisChatActivity : Activity() {
                 val conn = URL(address).openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"; conn.connectTimeout = 15000; conn.readTimeout = 45000
                 conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json")
-                if (token.isBlank()) throw IllegalStateException("ChatGPT account is not connected")\n                conn.setRequestProperty("Authorization", "Bearer $token")
+                if (token.isBlank()) throw IllegalStateException("ChatGPT account is not connected")
+                conn.setRequestProperty("Authorization", "Bearer $token")
                 conn.outputStream.use { it.write(JSONObject().put("session_id", session).put("messages", JSONArray(history)).toString().toByteArray(Charsets.UTF_8)) }
                 val code = conn.responseCode
                 val body = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
