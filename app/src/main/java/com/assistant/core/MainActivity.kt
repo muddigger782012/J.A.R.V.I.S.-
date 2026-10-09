@@ -318,7 +318,7 @@ class MainActivity : AppCompatActivity() {
         voiceService = VoiceAssistantService(
             context = this,
             onStatus = { status -> runOnUiThread { appendOutput(status) } },
-            onHotwordDetected = { runOnUiThread { appendOutput("Hotword detected: jarvis") } },
+            onHotwordDetected = { runOnUiThread { appendOutput("Hotword detected: ${currentVoiceConfig.wakeWord}") } },
             onCommandDetected = { recognition ->
                 runOnUiThread { handleVoiceRecognition(recognition) }
             }
