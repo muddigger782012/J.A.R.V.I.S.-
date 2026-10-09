@@ -112,13 +112,6 @@
                 android:text="@string/tab_audit" />
 
             <Button
-                android:id="@+id/btnHeaderVoice"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="6dp"
-                android:text="@string/tab_voice" />
-
-            <Button
                 android:id="@+id/btnHeaderPermissions"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -152,6 +145,42 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvVoiceSectionTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/voice_controls_title"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvMicPermissionStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/mic_permission_status_missing" />
+
+                <Button
+                    android:id="@+id/btnGrantMicPermission"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/grant_microphone_permission" />
+
+                <Button
+                    android:id="@+id/btnToggleVoice"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/start_voice_hotword" />
+
+                <Button
+                    android:id="@+id/btnVoiceSettings"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/voice_settings_title" />
+
 
                 <EditText
                     android:id="@+id/etCommandInput"
@@ -509,56 +538,6 @@
                     android:padding="8dp"
                     android:textIsSelectable="true"
                     android:textSize="12sp" />
-            </LinearLayout>
-        </ScrollView>
-
-        <ScrollView
-            android:id="@+id/tabVoiceSection"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="@drawable/glass_panel_surface"
-            android:padding="16dp"
-            android:visibility="gone">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/tvVoiceSectionTitle"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/voice_controls_title"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvMicPermissionStatus"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="@string/mic_permission_status_missing" />
-
-                <Button
-                    android:id="@+id/btnGrantMicPermission"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/grant_microphone_permission" />
-
-                <Button
-                    android:id="@+id/btnToggleVoice"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/start_voice_hotword" />
-
-                <Button
-                    android:id="@+id/btnVoiceSettings"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/voice_settings_title" />
             </LinearLayout>
         </ScrollView>
 
