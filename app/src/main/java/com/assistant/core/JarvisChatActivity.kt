@@ -118,11 +118,58 @@ class JarvisChatActivity : Activity() {
                         val callback = Uri.parse("http://127.0.0.1" + path)
                         val validPath = callback.path == "/auth/callback"
                         val validState = callback.getQueryParameter("state") == state
-                        val codeReceived = !callback.getQueryParameter("code").isNullOrBlank()
-                        val response = if (validPath && validState && codeReceived) {
-                            "Authorization callback received. Token exchange and identity verification are not yet implemented; account is NOT connected."
+                        val code = callback.getQueryParameter("code")
+                        val issuedClientId = callback.getQueryParameter("client_id")
+                        val response = if (!validPath || !validState) {
+                            "Authorization callback rejected: invalid path or state. Account is NOT connected."
+                        } else if (!callback.getQueryParameter("error").isNullOrBlank()) {
+                            "Authorization was declined or failed. Account is NOT connected."
+                        } else if (code.isNullOrBlank() || issuedClientId.isNullOrBlank() ||
+                            !issuedClientId.startsWith("oaiapp_")) {
+                            "Authorization callback is missing a valid issued client ID or code. Account is NOT connected."
                         } else {
-                            "Authorization failed or callback validation rejected. Account is NOT connected."
+                            // Never exchange using dynamic_agent_client. Keep tokens ephemeral
+                            // until cryptographic ID-token verification and encrypted storage exist.
+                            try {
+                                val form = listOf(
+                                    "grant_type" to "authorization_code",
+                                    "client_id" to issuedClientId,
+                                    "code" to code,
+                                    "code_verifier" to verifier,
+                                    "redirect_uri" to redirect,
+                                    "resource" to "https://api.openai.com/v1"
+                                ).joinToString("&") { (key, value) ->
+                                    java.net.URLEncoder.encode(key, "UTF-8") + "=" +
+                                        java.net.URLEncoder.encode(value, "UTF-8")
+                                }
+                                val connection = (URL("https://auth.openai.com/api/accounts/oauth/token")
+                                    .openConnection() as HttpURLConnection)
+                                try {
+                                    connection.requestMethod = "POST"
+                                    connection.connectTimeout = 15000
+                                    connection.readTimeout = 15000
+                                    connection.doOutput = true
+                                    connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                                    connection.outputStream.use {
+                                        it.write(form.toByteArray(Charsets.UTF_8))
+                                    }
+                                    if (connection.responseCode == 200) {
+                                        // Do not log, display or persist unverified credentials.
+                                        val result = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                                        val hasIdToken = !result.optString("id_token").isNullOrBlank()
+                                        val hasAccessToken = !result.optString("access_token").isNullOrBlank()
+                                        if (hasIdToken && hasAccessToken)
+                                            "OAuth token exchange succeeded. Identity signature/nonce validation and secure token storage are pending; account is NOT connected."
+                                        else "OAuth response incomplete. Account is NOT connected."
+                                    } else {
+                                        "OAuth token exchange failed (HTTP ${connection.responseCode}). Account is NOT connected."
+                                    }
+                                } finally {
+                                    connection.disconnect()
+                                }
+                            } catch (_: Exception) {
+                                "OAuth token exchange failed. Account is NOT connected."
+                            }
                         }
                         val page = "<html><body><p>" + response + "</p></body></html>"
                         val payload = page.toByteArray(Charsets.UTF_8)
