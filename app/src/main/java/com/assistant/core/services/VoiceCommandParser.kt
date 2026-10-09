@@ -75,10 +75,9 @@ class VoiceCommandParser(private val actionRegistry: ActionRegistry) {
         val wantsReboot = containsAny(normalized, rebootPhrases(config))
         if (!wantsReboot) return null
 
-        val confirmed = containsAny(normalized, listOf("confirm", "yes reboot", "reboot now"))
         return ParsedVoiceCommand(
-            actionRequest = actionRegistry.rebootDeviceRequest(confirmed = confirmed),
-            responseHint = if (confirmed) "Attempting reboot action." else "Reboot request heard. Confirmation required."
+            actionRequest = actionRegistry.rebootDeviceRequest(confirmed = false),
+            responseHint = "Reboot request heard. Confirmation required."
         )
     }
 
