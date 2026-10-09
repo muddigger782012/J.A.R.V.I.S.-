@@ -23,8 +23,6 @@ class JarvisChatActivity : Activity() {
         root.addView(title)
         val connectButton = Button(this).apply { text = "Cloud AI · secure setup pending" }
         root.addView(connectButton)
-        // Initialize once per app installation; re-use on later OAuth attempts.
-        agentHostId
         connectButton.setOnClickListener { beginChatGptAuthorization() }
         val controls = LinearLayout(this)
         val newButton = Button(this).apply { text = "New chat" }
