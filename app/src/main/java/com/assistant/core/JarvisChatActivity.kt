@@ -163,8 +163,15 @@ class JarvisChatActivity : Activity() {
                                                 val subject = OpenAiIdTokenVerifier.verify(result.getString("id_token"), issuedClientId, nonce)
                                                 val accessToken = result.getString("access_token")
                                                 val refreshToken = result.optString("refresh_token").takeIf { it.isNotBlank() }
-                                                SecureTokenStore(this).save(accessToken, refreshToken, issuedClientId, subject)
-                                                "OpenAI identity verified and credentials encrypted with Android Keystore. Scope validation and authenticated API routing are pending; account is NOT connected."
+                                                val grantedScopes = result.optString("scope").split(Regex("\\s+")).filter { it.isNotBlank() }
+                                                if (!grantedScopes.contains("chatgpt.tokens.use.direct") ||
+                                                    !grantedScopes.contains("resource.invoke")) {
+                                                    "OpenAI identity verified, but ChatGPT plan usage was not authorized. Account is NOT connected for AI requests."
+                                                } else {
+                                                    SecureTokenStore(this).save(accessToken, refreshToken, issuedClientId, subject)
+                                                    "OpenAI identity verified; ChatGPT plan scopes granted and credentials encrypted. AI routing is still pending."
+                                                }
+
                                             } catch (_: Exception) {
                                                 "OpenAI ID token verification failed. Account is NOT connected."
                                             }
