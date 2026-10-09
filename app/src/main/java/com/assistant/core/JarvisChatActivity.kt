@@ -235,7 +235,7 @@ class JarvisChatActivity : Activity() {
         }
         prefs.edit().remove("gateway_token").putString("endpoint", address).apply()
         val history = messages.toString()
-        val token = gatewayToken.text.toString()
+        val token = SecureTokenStore(this).load()?.optString("access_token").orEmpty()
         Thread {
             val reply = try {
                 val conn = URL(address).openConnection() as HttpURLConnection
