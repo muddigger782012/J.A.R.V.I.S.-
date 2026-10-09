@@ -38,6 +38,8 @@ class VoiceForegroundService : Service() {
     private lateinit var voiceService: VoiceAssistantService
     private lateinit var assistantEngine: AssistantEngine
     private lateinit var actionRegistry: ActionRegistry
+    private lateinit var hybridAssistantService: HybridAssistantService
+    private lateinit var systemService: SystemService
     private lateinit var capabilityState: CapabilityState
     private lateinit var currentConfig: VoiceConfig
 
@@ -83,7 +85,7 @@ class VoiceForegroundService : Service() {
         val auditRepository = AuditRepository(database)
         val fileService = FileService(this)
         val codingService = CodingService(this, fileService)
-        val systemService = SystemService(this)
+        systemService = SystemService(this)
         val auditService = AuditService(auditRepository)
         val standardAdapter = StandardAdapter(codingService, fileService, systemService, projectRepository)
         val shizukuAdapter = ShizukuAdapter(this)
@@ -107,6 +109,12 @@ class VoiceForegroundService : Service() {
             ),
             actionRepository = actionRepository,
             auditService = auditService,
+            capabilityProvider = { capabilityState }
+        )
+        hybridAssistantService = HybridAssistantService(
+            assistantEngine = assistantEngine,
+            actionRegistry = actionRegistry,
+            systemService = systemService,
             capabilityProvider = { capabilityState }
         )
     }
@@ -189,9 +197,20 @@ class VoiceForegroundService : Service() {
                 publishEvent("Voice settings requested; open app to configure.")
             }
             LocalVoiceCommand.NONE -> {
-                val result = parsed.actionRequest?.let { assistantEngine.executeAction(it) }
-                    ?: assistantEngine.handleUserCommand(parsed.fallbackTextCommand ?: command)
-                handleActionResult(result)
+                val proposedAction = parsed.actionRequest
+                if (proposedAction != null && proposedAction.riskLevel >= 2 &&
+                    (proposedAction.parameters["confirmed"] as? Boolean != true)
+                ) {
+                    val reply = hybridAssistantService.handleUserInput(command)
+                    publishEvent("J.A.R.V.I.S.: ${reply.text}")
+                    voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(180) ?: "Confirmation required.")
+                } else if (proposedAction != null) {
+                    handleActionResult(assistantEngine.executeAction(proposedAction))
+                } else {
+                    val reply = hybridAssistantService.handleUserInput(parsed.fallbackTextCommand ?: command)
+                    publishEvent("J.A.R.V.I.S.: ${reply.text}")
+                    voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(180) ?: "Done.")
+                }
             }
         }
     }
