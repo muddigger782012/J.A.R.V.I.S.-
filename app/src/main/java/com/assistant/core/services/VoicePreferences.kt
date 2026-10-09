@@ -4,6 +4,7 @@ import android.content.Context
 
 data class VoiceConfig(
     val enableDedicatedWakeWord: Boolean,
+    val wakeWord: String,
     val porcupineAccessKey: String,
     val wakeSensitivity: Float,
     val autoStartVoice: Boolean,
@@ -28,6 +29,7 @@ class VoicePreferences(context: Context) {
     fun load(): VoiceConfig {
         return VoiceConfig(
             enableDedicatedWakeWord = preferences.getBoolean(KEY_DEDICATED_WAKE_WORD, true),
+            wakeWord = preferences.getString(KEY_WAKE_WORD, "jarvis").orEmpty().trim().ifBlank { "jarvis" },
             porcupineAccessKey = preferences.getString(KEY_PORCUPINE_ACCESS_KEY, "").orEmpty().trim(),
             wakeSensitivity = preferences.getFloat(KEY_WAKE_SENSITIVITY, 0.6f),
             autoStartVoice = preferences.getBoolean(KEY_AUTO_START, false),
@@ -49,6 +51,7 @@ class VoicePreferences(context: Context) {
     fun save(config: VoiceConfig) {
         preferences.edit()
             .putBoolean(KEY_DEDICATED_WAKE_WORD, config.enableDedicatedWakeWord)
+            .putString(KEY_WAKE_WORD, config.wakeWord.trim().ifBlank { "jarvis" })
             .putString(KEY_PORCUPINE_ACCESS_KEY, config.porcupineAccessKey.trim())
             .putFloat(KEY_WAKE_SENSITIVITY, config.wakeSensitivity.coerceIn(0.1f, 1.0f))
             .putBoolean(KEY_AUTO_START, config.autoStartVoice)
@@ -84,6 +87,7 @@ class VoicePreferences(context: Context) {
     companion object {
         private const val PREFS_NAME = "voice_settings"
         private const val KEY_DEDICATED_WAKE_WORD = "dedicated_wake_word"
+        private const val KEY_WAKE_WORD = "wake_word"
         private const val KEY_PORCUPINE_ACCESS_KEY = "porcupine_access_key"
         private const val KEY_WAKE_SENSITIVITY = "wake_sensitivity"
         private const val KEY_AUTO_START = "auto_start_voice"
