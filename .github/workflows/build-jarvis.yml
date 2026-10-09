@@ -19,13 +19,13 @@ jobs:
             unzip -q Jarvis-AI-cloud-build-v3.3.zip -d /tmp/jarvis-project
             cp -a /tmp/jarvis-project/. .
           fi
-          test -f settings.gradle || { echo 'Upload Jarvis-AI-cloud-build-v3.3.zip to the repository root first.'; exit 1; }
+          (test -f settings.gradle || test -f settings.gradle.kts) || { echo 'Upload Jarvis-AI-cloud-build-v3.3.zip to the repository root first.'; exit 1; }
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
       - name: Compile debug APK
