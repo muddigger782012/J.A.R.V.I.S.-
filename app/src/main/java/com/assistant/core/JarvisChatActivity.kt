@@ -1,6 +1,13 @@
 package com.assistant.core
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.util.Base64
+import java.net.ServerSocket
+import java.net.SocketTimeoutException
+import java.security.MessageDigest
+import java.security.SecureRandom
 import android.os.Bundle
 import android.graphics.Color
 import android.view.ViewGroup
@@ -36,12 +43,7 @@ class JarvisChatActivity : Activity() {
         root.addView(connectButton)
         // Initialize once per app installation; re-use on later OAuth attempts.
         agentHostId
-        connectButton.setOnClickListener {
-            android.app.AlertDialog.Builder(this)
-                .setTitle("ChatGPT account connection")
-                .setMessage("ChatGPT sign-in is not yet implemented. JARVIS has prepared a stable local agent host ID for the documented open-source authorization flow. No account has been connected. Never enter your ChatGPT password or session cookie here. The optional HTTPS gateway and offline history remain available.")
-                .setPositiveButton("OK", null).show()
-        }
+        connectButton.setOnClickListener { beginChatGptAuthorization() }
         endpoint = EditText(this).apply { hint = "HTTPS backend endpoint (no API keys)"; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY); setText(prefs.getString("endpoint", "")) }
         root.addView(endpoint)
         gatewayToken = EditText(this).apply { hint = "Gateway token (not saved)"; inputType = 129; setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY); setText("") }
@@ -68,6 +70,82 @@ class JarvisChatActivity : Activity() {
         }
         send.setOnClickListener { sendMessage() }
     }
+    /** OAuth first stage only. Never treat a browser callback as an authenticated session. */
+    private fun beginChatGptAuthorization() {
+        val bytes = ByteArray(32)
+        val random = SecureRandom()
+        random.nextBytes(bytes)
+        val state = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        random.nextBytes(bytes)
+        val nonce = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        random.nextBytes(bytes)
+        val verifier = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        val challenge = Base64.encodeToString(
+            MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)),
+            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        )
+        Thread {
+            try {
+                ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).use { server ->
+                    server.soTimeout = 180000
+                    val redirect = "http://127.0.0.1:${server.localPort}/auth/callback"
+                    val params = linkedMapOf(
+                        "client_id" to "dynamic_agent_client",
+                        "agent_name_hint" to "JARVIS",
+                        "ext_agent_host_id" to agentHostId,
+                        "response_type" to "code",
+                        "redirect_uri" to redirect,
+                        "scope" to "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
+                        "resource" to "https://api.openai.com/v1",
+                        "state" to state,
+                        "nonce" to nonce,
+                        "code_challenge_method" to "S256",
+                        "code_challenge" to challenge
+                    )
+                    val url = Uri.parse("https://auth.openai.com/api/accounts/authorize").buildUpon().apply {
+                        params.forEach { (key, value) -> appendQueryParameter(key, value) }
+                    }.build()
+                    runOnUiThread {
+                        try { startActivity(Intent(Intent.ACTION_VIEW, url)) }
+                        catch (_: Exception) { Toast.makeText(this, "No browser available", Toast.LENGTH_LONG).show() }
+                    }
+                    server.accept().use { client ->
+                        client.soTimeout = 10000
+                        val reader = client.getInputStream().bufferedReader()
+                        val request = reader.readLine() ?: ""
+                        // Never log authorization codes or full callback URLs.
+                        val path = request.split(" ").getOrNull(1) ?: ""
+                        val callback = Uri.parse("http://127.0.0.1" + path)
+                        val validPath = callback.path == "/auth/callback"
+                        val validState = callback.getQueryParameter("state") == state
+                        val codeReceived = !callback.getQueryParameter("code").isNullOrBlank()
+                        val response = if (validPath && validState && codeReceived) {
+                            "Authorization callback received. Token exchange and identity verification are not yet implemented; account is NOT connected."
+                        } else {
+                            "Authorization failed or callback validation rejected. Account is NOT connected."
+                        }
+                        val page = "<html><body><p>" + response + "</p></body></html>"
+                        val payload = page.toByteArray(Charsets.UTF_8)
+                        client.getOutputStream().write(
+                            ("HTTP/1.1 200 OK\\r\\nContent-Type: text/html; charset=utf-8\\r\\nContent-Length: ${payload.size}\\r\\nConnection: close\\r\\n\\r\\n")
+                                .replace("\\\\r", "\\r").replace("\\\\n", "\\n")
+                                .toByteArray(Charsets.US_ASCII)
+                        )
+                        client.getOutputStream().write(payload)
+                        runOnUiThread {
+                            android.app.AlertDialog.Builder(this).setTitle("ChatGPT authorization")
+                                .setMessage(response).setPositiveButton("OK", null).show()
+                        }
+                    }
+                }
+            } catch (_: SocketTimeoutException) {
+                runOnUiThread { Toast.makeText(this, "ChatGPT authorization timed out", Toast.LENGTH_LONG).show() }
+            } catch (_: Exception) {
+                runOnUiThread { Toast.makeText(this, "ChatGPT authorization could not start", Toast.LENGTH_LONG).show() }
+            }
+        }.start()
+    }
+
     private fun loadSession() {
         prefs.edit().putString("active_session", session).apply()
         messages = try { JSONArray(prefs.getString("chat_$session", "[]")) } catch (_: Exception) { JSONArray() }
