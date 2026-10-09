@@ -29,7 +29,7 @@ class VoicePreferences(context: Context) {
     fun load(): VoiceConfig {
         return VoiceConfig(
             enableDedicatedWakeWord = preferences.getBoolean(KEY_DEDICATED_WAKE_WORD, true),
-            wakeWord = preferences.getString(KEY_WAKE_WORD, "jarvis").orEmpty().trim().ifBlank { "jarvis" },
+            wakeWord = preferences.getString(KEY_WAKE_WORD, "hey jarvis").orEmpty().trim().ifBlank { "hey jarvis" },
             porcupineAccessKey = preferences.getString(KEY_PORCUPINE_ACCESS_KEY, "").orEmpty().trim(),
             wakeSensitivity = preferences.getFloat(KEY_WAKE_SENSITIVITY, 0.6f),
             autoStartVoice = preferences.getBoolean(KEY_AUTO_START, false),
@@ -51,7 +51,7 @@ class VoicePreferences(context: Context) {
     fun save(config: VoiceConfig) {
         preferences.edit()
             .putBoolean(KEY_DEDICATED_WAKE_WORD, config.enableDedicatedWakeWord)
-            .putString(KEY_WAKE_WORD, config.wakeWord.trim().ifBlank { "jarvis" })
+            .putString(KEY_WAKE_WORD, config.wakeWord.trim().ifBlank { "hey jarvis" })
             .putString(KEY_PORCUPINE_ACCESS_KEY, config.porcupineAccessKey.trim())
             .putFloat(KEY_WAKE_SENSITIVITY, config.wakeSensitivity.coerceIn(0.1f, 1.0f))
             .putBoolean(KEY_AUTO_START, config.autoStartVoice)
