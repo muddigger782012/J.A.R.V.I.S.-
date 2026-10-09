@@ -87,6 +87,8 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import org.json.JSONArray
+import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
 
@@ -166,6 +168,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var currentDhizukuStatus: DhizukuStatus
 
     private val outputLines = mutableListOf<String>()
+    private val conversationPrefs by lazy { getSharedPreferences("jarvis_unified_chat", MODE_PRIVATE) }
+    private var conversationSessionId: String = ""
     private val terminalOutputLines = mutableListOf<String>()
     private val terminalHistory = mutableListOf<String>()
     private val uiPreferences by lazy { getSharedPreferences("main_ui", MODE_PRIVATE) }
@@ -321,6 +325,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         bindUiListeners()
+        loadOrCreateConversation()
         applyMicroInteractions(findViewById(android.R.id.content))
         reloadVoiceConfiguration(showStatus = true)
         refreshPrivilegeCenter()
@@ -681,6 +686,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun bindUiListeners() {
+        findViewById<Button>(R.id.btnNewAssistantChat).setOnClickListener {
+            archiveConversation()
+            conversationSessionId = "session_" + System.currentTimeMillis()
+            outputLines.clear()
+            outputLog.text = ""
+            conversationPrefs.edit().putString("active_session", conversationSessionId).apply()
+            appendOutput("New J.A.R.V.I.S. conversation started.")
+        }
+
+        findViewById<Button>(R.id.btnAssistantHistory).setOnClickListener {
+            showConversationHistory()
+        }
+
         findViewById<Button>(R.id.btnRunAssistantCommand).setOnClickListener {
             runAssistantCommandFromInput()
         }
@@ -866,7 +884,78 @@ class MainActivity : AppCompatActivity() {
 
     private fun appendOutput(text: String) {
         outputLines.add(text)
+        while (outputLines.size > 200) outputLines.removeAt(0)
         outputLog.text = outputLines.joinToString(separator = "\n\n")
+        persistActiveConversation()
+    }
+
+    private fun loadOrCreateConversation() {
+        conversationSessionId = conversationPrefs.getString("active_session", null)
+            ?: ("session_" + System.currentTimeMillis()).also {
+                conversationPrefs.edit().putString("active_session", it).apply()
+            }
+        val stored = conversationPrefs.getString("messages_$conversationSessionId", null) ?: return
+        runCatching {
+            val array = JSONArray(stored)
+            outputLines.clear()
+            for (index in 0 until array.length()) outputLines.add(array.getString(index))
+            outputLog.text = outputLines.joinToString(separator = "\n\n")
+        }
+    }
+
+    private fun persistActiveConversation() {
+        if (conversationSessionId.isBlank()) return
+        val array = JSONArray()
+        outputLines.forEach { array.put(it) }
+        conversationPrefs.edit().putString("messages_$conversationSessionId", array.toString()).apply()
+    }
+
+    private fun archiveConversation() {
+        if (conversationSessionId.isBlank() || outputLines.isEmpty()) return
+        persistActiveConversation()
+        val history = runCatching {
+            JSONArray(conversationPrefs.getString("session_history", "[]"))
+        }.getOrElse { JSONArray() }
+        val updated = JSONArray()
+        val summary = JSONObject()
+            .put("id", conversationSessionId)
+            .put("time", System.currentTimeMillis())
+            .put("preview", outputLines.firstOrNull { it.startsWith("You:") } ?: outputLines.first())
+        updated.put(summary)
+        for (index in 0 until history.length()) {
+            val item = history.optJSONObject(index) ?: continue
+            if (item.optString("id") != conversationSessionId) updated.put(item)
+            if (updated.length() >= 20) break
+        }
+        conversationPrefs.edit().putString("session_history", updated.toString()).apply()
+    }
+
+    private fun showConversationHistory() {
+        archiveConversation()
+        val history = runCatching {
+            JSONArray(conversationPrefs.getString("session_history", "[]"))
+        }.getOrElse { JSONArray() }
+        if (history.length() == 0) {
+            AlertDialog.Builder(this).setTitle("Conversation history").setMessage("No saved conversations yet.").setPositiveButton("OK", null).show()
+            return
+        }
+        val ids = mutableListOf<String>()
+        val labels = mutableListOf<String>()
+        val formatter = SimpleDateFormat("MMM d, yyyy h:mm a", Locale.getDefault())
+        for (index in 0 until history.length()) {
+            val item = history.optJSONObject(index) ?: continue
+            ids.add(item.optString("id"))
+            labels.add(formatter.format(Date(item.optLong("time"))) + "\n" + item.optString("preview").take(90))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Conversation history")
+            .setItems(labels.toTypedArray()) { _, which ->
+                conversationSessionId = ids[which]
+                conversationPrefs.edit().putString("active_session", conversationSessionId).apply()
+                loadOrCreateConversation()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun appendTerminalOutput(line: String) {
