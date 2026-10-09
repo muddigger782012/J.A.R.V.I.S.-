@@ -1337,7 +1337,7 @@ class MainActivity : AppCompatActivity() {
             }
             LocalVoiceCommand.NONE -> {
                 val proposedAction = parsed.actionRequest
-                if (proposedAction != null && !proposedAction.confirmed) {
+                if (proposedAction != null && proposedAction.riskLevel >= 2 && (proposedAction.parameters["confirmed"] as? Boolean != true)) {
                     val reply = hybridAssistantService.handleUserInput(command)
                     appendOutput("J.A.R.V.I.S.: ${reply.text}")
                     statusOutput.text = reply.actionResult?.output ?: reply.text
