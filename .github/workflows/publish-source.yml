@@ -26,8 +26,9 @@ jobs:
             fi
             root="$(dirname "${matches[0]}")"
           fi
+          find "$root/.github/workflows" -type f -delete 2>/dev/null || true
           cp -a "$root"/. .
-          echo "Extracted Android project into repository root"
+          echo "Extracted Android project into repository root without embedded workflow files"
       - name: Commit source files
         shell: bash
         run: |
