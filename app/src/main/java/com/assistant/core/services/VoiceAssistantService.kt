@@ -52,6 +52,7 @@ class VoiceAssistantService(
     private var fallbackStatusAnnounced = false
     private var config: VoiceConfig = VoiceConfig(
         enableDedicatedWakeWord = true,
+        wakeWord = "jarvis",
         porcupineAccessKey = "",
         wakeSensitivity = 0.6f,
         autoStartVoice = false,
@@ -166,7 +167,7 @@ class VoiceAssistantService(
     override fun onPartialResults(partialResults: Bundle?) {
         if (mode != RecognitionMode.FALLBACK_SPEECH_HOTWORD) return
         val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
-        if (containsJarvis(partial)) {
+        if (containsWakeWord(partial)) {
             speechRecognizer?.cancel()
             listeningWithSpeechRecognizer = false
             onWakeWordDetected()
@@ -176,7 +177,7 @@ class VoiceAssistantService(
     override fun onEvent(eventType: Int, params: Bundle?) = Unit
 
     private fun shouldUseDedicatedWakeWord(): Boolean {
-        return config.enableDedicatedWakeWord && config.porcupineAccessKey.isNotBlank()
+        return config.enableDedicatedWakeWord && config.wakeWord.equals("jarvis", ignoreCase = true) && config.porcupineAccessKey.isNotBlank()
     }
 
     private fun startDedicatedWakeWordEngine() {
@@ -261,7 +262,7 @@ class VoiceAssistantService(
 
     private fun handleFallbackHotwordMatches(matches: List<String>) {
         if (!voiceActive) return
-        if (containsJarvis(matches)) {
+        if (containsWakeWord(matches)) {
             onWakeWordDetected()
         } else {
             fallbackErrorStreak = 0
@@ -297,8 +298,9 @@ class VoiceAssistantService(
         }
     }
 
-    private fun containsJarvis(phrases: List<String>): Boolean {
-        return phrases.any { it.lowercase(Locale.US).contains("jarvis") }
+    private fun containsWakeWord(phrases: List<String>): Boolean {
+        val wakeWord = config.wakeWord.trim().lowercase(Locale.US).ifBlank { "jarvis" }
+        return phrases.any { it.lowercase(Locale.US).contains(wakeWord) }
     }
 
     private fun getOrCreateRecognizer(): SpeechRecognizer {
