@@ -15,6 +15,12 @@ import java.util.UUID
 class JarvisChatActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("jarvis_chat", MODE_PRIVATE) }
     private var session = ""
+    // Stable per-install identifier required by the open-source ChatGPT OAuth flow.
+    private val agentHostId: String by lazy {
+        prefs.getString("ext_agent_host_id", null) ?: ("urn:uuid:" + UUID.randomUUID().toString()).also {
+            prefs.edit().putString("ext_agent_host_id", it).commit()
+        }
+    }
     private lateinit var transcript: TextView
     private lateinit var input: EditText
     private lateinit var endpoint: EditText
@@ -26,12 +32,14 @@ class JarvisChatActivity : Activity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(16, 12, 16, 12); setBackgroundColor(Color.rgb(14, 21, 31)) }
         val title = TextView(this).apply { text = "JARVIS · AI Conversations"; textSize = 21f; setTextColor(Color.WHITE) }
         root.addView(title)
-        val connectButton = Button(this).apply { text = "Connect with ChatGPT (setup)" }
+        val connectButton = Button(this).apply { text = "ChatGPT connection · setup pending" }
         root.addView(connectButton)
+        // Initialize once per app installation; re-use on later OAuth attempts.
+        agentHostId
         connectButton.setOnClickListener {
             android.app.AlertDialog.Builder(this)
                 .setTitle("ChatGPT account connection")
-                .setMessage("JARVIS is preparing an open-source Sign in with ChatGPT connection. Authorization is not configured yet. Your ChatGPT password or session cookie must never be entered into JARVIS. Until OAuth registration and consent are implemented, the HTTPS gateway remains optional and local chat history works offline.")
+                .setMessage("ChatGPT sign-in is not yet implemented. JARVIS has prepared a stable local agent host ID for the documented open-source authorization flow. No account has been connected. Never enter your ChatGPT password or session cookie here. The optional HTTPS gateway and offline history remain available.")
                 .setPositiveButton("OK", null).show()
         }
         endpoint = EditText(this).apply { hint = "HTTPS backend endpoint (no API keys)"; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY); setText(prefs.getString("endpoint", "")) }
