@@ -7,6 +7,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+concurrency:
+  group: jarvis-main-apk-publisher
+  cancel-in-progress: false
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -55,18 +58,12 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk artifacts/app-debug.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git reset --soft origin/main
           git add artifacts/app-debug.apk
           if git diff --cached --quiet; then
             echo "Published APK is unchanged."
           else
             git commit -m "Publish latest JARVIS updater APK [skip ci]"
-            for attempt in 1 2 3; do
-              if git pull --rebase origin main && git push origin HEAD:main; then
-                exit 0
-              fi
-              echo "Publish attempt $attempt failed; retrying..."
-              sleep 3
-            done
-            echo "Unable to publish updater APK after retries."
-            exit 1
+            git push origin HEAD:main
           fi
