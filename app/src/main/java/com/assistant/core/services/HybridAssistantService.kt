@@ -235,6 +235,6 @@ class HybridAssistantService(
     }
 
     private fun looksLikeYes(normalized: String): Boolean {
-        return containsAny(normalized, "yes", "confirm", "confirm reboot", "do it", "sure")
+        return normalized in setOf("yes", "confirm", "confirm reboot", "confirm command", "do it", "sure")
     }
 }
