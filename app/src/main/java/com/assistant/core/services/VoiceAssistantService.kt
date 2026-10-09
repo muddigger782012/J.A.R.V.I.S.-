@@ -52,7 +52,7 @@ class VoiceAssistantService(
     private var fallbackStatusAnnounced = false
     private var config: VoiceConfig = VoiceConfig(
         enableDedicatedWakeWord = true,
-        wakeWord = "jarvis",
+        wakeWord = "hey jarvis",
         porcupineAccessKey = "",
         wakeSensitivity = 0.6f,
         autoStartVoice = false,
@@ -299,7 +299,7 @@ class VoiceAssistantService(
     }
 
     private fun containsWakeWord(phrases: List<String>): Boolean {
-        val wakeWord = config.wakeWord.trim().lowercase(Locale.US).ifBlank { "jarvis" }
+        val wakeWord = config.wakeWord.trim().lowercase(Locale.US).ifBlank { "hey jarvis" }
         return phrases.any { it.lowercase(Locale.US).contains(wakeWord) }
     }
 
