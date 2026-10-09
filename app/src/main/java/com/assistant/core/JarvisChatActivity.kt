@@ -160,8 +160,11 @@ class JarvisChatActivity : Activity() {
                                         val hasAccessToken = !result.optString("access_token").isNullOrBlank()
                                         if (hasIdToken && hasAccessToken) {
                                             try {
-                                                OpenAiIdTokenVerifier.verify(result.getString("id_token"), issuedClientId, nonce)
-                                                "OpenAI identity cryptographically verified. Scope checks and encrypted credential storage are pending; account is NOT connected."
+                                                val subject = OpenAiIdTokenVerifier.verify(result.getString("id_token"), issuedClientId, nonce)
+                                                val accessToken = result.getString("access_token")
+                                                val refreshToken = result.optString("refresh_token").takeIf { it.isNotBlank() }
+                                                SecureTokenStore(this).save(accessToken, refreshToken, issuedClientId, subject)
+                                                "OpenAI identity verified and credentials encrypted with Android Keystore. Scope validation and authenticated API routing are pending; account is NOT connected."
                                             } catch (_: Exception) {
                                                 "OpenAI ID token verification failed. Account is NOT connected."
                                             }
