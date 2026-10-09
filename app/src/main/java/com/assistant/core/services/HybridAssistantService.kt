@@ -105,9 +105,20 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        if (containsAny(normalized, "time", "date")) {
-            val now = SimpleDateFormat("EEE, MMM d • HH:mm", Locale.getDefault()).format(Date())
-            val response = "Current local time is $now."
+        if (isTimeRequest(normalized)) {
+            val response = "It's " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date()) + "."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
+        if (isDateRequest(normalized)) {
+            val response = "Today is " + SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()).format(Date()) + "."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
+        if (isDayRequest(normalized)) {
+            val response = "It's " + SimpleDateFormat("EEEE", Locale.getDefault()).format(Date()) + "."
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -196,6 +207,27 @@ class HybridAssistantService(
         while (history.size > 30) {
             history.removeFirst()
         }
+    }
+
+    private fun isTimeRequest(text: String): Boolean {
+        return text in setOf(
+            "time", "what time", "what time is it", "whats the time",
+            "tell me the time", "current time", "what is the time"
+        )
+    }
+
+    private fun isDateRequest(text: String): Boolean {
+        return text in setOf(
+            "date", "what date is it", "whats the date", "what is the date",
+            "todays date", "what is todays date", "tell me the date"
+        )
+    }
+
+    private fun isDayRequest(text: String): Boolean {
+        return text in setOf(
+            "what day is it", "what day is today", "what day is it today",
+            "what day", "day"
+        )
     }
 
     private fun containsAny(text: String, vararg options: String): Boolean {
