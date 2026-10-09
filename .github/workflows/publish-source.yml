@@ -1,0 +1,43 @@
+name: Publish Jarvis source for development
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/publish-source.yml'
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack the working Android source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/jarvis-unpacked
+          unzip -q Jarvis-AI-cloud-build-v3.3.zip -d /tmp/jarvis-unpacked
+          root=/tmp/jarvis-unpacked
+          if [ ! -f "$root/settings.gradle" ] && [ ! -f "$root/settings.gradle.kts" ]; then
+            mapfile -t matches < <(find "$root" -maxdepth 3 -type f \( -name settings.gradle -o -name settings.gradle.kts \))
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "Expected exactly one Gradle project, found ${#matches[@]}"
+              exit 1
+            fi
+            root="$(dirname "${matches[0]}")"
+          fi
+          cp -a "$root"/. .
+          echo "Extracted Android project into repository root"
+      - name: Commit source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Source already committed"
+          else
+            git commit -m "Publish Jarvis Android source from verified v3.3 archive"
+            git push
+          fi
