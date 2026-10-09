@@ -260,7 +260,8 @@ class MainActivity : AppCompatActivity() {
         initViews()
         setupTabs()
         findViewById<android.widget.Button>(R.id.btnOpenJarvisChat).setOnClickListener {
-            startActivity(Intent(this, JarvisChatActivity::class.java))
+            showTab(0, animate = true, direction = if (currentTabIndex == 0) 0 else -1)
+            commandInput.requestFocus()
         }
 
         val database = Database(this)
