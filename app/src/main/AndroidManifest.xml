@@ -56,7 +56,6 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone" />
-        <activity android:name=".JarvisChatActivity" android:exported="false" />
         <activity
             android:name=".VoiceSettingsActivity"
             android:exported="false" />
