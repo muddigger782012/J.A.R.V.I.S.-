@@ -60,5 +60,13 @@ jobs:
             echo "Published APK is unchanged."
           else
             git commit -m "Publish latest JARVIS updater APK [skip ci]"
-            git push
+            for attempt in 1 2 3; do
+              if git pull --rebase origin main && git push origin HEAD:main; then
+                exit 0
+              fi
+              echo "Publish attempt $attempt failed; retrying..."
+              sleep 3
+            done
+            echo "Unable to publish updater APK after retries."
+            exit 1
           fi
