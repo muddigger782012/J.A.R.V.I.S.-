@@ -26,7 +26,7 @@ class HybridAssistantService(
     private val capabilityProvider: () -> CapabilityState
 ) {
 
-    private var pendingPrompt: PendingPrompt = PendingPrompt.NONE\n    private var pendingShellCommand: String? = null
+    private var pendingPrompt: PendingPrompt = PendingPrompt.NONE
     private val history = ArrayDeque<Pair<String, String>>()
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
@@ -52,7 +52,7 @@ class HybridAssistantService(
                     result = result
                 )
             }
-            PendingPrompt.SHELL_CONFIRMATION -> {\n                pendingPrompt = PendingPrompt.NONE\n                val command = pendingShellCommand\n                pendingShellCommand = null\n                return if (looksLikeYes(normalized) && !command.isNullOrBlank()) {\n                    replyFromResult(userInput, "Executing confirmed Shizuku shell command.", assistantEngine.executeAction(actionRegistry.runShellRequest(command, confirmed = true)))\n                } else {\n                    remember(userInput, "Shell command cancelled.")\n                    HybridAssistantReply("Shell command cancelled. No privileged command was executed.")\n                }\n            }\n            PendingPrompt.REBOOT_CONFIRMATION -> {
+            PendingPrompt.REBOOT_CONFIRMATION -> {
                 pendingPrompt = PendingPrompt.NONE
                 return if (looksLikeYes(normalized)) {
                     val result = assistantEngine.executeAction(actionRegistry.rebootDeviceRequest(confirmed = true))
