@@ -54,12 +54,14 @@ jobs:
       - name: Publish APK for in-app updater
         shell: bash
         run: |
-          mkdir -p artifacts
-          cp app/build/outputs/apk/debug/app-debug.apk artifacts/app-debug.apk
+          apk_tmp="$(mktemp)"
+          cp app/build/outputs/apk/debug/app-debug.apk "$apk_tmp"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main
-          git rebase origin/main
+          git reset --hard origin/main
+          mkdir -p artifacts
+          cp "$apk_tmp" artifacts/app-debug.apk
           git add artifacts/app-debug.apk
           if git diff --cached --quiet; then
             echo "Published APK is unchanged."
