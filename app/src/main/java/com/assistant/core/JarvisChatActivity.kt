@@ -225,12 +225,12 @@ class JarvisChatActivity : Activity() {
     private fun sendMessage() {
         val prompt = input.text.toString().trim(); if (prompt.isEmpty()) return
         input.setText(""); append("user", prompt)
-        val address = endpoint.text.toString().trim()
+        val address = "https://api.openai.com/v1/responses"
         if (!address.startsWith("https://")) {
             append("assistant", "Saved locally. Cloud AI is not connected yet. To enable ChatGPT replies, complete the account connection setup; JARVIS will not request your ChatGPT password.")
             return
         }
-        prefs.edit().remove("gateway_token").putString("endpoint", address).apply()
+        prefs.edit().remove("gateway_token").remove("endpoint").apply()
         val history = messages.toString()
         val token = SecureTokenStore(this).load()?.optString("access_token").orEmpty()
         Thread {
@@ -240,7 +240,7 @@ class JarvisChatActivity : Activity() {
                 conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json")
                 if (token.isBlank()) throw IllegalStateException("ChatGPT account is not connected")
                 conn.setRequestProperty("Authorization", "Bearer $token")
-                conn.outputStream.use { it.write(JSONObject().put("session_id", session).put("messages", JSONArray(history)).toString().toByteArray(Charsets.UTF_8)) }
+                conn.outputStream.use { it.write(JSONObject().put("model", "gpt-5.6").put("input", JSONArray(history)).put("store", false).toString().toByteArray(Charsets.UTF_8)) }
                 val code = conn.responseCode
                 val body = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
                 conn.disconnect()
