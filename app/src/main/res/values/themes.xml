@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.AssistantPlatform" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/jarvis_primary</item>
+        <item name="colorPrimaryVariant">@color/jarvis_primary_variant</item>
+        <item name="colorOnPrimary">@color/jarvis_bg_deep</item>
+
+        <item name="colorSecondary">@color/jarvis_secondary</item>
+        <item name="colorSecondaryVariant">@color/jarvis_secondary_variant</item>
+        <item name="colorOnSecondary">@color/jarvis_bg_deep</item>
+
+        <item name="colorSurface">@color/jarvis_surface_glass_strong</item>
+        <item name="colorOnSurface">@color/jarvis_on_dark</item>
+        <item name="android:textColorPrimary">@color/jarvis_on_dark</item>
+        <item name="android:textColorSecondary">@color/jarvis_on_dark_muted</item>
+
+        <item name="android:windowBackground">@drawable/bg_jarvis_space</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/jarvis_bg_deep</item>
+
+        <item name="buttonStyle">@style/Widget.AssistantPlatform.Button</item>
+        <item name="materialButtonStyle">@style/Widget.AssistantPlatform.Button</item>
+        <item name="editTextStyle">@style/Widget.AssistantPlatform.EditText</item>
+        <item name="switchStyle">@style/Widget.AssistantPlatform.Switch</item>
+    </style>
+</resources>

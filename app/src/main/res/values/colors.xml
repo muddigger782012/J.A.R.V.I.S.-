@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="jarvis_bg_deep">#020A14</color>
+    <color name="jarvis_bg_start">#04172B</color>
+    <color name="jarvis_bg_end">#071E35</color>
+
+    <color name="jarvis_primary">#23C4FF</color>
+    <color name="jarvis_primary_variant">#1493D8</color>
+    <color name="jarvis_secondary">#1BE7D0</color>
+    <color name="jarvis_secondary_variant">#12BFA9</color>
+    <color name="jarvis_neon_green">#5DFF99</color>
+    <color name="jarvis_neon_green_soft">#2FCC7A</color>
+
+    <color name="jarvis_on_dark">#EAF8FF</color>
+    <color name="jarvis_on_dark_muted">#93C3D9</color>
+
+    <color name="jarvis_surface_glass">#4022364A</color>
+    <color name="jarvis_surface_glass_strong">#6622364A</color>
+    <color name="jarvis_surface_stroke">#6642D1C0</color>
+
+    <color name="jarvis_input_fill">#3D0F2338</color>
+    <color name="jarvis_output_surface">#5013223A</color>
+    <color name="jarvis_button_fill">#6630A7D9</color>
+    <color name="jarvis_button_fill_pressed">#9954D9FF</color>
+</resources>

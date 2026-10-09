@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="130"
+                android:startColor="@color/jarvis_bg_start"
+                android:endColor="@color/jarvis_bg_end" />
+        </shape>
+    </item>
+
+    <item
+        android:left="12dp"
+        android:top="12dp"
+        android:right="12dp"
+        android:bottom="12dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="90"
+                android:startColor="#1623C4FF"
+                android:centerColor="#0E5DFF99"
+                android:endColor="#001BE7D0" />
+        </shape>
+    </item>
+
+    <item android:drawable="@drawable/honeycomb_texture_overlay" />
+</layer-list>

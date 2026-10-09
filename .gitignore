@@ -1,0 +1,15 @@
+# Android/Gradle build artifacts
+.gradle/
+**/build/
+captures/
+
+# Local Android SDK and machine-specific files
+android-sdk/
+local.properties
+
+# IDE files
+.idea/
+*.iml
+
+# OS files
+.DS_Store

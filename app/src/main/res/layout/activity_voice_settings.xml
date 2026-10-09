@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_jarvis_space"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/glass_panel_surface"
+        android:padding="16dp"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:contentDescription="@string/app_name"
+                android:src="@drawable/ic_jarvis_core" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/voice_settings_title"
+                android:textColor="@color/jarvis_on_dark"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchDedicatedWakeWord"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/voice_dedicated_wakeword_label" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/voice_access_key_label" />
+
+        <EditText
+            android:id="@+id/etPorcupineAccessKey"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/voice_access_key_hint"
+            android:inputType="textNoSuggestions"
+            android:minHeight="48dp" />
+
+        <TextView
+            android:id="@+id/tvWakeSensitivityValue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Sensitivity: 0.60" />
+
+        <SeekBar
+            android:id="@+id/seekWakeSensitivity"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progress="60" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchAutoStartVoice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/voice_auto_start_label" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchForegroundServiceMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/voice_foreground_mode_label" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchAutoStartForegroundService"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/voice_auto_start_foreground_label" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchPreferOfflineCommand"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/voice_prefer_offline_command_label" />
+
+        <TextView
+            android:id="@+id/tvConfidenceThresholdValue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Command confidence threshold: 0.58" />
+
+        <SeekBar
+            android:id="@+id/seekCommandConfidenceThreshold"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="95"
+            android:progress="58" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/default_project_name_label" />
+
+        <EditText
+            android:id="@+id/etDefaultProjectName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/default_project_name_hint"
+            android:inputType="textNoSuggestions"
+            android:minHeight="48dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/custom_project_phrases_label" />
+
+        <EditText
+            android:id="@+id/etCustomProjectPhrases"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/custom_phrases_hint"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:minHeight="48dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/custom_status_phrases_label" />
+
+        <EditText
+            android:id="@+id/etCustomStatusPhrases"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/custom_phrases_hint"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:minHeight="48dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/custom_shell_phrases_label" />
+
+        <EditText
+            android:id="@+id/etCustomShellPhrases"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/custom_phrases_hint"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:minHeight="48dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/custom_reboot_phrases_label" />
+
+        <EditText
+            android:id="@+id/etCustomRebootPhrases"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/custom_phrases_hint"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:minHeight="48dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/custom_settings_phrases_label" />
+
+        <EditText
+            android:id="@+id/etCustomSettingsPhrases"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/custom_phrases_hint"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:minHeight="48dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/custom_start_voice_phrases_label" />
+
+        <EditText
+            android:id="@+id/etCustomStartVoicePhrases"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/custom_phrases_hint"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:minHeight="48dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/custom_stop_voice_phrases_label" />
+
+        <EditText
+            android:id="@+id/etCustomStopVoicePhrases"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/custom_phrases_hint"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:minHeight="48dp" />
+
+        <Button
+            android:id="@+id/btnSaveVoiceSettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/save_voice_settings" />
+    </LinearLayout>
+</ScrollView>
