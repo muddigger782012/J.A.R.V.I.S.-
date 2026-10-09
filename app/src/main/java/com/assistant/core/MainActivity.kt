@@ -1336,16 +1336,24 @@ class MainActivity : AppCompatActivity() {
                 voiceService.speak(getString(R.string.voice_settings_opened))
             }
             LocalVoiceCommand.NONE -> {
-                val directResult = parsed.actionRequest?.let { assistantEngine.executeAction(it) }
-                if (directResult != null) {
-                    appendActionResult(directResult)
-                    statusOutput.text = directResult.output ?: directResult.message
-                    voiceService.speak(if (directResult.success) directResult.message else "I couldn't complete that command.")
-                } else {
-                    val reply = hybridAssistantService.handleUserInput(parsed.fallbackTextCommand ?: command)
+                val proposedAction = parsed.actionRequest
+                if (proposedAction != null && !proposedAction.confirmed) {
+                    val reply = hybridAssistantService.handleUserInput(command)
                     appendOutput("J.A.R.V.I.S.: ${reply.text}")
                     statusOutput.text = reply.actionResult?.output ?: reply.text
-                    voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(180) ?: "Done.")
+                    voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(180) ?: "Confirmation required.")
+                } else {
+                    val directResult = proposedAction?.let { assistantEngine.executeAction(it) }
+                    if (directResult != null) {
+                        appendActionResult(directResult)
+                        statusOutput.text = directResult.output ?: directResult.message
+                        voiceService.speak(if (directResult.success) directResult.message else "I couldn't complete that command.")
+                    } else {
+                        val reply = hybridAssistantService.handleUserInput(parsed.fallbackTextCommand ?: command)
+                        appendOutput("J.A.R.V.I.S.: ${reply.text}")
+                        statusOutput.text = reply.actionResult?.output ?: reply.text
+                        voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(180) ?: "Done.")
+                    }
                 }
                 appendRecentAudit()
             }
