@@ -36,7 +36,7 @@ class JarvisChatActivity : Activity() {
         }
         endpoint = EditText(this).apply { hint = "HTTPS backend endpoint (no API keys)"; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY); setText(prefs.getString("endpoint", "")) }
         root.addView(endpoint)
-        gatewayToken = EditText(this).apply { hint = "Gateway access token"; inputType = 129; setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY); setText(prefs.getString("gateway_token", "")) }
+        gatewayToken = EditText(this).apply { hint = "Gateway token (not saved)"; inputType = 129; setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY); setText("") }
         root.addView(gatewayToken)
         val controls = LinearLayout(this)
         val newButton = Button(this).apply { text = "New chat" }
@@ -85,7 +85,7 @@ class JarvisChatActivity : Activity() {
             append("assistant", "Saved locally. Cloud AI is not connected yet. To enable ChatGPT replies, complete the account connection setup; JARVIS will not request your ChatGPT password.")
             return
         }
-        prefs.edit().putString("endpoint", address).putString("gateway_token", gatewayToken.text.toString()).apply()
+        prefs.edit().remove("gateway_token").putString("endpoint", address).apply()
         val history = messages.toString()
         val token = gatewayToken.text.toString()
         Thread {
