@@ -16,12 +16,14 @@ jobs:
       - name: Extract Jarvis project ZIP if present
         shell: bash
         run: |
-          if [ -f Jarvis-AI-cloud-build-v3.3.zip ]; then
-            mkdir -p /tmp/jarvis-project
-            unzip -q Jarvis-AI-cloud-build-v3.3.zip -d /tmp/jarvis-project
-            cp -a /tmp/jarvis-project/. .
+          if ! test -f settings.gradle && ! test -f settings.gradle.kts; then
+            if [ -f Jarvis-AI-cloud-build-v3.3.zip ]; then
+              mkdir -p /tmp/jarvis-project
+              unzip -q Jarvis-AI-cloud-build-v3.3.zip -d /tmp/jarvis-project
+              cp -a /tmp/jarvis-project/. .
+            fi
           fi
-          (test -f settings.gradle || test -f settings.gradle.kts) || { echo 'Upload Jarvis-AI-cloud-build-v3.3.zip to the repository root first.'; exit 1; }
+          (test -f settings.gradle || test -f settings.gradle.kts) || { echo 'Jarvis Android source is missing.'; exit 1; }
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
