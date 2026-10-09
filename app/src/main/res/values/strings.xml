@@ -116,4 +116,6 @@
     <string name="audit_clear_view">Clear View</string>
     <string name="audit_copy_logs">Copy Logs</string>
     <string name="audit_output_title">Audit Log Output</string>
+    <string name="jarvis_accessibility_label">J.A.R.V.I.S. Accessibility</string>
+    <string name="jarvis_accessibility_description">Allows J.A.R.V.I.S. to understand and navigate on-screen interfaces when you explicitly enable accessibility access.</string>
 </resources>
