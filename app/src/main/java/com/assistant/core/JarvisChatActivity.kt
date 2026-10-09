@@ -31,7 +31,6 @@ class JarvisChatActivity : Activity() {
     private lateinit var transcript: TextView
     private lateinit var input: EditText
     private lateinit var endpoint: EditText
-    private lateinit var gatewayToken: EditText
     private lateinit var messages: JSONArray
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,8 +45,6 @@ class JarvisChatActivity : Activity() {
         connectButton.setOnClickListener { beginChatGptAuthorization() }
         endpoint = EditText(this).apply { hint = "HTTPS backend endpoint (no API keys)"; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY); setText(prefs.getString("endpoint", "")) }
         root.addView(endpoint)
-        gatewayToken = EditText(this).apply { hint = "Gateway token (not saved)"; inputType = 129; setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY); setText("") }
-        root.addView(gatewayToken)
         val controls = LinearLayout(this)
         val newButton = Button(this).apply { text = "New chat" }
         val historyButton = Button(this).apply { text = "History" }
