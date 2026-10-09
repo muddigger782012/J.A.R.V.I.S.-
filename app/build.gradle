@@ -15,9 +15,9 @@ android {
         versionName "3.3-cloud"
 
         buildConfigField "String", "GITHUB_REPO_OWNER", "\"muddigger782012\""
-        buildConfigField "String", "GITHUB_REPO_NAME", "\"assistant-platform\""
-        buildConfigField "String", "GITHUB_UPDATE_BRANCH", "\"cursor/cursor-build-pack-project-8400\""
-        buildConfigField "boolean", "GITHUB_UPDATE_TOKEN_REQUIRED", "true"
+        buildConfigField "String", "GITHUB_REPO_NAME", "\"J.A.R.V.I.S.-\""
+        buildConfigField "String", "GITHUB_UPDATE_BRANCH", "\"main\""
+        buildConfigField "boolean", "GITHUB_UPDATE_TOKEN_REQUIRED", "false"
     }
 
     buildFeatures {
