@@ -158,9 +158,14 @@ class JarvisChatActivity : Activity() {
                                         val result = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
                                         val hasIdToken = !result.optString("id_token").isNullOrBlank()
                                         val hasAccessToken = !result.optString("access_token").isNullOrBlank()
-                                        if (hasIdToken && hasAccessToken)
-                                            "OAuth token exchange succeeded. Identity signature/nonce validation and secure token storage are pending; account is NOT connected."
-                                        else "OAuth response incomplete. Account is NOT connected."
+                                        if (hasIdToken && hasAccessToken) {
+                                            try {
+                                                OpenAiIdTokenVerifier.verify(result.getString("id_token"), issuedClientId, nonce)
+                                                "OpenAI identity cryptographically verified. Scope checks and encrypted credential storage are pending; account is NOT connected."
+                                            } catch (_: Exception) {
+                                                "OpenAI ID token verification failed. Account is NOT connected."
+                                            }
+                                        } else "OAuth response incomplete. Account is NOT connected."
                                     } else {
                                         "OAuth token exchange failed (HTTP ${connection.responseCode}). Account is NOT connected."
                                     }
