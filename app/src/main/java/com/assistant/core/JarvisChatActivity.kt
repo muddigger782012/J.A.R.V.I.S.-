@@ -1,33 +1,17 @@
 package com.assistant.core
 
 import android.app.Activity
-import android.content.Intent
-import android.net.Uri
-import android.util.Base64
-import java.net.ServerSocket
-import java.net.SocketTimeoutException
-import java.security.MessageDigest
-import java.security.SecureRandom
 import android.os.Bundle
 import android.graphics.Color
-import android.view.ViewGroup
 import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.UUID
 
 /** Independent conversation UI; never executes device actions from AI output. */
 class JarvisChatActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("jarvis_chat", MODE_PRIVATE) }
     private var session = ""
-    // Stable per-install identifier required by the open-source ChatGPT OAuth flow.
-    private val agentHostId: String by lazy {
-        prefs.getString("ext_agent_host_id", null) ?: ("urn:uuid:" + UUID.randomUUID().toString()).also {
-            prefs.edit().putString("ext_agent_host_id", it).commit()
-        }
-    }
     private lateinit var transcript: TextView
     private lateinit var input: EditText
     private lateinit var messages: JSONArray
