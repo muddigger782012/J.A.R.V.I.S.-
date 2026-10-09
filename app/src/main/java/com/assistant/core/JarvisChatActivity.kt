@@ -126,11 +126,11 @@ class JarvisChatActivity : Activity() {
                         }
                         val page = "<html><body><p>" + response + "</p></body></html>"
                         val payload = page.toByteArray(Charsets.UTF_8)
-                        client.getOutputStream().write(
-                            ("HTTP/1.1 200 OK\\r\\nContent-Type: text/html; charset=utf-8\\r\\nContent-Length: ${payload.size}\\r\\nConnection: close\\r\\n\\r\\n")
-                                .replace("\\\\r", "\\r").replace("\\\\n", "\\n")
-                                .toByteArray(Charsets.US_ASCII)
-                        )
+                        val header = "HTTP/1.1 200 OK" + "\\r\\n" +
+                            "Content-Type: text/html; charset=utf-8" + "\\r\\n" +
+                            "Content-Length: ${payload.size}" + "\\r\\n" +
+                            "Connection: close" + "\\r\\n\\r\\n"
+                        client.getOutputStream().write(header.toByteArray(Charsets.US_ASCII))
                         client.getOutputStream().write(payload)
                         runOnUiThread {
                             android.app.AlertDialog.Builder(this).setTitle("ChatGPT authorization")
