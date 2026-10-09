@@ -30,7 +30,6 @@ class JarvisChatActivity : Activity() {
     }
     private lateinit var transcript: TextView
     private lateinit var input: EditText
-    private lateinit var endpoint: EditText
     private lateinit var messages: JSONArray
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,8 +42,6 @@ class JarvisChatActivity : Activity() {
         // Initialize once per app installation; re-use on later OAuth attempts.
         agentHostId
         connectButton.setOnClickListener { beginChatGptAuthorization() }
-        endpoint = EditText(this).apply { hint = "HTTPS backend endpoint (no API keys)"; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY); setText(prefs.getString("endpoint", "")) }
-        root.addView(endpoint)
         val controls = LinearLayout(this)
         val newButton = Button(this).apply { text = "New chat" }
         val historyButton = Button(this).apply { text = "History" }
@@ -244,21 +241,7 @@ class JarvisChatActivity : Activity() {
                 val code = conn.responseCode
                 val body = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
                 conn.disconnect()
-                if (code in 200..299) {
-                    val response = JSONObject(body)
-                    val output = response.optJSONArray("output")
-                    var text = ""
-                    if (output != null) {
-                        for (i in 0 until output.length()) {
-                            val content = output.optJSONObject(i)?.optJSONArray("content") ?: continue
-                            for (j in 0 until content.length()) {
-                                val part = content.optJSONObject(j) ?: continue
-                                if (part.optString("type") == "output_text") text += part.optString("text")
-                            }
-                        }
-                    }
-                    text.ifBlank { "OpenAI returned no text response." }
-                } else "OpenAI error HTTP $code"
+                if (code in 200..299) JSONObject(body).optString("reply", "Empty response") else "Backend error HTTP $code"
             } catch (e: Exception) { "Connection failed: ${e.javaClass.simpleName}" }
             runOnUiThread { append("assistant", reply) }
         }.start()
