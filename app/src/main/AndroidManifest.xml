@@ -69,6 +69,10 @@
                 android:resource="@xml/jarvis_accessibility_service" />
         </service>
         <service
+            android:name=".services.JarvisVoiceInteractionSessionService"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true" />
+        <service
             android:name=".services.JarvisVoiceInteractionService"
             android:permission="android.permission.BIND_VOICE_INTERACTION"
             android:exported="true">
