@@ -66,8 +66,8 @@ class VoiceCommandParser(private val actionRegistry: ActionRegistry) {
     private fun parseShellCommand(normalized: String, config: VoiceConfig): ParsedVoiceCommand? {
         val command = extractShellCommand(normalized, shellPhrases(config)) ?: return null
         return ParsedVoiceCommand(
-            actionRequest = actionRegistry.runShellRequest(command = command, confirmed = true),
-            responseHint = "Running shell command."
+            actionRequest = actionRegistry.runShellRequest(command = command, confirmed = false),
+            responseHint = "Privileged command requires confirmation."
         )
     }
 
