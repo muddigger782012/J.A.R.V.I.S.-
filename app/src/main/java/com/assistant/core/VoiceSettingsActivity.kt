@@ -24,6 +24,7 @@ class VoiceSettingsActivity : AppCompatActivity() {
         val current = voicePreferences.load()
 
         val dedicatedSwitch: SwitchMaterial = findViewById(R.id.switchDedicatedWakeWord)
+        val wakeWordInput: EditText = findViewById(R.id.etWakeWord)
         val autoStartSwitch: SwitchMaterial = findViewById(R.id.switchAutoStartVoice)
         val foregroundModeSwitch: SwitchMaterial = findViewById(R.id.switchForegroundServiceMode)
         val autoStartForegroundSwitch: SwitchMaterial = findViewById(R.id.switchAutoStartForegroundService)
@@ -44,6 +45,7 @@ class VoiceSettingsActivity : AppCompatActivity() {
         val saveButton: Button = findViewById(R.id.btnSaveVoiceSettings)
 
         dedicatedSwitch.isChecked = current.enableDedicatedWakeWord
+        wakeWordInput.setText(current.wakeWord)
         autoStartSwitch.isChecked = current.autoStartVoice
         foregroundModeSwitch.isChecked = current.useForegroundServiceMode
         autoStartForegroundSwitch.isChecked = current.autoStartForegroundService
@@ -87,6 +89,7 @@ class VoiceSettingsActivity : AppCompatActivity() {
         saveButton.setOnClickListener {
             val config = VoiceConfig(
                 enableDedicatedWakeWord = dedicatedSwitch.isChecked,
+                wakeWord = wakeWordInput.text?.toString().orEmpty(),
                 porcupineAccessKey = accessKeyInput.text?.toString().orEmpty(),
                 wakeSensitivity = (sensitivitySeek.progress.coerceIn(10, 100)) / 100f,
                 autoStartVoice = autoStartSwitch.isChecked,
