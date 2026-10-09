@@ -177,7 +177,7 @@ class VoiceAssistantService(
     override fun onEvent(eventType: Int, params: Bundle?) = Unit
 
     private fun shouldUseDedicatedWakeWord(): Boolean {
-        return config.enableDedicatedWakeWord && config.wakeWord.equals("jarvis", ignoreCase = true) && config.porcupineAccessKey.isNotBlank()
+        return config.enableDedicatedWakeWord && config.wakeWord.equals("hey jarvis", ignoreCase = true) && config.porcupineAccessKey.isNotBlank()
     }
 
     private fun startDedicatedWakeWordEngine() {
@@ -318,7 +318,7 @@ class VoiceAssistantService(
         mainHandler.postDelayed(
             {
                 startSpeechRecognizer(
-                    prompt = "Say jarvis",
+                    prompt = "Say ${config.wakeWord.trim().ifBlank { "hey jarvis" }}",
                     preferOffline = false
                 )
             },
