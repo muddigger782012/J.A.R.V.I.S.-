@@ -35,10 +35,17 @@ class VoiceCommandParser(private val actionRegistry: ActionRegistry) {
             return ParsedVoiceCommand(localCommand = LocalVoiceCommand.OPEN_SETTINGS, responseHint = "Opening voice settings.")
         }
 
+        // Everyday/conversational requests must reach the shared assistant brain first.
+        // Do not let broad command keywords such as "status" or "what can you do"
+        // split voice behavior away from typed/background assistant behavior.
+        if (isConversationalAssistantRequest(normalized)) {
+            return ParsedVoiceCommand(fallbackTextCommand = raw.trim())
+        }
+
         if (containsAny(normalized, statusPhrases(config))) {
             return ParsedVoiceCommand(
-                actionRequest = actionRegistry.showStatusRequest(),
-                responseHint = "Showing current capability status."
+                fallbackTextCommand = raw.trim(),
+                responseHint = "Checking current capability status."
             )
         }
 
@@ -47,8 +54,20 @@ class VoiceCommandParser(private val actionRegistry: ActionRegistry) {
         parseRebootCommand(normalized, config)?.let { return it }
 
         return ParsedVoiceCommand(
-            fallbackTextCommand = normalized,
-            responseHint = "Processing command with fallback intent classifier."
+            fallbackTextCommand = raw.trim(),
+            responseHint = "Processing request with the unified assistant."
+        )
+    }
+
+    private fun isConversationalAssistantRequest(normalized: String): Boolean {
+        return normalized in setOf(
+            "time", "what time", "what time is it", "whats the time", "what is the time",
+            "tell me the time", "current time",
+            "date", "what date is it", "whats the date", "what is the date",
+            "todays date", "what is todays date", "tell me the date",
+            "day", "what day", "what day is it", "what day is today", "what day is it today",
+            "hello", "hi jarvis", "hey jarvis", "good morning", "good evening",
+            "help", "what can you do", "capabilities", "features"
         )
     }
 
