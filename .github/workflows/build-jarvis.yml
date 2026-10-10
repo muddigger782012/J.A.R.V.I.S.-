@@ -107,7 +107,23 @@ jobs:
           name: Jarvis-release-APK
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
-      - name: Keep APK in workflow artifact storage
+      - name: Publish ARM64 APK for in-app updater
+        if: steps.signing.outputs.configured == 'true'
+        shell: bash
         run: |
-          echo "APK is larger than GitHub's 100 MB normal repository file limit."
-          echo "The signed APK is available from the Jarvis-release-APK workflow artifact."
+          APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*arm64-v8a*.apk' -print -quit)"
+          test -n "$APK"
+          cp "$APK" /tmp/jarvis-arm64-latest.apk
+          git fetch origin main
+          git reset --hard origin/main
+          mkdir -p artifacts
+          cp /tmp/jarvis-arm64-latest.apk artifacts/app-debug.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add artifacts/app-debug.apk
+          if git diff --cached --quiet; then
+            echo "Updater APK is already current."
+          else
+            git commit -m "Publish JARVIS updater APK [skip ci]"
+            git push origin HEAD:main
+          fi
