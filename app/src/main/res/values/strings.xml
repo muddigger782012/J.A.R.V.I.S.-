@@ -10,7 +10,7 @@
     <string name="voice_permission_required">Microphone permission is required for voice mode.</string>
     <string name="voice_unavailable">Speech recognition service is unavailable on this device.</string>
     <string name="voice_started">Voice mode enabled. Say \"jarvis\" followed by your command.</string>
-    <string name="voice_hint">Voice support: Tap Start Voice and say \"jarvis\" to wake.</string>
+    <string name="voice_hint">Voice support: Enable Wake Listener and say \"Hey Jarvis\" to wake.</string>
     <string name="voice_settings_title">Voice Settings</string>
     <string name="voice_settings_opened">Opened voice settings.</string>
     <string name="voice_dedicated_wakeword_label">Use dedicated offline wake-word engine (Sherpa-ONNX)</string>
