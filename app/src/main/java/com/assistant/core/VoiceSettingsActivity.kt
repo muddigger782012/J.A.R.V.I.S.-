@@ -42,6 +42,17 @@ class VoiceSettingsActivity : AppCompatActivity() {
         val customSettingsPhrasesInput: EditText = findViewById(R.id.etCustomSettingsPhrases)
         val customStartVoicePhrasesInput: EditText = findViewById(R.id.etCustomStartVoicePhrases)
         val customStopVoicePhrasesInput: EditText = findViewById(R.id.etCustomStopVoicePhrases)
+        findViewById<Button>(R.id.btnCloseVoiceSettings).setOnClickListener { finish() }
+        findViewById<Button>(R.id.btnToggleAdvancedVoice).setOnClickListener { button ->
+            val panel = findViewById<android.view.View>(R.id.voiceAdvancedOptions)
+            val expanded = panel.visibility != android.view.View.VISIBLE
+            panel.visibility = if (expanded) android.view.View.VISIBLE else android.view.View.GONE
+            (button as Button).setText(if (expanded) R.string.ui_hide_advanced_voice else R.string.ui_advanced_voice)
+        }
+        findViewById<Button>(R.id.btnToggleCommandExamples).setOnClickListener {
+            val examples = findViewById<android.view.View>(R.id.tvVoiceCommandCatalog)
+            examples.visibility = if (examples.visibility == android.view.View.VISIBLE) android.view.View.GONE else android.view.View.VISIBLE
+        }
         val saveButton: Button = findViewById(R.id.btnSaveVoiceSettings)
 
         val gatewayPrefs = getSharedPreferences("jarvis_cloud_ai", MODE_PRIVATE)
@@ -116,12 +127,12 @@ class VoiceSettingsActivity : AppCompatActivity() {
                 dialog.show()
             }
         }
-        (saveButton.parent as android.view.ViewGroup).addView(gatewayButton)
+        (saveButton.parent as android.view.ViewGroup).addView(gatewayButton, 3)
 
         (saveButton.parent as android.view.ViewGroup).addView(Button(this).apply {
-            text = "Assistant connections"
+            text = "Optional assistant connections"
             setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, AssistantConnectionsActivity::class.java)) }
-        })
+        }, 4)
 
         dedicatedSwitch.isChecked = current.enableDedicatedWakeWord
         wakeWordInput.setText(current.wakeWord)
