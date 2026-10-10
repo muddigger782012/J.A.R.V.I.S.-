@@ -36,6 +36,7 @@ class HybridAssistantService(
     private val history = ArrayDeque<Pair<String, String>>()
     private val androidAssistant = AndroidAssistantService(systemService.context())
     private val learningStore = IntentLearningStore(systemService.context())
+    private val fallbackAiClient = FallbackAiClient(systemService.context())
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
@@ -297,6 +298,25 @@ class HybridAssistantService(
             preface = "Done.",
             result = fallback
         )
+    }
+
+    fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+        val local = handleUserInput(rawInput)
+        val unresolved = local.text.startsWith("I don't understand that locally yet.")
+        if (!unresolved || !fallbackAiClient.isConfigured()) {
+            callback(local)
+            return
+        }
+        Thread {
+            val cloud = fallbackAiClient.ask(rawInput)
+            if (cloud == null) {
+                callback(local)
+                return@Thread
+            }
+            cloud.lessonJson?.let { acceptFallbackLesson(rawInput, it) }
+            remember(rawInput, cloud.reply)
+            callback(HybridAssistantReply(cloud.reply))
+        }.start()
     }
 
     /**
