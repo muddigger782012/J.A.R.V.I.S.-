@@ -190,8 +190,19 @@ class HybridAssistantService(
                 remember(userInput, response); return HybridAssistantReply(response)
             }
             val number = directNumber ?: androidAssistant.resolveContactPhone(target)
-            val ok = number?.let(androidAssistant::dial) ?: false
-            val response = if (ok) "Opening the dialer for $target." else "I couldn't find $target in your contacts with a phone number."
+            val dialOnly = normalized.startsWith("dial ")
+            if (!dialOnly && number != null && !androidAssistant.hasCallPermission()) {
+                val response = "Phone permission is required to place calls. Open J.A.R.V.I.S. Permissions, grant Phone access, then say call $target again."
+                remember(userInput, response)
+                return HybridAssistantReply(response)
+            }
+            val ok = number?.let { if (dialOnly) androidAssistant.dial(it) else androidAssistant.call(it) } ?: false
+            val response = when {
+                ok && dialOnly -> "Opening the dialer for $target."
+                ok -> "Starting the call to $target."
+                number == null -> "I couldn't find $target in your contacts with a phone number."
+                else -> "Android couldn't start the call. Check Phone permission and your phone app."
+            }
             remember(userInput, response); return HybridAssistantReply(response)
         }
         parseMessageRequest(userInput)?.let { (rawTarget, body) ->

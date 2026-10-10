@@ -44,6 +44,56 @@ class VoiceSettingsActivity : AppCompatActivity() {
         val customStopVoicePhrasesInput: EditText = findViewById(R.id.etCustomStopVoicePhrases)
         val saveButton: Button = findViewById(R.id.btnSaveVoiceSettings)
 
+        val gatewayPrefs = getSharedPreferences("jarvis_cloud_ai", MODE_PRIVATE)
+        val gatewayButton = Button(this).apply {
+            text = "AI gateway and weather settings"
+            setOnClickListener {
+                val fields = android.widget.LinearLayout(this@VoiceSettingsActivity).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    setPadding(32, 16, 32, 16)
+                }
+                fun field(label: String, key: String, secret: Boolean = false): EditText {
+                    fields.addView(TextView(this@VoiceSettingsActivity).apply { text = label })
+                    return EditText(this@VoiceSettingsActivity).apply {
+                        setSingleLine(true)
+                        if (secret) inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                        setText(gatewayPrefs.getString(key, ""))
+                        fields.addView(this)
+                    }
+                }
+                val endpoint = field("Gateway HTTPS URL ending in /chat", "endpoint")
+                val token = field("Gateway token", "gateway_token", true)
+                val latitude = field("Weather latitude", "weather_latitude")
+                val longitude = field("Weather longitude", "weather_longitude")
+                val dialog = androidx.appcompat.app.AlertDialog.Builder(this@VoiceSettingsActivity)
+                    .setTitle("Dedicated J.A.R.V.I.S. gateway")
+                    .setView(fields).setNegativeButton("Cancel", null)
+                    .setPositiveButton("Save", null).create()
+                dialog.setOnShowListener {
+                    dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val url = endpoint.text.toString().trim()
+                        val uri = android.net.Uri.parse(url)
+                        val lat = latitude.text.toString().trim()
+                        val lon = longitude.text.toString().trim()
+                        if (url.isNotBlank() && (uri.scheme != "https" || uri.host.isNullOrBlank() || uri.userInfo != null)) {
+                            endpoint.error = "Enter a valid HTTPS gateway URL"
+                        } else if ((lat.isNotBlank() || lon.isNotBlank()) &&
+                            (lat.toDoubleOrNull()?.let { it.isFinite() && it in -90.0..90.0 } != true ||
+                             lon.toDoubleOrNull()?.let { it.isFinite() && it in -180.0..180.0 } != true)) {
+                            latitude.error = "Enter valid latitude and longitude together"
+                        } else {
+                            gatewayPrefs.edit().putString("endpoint", url)
+                                .putString("gateway_token", token.text.toString().trim())
+                                .putString("weather_latitude", lat).putString("weather_longitude", lon).apply()
+                            dialog.dismiss()
+                        }
+                    }
+                }
+                dialog.show()
+            }
+        }
+        (saveButton.parent as android.view.ViewGroup).addView(gatewayButton)
+
         dedicatedSwitch.isChecked = current.enableDedicatedWakeWord
         wakeWordInput.setText(current.wakeWord)
         autoStartSwitch.isChecked = current.autoStartVoice

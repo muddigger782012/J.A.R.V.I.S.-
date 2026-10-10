@@ -56,6 +56,12 @@ class AndroidAssistantService(private val context: Context) {
         }
     }
 
+    fun hasCallPermission(): Boolean =
+        androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
+
+    fun call(number: String): Boolean =
+        hasCallPermission() && launch(Intent(Intent.ACTION_CALL, Uri.parse("tel:" + Uri.encode(number))))
+
     fun dial(number: String): Boolean =
         launch(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(number))))
 
