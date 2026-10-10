@@ -119,14 +119,7 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        if (isDateRequest(normalized)) {
-            val response = "Today is " + SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()).format(Date()) + "."
-            remember(userInput, response)
-            return HybridAssistantReply(response)
-        }
-
-        if (isDayRequest(normalized)) {
-            val response = "It's " + SimpleDateFormat("EEEE", Locale.getDefault()).format(Date()) + "."
+        LocalKnowledge.reply(userInput)?.let { response ->
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -323,14 +316,22 @@ class HybridAssistantService(
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
         val local = handleUserInput(rawInput)
         val unresolved = local.text.startsWith("I don't understand that locally yet.")
-        if (!unresolved || !fallbackAiClient.isConfigured()) {
+        if (!unresolved) {
             callback(local)
+            return
+        }
+        if (!fallbackAiClient.isConfigured()) {
+            val response = "I don't understand that locally yet. Cloud fallback is not configured; set an HTTPS endpoint and gateway token in AI settings."
+            remember(rawInput, response)
+            callback(HybridAssistantReply(response, local.actionResult))
             return
         }
         Thread {
             val cloud = fallbackAiClient.ask(rawInput)
             if (cloud == null) {
-                callback(local)
+                val response = "I don't understand that locally yet. Cloud fallback failed or returned no usable reply. Check your connection and AI settings."
+                remember(rawInput, response)
+                callback(HybridAssistantReply(response, local.actionResult))
                 return@Thread
             }
             cloud.lessonJson?.let { acceptFallbackLesson(rawInput, it) }
@@ -356,6 +357,7 @@ class HybridAssistantService(
         return true
     }
 
+    @Synchronized
     fun getConversationSnapshot(limit: Int = 8): String {
         return history.takeLast(limit).joinToString(separator = "\n\n") { (user, assistant) ->
             "You: $user\nJ.A.R.V.I.S.: $assistant"
@@ -375,6 +377,7 @@ class HybridAssistantService(
         return HybridAssistantReply(reply, result)
     }
 
+    @Synchronized
     private fun remember(userText: String, assistantText: String) {
         history.addLast(userText to assistantText)
         while (history.size > 30) {
@@ -415,30 +418,6 @@ class HybridAssistantService(
             }
         }
         return start.timeInMillis to end.timeInMillis
-    }
-
-    private fun isDateRequest(text: String): Boolean {
-        if (text in setOf(
-                "date", "what date is it", "whats the date", "what is the date",
-                "todays date", "what is todays date", "tell me the date",
-                "tell me todays date", "give me the date", "give me todays date"
-            )
-        ) return true
-
-        // Speech recognition varies contractions and filler words. Date lookup is
-        // a core local capability and must never depend on cloud fallback.
-        val words = text.split(" ").filter { it.isNotBlank() }.toSet()
-        return "date" in words && (
-            "today" in words || "todays" in words || "what" in words ||
-                "tell" in words || "give" in words
-        )
-    }
-
-    private fun isDayRequest(text: String): Boolean {
-        return text in setOf(
-            "what day is it", "what day is today", "what day is it today",
-            "what day", "day"
-        )
     }
 
     private fun parseTimerSeconds(text: String): Int? {
