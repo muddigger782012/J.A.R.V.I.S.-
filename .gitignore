@@ -13,3 +13,10 @@ local.properties
 
 # OS files
 .DS_Store
+
+# Python caches and private credentials
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!*.example

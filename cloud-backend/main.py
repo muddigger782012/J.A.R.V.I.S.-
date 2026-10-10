@@ -1,5 +1,7 @@
 import os
 import secrets
+from typing import Literal
+from assistant_adapters import assistant_reply
 from weather import is_weather_question, forecast
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
@@ -17,6 +19,7 @@ class ChatRequest(BaseModel):
     session_id: str = Field(max_length=128)
     messages: list[Message] = Field(min_length=1, max_length=50)
     learn_intent: bool = False
+    provider: Literal["default", "mycroft"] = "default"
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
 
@@ -31,6 +34,8 @@ async def chat(req: ChatRequest, authorization: str | None = Header(default=None
     if not expected or not secrets.compare_digest(authorization or "", f"Bearer {expected}"):
         raise HTTPException(status_code=401, detail="Unauthorized")
     question = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
+    if req.provider != "default":
+        return await assistant_reply(req.provider, question[:12000])
     if is_weather_question(question):
         if req.latitude is None or req.longitude is None:
             return {"reply": "Set your weather latitude and longitude in J.A.R.V.I.S. gateway settings, then ask again.", "lesson": None}

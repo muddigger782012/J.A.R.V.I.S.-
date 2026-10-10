@@ -93,12 +93,14 @@
                 android:name="android.voice_interaction"
                 android:resource="@xml/jarvis_voice_interaction_service" />
         </service>
+        <activity android:name=".AssistantConnectionsActivity" android:exported="false" />
         <activity
             android:name=".VoiceSettingsActivity"
             android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true">
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

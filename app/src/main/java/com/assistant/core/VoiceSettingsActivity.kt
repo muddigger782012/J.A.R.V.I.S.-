@@ -118,6 +118,11 @@ class VoiceSettingsActivity : AppCompatActivity() {
         }
         (saveButton.parent as android.view.ViewGroup).addView(gatewayButton)
 
+        (saveButton.parent as android.view.ViewGroup).addView(Button(this).apply {
+            text = "Assistant connections"
+            setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, AssistantConnectionsActivity::class.java)) }
+        })
+
         dedicatedSwitch.isChecked = current.enableDedicatedWakeWord
         wakeWordInput.setText(current.wakeWord)
         autoStartSwitch.isChecked = current.autoStartVoice

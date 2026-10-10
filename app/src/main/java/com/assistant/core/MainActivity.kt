@@ -352,6 +352,22 @@ class MainActivity : AppCompatActivity() {
         appendOutput(getString(R.string.voice_hint))
         appendRecentAudit()
         refreshAuditDebugSection()
+        if (savedInstanceState == null) handleAssistantFeatureIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAssistantFeatureIntent(intent)
+    }
+
+    private fun handleAssistantFeatureIntent(intent: Intent) {
+        // Exported entry points only select fixed features; never execute arbitrary command extras.
+        when (intent.getStringExtra("jarvis_feature")) {
+            "voice" -> ensureMicPermissionAndStartVoice()
+            "weather_settings" -> voiceSettingsLauncher.launch(Intent(this, VoiceSettingsActivity::class.java))
+            "connections" -> startActivity(Intent(this, AssistantConnectionsActivity::class.java))
+        }
     }
 
     private fun initViews() {
