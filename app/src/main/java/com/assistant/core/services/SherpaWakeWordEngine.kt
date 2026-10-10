@@ -42,7 +42,7 @@ class SherpaWakeWordEngine(
             val config = KeywordSpotterConfig(
                 featConfig = getFeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
                 modelConfig = getKwsModelConfig(type = 1)!!,
-                keywordsFile = "$MODEL_DIR/keywords.txt",
+                keywordsFile = "",
                 // Sherpa's own KWS examples use a stronger keyword boost and
                 // low acoustic threshold. The previous 1.5/0.27 defaults were
                 // too conservative for an always-on wake phrase.
@@ -52,6 +52,9 @@ class SherpaWakeWordEngine(
             )
             val kws = KeywordSpotter(assetManager = context.assets, config = config)
             val phrase = wakePhrase.trim().ifBlank { "hey jarvis" }
+            // Do not load the model's bundled generic keyword list in addition
+            // to the configured wake phrase. This stream should react only to
+            // the user's JARVIS wake phrase.
             val onlineStream = kws.createStream(phrase)
             if (onlineStream.ptr == 0L) {
                 kws.release()
@@ -130,6 +133,7 @@ class SherpaWakeWordEngine(
                     kws.decode(onlineStream)
                     val keyword = kws.getResult(onlineStream).keyword
                     if (keyword.isNotBlank()) {
+                        onStatus("Sherpa detected keyword '$keyword'.")
                         kws.reset(onlineStream)
                         // Release the continuous KWS microphone before command
                         // SpeechRecognizer is started by the detection callback.
