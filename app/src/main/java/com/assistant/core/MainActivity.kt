@@ -1720,10 +1720,20 @@ class MainActivity : ThemedActivity() {
         }
         if (showStatus) updateVoiceInteractionState(if (voiceEnabled) VoiceInteractionState.WAKE_LISTENING else VoiceInteractionState.IDLE)
         refreshVoiceButtonLabel()
-        if (currentVoiceConfig.useForegroundServiceMode) {
-            // Foreground voice startup is user-initiated while service lifecycle
-            // recovery is handled independently.
-        } else if (currentVoiceConfig.autoStartVoice && !voiceEnabled) {
+        if (currentVoiceConfig.useForegroundServiceMode &&
+            currentVoiceConfig.autoStartForegroundService &&
+            !voiceEnabled &&
+            hasMicrophonePermission()
+        ) {
+            try {
+                VoiceForegroundService.start(this)
+                voiceEnabled = true
+                appendOutput("[BG] Background wake service start requested.")
+            } catch (t: Throwable) {
+                voiceEnabled = false
+                appendOutput("[BG] Background wake service start failed.")
+            }
+        } else if (!currentVoiceConfig.useForegroundServiceMode && currentVoiceConfig.autoStartVoice && !voiceEnabled) {
             ensureMicPermissionAndStartVoice()
         }
         refreshPrivilegeCenter()
