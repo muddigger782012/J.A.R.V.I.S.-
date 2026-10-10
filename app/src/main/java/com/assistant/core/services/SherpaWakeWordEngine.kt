@@ -117,7 +117,10 @@ class SherpaWakeWordEngine(
                     val keyword = kws.getResult(onlineStream).keyword
                     if (keyword.isNotBlank()) {
                         kws.reset(onlineStream)
+                        // Release the continuous KWS microphone before command
+                        // SpeechRecognizer is started by the detection callback.
                         running = false
+                        releaseDetectedSession(audio, onlineStream, kws)
                         onDetected()
                         return
                     }
@@ -126,6 +129,26 @@ class SherpaWakeWordEngine(
         } catch (t: Throwable) {
             if (running) onStatus("Sherpa audio loop stopped: ${t.message ?: t.javaClass.simpleName}")
         }
+    }
+
+    private fun releaseDetectedSession(
+        audio: AudioRecord,
+        onlineStream: OnlineStream,
+        kws: KeywordSpotter
+    ) {
+        runCatching { audio.stop() }
+        runCatching { audio.release() }
+        if (recorder === audio) recorder = null
+
+        runCatching { onlineStream.release() }
+        if (stream === onlineStream) stream = null
+
+        runCatching { kws.release() }
+        if (spotter === kws) spotter = null
+
+        // The worker is about to return; clear the reference without joining
+        // the current thread.
+        worker = null
     }
 
     private fun thresholdFor(value: Float): Float {
