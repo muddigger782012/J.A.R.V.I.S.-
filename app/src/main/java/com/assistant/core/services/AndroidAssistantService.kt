@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.Settings
 import android.content.pm.PackageManager
+import android.provider.ContactsContract
 
 /**
  * Standard Android assistant capabilities that do not require privileged shell access.
@@ -37,6 +38,19 @@ class AndroidAssistantService(private val context: Context) {
 
     fun navigate(destination: String): Boolean =
         launch(Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(destination))))
+
+    fun resolveContactPhone(name: String): String? {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
+        val projection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+        val selection = ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " LIKE ?"
+        val args = arrayOf("%${name.trim()}%")
+        return context.contentResolver.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI, projection, selection, args, null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) null
+            else cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER))
+        }
+    }
 
     fun dial(number: String): Boolean =
         launch(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(number))))
