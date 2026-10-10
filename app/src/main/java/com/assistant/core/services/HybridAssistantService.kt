@@ -512,12 +512,10 @@ class HybridAssistantService(
         return hour to minute
     }
 
-    private fun parseAppName(text: String): String? {
-        if (!text.startsWith("open ") || text in setOf("open settings", "open voice settings")) return null
-        return text.removePrefix("open ").trim().takeIf { it.isNotBlank() }
-    }
+    private fun parseAppName(text: String): String? = CommandPhrases.appName(text)
 
     private fun parseNavigationDestination(text: String): String? {
+        CommandPhrases.navigationDestination(text)?.let { return it }
         val prefixes = listOf(
             "navigate to ",
             "directions to ",

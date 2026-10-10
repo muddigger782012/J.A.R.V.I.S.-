@@ -1,0 +1,20 @@
+package com.assistant.core.services
+
+import org.junit.Assert.*
+import org.junit.Test
+
+class CommandPhrasesTest {
+    @Test fun mapsDirectionsExtractOnlyTheDestination() {
+        val address = "140 Patrick Drive Hertford North Carolina"
+        assertEquals(address, CommandPhrases.navigationDestination("Open maps to $address"))
+        assertEquals(address, CommandPhrases.navigationDestination("Open maps and give me directions to $address"))
+        assertEquals(address, CommandPhrases.navigationDestination("Please open Google maps and navigate to $address"))
+        assertNull(CommandPhrases.navigationDestination("Open maps"))
+    }
+    @Test fun appRequestsRemoveCourtesyPhrases() {
+        assertEquals("maps", CommandPhrases.appName("open maps for me"))
+        assertEquals("maps", CommandPhrases.appName("please open maps for me please"))
+        assertEquals("maps", CommandPhrases.appName("open maps"))
+        assertNull(CommandPhrases.appName("open settings"))
+    }
+}
