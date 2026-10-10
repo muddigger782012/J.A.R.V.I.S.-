@@ -235,7 +235,7 @@ class VoiceAssistantService(
     override fun onEvent(eventType: Int, params: Bundle?) = Unit
 
     private fun shouldUseDedicatedWakeWord(): Boolean {
-        return config.enableDedicatedWakeWord && config.wakeWord.equals("jarvis", ignoreCase = true) && config.porcupineAccessKey.isNotBlank()
+        return config.enableDedicatedWakeWord && config.porcupineAccessKey.isNotBlank()
     }
 
     private fun startDedicatedWakeWordEngine() {
@@ -260,7 +260,7 @@ class VoiceAssistantService(
                 }
             porcupineManager?.start()
             currentHotwordEngine = HotwordEngine.DEDICATED_OFFLINE
-            onStatus("Dedicated Porcupine wake-word engine active for built-in \"Jarvis\".")
+            onStatus("Dedicated Porcupine wake-word engine active. Say \"Jarvis\" to wake me.")
         } catch (error: PorcupineException) {
             switchToSpeechHotwordFallback(
                 "Dedicated wake-word unavailable: ${error.message ?: "setup failed"}"
@@ -284,13 +284,11 @@ class VoiceAssistantService(
 
     private fun switchToSpeechHotwordFallback(reason: String) {
         currentHotwordEngine = HotwordEngine.SPEECH_FALLBACK
-        onStatus("$reason Using speech fallback wake-word mode.")
-        if (!isRecognitionAvailable()) {
-            onStatus("Speech recognition is unavailable on this device.")
-            return
-        }
         mode = RecognitionMode.FALLBACK_SPEECH_HOTWORD
-        scheduleFallbackHotwordListening(1500)
+        // Do not continuously restart Android SpeechRecognizer as a wake detector.
+        // It is session-oriented, causes audible beeps on many devices, and is
+        // substantially less reliable than a dedicated always-on keyword engine.
+        onStatus("$reason Dedicated wake-word standby is unavailable. Push-to-talk remains available.")
     }
 
     private fun onWakeWordDetected() {
@@ -298,7 +296,6 @@ class VoiceAssistantService(
         fallbackErrorStreak = 0
         lastWakeEngineUsed = currentHotwordEngine
         onHotwordDetected()
-        speak("Yes?")
         if (currentHotwordEngine == HotwordEngine.DEDICATED_OFFLINE) {
             stopDedicatedWakeWordEngine()
         }
