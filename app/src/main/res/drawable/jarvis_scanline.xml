@@ -5,6 +5,6 @@
     <gradient
         android:angle="0"
         android:startColor="#005DFF99"
-        android:centerColor="#CC5DFF99"
+        android:centerColor="?attr/jarvis_scan_tint"
         android:endColor="#005DFF99" />
 </shape>

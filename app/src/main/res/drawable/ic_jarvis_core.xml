@@ -8,7 +8,7 @@
             <solid android:color="#2013223A" />
             <stroke
                 android:width="1dp"
-                android:color="@color/jarvis_primary" />
+                android:color="?attr/jarvis_primary" />
         </shape>
     </item>
 
@@ -21,7 +21,7 @@
             <solid android:color="#3017A5C7" />
             <stroke
                 android:width="1dp"
-                android:color="@color/jarvis_neon_green" />
+                android:color="?attr/jarvis_neon_green" />
         </shape>
     </item>
 
@@ -31,7 +31,7 @@
         android:right="15dp"
         android:bottom="15dp">
         <shape android:shape="oval">
-            <solid android:color="@color/jarvis_neon_green" />
+            <solid android:color="?attr/jarvis_neon_green" />
         </shape>
     </item>
 </layer-list>

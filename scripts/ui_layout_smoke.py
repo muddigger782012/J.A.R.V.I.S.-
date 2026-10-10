@@ -10,7 +10,8 @@ output.mkdir(exist_ok=True)
 
 
 def adb(*args):
-    return subprocess.check_output(['adb', *args], text=True)
+    print('ADB: ' + ' '.join(args), flush=True)
+    return subprocess.check_output(['adb', *args], text=True, timeout=45)
 
 
 def hierarchy():
@@ -30,7 +31,8 @@ def tap(identifier):
 
 
 def capture(name):
-    raw = subprocess.check_output(['adb', 'exec-out', 'screencap', '-p'])
+    print('Screenshot: ' + name, flush=True)
+    raw = subprocess.check_output(['adb', 'exec-out', 'screencap', '-p'], timeout=45)
     (output / (name + '.png')).write_bytes(raw)
     (output / (name + '.xml')).write_text(ET.tostring(hierarchy(), encoding='unicode'))
 
@@ -55,6 +57,27 @@ try:
     capture('settings')
     assert any(n.get('text', '').casefold() == 'weather and ai' for n in hierarchy().iter('node')), 'Weather and AI is not visible in settings'
     tap('btnCloseVoiceSettings')
+    # Exercise each palette through the native settings flow, then verify persistence.
+    for name in ('Stark', 'Cybertron', 'Default'):
+        tap('btnVoiceSettings')
+        tap('btnThemes')
+        if name == 'Cybertron':
+            adb('shell', 'input', 'swipe', '500', '1500', '500', '500', '350')
+            time.sleep(1)
+        tap('btnTheme' + name)
+        assert any(n.get('text') in (name + ' • Active', 'Current theme: ' + name) for n in hierarchy().iter('node')), 'Theme not applied'
+        capture('theme-picker-' + name.lower())
+        adb('shell', 'input', 'keyevent', '4')
+        time.sleep(1)
+        tap('btnCloseVoiceSettings')
+        capture('theme-' + name.lower())
+        if name == 'Cybertron':
+            adb('shell', 'am', 'force-stop', 'com.assistant.core')
+            adb('shell', 'am', 'start', '-n', 'com.assistant.core/.MainActivity')
+            time.sleep(2)
+            tap('btnVoiceSettings')
+            assert any(n.get('text') == 'Themes • Cybertron' for n in hierarchy().iter('node')), 'Theme did not survive restart'
+            tap('btnCloseVoiceSettings')
     adb('shell', 'wm', 'size', '720x1280')
     adb('shell', 'wm', 'density', '360')  # 320dp width
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1.3')
@@ -63,6 +86,14 @@ try:
     assert any(n.get('resource-id') == 'com.assistant.core:id/btnRunAssistantCommand' for n in hierarchy().iter('node')), 'Send hidden on small screen'
     capture('small-screen-keyboard')
 except Exception:
-    capture('failure')
-    (output / 'logcat.txt').write_text(adb('logcat', '-d'))
+    import traceback
+    (output / 'failure.txt').write_text(traceback.format_exc())
+    try:
+        capture('failure')
+    except Exception as error:
+        print('Failure screenshot unavailable: ' + str(error), flush=True)
+    try:
+        (output / 'logcat.txt').write_text(adb('logcat', '-d'))
+    except Exception as error:
+        print('Logcat unavailable: ' + str(error), flush=True)
     raise

@@ -10,7 +10,7 @@ import com.assistant.core.services.VoiceConfig
 import com.assistant.core.services.VoicePreferences
 import com.google.android.material.switchmaterial.SwitchMaterial
 
-class VoiceSettingsActivity : AppCompatActivity() {
+class VoiceSettingsActivity : ThemedActivity() {
 
     private lateinit var voicePreferences: VoicePreferences
 
@@ -54,6 +54,14 @@ class VoiceSettingsActivity : AppCompatActivity() {
             examples.visibility = if (examples.visibility == android.view.View.VISIBLE) android.view.View.GONE else android.view.View.VISIBLE
         }
         val saveButton: Button = findViewById(R.id.btnSaveVoiceSettings)
+
+        val themeButton = com.google.android.material.button.MaterialButton(this).apply {
+            id = R.id.btnThemes
+            text = "Themes • " + ThemePreferences.selected(this@VoiceSettingsActivity).replaceFirstChar { it.uppercase() }
+            isAllCaps = false
+            setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, ThemeSettingsActivity::class.java)) }
+        }
+        (saveButton.parent as android.view.ViewGroup).addView(themeButton, 3)
 
         val gatewayPrefs = getSharedPreferences("jarvis_cloud_ai", MODE_PRIVATE)
         val gatewayButton = com.google.android.material.button.MaterialButton(this).apply {
@@ -128,13 +136,13 @@ class VoiceSettingsActivity : AppCompatActivity() {
                 dialog.show()
             }
         }
-        (saveButton.parent as android.view.ViewGroup).addView(gatewayButton, 3)
+        (saveButton.parent as android.view.ViewGroup).addView(gatewayButton, 4)
 
         (saveButton.parent as android.view.ViewGroup).addView(com.google.android.material.button.MaterialButton(this).apply {
             text = "Optional assistant connections"
             isAllCaps = false
             setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, AssistantConnectionsActivity::class.java)) }
-        }, 4)
+        }, 5)
 
         dedicatedSwitch.isChecked = current.enableDedicatedWakeWord
         wakeWordInput.setText(current.wakeWord)

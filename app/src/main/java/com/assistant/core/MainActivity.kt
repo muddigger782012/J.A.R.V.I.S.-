@@ -95,7 +95,7 @@ import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : ThemedActivity() {
 
     private lateinit var commandInput: EditText
     private lateinit var shizukuCommandInput: EditText
@@ -569,10 +569,10 @@ class MainActivity : AppCompatActivity() {
         val title = findViewById<TextView>(R.id.tvScreenTitle)
         title.text = listOf("", "Projects", "Device tools", "System", "Terminal", "Activity log", "Permissions", "Device administration")[index]
         title.visibility = if (index == 0) View.GONE else View.VISIBLE
-        findViewById<Button>(R.id.btnOpenJarvisChat).setTextColor(ContextCompat.getColor(this, if (index == 0) R.color.jarvis_primary else R.color.jarvis_on_dark_muted))
-        findViewById<Button>(R.id.btnOpenTools).setTextColor(ContextCompat.getColor(this, if (index != 0) R.color.jarvis_primary else R.color.jarvis_on_dark_muted))
-        val activeColor = ContextCompat.getColor(this, R.color.jarvis_neon_green)
-        val inactiveColor = ContextCompat.getColor(this, R.color.jarvis_on_dark)
+        findViewById<Button>(R.id.btnOpenJarvisChat).setTextColor(ThemePreferences.color(this, if (index == 0) R.color.jarvis_primary else R.color.jarvis_on_dark_muted))
+        findViewById<Button>(R.id.btnOpenTools).setTextColor(ThemePreferences.color(this, if (index != 0) R.color.jarvis_primary else R.color.jarvis_on_dark_muted))
+        val activeColor = ThemePreferences.color(this, R.color.jarvis_neon_green)
+        val inactiveColor = ThemePreferences.color(this, R.color.jarvis_on_dark)
         headerTabButtons.forEachIndexed { i, button ->
             val isActive = i == index
             button.isSelected = isActive
@@ -589,8 +589,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
         headerSelectionAnimator?.cancel()
-        val activeColor = ContextCompat.getColor(this, R.color.jarvis_neon_green)
-        val inactiveColor = ContextCompat.getColor(this, R.color.jarvis_on_dark)
+        val activeColor = ThemePreferences.color(this, R.color.jarvis_neon_green)
+        val inactiveColor = ThemePreferences.color(this, R.color.jarvis_on_dark)
         headerSelectionAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = durationMs
             interpolator = AccelerateDecelerateInterpolator()
@@ -606,8 +606,8 @@ class MainActivity : AppCompatActivity() {
         fromIndex: Int,
         toIndex: Int,
         progress: Float,
-        activeColor: Int = ContextCompat.getColor(this, R.color.jarvis_neon_green),
-        inactiveColor: Int = ContextCompat.getColor(this, R.color.jarvis_on_dark)
+        activeColor: Int = ThemePreferences.color(this, R.color.jarvis_neon_green),
+        inactiveColor: Int = ThemePreferences.color(this, R.color.jarvis_on_dark)
     ) {
         val p = progress.coerceIn(0f, 1f)
         headerTabButtons.forEachIndexed { index, button ->
@@ -1051,14 +1051,14 @@ class MainActivity : AppCompatActivity() {
             if (user || assistant) card.addView(TextView(this).apply {
                 text = if (user) "YOU" else "J.A.R.V.I.S."
                 textSize = 11f
-                setTextColor(ContextCompat.getColor(this@MainActivity, if (user) R.color.jarvis_primary else R.color.jarvis_secondary))
+                setTextColor(ThemePreferences.color(this@MainActivity, if (user) R.color.jarvis_primary else R.color.jarvis_secondary))
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 setPadding(0, 0, 0, dp(6))
             })
             card.addView(TextView(this).apply {
                 text = when { user -> line.removePrefix("You:").trimStart(); assistant -> line.removePrefix("J.A.R.V.I.S.:").trimStart(); else -> line }
                 textSize = if (user || assistant) 16f else 12f
-                setTextColor(ContextCompat.getColor(this@MainActivity, if (user || assistant) R.color.jarvis_on_dark else R.color.jarvis_on_dark_muted))
+                setTextColor(ThemePreferences.color(this@MainActivity, if (user || assistant) R.color.jarvis_on_dark else R.color.jarvis_on_dark_muted))
                 setLineSpacing(dp(4).toFloat(), 1f)
                 setTextIsSelectable(true)
             })
@@ -1417,7 +1417,7 @@ class MainActivity : AppCompatActivity() {
         scanlineAnimator?.cancel()
 
         pulseAnimator = ObjectAnimator.ofFloat(hudPulseOverlay, View.ALPHA, 0.06f, 0.2f, 0.08f).apply {
-            duration = 3200L
+            duration = if (ThemePreferences.selected(this@MainActivity) == "cybertron") 2200L else 3200L
             interpolator = AccelerateDecelerateInterpolator()
             repeatCount = ObjectAnimator.INFINITE
             start()
@@ -1431,7 +1431,7 @@ class MainActivity : AppCompatActivity() {
                 -scanlineView.height.toFloat(),
                 travel.toFloat()
             ).apply {
-                duration = 3000L
+                duration = if (ThemePreferences.selected(this@MainActivity) == "stark") 5500L else 3000L
                 interpolator = LinearInterpolator()
                 repeatCount = ObjectAnimator.INFINITE
                 start()

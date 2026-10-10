@@ -1,0 +1,22 @@
+<resources>
+    <attr name="jarvis_bg_deep" format="color" />
+    <attr name="jarvis_bg_start" format="color" />
+    <attr name="jarvis_bg_end" format="color" />
+    <attr name="jarvis_primary" format="color" />
+    <attr name="jarvis_primary_variant" format="color" />
+    <attr name="jarvis_secondary" format="color" />
+    <attr name="jarvis_secondary_variant" format="color" />
+    <attr name="jarvis_neon_green" format="color" />
+    <attr name="jarvis_neon_green_soft" format="color" />
+    <attr name="jarvis_on_dark" format="color" />
+    <attr name="jarvis_on_dark_muted" format="color" />
+    <attr name="jarvis_surface_glass" format="color" />
+    <attr name="jarvis_surface_glass_strong" format="color" />
+    <attr name="jarvis_surface_stroke" format="color" />
+    <attr name="jarvis_input_fill" format="color" />
+    <attr name="jarvis_output_surface" format="color" />
+    <attr name="jarvis_button_fill" format="color" />
+    <attr name="jarvis_button_fill_pressed" format="color" />
+    <attr name="jarvis_background" format="reference" />
+    <attr name="jarvis_corner" format="dimension" />
+<attr name="jarvis_chat_corner" format="dimension" /><attr name="jarvis_pulse_tint" format="color" /><attr name="jarvis_scan_tint" format="color" /><attr name="jarvis_panel_stroke" format="color" /></resources>
