@@ -45,6 +45,7 @@ class VoiceForegroundService : Service() {
     private lateinit var voiceSession: VoiceSessionController
 
     private var pendingClarification: String? = null
+    private var pipelineStarted = false
 
     override fun onCreate() {
         super.onCreate()
@@ -70,7 +71,7 @@ class VoiceForegroundService : Service() {
                 // This Service instance owns the live pipeline. A persisted
                 // "running" flag can survive process death and must never be used
                 // as proof that Sherpa is actually armed in this new instance.
-                if (!::currentConfig.isInitialized) {
+                if (!pipelineStarted) {
                     startVoicePipeline()
                 } else {
                     publishEvent("Foreground voice service already active; keeping wake listener armed.")
@@ -155,12 +156,14 @@ class VoiceForegroundService : Service() {
         voiceService.updateConfig(currentConfig)
         voiceSession.arm()
         voiceService.startHotwordLoop()
+        pipelineStarted = true
         voicePreferences.setForegroundServiceRunning(true)
         publishEvent("Foreground voice service started.")
     }
 
     private fun stopVoicePipeline() {
         voiceService.stopListening()
+        pipelineStarted = false
         voiceSession.stop()
         pendingClarification = null
         voicePreferences.setForegroundServiceRunning(false)
