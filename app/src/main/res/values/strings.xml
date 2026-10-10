@@ -13,9 +13,7 @@
     <string name="voice_hint">Voice support: Tap Start Voice and say \"jarvis\" to wake.</string>
     <string name="voice_settings_title">Voice Settings</string>
     <string name="voice_settings_opened">Opened voice settings.</string>
-    <string name="voice_dedicated_wakeword_label">Use dedicated offline wake-word engine (Porcupine)</string>
-    <string name="voice_access_key_label">Porcupine AccessKey (required for dedicated wake-word)</string>
-    <string name="voice_access_key_hint">Paste your Picovoice AccessKey</string>
+    <string name="voice_dedicated_wakeword_label">Use dedicated offline wake-word engine (Sherpa-ONNX)</string>
     <string name="voice_auto_start_label">Auto-start voice mode at app launch</string>
     <string name="voice_foreground_mode_label">Use foreground service mode (more reliable in background)</string>
     <string name="voice_auto_start_foreground_label">Auto-start foreground voice service</string>
