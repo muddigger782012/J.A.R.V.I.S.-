@@ -346,6 +346,13 @@ class MainActivity : ThemedActivity() {
             onStatus = { status ->
                 runOnUiThread {
                     appendOutput("[WAKE] $status")
+                    if (
+                        status.contains("Push-to-talk ended", ignoreCase = true) ||
+                        status.contains("Command capture error", ignoreCase = true)
+                    ) {
+                        voiceSession.stop()
+                        updateVoiceInteractionState(VoiceInteractionState.IDLE)
+                    }
                 }
             },
             onHotwordDetected = {
