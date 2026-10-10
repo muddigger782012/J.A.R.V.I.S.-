@@ -63,9 +63,10 @@ try:
             adb('shell', 'input', 'swipe', '500', '1500', '500', '500', '350')
             time.sleep(1)
         tap('btnTheme' + name)
-        assert any(n.get('text') == 'Current theme: ' + name for n in hierarchy().iter('node')), 'Theme not applied'
+        assert any(n.get('text') == name + ' • Active' for n in hierarchy().iter('node')), 'Theme not applied'
         capture('theme-picker-' + name.lower())
-        tap('btnCloseThemes')
+        adb('shell', 'input', 'keyevent', '4')
+        time.sleep(1)
         tap('btnCloseVoiceSettings')
         capture('theme-' + name.lower())
         if name == 'Cybertron':
