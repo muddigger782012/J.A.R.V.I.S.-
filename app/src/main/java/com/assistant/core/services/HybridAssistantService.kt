@@ -146,6 +146,22 @@ class HybridAssistantService(
             val response = if (ok) "Volume decreased." else "I couldn't change the volume."
             remember(userInput, response); return HybridAssistantReply(response)
         }
+        parseCalendarRequest(userInput)?.let { title ->
+            val ok = androidAssistant.createCalendarEvent(title)
+            val response = if (ok) "Opening your calendar to create $title." else "I couldn't open the calendar."
+            remember(userInput, response); return HybridAssistantReply(response)
+        }
+        parseReminderRequest(userInput)?.let { title ->
+            val ok = androidAssistant.createReminder(title)
+            val response = if (ok) "Opening your calendar to create the reminder $title." else "I couldn't open a reminder provider."
+            remember(userInput, response); return HybridAssistantReply(response)
+        }
+        if (normalized in setOf("notification settings", "open notification settings", "manage notifications")) {
+            val ok = androidAssistant.openNotificationSettings()
+            val response = if (ok) "Opening J.A.R.V.I.S. notification settings." else "I couldn't open notification settings."
+            remember(userInput, response); return HybridAssistantReply(response)
+        }
+
         parseCallTarget(normalized)?.let { target ->
             val number = target.filter { it.isDigit() || it == '+' }.takeIf { it.any(Char::isDigit) }
                 ?: androidAssistant.resolveContactPhone(target)
@@ -321,6 +337,16 @@ class HybridAssistantService(
             "minute", "minutes" -> amount * 60
             else -> amount
         }
+    }
+
+    private fun parseCalendarRequest(raw: String): String? {
+        val match = Regex("(?i)^(?:create|add|schedule) (?:a |an )?(?:calendar )?(?:event|appointment)(?: called| named)? (.+)$").find(raw.trim()) ?: return null
+        return match.groupValues[1].trim().takeIf { it.isNotBlank() }
+    }
+
+    private fun parseReminderRequest(raw: String): String? {
+        val match = Regex("(?i)^(?:remind me to|create (?:a )?reminder(?: to)?|add (?:a )?reminder(?: to)?) (.+)$").find(raw.trim()) ?: return null
+        return match.groupValues[1].trim().takeIf { it.isNotBlank() }
     }
 
     private fun parseCallTarget(text: String): String? {
