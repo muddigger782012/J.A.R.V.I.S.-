@@ -299,6 +299,23 @@ class HybridAssistantService(
         )
     }
 
+    /**
+     * Accept a structured interpretation from the fallback AI. Only approved,
+     * high-confidence lessons are persisted; execution remains behind normal
+     * JARVIS capability/policy routing.
+     */
+    fun acceptFallbackLesson(userText: String, lessonJson: String): Boolean {
+        val lesson = FallbackIntentLesson.fromJson(lessonJson) ?: return false
+        if (!FallbackLessonProtocol.accepts(lesson) || !lesson.canTeachLocally()) return false
+        learningStore.learn(
+            utterance = userText,
+            intent = lesson.intent,
+            entities = lesson.entities,
+            source = "validated_fallback_v${FallbackLessonProtocol.VERSION}"
+        )
+        return true
+    }
+
     fun getConversationSnapshot(limit: Int = 8): String {
         return history.takeLast(limit).joinToString(separator = "\n\n") { (user, assistant) ->
             "You: $user\nJ.A.R.V.I.S.: $assistant"
