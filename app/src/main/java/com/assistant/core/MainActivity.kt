@@ -1826,7 +1826,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showRestrictedSettingsGuide() {
-        val prefs = getSharedPreferences("jarvis_onboarding", MODE_PRIVATE)
         AlertDialog.Builder(this)
             .setTitle("Enable J.A.R.V.I.S. Accessibility")
             .setMessage(
