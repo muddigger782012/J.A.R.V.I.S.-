@@ -46,7 +46,7 @@ class VoiceSettingsActivity : AppCompatActivity() {
 
         val gatewayPrefs = getSharedPreferences("jarvis_cloud_ai", MODE_PRIVATE)
         val gatewayButton = Button(this).apply {
-            text = "AI gateway and weather settings"
+            text = "Weather and AI"
             setOnClickListener {
                 val fields = android.widget.LinearLayout(this@VoiceSettingsActivity).apply {
                     orientation = android.widget.LinearLayout.VERTICAL
@@ -61,13 +61,26 @@ class VoiceSettingsActivity : AppCompatActivity() {
                         fields.addView(this)
                     }
                 }
-                val endpoint = field("Gateway HTTPS URL ending in /chat", "endpoint")
+                fields.addView(TextView(this@VoiceSettingsActivity).apply {
+                    text = "Weather uses National Weather Service directly. Gemini sends unresolved questions to Google using your own API key."
+                })
+                val keyStore = com.assistant.core.services.ApiKeyStore(this@VoiceSettingsActivity)
+                val geminiKey = field("Gemini API key (Google AI Studio)", "unused", true).apply { setText(keyStore.read()) }
+                val geminiModel = field("Gemini model", "gemini_model").apply {
+                    if (text.isBlank()) setText("gemini-3.5-flash-lite")
+                }
+                val endpoint = field("Optional gateway HTTPS URL ending in /chat", "endpoint")
                 val token = field("Gateway token", "gateway_token", true)
                 val latitude = field("Weather latitude", "weather_latitude")
                 val longitude = field("Weather longitude", "weather_longitude")
+                fields.addView(Button(this@VoiceSettingsActivity).apply {
+                    text = "Use Chesapeake, VA for weather"
+                    setOnClickListener { latitude.setText("36.7682"); longitude.setText("-76.2875") }
+                })
+                val scroll = android.widget.ScrollView(this@VoiceSettingsActivity).apply { addView(fields) }
                 val dialog = androidx.appcompat.app.AlertDialog.Builder(this@VoiceSettingsActivity)
-                    .setTitle("Dedicated J.A.R.V.I.S. gateway")
-                    .setView(fields).setNegativeButton("Cancel", null)
+                    .setTitle("Weather and AI")
+                    .setView(scroll).setNegativeButton("Cancel", null)
                     .setPositiveButton("Save", null).create()
                 dialog.setOnShowListener {
                     dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -81,8 +94,14 @@ class VoiceSettingsActivity : AppCompatActivity() {
                             (lat.toDoubleOrNull()?.let { it.isFinite() && it in -90.0..90.0 } != true ||
                              lon.toDoubleOrNull()?.let { it.isFinite() && it in -180.0..180.0 } != true)) {
                             latitude.error = "Enter valid latitude and longitude together"
+                        } else if (!Regex("[a-zA-Z0-9._-]+").matches(geminiModel.text.toString().trim())) {
+                            geminiModel.error = "Enter a valid Gemini model name"
                         } else {
-                            gatewayPrefs.edit().putString("endpoint", url)
+                            try { keyStore.save(geminiKey.text.toString().trim()) } catch (_: Exception) {
+                                geminiKey.error = "Couldn't save the API key securely. Try again."
+                                return@setOnClickListener
+                            }
+                            gatewayPrefs.edit().putString("gemini_model", geminiModel.text.toString().trim()).putString("endpoint", url)
                                 .putString("gateway_token", token.text.toString().trim())
                                 .putString("weather_latitude", lat).putString("weather_longitude", lon).apply()
                             dialog.dismiss()
