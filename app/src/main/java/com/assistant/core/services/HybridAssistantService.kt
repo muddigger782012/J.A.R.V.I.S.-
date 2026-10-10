@@ -123,6 +123,19 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
+        if (normalized in setOf("go back", "back")) {
+            return replyFromResult(userInput, "Going back.", assistantEngine.executeAction(actionRegistry.accessibilityGlobalRequest(ActionRegistry.ACCESSIBILITY_BACK)))
+        }
+        if (normalized in setOf("go home", "home screen", "home")) {
+            return replyFromResult(userInput, "Going home.", assistantEngine.executeAction(actionRegistry.accessibilityGlobalRequest(ActionRegistry.ACCESSIBILITY_HOME)))
+        }
+        if (normalized in setOf("show recent apps", "recent apps", "recents")) {
+            return replyFromResult(userInput, "Opening recent apps.", assistantEngine.executeAction(actionRegistry.accessibilityGlobalRequest(ActionRegistry.ACCESSIBILITY_RECENTS)))
+        }
+        if (containsAny(normalized, "what is on my screen", "whats on my screen", "read my screen", "read screen", "screen context")) {
+            return replyFromResult(userInput, "Reading the current screen.", assistantEngine.executeAction(actionRegistry.readScreenRequest()))
+        }
+
         if (containsAny(normalized, "create project", "new project", "generate project", "make project")) {
             val extracted = extractProjectName(normalized)
             if (extracted == null) {
