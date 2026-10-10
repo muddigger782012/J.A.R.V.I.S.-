@@ -1670,7 +1670,7 @@ class MainActivity : ThemedActivity() {
                 appendOutput("[VOICE] Foreground wake service start requested.")
             } catch (t: Throwable) {
                 voiceEnabled = false
-                updateVoiceInteractionState(VoiceInteractionState.STOPPED)
+                updateVoiceInteractionState(VoiceInteractionState.IDLE)
                 appendOutput("[VOICE] Unable to start foreground wake service: " + t.javaClass.simpleName + ": " + (t.message ?: "unknown error"))
             }
         } else {
