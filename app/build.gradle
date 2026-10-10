@@ -71,5 +71,4 @@ dependencies {
     implementation 'dev.rikka.shizuku:provider:13.1.5'
     implementation 'dev.rikka.shizuku:aidl:13.1.5'
     implementation 'io.github.iamr0s:Dhizuku-API:2.5.3'
-    implementation 'ai.picovoice:porcupine-android:3.0.1'
 }
