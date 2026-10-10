@@ -134,7 +134,9 @@ class VoiceForegroundService : Service() {
             },
             onCommandDetected = { recognition ->
                 voiceSession.transcriptReady(recognition.transcript)
-            }
+            },
+            onSpeechStarted = { voiceSession.speaking() },
+            onSpeechFinished = { voiceSession.responseFinished(keepArmed = true) }
         )
     }
 
@@ -184,11 +186,7 @@ class VoiceForegroundService : Service() {
     }
 
     private fun speakResponse(text: String) {
-        voiceSession.speaking()
         voiceService.speak(text)
-        // VoiceAssistantService will gain an utterance completion callback in
-        // the next migration step. Until then, return to armed wake listening.
-        voiceSession.responseFinished(keepArmed = true)
     }
 
     private fun processRecognition(recognition: VoiceRecognitionResult) {
