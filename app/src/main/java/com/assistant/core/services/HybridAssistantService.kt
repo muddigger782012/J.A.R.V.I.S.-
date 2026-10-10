@@ -7,6 +7,9 @@ import com.assistant.core.models.CapabilityState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 
 data class HybridAssistantReply(
     val text: String,
@@ -164,12 +167,16 @@ class HybridAssistantService(
         }
 
         parseCallTarget(normalized)?.let { rawTarget ->
-            val target = resolveConversationContact(rawTarget)
+            val target = cleanContactTarget(resolveConversationContact(rawTarget))
             lastContactTarget = target
-            val number = target.filter { it.isDigit() || it == '+' }.takeIf { it.any(Char::isDigit) }
-                ?: androidAssistant.resolveContactPhone(target)
+            val directNumber = target.filter { it.isDigit() || it == '+' }.takeIf { it.any(Char::isDigit) }
+            if (directNumber == null && !hasContactsPermission()) {
+                val response = "I need Contacts permission before I can look up $target. Please allow Contacts access for J.A.R.V.I.S., then try again."
+                remember(userInput, response); return HybridAssistantReply(response)
+            }
+            val number = directNumber ?: androidAssistant.resolveContactPhone(target)
             val ok = number?.let(androidAssistant::dial) ?: false
-            val response = if (ok) "Opening the dialer for $target." else "I couldn't find a phone number for $target. Contact access may be required."
+            val response = if (ok) "Opening the dialer for $target." else "I couldn't find $target in your contacts with a phone number."
             remember(userInput, response); return HybridAssistantReply(response)
         }
         parseMessageRequest(userInput)?.let { (rawTarget, body) ->
@@ -363,9 +370,22 @@ class HybridAssistantService(
     }
 
     private fun parseCallTarget(text: String): String? {
-        val prefixes = listOf("call ", "dial ")
+        val prefixes = listOf("call ", "dial ", "phone ", "ring ")
         val prefix = prefixes.firstOrNull { text.startsWith(it) } ?: return null
         return text.removePrefix(prefix).trim().takeIf { it.isNotBlank() }
+    }
+
+    private fun cleanContactTarget(target: String): String {
+        return target.trim()
+            .replace(Regex("^(?:contact|my contact|the contact)\\s+"), "")
+            .trim()
+    }
+
+    private fun hasContactsPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            systemService.context(),
+            Manifest.permission.READ_CONTACTS
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun parseMessageRequest(raw: String): Pair<String, String>? {
