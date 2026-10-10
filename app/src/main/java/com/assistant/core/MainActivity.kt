@@ -1437,7 +1437,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
                 statusOutput.text = reply.actionResult?.output ?: reply.text
-                voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(240) ?: "Done.")
+                voiceService.speak(reply.text)
             }
         }
     }
@@ -1511,7 +1511,7 @@ class MainActivity : AppCompatActivity() {
                     val reply = hybridAssistantService.handleUserInput(command)
                     appendOutput("J.A.R.V.I.S.: ${reply.text}")
                     statusOutput.text = reply.actionResult?.output ?: reply.text
-                    voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(180) ?: "Confirmation required.")
+                    voiceService.speak(reply.text)
                 } else {
                     val directResult = proposedAction?.let { assistantEngine.executeAction(it) }
                     if (directResult != null) {
@@ -1523,7 +1523,7 @@ class MainActivity : AppCompatActivity() {
                             runOnUiThread {
                                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
                                 statusOutput.text = reply.actionResult?.output ?: reply.text
-                                voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(180) ?: "Done.")
+                                voiceService.speak(reply.text)
                                 appendRecentAudit()
                             }
                         }

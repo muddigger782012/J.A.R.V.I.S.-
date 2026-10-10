@@ -36,7 +36,19 @@ object OnlineAnswers {
             return "For $location, the next forecast period mentioning rain is ${wet.getString("name")}, $day: ${wet.getString("detailedForecast")}$probability Source: National Weather Service."
         }
         val tomorrow = question.lowercase(Locale.ROOT).contains("tomorrow")
-        val selected = if (tomorrow) {
+        val dayCountMatch = Regex("\\b(?:next\\s+)?(\\d+|one|two|three|four|five|six|seven)[ -]days?\\b", RegexOption.IGNORE_CASE).find(question)
+        val rawCount = dayCountMatch?.groupValues?.get(1)?.lowercase(Locale.ROOT)
+        val dayCount = rawCount?.toIntOrNull() ?: listOf("one", "two", "three", "four", "five", "six", "seven").indexOf(rawCount).takeIf { it >= 0 }?.plus(1)
+        if (dayCount != null && dayCount !in 1..7) return "The National Weather Service provides up to seven days here. Ask for one to seven days."
+        val selected = if (dayCount != null) {
+            val zone = OffsetDateTime.parse(upcoming.first().getString("startTime")).offset
+            val firstDay = now.atOffset(zone).toLocalDate().plusDays(if (question.contains("next", ignoreCase = true)) 1 else 0)
+            val endDay = firstDay.plusDays(dayCount.toLong())
+            upcoming.filter {
+                val day = OffsetDateTime.parse(it.getString("startTime")).toLocalDate()
+                !day.isBefore(firstDay) && day.isBefore(endDay)
+            }
+        } else if (tomorrow) {
             val zone = OffsetDateTime.parse(upcoming.first().getString("startTime")).offset
             val target = now.atOffset(zone).toLocalDate().plusDays(1)
             upcoming.filter { OffsetDateTime.parse(it.getString("startTime")).toLocalDate() == target }

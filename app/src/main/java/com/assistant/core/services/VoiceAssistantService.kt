@@ -131,13 +131,30 @@ class VoiceAssistantService(
         tts.shutdown()
     }
 
+    private var speechSequence = 0L
+    private var activeSpeechPrefix: String? = null
+    private var finalSpeechId: String? = null
+
     fun speak(text: String) {
         if (!ttsReady || text.isBlank()) {
             onSpeechFinished()
             return
         }
         onSpeechStarted()
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis-response")
+        val chunks = SpeechChunks.split(text, minOf(3000, TextToSpeech.getMaxSpeechInputLength() - 1))
+        val prefix = "jarvis-response-${++speechSequence}-"
+        activeSpeechPrefix = prefix
+        finalSpeechId = prefix + chunks.lastIndex
+        chunks.forEachIndexed { index, chunk ->
+            val result = tts.speak(chunk, if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, prefix + index)
+            if (result == TextToSpeech.ERROR) {
+                activeSpeechPrefix = null
+                finalSpeechId = null
+                tts.stop()
+                onSpeechFinished()
+                return
+            }
+        }
     }
 
     override fun onInit(status: Int) {
@@ -146,11 +163,24 @@ class VoiceAssistantService(
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) = Unit
                 override fun onDone(utteranceId: String?) {
-                    if (utteranceId == "jarvis-response") mainHandler.post { onSpeechFinished() }
+                    mainHandler.post {
+                        if (utteranceId == finalSpeechId && finalSpeechId != null) {
+                            activeSpeechPrefix = null
+                            finalSpeechId = null
+                            onSpeechFinished()
+                        }
+                    }
                 }
                 @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
-                    if (utteranceId == "jarvis-response") mainHandler.post { onSpeechFinished() }
+                    mainHandler.post {
+                        if (activeSpeechPrefix != null && utteranceId?.startsWith(activeSpeechPrefix!!) == true) {
+                            activeSpeechPrefix = null
+                            finalSpeechId = null
+                            tts.stop()
+                            onSpeechFinished()
+                        }
+                    }
                 }
             })
             applyJarvisStyleVoiceProfile()

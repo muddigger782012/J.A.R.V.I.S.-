@@ -7,6 +7,16 @@ import org.junit.Test
 import java.time.Instant
 
 class OnlineAnswersTest {
+    @Test fun fiveDayForecastIncludesAllFiveCalendarDays() {
+        val periods = JSONArray()
+        for (day in 10..16) {
+            periods.put(JSONObject().put("name", "Day $day").put("startTime", "2026-10-${day}T06:00:00-04:00")
+                .put("endTime", "2026-10-${day}T18:00:00-04:00").put("shortForecast", "Clear").put("detailedForecast", "Forecast $day."))
+        }
+        val answer = OnlineAnswers.weatherSummary(periods, "What's the forecast for the next 5 days", "Elizabeth City, NC", Instant.parse("2026-10-10T04:42:00Z"))
+        for (day in 11..15) assertTrue(answer.contains("Forecast $day."))
+        assertFalse(answer.contains("Forecast 10.")); assertFalse(answer.contains("Forecast 16."))
+    }
     @Test fun providerErrorsExposeCodesWithoutSecrets() {
         val json = JSONObject("""{"error":{"status":"INVALID_ARGUMENT","message":"secret key should never be displayed","details":[{"reason":"API_KEY_INVALID"}]}}""")
         val text = OnlineAnswers.geminiError(400, json)

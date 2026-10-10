@@ -182,7 +182,7 @@ class VoiceForegroundService : Service() {
         // retained below only until the remaining migration is complete.
         val reply = hybridAssistantService.handleUserInput(transcript)
         publishEvent("J.A.R.V.I.S.: ${reply.text}")
-        speakResponse(reply.text.lineSequence().firstOrNull()?.take(240) ?: "Done.")
+        speakResponse(reply.text)
     }
 
     private fun speakResponse(text: String) {
@@ -247,13 +247,13 @@ class VoiceForegroundService : Service() {
                 ) {
                     val reply = hybridAssistantService.handleUserInput(command)
                     publishEvent("J.A.R.V.I.S.: ${reply.text}")
-                    voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(180) ?: "Confirmation required.")
+                    voiceService.speak(reply.text)
                 } else if (proposedAction != null) {
                     handleActionResult(assistantEngine.executeAction(proposedAction))
                 } else {
                     val reply = hybridAssistantService.handleUserInput(parsed.fallbackTextCommand ?: command)
                     publishEvent("J.A.R.V.I.S.: ${reply.text}")
-                    voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(180) ?: "Done.")
+                    voiceService.speak(reply.text)
                 }
             }
         }
