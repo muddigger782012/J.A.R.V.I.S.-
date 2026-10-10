@@ -804,6 +804,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnOpenBatteryOptimizationPermission).setOnClickListener { openBatteryOptimizationPermission() }
         findViewById<Button>(R.id.btnOpenNotificationPolicyPermission).setOnClickListener { openNotificationPolicyPermission() }
         findViewById<Button>(R.id.btnOpenAccessibilitySettings).setOnClickListener { openAccessibilitySettings() }
+        findViewById<Button>(R.id.btnOpenDefaultAssistantSettings).setOnClickListener { openDefaultAssistantSettings() }
 
         btnApplyCameraDisabled.setOnClickListener { applyCameraDisabled() }
         btnApplyScreenCaptureDisabled.setOnClickListener { applyScreenCaptureDisabled() }
@@ -1822,6 +1823,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun openNotificationPolicyPermission() {
         startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+    }
+
+    private fun openDefaultAssistantSettings() {
+        val primary = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)
+        val fallback = Intent(Settings.ACTION_SETTINGS)
+        runCatching { startActivity(primary) }
+            .onFailure { startActivity(fallback) }
     }
 
     private fun openAccessibilitySettings() {
