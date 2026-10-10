@@ -202,8 +202,19 @@ class VoiceAssistantService(
         when (mode) {
             RecognitionMode.FALLBACK_SPEECH_HOTWORD -> scheduleFallbackAfterError(error)
             RecognitionMode.COMMAND -> {
-                onStatus("Command capture error. Returning to wake-word listening.")
-                resumeHotwordEngineAfterCommand()
+                when (error) {
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
+                    SpeechRecognizer.ERROR_NO_MATCH -> {
+                        onStatus("No speech detected. Push-to-talk ended.")
+                        // A silent push-to-talk session is a normal outcome.
+                        // Do not launch/re-arm the background wake engine here.
+                        mode = RecognitionMode.FALLBACK_SPEECH_HOTWORD
+                    }
+                    else -> {
+                        onStatus("Command capture error ($error). Push-to-talk ended.")
+                        mode = RecognitionMode.FALLBACK_SPEECH_HOTWORD
+                    }
+                }
             }
         }
     }
@@ -313,7 +324,9 @@ class VoiceAssistantService(
                 )
             )
         }
-        resumeHotwordEngineAfterCommand()
+        // Push-to-talk is a one-shot capture. Background wake listening has
+        // its own service lifecycle and must not be started as a side effect.
+        mode = RecognitionMode.FALLBACK_SPEECH_HOTWORD
     }
 
     private fun resumeHotwordEngineAfterCommand() {
