@@ -847,10 +847,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun runAssistantCommandFromInput() {
         val commandText = commandInput.text?.toString()?.trim().orEmpty()
-        val reply = hybridAssistantService.handleUserInput(commandText)
         appendOutput("You: ${if (commandText.isBlank()) "(status request)" else commandText}")
-        appendOutput("J.A.R.V.I.S.: ${reply.text}")
-        statusOutput.text = reply.actionResult?.output ?: reply.text
+        hybridAssistantService.handleUserInputAsync(commandText) { reply ->
+            runOnUiThread {
+                appendOutput("J.A.R.V.I.S.: ${reply.text}")
+                statusOutput.text = reply.actionResult?.output ?: reply.text
+            }
+        }
         commandInput.setText("")
     }
 
