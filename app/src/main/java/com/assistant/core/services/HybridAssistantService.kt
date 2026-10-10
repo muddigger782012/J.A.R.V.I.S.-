@@ -37,6 +37,7 @@ class HybridAssistantService(
     private val history = ArrayDeque<Pair<String, String>>()
     private val androidAssistant = AndroidAssistantService(systemService.context())
     private val learningStore = IntentLearningStore(systemService.context())
+    private val directOnlineClient = DirectOnlineClient(systemService.context())
     private val fallbackAiClient = FallbackAiClient(systemService.context())
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
@@ -327,12 +328,28 @@ class HybridAssistantService(
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
         val local = handleUserInput(rawInput)
         val unresolved = local.text.startsWith("I don't understand that locally yet.")
+        if (unresolved && OnlineAnswers.isWeather(rawInput)) {
+            Thread {
+                val response = directOnlineClient.weather(rawInput)
+                remember(rawInput, response)
+                callback(HybridAssistantReply(response))
+            }.start()
+            return
+        }
         if (!unresolved) {
             callback(local)
             return
         }
+        if (directOnlineClient.hasGeminiKey()) {
+            Thread {
+                val response = directOnlineClient.gemini(rawInput)
+                remember(rawInput, response)
+                callback(HybridAssistantReply(response))
+            }.start()
+            return
+        }
         if (!fallbackAiClient.isConfigured()) {
-            val response = "I don't understand that locally yet. Cloud fallback is not configured; set an HTTPS endpoint and gateway token in AI settings."
+            val response = "I don't understand that locally yet. AI fallback needs configuration. Enter your Gemini API key in Voice Settings → Weather and AI."
             remember(rawInput, response)
             callback(HybridAssistantReply(response, local.actionResult))
             return
