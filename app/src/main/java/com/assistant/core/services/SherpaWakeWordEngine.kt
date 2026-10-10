@@ -1,16 +1,19 @@
 package com.assistant.core.services
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import androidx.core.content.ContextCompat
+import com.k2fsa.sherpa.onnx.KeywordSpotter
+import com.k2fsa.sherpa.onnx.KeywordSpotterConfig
+import com.k2fsa.sherpa.onnx.OnlineStream
+import com.k2fsa.sherpa.onnx.getFeatureConfig
+import com.k2fsa.sherpa.onnx.getKwsModelConfig
+import kotlin.concurrent.thread
 
-/**
- * Boundary for the sherpa-onnx keyword spotter.
- *
- * The Android sherpa runtime is distributed as an AAR containing JNI binaries,
- * while the English KWS model is shipped separately. Keeping that native
- * integration behind this class prevents VoiceAssistantService from depending
- * on a vendor-specific API and keeps push-to-talk usable when model assets are
- * unavailable.
- */
 class SherpaWakeWordEngine(
     private val context: Context,
     private val wakePhrase: String,
@@ -18,39 +21,115 @@ class SherpaWakeWordEngine(
     private val onDetected: () -> Unit,
     private val onStatus: (String) -> Unit
 ) {
+    companion object {
+        private const val SAMPLE_RATE = 16000
+        private const val MODEL_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
+    }
+
     @Volatile private var running = false
+    private var recorder: AudioRecord? = null
+    private var worker: Thread? = null
+    private var spotter: KeywordSpotter? = null
+    private var stream: OnlineStream? = null
 
     fun start(): Boolean {
         if (running) return true
-        if (!runtimeAvailable()) {
-            onStatus("Sherpa-ONNX native runtime/model assets are not packaged yet; push-to-talk remains available.")
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            onStatus("Microphone permission is required for Hey Jarvis.")
             return false
         }
-        // Native AudioRecord -> OnlineStream wiring is activated once the
-        // sherpa AAR and English Zipformer KWS assets are present in the APK.
-        running = true
-        onStatus("Sherpa-ONNX runtime found for wake phrase: $wakePhrase")
-        return true
+        return try {
+            val config = KeywordSpotterConfig(
+                featConfig = getFeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
+                modelConfig = getKwsModelConfig(type = 1)!!,
+                keywordsFile = "$MODEL_DIR/keywords.txt",
+                keywordsScore = 1.5f,
+                keywordsThreshold = thresholdFor(sensitivity),
+                numTrailingBlanks = 2
+            )
+            val kws = KeywordSpotter(assetManager = context.assets, config = config)
+            val phrase = wakePhrase.trim().ifBlank { "hey jarvis" }
+            val onlineStream = kws.createStream(phrase)
+            if (onlineStream.ptr == 0L) {
+                kws.release()
+                onStatus("Sherpa could not create a stream for '$phrase'.")
+                return false
+            }
+
+            val minBytes = AudioRecord.getMinBufferSize(
+                SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+            )
+            if (minBytes <= 0) {
+                onlineStream.release(); kws.release()
+                return false
+            }
+            val audio = AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                minBytes * 2
+            )
+            if (audio.state != AudioRecord.STATE_INITIALIZED) {
+                audio.release(); onlineStream.release(); kws.release()
+                return false
+            }
+
+            spotter = kws
+            stream = onlineStream
+            recorder = audio
+            running = true
+            audio.startRecording()
+            worker = thread(start = true, isDaemon = true, name = "jarvis-sherpa-kws") {
+                processAudio(kws, onlineStream, audio)
+            }
+            true
+        } catch (t: Throwable) {
+            onStatus("Sherpa wake engine failed: ${t.message ?: t.javaClass.simpleName}")
+            stop()
+            false
+        }
     }
 
     fun stop() {
         running = false
+        runCatching { recorder?.stop() }
+        worker?.interrupt()
+        worker = null
+        runCatching { recorder?.release() }
+        recorder = null
+        runCatching { stream?.release() }
+        stream = null
+        runCatching { spotter?.release() }
+        spotter = null
     }
 
-    private fun runtimeAvailable(): Boolean {
-        val hasRuntime = runCatching {
-            Class.forName("com.k2fsa.sherpa.onnx.KeywordSpotter")
-        }.isSuccess
-        if (!hasRuntime) return false
-
-        val required = arrayOf(
-            "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/tokens.txt",
-            "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
-            "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
-            "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/joiner-epoch-12-avg-2-chunk-16-left-64.onnx"
-        )
-        return required.all { asset ->
-            runCatching { context.assets.open(asset).close() }.isSuccess
+    private fun processAudio(kws: KeywordSpotter, onlineStream: OnlineStream, audio: AudioRecord) {
+        val buffer = ShortArray(1600)
+        try {
+            while (running) {
+                val n = audio.read(buffer, 0, buffer.size)
+                if (n <= 0) continue
+                val samples = FloatArray(n) { buffer[it] / 32768.0f }
+                onlineStream.acceptWaveform(samples, SAMPLE_RATE)
+                while (running && kws.isReady(onlineStream)) {
+                    kws.decode(onlineStream)
+                    val keyword = kws.getResult(onlineStream).keyword
+                    if (keyword.isNotBlank()) {
+                        kws.reset(onlineStream)
+                        running = false
+                        onDetected()
+                        return
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            if (running) onStatus("Sherpa audio loop stopped: ${t.message ?: t.javaClass.simpleName}")
         }
+    }
+
+    private fun thresholdFor(value: Float): Float {
+        val v = value.coerceIn(0f, 1f)
+        return (0.45f - (v * 0.30f)).coerceIn(0.10f, 0.45f)
     }
 }
