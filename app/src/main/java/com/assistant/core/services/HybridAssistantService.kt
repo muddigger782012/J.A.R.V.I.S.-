@@ -434,7 +434,14 @@ class HybridAssistantService(
     }
 
     private fun parseNavigationDestination(text: String): String? {
-        val prefixes = listOf("navigate to ", "directions to ", "take me to ")
+        val prefixes = listOf(
+            "navigate to ",
+            "directions to ",
+            "give me directions to ",
+            "get me directions to ",
+            "show me directions to ",
+            "take me to "
+        )
         val prefix = prefixes.firstOrNull { text.startsWith(it) } ?: return null
         return text.removePrefix(prefix).trim().takeIf { it.isNotBlank() }
     }
