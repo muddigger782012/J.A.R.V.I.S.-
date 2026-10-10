@@ -13,6 +13,7 @@ import com.k2fsa.sherpa.onnx.OnlineStream
 import com.k2fsa.sherpa.onnx.getFeatureConfig
 import com.k2fsa.sherpa.onnx.getKwsModelConfig
 import kotlin.concurrent.thread
+import kotlin.math.abs
 
 class SherpaWakeWordEngine(
     private val context: Context,
@@ -119,6 +120,9 @@ class SherpaWakeWordEngine(
 
     private fun processAudio(kws: KeywordSpotter, onlineStream: OnlineStream, audio: AudioRecord) {
         val buffer = ShortArray(1600)
+        var chunks = 0
+        var peakSinceReport = 0
+        var lastReportAt = System.currentTimeMillis()
         try {
             while (running) {
                 val n = audio.read(buffer, 0, buffer.size)
@@ -127,6 +131,21 @@ class SherpaWakeWordEngine(
                     break
                 }
                 if (n == 0) continue
+                var peak = 0
+                for (i in 0 until n) {
+                    val level = abs(buffer[i].toInt())
+                    if (level > peak) peak = level
+                }
+                if (peak > peakSinceReport) peakSinceReport = peak
+                chunks += 1
+                val now = System.currentTimeMillis()
+                if (now - lastReportAt >= 3000L) {
+                    val pct = (peakSinceReport * 100 / 32767).coerceIn(0, 100)
+                    onStatus("Sherpa audio active: peak $pct%, chunks $chunks; waiting for '$wakePhrase'.")
+                    peakSinceReport = 0
+                    chunks = 0
+                    lastReportAt = now
+                }
                 val samples = FloatArray(n) { buffer[it] / 32768.0f }
                 onlineStream.acceptWaveform(samples, SAMPLE_RATE)
                 while (running && kws.isReady(onlineStream)) {
