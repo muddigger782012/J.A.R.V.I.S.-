@@ -32,7 +32,8 @@ async def chat(req: ChatRequest, authorization: str | None = Header(default=None
     if not msgs:
         raise HTTPException(status_code=400, detail="No valid messages")
     try:
-        response = await client.responses.create(model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"), instructions="You are Jarvis, a helpful assistant. Never claim to have executed device actions. Device actions require explicit separate user approval.", input=msgs)
+        instructions = learning_instructions() if req.learn_intent else "You are Jarvis, a helpful assistant. Never claim to have executed device actions. Device actions require explicit separate user approval."
+        response = await client.responses.create(model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"), instructions=instructions, input=msgs)
         return {"reply": response.output_text}
     except Exception:
         raise HTTPException(status_code=502, detail="AI provider error")
