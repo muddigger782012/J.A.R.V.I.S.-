@@ -87,6 +87,13 @@ class VoiceAssistantService(
         }
     }
 
+    fun startPushToTalk() {
+        voiceActive = true
+        fallbackErrorStreak = 0
+        if (currentHotwordEngine == HotwordEngine.DEDICATED_OFFLINE) stopDedicatedWakeWordEngine()
+        startCommandListening()
+    }
+
     fun startHotwordLoop() {
         voiceActive = true
         mode = RecognitionMode.FALLBACK_SPEECH_HOTWORD
