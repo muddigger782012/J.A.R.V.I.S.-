@@ -2,6 +2,7 @@ import os
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
 from openai import AsyncOpenAI
+from lesson_protocol import LearningReply, learning_instructions
 
 app = FastAPI(title="Jarvis Conversation Gateway")
 client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
@@ -13,6 +14,7 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str = Field(max_length=128)
     messages: list[Message] = Field(min_length=1, max_length=50)
+    learn_intent: bool = False
 
 @app.get("/health")
 def health():
