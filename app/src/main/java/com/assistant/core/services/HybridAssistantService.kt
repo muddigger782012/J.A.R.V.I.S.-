@@ -228,10 +228,7 @@ class HybridAssistantService(
         }
 
         if (CommandPhrases.isAmazonMusicRequest(userInput)) {
-            val ok = androidAssistant.launchAppByLabel("amazon music")
-                || androidAssistant.launchAppByLabel("music amazon")
-            val response = if (ok) "Opening Amazon Music. Tap Play in the app to start your music."
-                else "I couldn't find Amazon Music installed. Install it and sign in, then try again."
+            val response = androidAssistant.amazonMusic(Regex("(?i)\\bplay\\b").containsMatchIn(userInput))
             remember(userInput, response); return HybridAssistantReply(response)
         }
 

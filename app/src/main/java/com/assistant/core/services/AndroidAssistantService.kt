@@ -113,6 +113,26 @@ class AndroidAssistantService(private val context: Context) {
         return launchApp(match.packageName)
     }
 
+    fun amazonMusic(playMusic: Boolean): String {
+        val pm = context.packageManager
+        val app = pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0)).firstOrNull {
+            pm.getApplicationLabel(it).toString().trim().lowercase(java.util.Locale.ROOT) in
+                setOf("amazon music", "music amazon", "amazon prime music")
+        } ?: return "I couldn't find Amazon Music installed. Install it and sign in, then try again."
+        if (playMusic) {
+            val intent = Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                setPackage(app.packageName)
+                putExtra(android.app.SearchManager.QUERY, "")
+                putExtra(android.provider.MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
+            }
+            if (launch(intent)) return "Asked Amazon Music to start playing."
+        }
+        return if (launchApp(app.packageName)) {
+            if (playMusic) "Opening Amazon Music. Tap Play in the app to start your music."
+            else "Opening Amazon Music."
+        } else "Android couldn't open Amazon Music. Check that the app is enabled."
+    }
+
     fun playPauseMedia(): Boolean = dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
     fun nextMedia(): Boolean = dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_NEXT)
     fun previousMedia(): Boolean = dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS)
