@@ -2204,6 +2204,10 @@ class MainActivity : ThemedActivity() {
             }
         }
         reloadVoiceConfiguration(showStatus = false)
+        runCatching {
+            val wakeStage = java.io.File(filesDir, "wake-stage.txt")
+            if (wakeStage.exists()) appendOutput("[BG-DIAG] Wake stage: " + wakeStage.readText().trim())
+        }
         updateMicrophonePermissionUi()
         refreshSpecialPermissionsStatus()
         refreshShizukuRuntimeStatus()
