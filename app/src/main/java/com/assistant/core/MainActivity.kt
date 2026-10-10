@@ -1409,10 +1409,13 @@ class MainActivity : AppCompatActivity() {
     private fun handleVoiceTranscript(command: String) {
         commandInput.setText(command)
         appendOutput("You: $command")
-        val reply = hybridAssistantService.handleUserInput(command)
-        appendOutput("J.A.R.V.I.S.: ${reply.text}")
-        statusOutput.text = reply.actionResult?.output ?: reply.text
-        voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(240) ?: "Done.")
+        hybridAssistantService.handleUserInputAsync(command) { reply ->
+            runOnUiThread {
+                appendOutput("J.A.R.V.I.S.: ${reply.text}")
+                statusOutput.text = reply.actionResult?.output ?: reply.text
+                voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(240) ?: "Done.")
+            }
+        }
     }
 
     private fun ensureMicPermissionAndPushToTalk() {
