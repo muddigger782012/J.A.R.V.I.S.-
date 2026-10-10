@@ -10,7 +10,8 @@ output.mkdir(exist_ok=True)
 
 
 def adb(*args):
-    return subprocess.check_output(['adb', *args], text=True)
+    print('ADB: ' + ' '.join(args), flush=True)
+    return subprocess.check_output(['adb', *args], text=True, timeout=45)
 
 
 def hierarchy():
@@ -30,7 +31,8 @@ def tap(identifier):
 
 
 def capture(name):
-    raw = subprocess.check_output(['adb', 'exec-out', 'screencap', '-p'])
+    print('Screenshot: ' + name, flush=True)
+    raw = subprocess.check_output(['adb', 'exec-out', 'screencap', '-p'], timeout=45)
     (output / (name + '.png')).write_bytes(raw)
     (output / (name + '.xml')).write_text(ET.tostring(hierarchy(), encoding='unicode'))
 
@@ -84,6 +86,14 @@ try:
     assert any(n.get('resource-id') == 'com.assistant.core:id/btnRunAssistantCommand' for n in hierarchy().iter('node')), 'Send hidden on small screen'
     capture('small-screen-keyboard')
 except Exception:
-    capture('failure')
-    (output / 'logcat.txt').write_text(adb('logcat', '-d'))
+    import traceback
+    (output / 'failure.txt').write_text(traceback.format_exc())
+    try:
+        capture('failure')
+    except Exception as error:
+        print('Failure screenshot unavailable: ' + str(error), flush=True)
+    try:
+        (output / 'logcat.txt').write_text(adb('logcat', '-d'))
+    except Exception as error:
+        print('Logcat unavailable: ' + str(error), flush=True)
     raise
