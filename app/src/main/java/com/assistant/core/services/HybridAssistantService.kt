@@ -38,6 +38,7 @@ class HybridAssistantService(
     private val androidAssistant = AndroidAssistantService(systemService.context())
     private val learningStore = IntentLearningStore(systemService.context())
     private val directOnlineClient = DirectOnlineClient(systemService.context())
+    private val assistantConnections = AssistantConnections(systemService.context())
     private val fallbackAiClient = FallbackAiClient(systemService.context())
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
@@ -98,23 +99,22 @@ class HybridAssistantService(
         }
 
         if (containsAny(normalized, "hello", "hi jarvis", "hey jarvis", "good morning", "good evening")) {
-            val response = "Hello. I'm ready to help with device actions, status checks, Shizuku terminal commands, and project generation."
+            val response = "Hello. I can help with calls, messages, maps, weather, music, and questions."
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
 
         if (containsAny(normalized, "what can you do", "help", "capabilities", "features")) {
-            val capabilities = capabilityProvider()
             val response = buildString {
                 appendLine("I can help with:")
-                appendLine("- Create local coding projects")
-                appendLine("- Run Shizuku shell commands")
-                appendLine("- Show system/capability status")
-                appendLine("- Manage Dhizuku/Device Owner controls")
-                appendLine("- Voice and terminal workflows")
-                appendLine()
-                appendLine("Current capability flags:")
-                appendLine("shizuku=${capabilities.shizuku}, dhizuku=${capabilities.dhizuku}, deviceOwner=${capabilities.deviceOwner}")
+                appendLine("- Call a number or contact with Phone permission")
+                appendLine("- Read your latest missed call with Call Log permission")
+                appendLine("- Open maps, apps, and compose messages")
+                appendLine("- Set alarms and control music")
+                appendLine("- Get US weather directly, without an AI key")
+                appendLine("- Answer general questions with your optional Gemini key")
+                appendLine("No custom server or companion app is needed for built-in commands.")
+                appendLine("Advanced tools and home-server connections are optional.")
             }
             remember(userInput, response)
             return HybridAssistantReply(response)
@@ -337,6 +337,14 @@ class HybridAssistantService(
     }
 
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+        AssistantConnectionProtocol.parse(rawInput)?.let { request ->
+            Thread {
+                val response = assistantConnections.ask(request)
+                remember(rawInput, response)
+                callback(HybridAssistantReply(response))
+            }.start()
+            return
+        }
         val local = handleUserInput(rawInput)
         val unresolved = local.text.startsWith("I don't understand that locally yet.")
         if (unresolved && OnlineAnswers.isWeather(rawInput)) {

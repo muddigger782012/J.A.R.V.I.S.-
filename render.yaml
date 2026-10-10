@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: jarvis-gateway
+    runtime: docker
+    plan: free
+    dockerfilePath: ./cloud-backend/Dockerfile
+    dockerContext: ./cloud-backend
+    healthCheckPath: /health
+    envVars:
+      - key: JARVIS_GATEWAY_TOKEN
+        generateValue: true
+      - key: OPENAI_MODEL
+        value: gpt-4.1-mini

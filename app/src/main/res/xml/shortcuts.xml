@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <capability android:name="actions.intent.OPEN_APP_FEATURE">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.assistant.core" android:targetClass="com.assistant.core.MainActivity">
+            <parameter android:name="feature" android:key="jarvis_feature" />
+        </intent>
+    </capability>
+    <shortcut android:shortcutId="voice" android:enabled="true" android:shortcutShortLabel="@string/shortcut_voice" android:icon="@mipmap/ic_launcher">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.assistant.core" android:targetClass="com.assistant.core.MainActivity">
+            <extra android:name="jarvis_feature" android:value="voice" />
+        </intent>
+        <capability-binding android:key="actions.intent.OPEN_APP_FEATURE">
+            <parameter-binding android:key="feature" android:value="voice" />
+        </capability-binding>
+    </shortcut>
+    <shortcut android:shortcutId="weather_settings" android:enabled="true" android:shortcutShortLabel="@string/shortcut_weather" android:icon="@mipmap/ic_launcher">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.assistant.core" android:targetClass="com.assistant.core.MainActivity">
+            <extra android:name="jarvis_feature" android:value="weather_settings" />
+        </intent>
+        <capability-binding android:key="actions.intent.OPEN_APP_FEATURE">
+            <parameter-binding android:key="feature" android:value="weather_settings" />
+        </capability-binding>
+    </shortcut>
+    <shortcut android:shortcutId="connections" android:enabled="true" android:shortcutShortLabel="@string/shortcut_connections" android:icon="@mipmap/ic_launcher">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.assistant.core" android:targetClass="com.assistant.core.MainActivity">
+            <extra android:name="jarvis_feature" android:value="connections" />
+        </intent>
+        <capability-binding android:key="actions.intent.OPEN_APP_FEATURE">
+            <parameter-binding android:key="feature" android:value="connections" />
+        </capability-binding>
+    </shortcut>
+</shortcuts>
