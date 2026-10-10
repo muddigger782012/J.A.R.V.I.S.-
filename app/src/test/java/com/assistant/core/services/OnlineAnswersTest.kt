@@ -7,6 +7,13 @@ import org.junit.Test
 import java.time.Instant
 
 class OnlineAnswersTest {
+    @Test fun providerErrorsExposeCodesWithoutSecrets() {
+        val json = JSONObject("""{"error":{"status":"INVALID_ARGUMENT","message":"secret key should never be displayed","details":[{"reason":"API_KEY_INVALID"}]}}""")
+        val text = OnlineAnswers.geminiError(400, json)
+        assertTrue(text.contains("API_KEY_INVALID"))
+        assertTrue(text.contains("HTTP 400"))
+        assertFalse(text.contains("secret key"))
+    }
     @Test fun preciseLocationCommandIsRecognized() {
         assertTrue(OnlineAnswers.wantsDeviceLocation("Use my precise location for the weather"))
         assertFalse(OnlineAnswers.wantsDeviceLocation("What's tomorrow's weather"))

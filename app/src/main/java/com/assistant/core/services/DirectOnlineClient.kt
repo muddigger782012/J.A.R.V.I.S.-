@@ -44,6 +44,25 @@ object OnlineAnswers {
         if (selected.isEmpty()) return "No forecast is available for that day yet."
         return "Forecast for $location: " + selected.joinToString(" ") { "${it.getString("name")}: ${it.getString("detailedForecast")}" } + " Source: National Weather Service."
     }
+    fun geminiError(code: Int, json: JSONObject?): String {
+        val error = json?.optJSONObject("error")
+        val status = error?.optString("status").orEmpty().takeIf { Regex("[A-Z_]{1,80}").matches(it) }
+        val details = error?.optJSONArray("details")
+        val reasons = if (details == null) emptyList() else (0 until details.length()).mapNotNull {
+            details.optJSONObject(it)?.optString("reason")?.takeIf { reason -> Regex("[A-Z_]{1,80}").matches(reason) }
+        }
+        val diagnostic = (listOf("HTTP $code") + listOfNotNull(status) + reasons).distinct().joinToString(", ")
+        val advice = when {
+            "API_KEY_INVALID" in reasons -> "Re-copy the complete API key from Google AI Studio and save it in Weather and AI settings."
+            "SERVICE_DISABLED" in reasons || "API_KEY_SERVICE_BLOCKED" in reasons -> "Check the project's Gemini API access and key restrictions in Google AI Studio."
+            code == 429 -> "Your Gemini quota or rate limit was reached. Check your quota or try again later."
+            code == 404 -> "The configured model isn't available. Check the model in Weather and AI settings."
+            code in listOf(400, 401, 403) -> "Check API key, model, project access, and regional availability in Google AI Studio."
+            else -> "Try again later."
+        }
+        return "Gemini rejected the request ($diagnostic). $advice"
+    }
+
     fun geminiText(json: JSONObject): String? {
         val candidate = json.optJSONArray("candidates")?.optJSONObject(0) ?: return null
         val parts = candidate.optJSONObject("content")?.optJSONArray("parts") ?: return null
@@ -74,7 +93,10 @@ class DirectOnlineClient(context: Context) {
                 connection.outputStream.writer(Charsets.UTF_8).use { it.write(body.toString()) }
             }
             val code = connection.responseCode
-            if (code !in 200..299) return code to null
+            if (code !in 200..299) {
+                val error = runCatching { connection.errorStream?.reader(Charsets.UTF_8)?.use { JSONObject(it.readText()) } }.getOrNull()
+                return code to error
+            }
             return code to JSONObject(connection.inputStream.reader(Charsets.UTF_8).use { it.readText() })
         } finally { connection.disconnect() }
     }
@@ -111,13 +133,9 @@ class DirectOnlineClient(context: Context) {
             val body = JSONObject().put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", "You are J.A.R.V.I.S., a concise helpful assistant. Answer questions only. You cannot execute device actions. Never claim to place calls or change settings. Do not invent current weather or other live facts; explain when live data is needed."))))
                 .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", question)))))
             val (code, json) = request("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent", body, apiKey)
-            when (code) {
-                400, 401, 403 -> "Gemini rejected the request. Check your API key and API access in Google AI Studio."
-                404 -> "That Gemini model isn't available for your API key. Change the model in Weather and AI settings."
-                429 -> "Gemini's quota or rate limit was reached. Check your Google AI Studio quota or try again later."
-                in 200..299 -> json?.let(OnlineAnswers::geminiText) ?: "Gemini returned no usable text answer. Try rephrasing the question."
-                else -> "Gemini is unavailable right now (HTTP $code). Try again later."
-            }
+            if (code in 200..299) {
+                json?.let(OnlineAnswers::geminiText) ?: "Gemini returned no usable text answer. Try rephrasing the question."
+            } else OnlineAnswers.geminiError(code, json)
         } catch (_: Exception) { "I couldn't connect to Gemini. Check your internet connection and try again." }
     }
 }
