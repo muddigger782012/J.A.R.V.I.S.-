@@ -29,7 +29,6 @@ class VoiceSettingsActivity : ThemedActivity() {
         val foregroundModeSwitch: SwitchMaterial = findViewById(R.id.switchForegroundServiceMode)
         val autoStartForegroundSwitch: SwitchMaterial = findViewById(R.id.switchAutoStartForegroundService)
         val offlineSwitch: SwitchMaterial = findViewById(R.id.switchPreferOfflineCommand)
-        val accessKeyInput: EditText = findViewById(R.id.etPorcupineAccessKey)
         val sensitivitySeek: SeekBar = findViewById(R.id.seekWakeSensitivity)
         val sensitivityValue: TextView = findViewById(R.id.tvWakeSensitivityValue)
         val confidenceSeek: SeekBar = findViewById(R.id.seekCommandConfidenceThreshold)
@@ -150,7 +149,6 @@ class VoiceSettingsActivity : ThemedActivity() {
         foregroundModeSwitch.isChecked = current.useForegroundServiceMode
         autoStartForegroundSwitch.isChecked = current.autoStartForegroundService
         offlineSwitch.isChecked = current.preferOfflineCommandRecognition
-        accessKeyInput.setText(current.porcupineAccessKey)
         sensitivitySeek.progress = (current.wakeSensitivity * 100f).toInt()
         sensitivityValue.text = formatSensitivity(current.wakeSensitivity)
         confidenceSeek.progress = (current.commandConfidenceThreshold * 100f).toInt()
@@ -190,7 +188,6 @@ class VoiceSettingsActivity : ThemedActivity() {
             val config = VoiceConfig(
                 enableDedicatedWakeWord = dedicatedSwitch.isChecked,
                 wakeWord = wakeWordInput.text?.toString().orEmpty(),
-                porcupineAccessKey = accessKeyInput.text?.toString().orEmpty(),
                 wakeSensitivity = (sensitivitySeek.progress.coerceIn(10, 100)) / 100f,
                 autoStartVoice = autoStartSwitch.isChecked,
                 preferOfflineCommandRecognition = offlineSwitch.isChecked,
