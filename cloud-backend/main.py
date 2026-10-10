@@ -2,7 +2,7 @@ import os
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
 from openai import AsyncOpenAI
-from lesson_protocol import LearningReply, learning_instructions
+from lesson_protocol import learning_instructions
 
 app = FastAPI(title="Jarvis Conversation Gateway")
 client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
