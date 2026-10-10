@@ -177,7 +177,7 @@ class VoiceAssistantService(
     override fun onEvent(eventType: Int, params: Bundle?) = Unit
 
     private fun shouldUseDedicatedWakeWord(): Boolean {
-        return config.enableDedicatedWakeWord && config.wakeWord.equals("hey jarvis", ignoreCase = true) && config.porcupineAccessKey.isNotBlank()
+        return config.enableDedicatedWakeWord && config.wakeWord.equals("jarvis", ignoreCase = true) && config.porcupineAccessKey.isNotBlank()
     }
 
     private fun startDedicatedWakeWordEngine() {
@@ -202,7 +202,7 @@ class VoiceAssistantService(
                 }
             porcupineManager?.start()
             currentHotwordEngine = HotwordEngine.DEDICATED_OFFLINE
-            onStatus("Dedicated wake-word engine active (offline model).")
+            onStatus("Dedicated Porcupine wake-word engine active for built-in \"Jarvis\".")
         } catch (error: PorcupineException) {
             switchToSpeechHotwordFallback(
                 "Dedicated wake-word unavailable: ${error.message ?: "setup failed"}"
