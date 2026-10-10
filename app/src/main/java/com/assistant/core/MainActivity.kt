@@ -1654,9 +1654,6 @@ class MainActivity : ThemedActivity() {
     private fun startVoiceHotwordMode() {
         shouldStartVoiceAfterPermission = false
         pendingClarification = null
-        if (currentVoiceConfig.enableDedicatedWakeWord && currentVoiceConfig.porcupineAccessKey.isBlank()) {
-            // Engine fallback is intentionally silent in the conversational UI.
-        }
         if (currentVoiceConfig.useForegroundServiceMode) {
             VoiceForegroundService.start(this)
             voiceEnabled = true
