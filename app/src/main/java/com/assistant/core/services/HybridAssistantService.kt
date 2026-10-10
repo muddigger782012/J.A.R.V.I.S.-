@@ -29,6 +29,7 @@ class HybridAssistantService(
 
     private var pendingPrompt: PendingPrompt = PendingPrompt.NONE
     private var pendingShellCommand: String? = null
+    private var lastContactTarget: String? = null
     private val history = ArrayDeque<Pair<String, String>>()
     private val androidAssistant = AndroidAssistantService(systemService.context())
 
@@ -162,14 +163,18 @@ class HybridAssistantService(
             remember(userInput, response); return HybridAssistantReply(response)
         }
 
-        parseCallTarget(normalized)?.let { target ->
+        parseCallTarget(normalized)?.let { rawTarget ->
+            val target = resolveConversationContact(rawTarget)
+            lastContactTarget = target
             val number = target.filter { it.isDigit() || it == '+' }.takeIf { it.any(Char::isDigit) }
                 ?: androidAssistant.resolveContactPhone(target)
             val ok = number?.let(androidAssistant::dial) ?: false
             val response = if (ok) "Opening the dialer for $target." else "I couldn't find a phone number for $target. Contact access may be required."
             remember(userInput, response); return HybridAssistantReply(response)
         }
-        parseMessageRequest(userInput)?.let { (target, body) ->
+        parseMessageRequest(userInput)?.let { (rawTarget, body) ->
+            val target = resolveConversationContact(rawTarget)
+            lastContactTarget = target
             val number = target.filter { it.isDigit() || it == '+' }.takeIf { it.any(Char::isDigit) }
                 ?: androidAssistant.resolveContactPhone(target)
             val ok = number?.let { androidAssistant.composeSms(it, body) } ?: false
@@ -347,6 +352,14 @@ class HybridAssistantService(
     private fun parseReminderRequest(raw: String): String? {
         val match = Regex("(?i)^(?:remind me to|create (?:a )?reminder(?: to)?|add (?:a )?reminder(?: to)?) (.+)$").find(raw.trim()) ?: return null
         return match.groupValues[1].trim().takeIf { it.isNotBlank() }
+    }
+
+    private fun resolveConversationContact(target: String): String {
+        val normalized = target.trim().lowercase()
+        if (normalized in setOf("him", "her", "them", "that person", "the same person")) {
+            return lastContactTarget ?: target
+        }
+        return target
     }
 
     private fun parseCallTarget(text: String): String? {
