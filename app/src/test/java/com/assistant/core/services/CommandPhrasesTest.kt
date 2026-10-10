@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CommandPhrasesTest {
+    @Test fun primeMusicAliasesRouteLocally() {
+        assertTrue(CommandPhrases.isAmazonMusicRequest("Play Prime music"))
+        assertTrue(CommandPhrases.isAmazonMusicRequest("Please play Amazon Prime Music for me."))
+        assertTrue(CommandPhrases.isAmazonMusicRequest("Open Amazon music"))
+        assertFalse(CommandPhrases.isAmazonMusicRequest("What is Prime music?"))
+        assertFalse(CommandPhrases.isAmazonMusicRequest("Play Spotify"))
+    }
     @Test fun missedCallQuestionsAreLocalAndSpecific() {
         assertTrue(CommandPhrases.isLastMissedCall("Who was my last missed call?"))
         assertTrue(CommandPhrases.isLastMissedCall("Show my most recent missed call"))
