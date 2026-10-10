@@ -40,3 +40,11 @@ def learning_instructions() -> str:
         "Do not treat private values, credentials, message contents, or personal facts as reusable training data. "
         "Do not claim that a device action was executed."
     )
+
+
+def parse_learning_reply(raw: str) -> LearningReply | None:
+    """Parse and validate the model's structured learning response."""
+    try:
+        return LearningReply.model_validate_json(raw)
+    except Exception:
+        return None
