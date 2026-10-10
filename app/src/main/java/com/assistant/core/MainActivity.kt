@@ -1722,7 +1722,6 @@ class MainActivity : ThemedActivity() {
         refreshVoiceButtonLabel()
         if (currentVoiceConfig.useForegroundServiceMode &&
             currentVoiceConfig.autoStartForegroundService &&
-            !voiceEnabled &&
             hasMicrophonePermission()
         ) {
             try {
