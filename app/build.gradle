@@ -26,8 +26,21 @@ android {
         buildConfig true
     }
 
+    signingConfigs {
+        release {
+            def storePath = System.getenv("JARVIS_SIGNING_STORE_FILE")
+            if (storePath) {
+                storeFile file(storePath)
+                storePassword System.getenv("JARVIS_SIGNING_STORE_PASSWORD")
+                keyAlias System.getenv("JARVIS_SIGNING_KEY_ALIAS")
+                keyPassword System.getenv("JARVIS_SIGNING_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles(
                 getDefaultProguardFile('proguard-android-optimize.txt'),
