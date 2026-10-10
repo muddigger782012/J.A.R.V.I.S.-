@@ -275,14 +275,18 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
+        learningStore.classify(normalized)?.let { learned ->
+            val response = "I recognized this as ${learned.intent} from local learning, but that learned intent is not connected to an executable capability yet."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
         val fallback = assistantEngine.handleUserCommand(userInput)
         if (!fallback.success && fallback.adapterUsed == "ENGINE") {
             val response = buildString {
-                appendLine("I couldn't map that request yet.")
-                appendLine("Try examples:")
-                appendLine("- create project named demo")
-                appendLine("- run shell id")
-                append("- show status")
+                appendLine("I don't understand that locally yet.")
+                appendLine("This request is eligible for fallback-AI interpretation and validated local learning.")
+                append("Local learned examples: ${learningStore.count()}")
             }
             remember(userInput, response)
             return HybridAssistantReply(response, fallback)
