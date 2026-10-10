@@ -1663,9 +1663,16 @@ class MainActivity : ThemedActivity() {
         shouldStartVoiceAfterPermission = false
         pendingClarification = null
         if (currentVoiceConfig.useForegroundServiceMode) {
-            VoiceForegroundService.start(this)
-            voiceEnabled = true
-            updateVoiceInteractionState(VoiceInteractionState.WAKE_LISTENING)
+            try {
+                VoiceForegroundService.start(this)
+                voiceEnabled = true
+                updateVoiceInteractionState(VoiceInteractionState.WAKE_LISTENING)
+                appendOutput("[VOICE] Foreground wake service start requested.")
+            } catch (t: Throwable) {
+                voiceEnabled = false
+                updateVoiceInteractionState(VoiceInteractionState.STOPPED)
+                appendOutput("[VOICE] Unable to start foreground wake service: " + t.javaClass.simpleName + ": " + (t.message ?: "unknown error"))
+            }
         } else {
             voiceEnabled = true
             updateVoiceInteractionState(VoiceInteractionState.WAKE_LISTENING)
