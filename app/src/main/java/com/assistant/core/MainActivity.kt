@@ -30,6 +30,8 @@ import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.LinearInterpolator
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
+import android.view.inputmethod.EditorInfo
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.text.InputType
@@ -267,7 +269,21 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         initViews()
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
+            val keyboard = insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())
+            findViewById<View>(R.id.quickPromptScroller).visibility = if (keyboard) View.GONE else View.VISIBLE
+            voiceButton.visibility = if (keyboard) View.GONE else View.VISIBLE
+            findViewById<View>(R.id.jarvisHeader).visibility = if (keyboard) View.GONE else View.VISIBLE
+            findViewById<View>(R.id.conversationToolbar).visibility = if (keyboard) View.GONE else View.VISIBLE
+            insets
+        }
         setupTabs()
+        findViewById<Button>(R.id.btnOpenTools).setOnClickListener {
+            val labels = arrayOf("Projects", "Device tools", "System status and updates", "Terminal", "Activity log", "Permissions", "Device administration")
+            AlertDialog.Builder(this).setTitle("Tools").setItems(labels) { _, which ->
+                showTab(which + 1, animate = true, direction = 1)
+            }.setNegativeButton("Close", null).show()
+        }
         findViewById<android.widget.Button>(R.id.btnOpenJarvisChat).setOnClickListener {
             showTab(0, animate = true, direction = if (currentTabIndex == 0) 0 else -1)
             commandInput.requestFocus()
@@ -348,9 +364,7 @@ class MainActivity : AppCompatActivity() {
         updateMicrophonePermissionUi()
         promptForMicrophonePermissionOnFirstLaunch()
 
-        appendOutput("Startup capability status:\n${systemService.buildStatusSummary(capabilityState)}")
-        appendOutput(getString(R.string.voice_hint))
-        appendRecentAudit()
+        statusOutput.text = systemService.buildStatusSummary(capabilityState)
         refreshAuditDebugSection()
         if (savedInstanceState == null) handleAssistantFeatureIntent(intent)
     }
@@ -476,7 +490,6 @@ class MainActivity : AppCompatActivity() {
                 showTab(index, animate = true, direction = direction)
             }
         }
-        bindSwipeNavigation()
         showTab(0, animate = false, direction = 0)
     }
 
@@ -553,6 +566,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateHeaderSelection(index: Int) {
         headerSelectionAnimator?.cancel()
+        val title = findViewById<TextView>(R.id.tvScreenTitle)
+        title.text = listOf("", "Projects", "Device tools", "System", "Terminal", "Activity log", "Permissions", "Device administration")[index]
+        title.visibility = if (index == 0) View.GONE else View.VISIBLE
+        findViewById<Button>(R.id.btnOpenJarvisChat).setTextColor(ContextCompat.getColor(this, if (index == 0) R.color.jarvis_primary else R.color.jarvis_on_dark_muted))
+        findViewById<Button>(R.id.btnOpenTools).setTextColor(ContextCompat.getColor(this, if (index != 0) R.color.jarvis_primary else R.color.jarvis_on_dark_muted))
         val activeColor = ContextCompat.getColor(this, R.color.jarvis_neon_green)
         val inactiveColor = ContextCompat.getColor(this, R.color.jarvis_on_dark)
         headerTabButtons.forEachIndexed { i, button ->
@@ -722,13 +740,24 @@ class MainActivity : AppCompatActivity() {
             outputLines.clear()
             outputLog.text = ""
             conversationPrefs.edit().putString("active_session", conversationSessionId).apply()
-            appendOutput("New J.A.R.V.I.S. conversation started.")
+            persistActiveConversation()
+            renderConversation(forceScroll = true)
         }
 
         findViewById<Button>(R.id.btnAssistantHistory).setOnClickListener {
             showConversationHistory()
         }
 
+        commandInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEND) { runAssistantCommandFromInput(); true } else false
+        }
+        listOf(R.id.btnSuggestWeather to "What's tomorrow's weather?", R.id.btnSuggestMaps to "Open maps", R.id.btnSuggestMusic to "Play Prime music").forEach { (id, prompt) ->
+            findViewById<Button>(id).setOnClickListener {
+                commandInput.setText(prompt)
+                commandInput.setSelection(prompt.length)
+                commandInput.requestFocus()
+            }
+        }
         findViewById<Button>(R.id.btnRunAssistantCommand).setOnClickListener {
             runAssistantCommandFromInput()
         }
@@ -846,6 +875,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateVoiceInteractionState(state: VoiceInteractionState) {
+        findViewById<TextView>(R.id.tvAssistantState).text = when (state) {
+            VoiceInteractionState.IDLE -> getString(R.string.ui_ready)
+            VoiceInteractionState.WAKE_LISTENING -> "Say “${currentVoiceConfig.wakeWord}”"
+            else -> state.userLabel()
+        }
         voiceButton.text = state.userLabel()
         voiceButton.isEnabled = state != VoiceInteractionState.PROCESSING
     }
@@ -901,6 +935,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun runAssistantCommandFromInput() {
         val commandText = commandInput.text?.toString()?.trim().orEmpty()
+        if (commandText.isBlank()) return
         appendOutput("You: ${if (commandText.isBlank()) "(status request)" else commandText}")
         handleAssistantWithLocation(commandText) { reply ->
             runOnUiThread {
@@ -972,6 +1007,7 @@ class MainActivity : AppCompatActivity() {
         outputLines.add(text)
         while (outputLines.size > 200) outputLines.removeAt(0)
         outputLog.text = outputLines.joinToString(separator = "\n\n")
+        renderConversation(forceScroll = text.startsWith("You:"))
         persistActiveConversation()
     }
 
@@ -980,13 +1016,55 @@ class MainActivity : AppCompatActivity() {
             ?: ("session_" + System.currentTimeMillis()).also {
                 conversationPrefs.edit().putString("active_session", it).apply()
             }
-        val stored = conversationPrefs.getString("messages_$conversationSessionId", null) ?: return
+        val stored = conversationPrefs.getString("messages_$conversationSessionId", null)
+        if (stored == null) { renderConversation(forceScroll = true); return }
         runCatching {
             val array = JSONArray(stored)
             outputLines.clear()
             for (index in 0 until array.length()) outputLines.add(array.getString(index))
             outputLog.text = outputLines.joinToString(separator = "\n\n")
         }
+        renderConversation(forceScroll = true)
+    }
+
+    private fun renderConversation(forceScroll: Boolean = false) {
+        val messages = findViewById<LinearLayout>(R.id.chatMessages)
+        val scroll = findViewById<ScrollView>(R.id.conversationScroll)
+        val oldScroll = scroll.scrollY
+        val nearBottom = scroll.getChildAt(0)?.let { it.height - scroll.height - scroll.scrollY < 96 * resources.displayMetrics.density } ?: true
+        val visibleLines = outputLines.filterNot { it.startsWith("Startup capability status:") || it.startsWith("Recent audit logs:") || it == "New J.A.R.V.I.S. conversation started." }
+        findViewById<View>(R.id.chatEmptyState).visibility = if (visibleLines.isEmpty()) View.VISIBLE else View.GONE
+        messages.removeAllViews()
+        fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+        visibleLines.forEach { line ->
+            val user = line.startsWith("You:")
+            val assistant = line.startsWith("J.A.R.V.I.S.:")
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                if (user || assistant) setBackgroundResource(if (user) R.drawable.chat_bubble_user else R.drawable.chat_bubble_assistant)
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(8); bottomMargin = dp(4)
+                    if (user) leftMargin = dp(32) else if (assistant) rightMargin = dp(20)
+                }
+            }
+            if (user || assistant) card.addView(TextView(this).apply {
+                text = if (user) "YOU" else "J.A.R.V.I.S."
+                textSize = 11f
+                setTextColor(ContextCompat.getColor(this@MainActivity, if (user) R.color.jarvis_primary else R.color.jarvis_secondary))
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(0, 0, 0, dp(6))
+            })
+            card.addView(TextView(this).apply {
+                text = when { user -> line.removePrefix("You:").trimStart(); assistant -> line.removePrefix("J.A.R.V.I.S.:").trimStart(); else -> line }
+                textSize = if (user || assistant) 16f else 12f
+                setTextColor(ContextCompat.getColor(this@MainActivity, if (user || assistant) R.color.jarvis_on_dark else R.color.jarvis_on_dark_muted))
+                setLineSpacing(dp(4).toFloat(), 1f)
+                setTextIsSelectable(true)
+            })
+            messages.addView(card)
+        }
+        scroll.post { if (forceScroll || nearBottom) scroll.scrollTo(0, scroll.getChildAt(0)?.height ?: 0) else scroll.scrollTo(0, oldScroll) }
     }
 
     private fun persistActiveConversation() {
@@ -1634,11 +1712,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshVoiceButtonLabel() {
         if (!::currentVoiceConfig.isInitialized) return
-        voiceButton.text = if (currentVoiceConfig.useForegroundServiceMode) {
-            if (voiceEnabled) getString(R.string.stop_voice_service) else getString(R.string.start_voice_service)
-        } else {
-            if (voiceEnabled) getString(R.string.stop_voice_hotword) else getString(R.string.start_voice_hotword)
-        }
+        voiceButton.text = getString(R.string.ui_talk)
     }
 
     private fun hasMicrophonePermission(): Boolean {
@@ -1651,9 +1725,10 @@ class MainActivity : AppCompatActivity() {
         micPermissionStatusView.text = if (granted) {
             getString(R.string.mic_permission_status_ok)
         } else {
-            getString(R.string.mic_permission_status_missing)
+            getString(R.string.ui_mic_hint)
         }
         grantMicPermissionButton.isEnabled = !granted
+        findViewById<View>(R.id.micPermissionCard).visibility = if (granted) View.GONE else View.VISIBLE
     }
 
     private fun promptForMicrophonePermissionOnFirstLaunch() {

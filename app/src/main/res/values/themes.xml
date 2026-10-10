@@ -9,7 +9,9 @@
         <item name="colorSecondaryVariant">@color/jarvis_secondary_variant</item>
         <item name="colorOnSecondary">@color/jarvis_bg_deep</item>
 
-        <item name="colorSurface">@color/jarvis_surface_glass_strong</item>
+        <item name="colorSurface">@color/jarvis_bg_end</item>
+        <item name="colorOnBackground">@color/jarvis_on_dark</item>
+        <item name="android:colorBackground">@color/jarvis_bg_deep</item>
         <item name="colorOnSurface">@color/jarvis_on_dark</item>
         <item name="android:textColorPrimary">@color/jarvis_on_dark</item>
         <item name="android:textColorSecondary">@color/jarvis_on_dark_muted</item>

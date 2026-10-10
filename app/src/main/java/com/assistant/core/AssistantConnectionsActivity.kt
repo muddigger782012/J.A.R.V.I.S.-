@@ -14,7 +14,7 @@ class AssistantConnectionsActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("jarvis_assistant_connections", MODE_PRIVATE)
         val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(32, 24, 32, 24) }
         setContentView(ScrollView(this).apply { addView(fields) })
-        fun note(value: String) { fields.addView(TextView(this).apply { text = value; setPadding(0, 16, 0, 8) }) }
+        fun note(value: String) { fields.addView(TextView(this).apply { text = value; setTextColor(androidx.core.content.ContextCompat.getColor(this@AssistantConnectionsActivity, R.color.jarvis_on_dark_muted)); setPadding(0, 16, 0, 8) }) }
         fun field(label: String, value: String, secret: Boolean = false): EditText {
             note(label)
             return EditText(this).apply {
@@ -36,7 +36,7 @@ class AssistantConnectionsActivity : AppCompatActivity() {
         val bridgeToken = field("Assistant gateway token", bridgeKeys.read(), true)
         note("Examples: Home Assistant turn on the kitchen lights. Mycroft what time is it?")
         note("Android App Actions declarations and launcher shortcuts are included. Google voice invocation needs App Actions preview or Play review; sideloading alone does not activate it.")
-        fields.addView(Button(this).apply {
+        fields.addView(com.google.android.material.button.MaterialButton(this).apply {
             text = "Save connections"
             setOnClickListener {
                 val home = homeUrl.text.toString().trim().trimEnd('/')

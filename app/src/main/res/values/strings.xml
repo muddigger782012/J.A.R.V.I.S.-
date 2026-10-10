@@ -122,4 +122,27 @@
     <string name="shortcut_voice">Voice chat</string>
     <string name="shortcut_weather">Weather settings</string>
     <string name="shortcut_connections">Assistant connections</string>
+    <string name="ui_ready">Ready when you are</string>
+    <string name="ui_settings">Settings</string>
+    <string name="ui_chat">Chat</string>
+    <string name="ui_tools">Tools</string>
+    <string name="ui_conversation">Conversation</string>
+    <string name="ui_new_chat">New chat</string>
+    <string name="ui_history">History</string>
+    <string name="ui_welcome">How can I help?</string>
+    <string name="ui_welcome_hint">Ask a question, check the weather, or get something done on your phone.</string>
+    <string name="ui_message_hint">Message J.A.R.V.I.S.</string>
+    <string name="ui_send">Send</string>
+    <string name="ui_talk">Talk to J.A.R.V.I.S.</string>
+    <string name="ui_stop_voice">Stop voice</string>
+    <string name="ui_weather">Weather</string>
+    <string name="ui_maps">Maps</string>
+    <string name="ui_music">Music</string>
+    <string name="ui_mic_hint">Enable your microphone to speak with J.A.R.V.I.S. You can still type a message.</string>
+    <string name="ui_enable_mic">Enable microphone</string>
+    <string name="ui_voice_preferences">VOICE PREFERENCES</string>
+    <string name="ui_voice_settings_hint">Choose how J.A.R.V.I.S. listens and responds.</string>
+    <string name="ui_advanced_voice">Advanced options</string>
+    <string name="ui_hide_advanced_voice">Hide advanced options</string>
+    <string name="ui_command_examples">Command examples</string>
 </resources>
