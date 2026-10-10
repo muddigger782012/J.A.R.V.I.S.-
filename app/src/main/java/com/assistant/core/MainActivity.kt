@@ -333,7 +333,6 @@ class MainActivity : AppCompatActivity() {
         refreshShizukuRuntimeStatus()
         updateMicrophonePermissionUi()
         promptForMicrophonePermissionOnFirstLaunch()
-        showRestrictedSettingsGuideOnFirstLaunch()
 
         appendOutput("Startup capability status:\n${systemService.buildStatusSummary(capabilityState)}")
         appendOutput(getString(R.string.voice_hint))
@@ -804,7 +803,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnOpenUsageAccessPermission).setOnClickListener { openUsageAccessPermission() }
         findViewById<Button>(R.id.btnOpenBatteryOptimizationPermission).setOnClickListener { openBatteryOptimizationPermission() }
         findViewById<Button>(R.id.btnOpenNotificationPolicyPermission).setOnClickListener { openNotificationPolicyPermission() }
-        findViewById<Button>(R.id.btnOpenAccessibilitySettings).setOnClickListener { openAccessibilitySettings() }
+        findViewById<Button>(R.id.btnOpenAccessibilitySettings).setOnClickListener { showRestrictedSettingsGuide() }
         findViewById<Button>(R.id.btnOpenDefaultAssistantSettings).setOnClickListener { openDefaultAssistantSettings() }
 
         btnApplyCameraDisabled.setOnClickListener { applyCameraDisabled() }
@@ -1826,10 +1825,8 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
     }
 
-    private fun showRestrictedSettingsGuideOnFirstLaunch() {
+    private fun showRestrictedSettingsGuide() {
         val prefs = getSharedPreferences("jarvis_onboarding", MODE_PRIVATE)
-        if (prefs.getBoolean("restricted_settings_guide_seen", false)) return
-
         AlertDialog.Builder(this)
             .setTitle("Enable J.A.R.V.I.S. Accessibility")
             .setMessage(
@@ -1840,21 +1837,17 @@ class MainActivity : AppCompatActivity() {
                     "Android requires you to approve this manually; J.A.R.V.I.S. cannot bypass this protection."
             )
             .setPositiveButton("Open App Settings") { _, _ ->
-                prefs.edit().putBoolean("restricted_settings_guide_seen", true).apply()
                 val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                     data = Uri.parse("package:$packageName")
                 }
                 startActivity(intent)
             }
             .setNeutralButton("Accessibility Settings") { _, _ ->
-                prefs.edit().putBoolean("restricted_settings_guide_seen", true).apply()
                 openAccessibilitySettings()
             }
             .setNegativeButton("Later") { _, _ ->
-                prefs.edit().putBoolean("restricted_settings_guide_seen", true).apply()
             }
             .setOnCancelListener {
-                prefs.edit().putBoolean("restricted_settings_guide_seen", true).apply()
             }
             .show()
     }
