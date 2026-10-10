@@ -147,10 +147,10 @@
                 android:orientation="vertical">
 
                 <TextView
-                    android:id="@+id/tvVoiceSectionTitle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/voice_controls_title"
+                    android:text="J.A.R.V.I.S."
+                    android:textSize="22sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -167,25 +167,51 @@
                     android:layout_marginTop="8dp"
                     android:text="@string/grant_microphone_permission" />
 
-                <Button
-                    android:id="@+id/btnToggleVoice"
+                <TextView
+                    android:id="@+id/tvOutputLog"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/start_voice_hotword" />
-
-                <Button
-                    android:id="@+id/btnVoiceSettings"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/voice_settings_title" />
-
+                    android:layout_marginTop="12dp"
+                    android:background="@drawable/glass_output_surface"
+                    android:minHeight="280dp"
+                    android:padding="14dp"
+                    android:textIsSelectable="true"
+                    android:textSize="15sp" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <EditText
+                        android:id="@+id/etCommandInput"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="Message J.A.R.V.I.S."
+                        android:inputType="text"
+                        android:minHeight="52dp" />
+
+                    <Button
+                        android:id="@+id/btnRunAssistantCommand"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="Send" />
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btnToggleVoice"
+                    android:layout_width="match_parent"
+                    android:layout_height="64dp"
+                    android:layout_marginTop="12dp"
+                    android:text="Talk to J.A.R.V.I.S." />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
                     android:orientation="horizontal">
 
                     <Button
@@ -204,44 +230,19 @@
                         android:text="History" />
                 </LinearLayout>
 
-                <EditText
-                    android:id="@+id/etCommandInput"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="@string/command_hint"
-                    android:inputType="text"
-                    android:minHeight="48dp" />
-
                 <Button
-                    android:id="@+id/btnRunAssistantCommand"
+                    android:id="@+id/btnVoiceSettings"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="@string/run_assistant_command" />
+                    android:text="Advanced voice settings" />
 
                 <Button
                     android:id="@+id/btnAssistantQuickStatus"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="@string/assistant_quick_status" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:text="@string/output_log_title"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvOutputLog"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:background="@drawable/glass_output_surface"
-                    android:padding="8dp"
-                    android:textIsSelectable="true"
-                    android:textSize="14sp" />
+                    android:text="System status" />
             </LinearLayout>
         </ScrollView>
 
