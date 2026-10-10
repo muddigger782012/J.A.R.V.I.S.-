@@ -2,7 +2,7 @@ import os
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
 from openai import AsyncOpenAI
-from lesson_protocol import learning_instructions
+from lesson_protocol import learning_instructions, parse_learning_reply
 
 app = FastAPI(title="Jarvis Conversation Gateway")
 client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
@@ -34,6 +34,11 @@ async def chat(req: ChatRequest, authorization: str | None = Header(default=None
     try:
         instructions = learning_instructions() if req.learn_intent else "You are Jarvis, a helpful assistant. Never claim to have executed device actions. Device actions require explicit separate user approval."
         response = await client.responses.create(model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"), instructions=instructions, input=msgs)
+        if req.learn_intent:
+            structured = parse_learning_reply(response.output_text)
+            if structured is not None:
+                return structured.model_dump()
+            return {"reply": response.output_text, "lesson": None}
         return {"reply": response.output_text}
     except Exception:
         raise HTTPException(status_code=502, detail="AI provider error")
