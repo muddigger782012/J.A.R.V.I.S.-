@@ -67,7 +67,7 @@ class SherpaWakeWordEngine(
                 return false
             }
             val audio = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.MIC,
                 SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
@@ -83,6 +83,13 @@ class SherpaWakeWordEngine(
             recorder = audio
             running = true
             audio.startRecording()
+            if (audio.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                audio.release(); onlineStream.release(); kws.release()
+                recorder = null; stream = null; spotter = null; running = false
+                onStatus("Sherpa microphone did not enter recording state.")
+                return false
+            }
+            onStatus("Sherpa microphone active at 16 kHz; listening for '$phrase'.")
             worker = thread(start = true, isDaemon = true, name = "jarvis-sherpa-kws") {
                 processAudio(kws, onlineStream, audio)
             }
@@ -112,7 +119,11 @@ class SherpaWakeWordEngine(
         try {
             while (running) {
                 val n = audio.read(buffer, 0, buffer.size)
-                if (n <= 0) continue
+                if (n < 0) {
+                    onStatus("Sherpa microphone read failed ($n).")
+                    break
+                }
+                if (n == 0) continue
                 val samples = FloatArray(n) { buffer[it] / 32768.0f }
                 onlineStream.acceptWaveform(samples, SAMPLE_RATE)
                 while (running && kws.isReady(onlineStream)) {
