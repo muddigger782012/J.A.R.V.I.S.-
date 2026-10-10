@@ -52,6 +52,13 @@ jobs:
           fi
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
+      - name: Prepare sherpa-onnx Android runtime
+        shell: bash
+        run: |
+          mkdir -p app/libs
+          curl -fL --retry 3 -o app/libs/sherpa-onnx-1.13.8.aar \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
+          test -s app/libs/sherpa-onnx-1.13.8.aar
       - name: Compile versioned release APK
         if: steps.signing.outputs.configured == 'true'
         env:
