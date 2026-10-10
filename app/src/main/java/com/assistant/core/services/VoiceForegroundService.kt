@@ -49,9 +49,10 @@ class VoiceForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // Keep Service.onCreate lightweight. A failure in Sherpa/assistant
+        // construction here occurs before onStartCommand and bypasses its
+        // crash containment entirely.
         voicePreferences = VoicePreferences(this)
-        initializeEngine()
-        initializeVoice()
         createNotificationChannel()
     }
 
@@ -75,6 +76,8 @@ class VoiceForegroundService : Service() {
                 if (!pipelineStarted) {
                     try {
                         publishEvent("Initializing foreground wake pipeline...")
+                        initializeEngine()
+                        initializeVoice()
                         startVoicePipeline()
                     } catch (t: Throwable) {
                         pipelineStarted = false
@@ -90,9 +93,13 @@ class VoiceForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        stopVoicePipeline()
-        voiceService.shutdown()
-        voicePreferences.setForegroundServiceRunning(false)
+        if (::voiceService.isInitialized) {
+            stopVoicePipeline()
+            voiceService.shutdown()
+        } else {
+            pipelineStarted = false
+            voicePreferences.setForegroundServiceRunning(false)
+        }
         super.onDestroy()
     }
 
