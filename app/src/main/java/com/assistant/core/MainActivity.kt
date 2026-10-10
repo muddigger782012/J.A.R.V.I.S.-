@@ -1774,7 +1774,8 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.WRITE_CONTACTS,
-            Manifest.permission.READ_PHONE_STATE
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.CALL_PHONE
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             permissions += Manifest.permission.BLUETOOTH_CONNECT
