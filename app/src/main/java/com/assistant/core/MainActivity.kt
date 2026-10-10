@@ -836,9 +836,10 @@ class MainActivity : ThemedActivity() {
         }
 
         voiceButton.setOnClickListener {
-            // The primary voice control arms the persistent wake-word pipeline.
-            // Push-to-talk remains available through explicit PTT entry points.
-            ensureMicPermissionAndStartVoice()
+            // Keep the primary Talk control isolated from the background wake
+            // service. This restores the previously working push-to-talk path
+            // while the persistent Sherpa service is diagnosed separately.
+            ensureMicPermissionAndPushToTalk()
         }
 
         settingsButton.setOnClickListener { openVoiceSettings() }
