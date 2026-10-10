@@ -56,7 +56,7 @@ class VoiceSettingsActivity : AppCompatActivity() {
         val saveButton: Button = findViewById(R.id.btnSaveVoiceSettings)
 
         val gatewayPrefs = getSharedPreferences("jarvis_cloud_ai", MODE_PRIVATE)
-        val gatewayButton = Button(this).apply {
+        val gatewayButton = com.google.android.material.button.MaterialButton(this).apply {
             text = "Weather and AI"
             isAllCaps = false
             setOnClickListener {
@@ -90,7 +90,7 @@ class VoiceSettingsActivity : AppCompatActivity() {
                 fields.addView(deviceLocation)
                 val latitude = field("Weather latitude", "weather_latitude")
                 val longitude = field("Weather longitude", "weather_longitude")
-                fields.addView(Button(this@VoiceSettingsActivity).apply {
+                fields.addView(com.google.android.material.button.MaterialButton(this@VoiceSettingsActivity).apply {
                     text = "Use Chesapeake, VA for weather"
                     setOnClickListener { deviceLocation.isChecked = false; latitude.setText("36.7682"); longitude.setText("-76.2875") }
                 })
@@ -130,7 +130,7 @@ class VoiceSettingsActivity : AppCompatActivity() {
         }
         (saveButton.parent as android.view.ViewGroup).addView(gatewayButton, 3)
 
-        (saveButton.parent as android.view.ViewGroup).addView(Button(this).apply {
+        (saveButton.parent as android.view.ViewGroup).addView(com.google.android.material.button.MaterialButton(this).apply {
             text = "Optional assistant connections"
             isAllCaps = false
             setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, AssistantConnectionsActivity::class.java)) }

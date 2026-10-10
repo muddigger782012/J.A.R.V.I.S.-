@@ -30,7 +30,7 @@
         <Button android:id="@+id/btnOpenTools" style="@style/Widget.AssistantPlatform.QuietButton"
             android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp" android:text="@string/ui_tools" />
     </LinearLayout>
-    <TextView android:id="@+id/tvScreenTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+    <TextView android:textColor="@color/jarvis_on_dark" android:id="@+id/tvScreenTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginHorizontal="20dp" android:layout_marginTop="8dp" android:textSize="18sp" android:textStyle="bold" android:visibility="gone" />
 
     <HorizontalScrollView
@@ -126,7 +126,7 @@
             </LinearLayout>
             <LinearLayout android:id="@+id/micPermissionCard" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:background="@drawable/glass_panel_surface" android:padding="12dp" android:orientation="vertical" android:visibility="gone">
-                <TextView android:id="@+id/tvMicPermissionStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+                <TextView android:textColor="@color/jarvis_on_dark" android:id="@+id/tvMicPermissionStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:text="@string/ui_mic_hint" android:textSize="13sp" />
                 <Button android:id="@+id/btnGrantMicPermission" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:text="@string/ui_enable_mic" />
@@ -137,13 +137,13 @@
                     <LinearLayout android:id="@+id/chatEmptyState" android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:padding="24dp" android:layout_marginTop="20dp" android:gravity="center_horizontal" android:orientation="vertical">
                         <ImageView android:layout_width="88dp" android:layout_height="88dp" android:src="@drawable/ic_jarvis_core" android:importantForAccessibility="no" />
-                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp"
+                        <TextView android:textColor="@color/jarvis_on_dark" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp"
                             android:text="@string/ui_welcome" android:textSize="24sp" android:textStyle="bold" android:gravity="center" />
                         <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp"
                             android:text="@string/ui_welcome_hint" android:textSize="15sp" android:textColor="@color/jarvis_on_dark_muted" android:gravity="center" android:lineSpacingExtra="4dp" />
                     </LinearLayout>
                     <LinearLayout android:id="@+id/chatMessages" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
-                    <TextView android:id="@+id/tvOutputLog" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" />
+                    <TextView android:textColor="@color/jarvis_on_dark" android:id="@+id/tvOutputLog" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" />
                 </LinearLayout>
             </ScrollView>
             <HorizontalScrollView android:id="@+id/quickPromptScroller" android:layout_width="match_parent" android:layout_height="wrap_content" android:scrollbars="none">
@@ -186,7 +186,7 @@
                     android:layout_height="wrap_content"
                     android:text="@string/create_project" />
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
@@ -207,13 +207,13 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/shizuku_runtime_status_title"
                     android:textStyle="bold" />
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:id="@+id/tvShizukuRuntimeStatus"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -281,7 +281,7 @@
                     android:layout_height="wrap_content"
                     android:text="@string/show_capability_status" />
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:id="@+id/tvStatusOutput"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -300,7 +300,7 @@
                     android:drawablePadding="8dp"
                     android:text="@string/upgrade_latest_build" />
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:id="@+id/tvUpdateStatus"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -326,7 +326,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/terminal_tab_title"
@@ -362,14 +362,14 @@
                     android:layout_marginTop="8dp"
                     android:text="@string/terminal_clear_output" />
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:text="@string/terminal_output_title"
                     android:textStyle="bold" />
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:id="@+id/tvTerminalOutput"
                     android:layout_width="match_parent"
                     android:layout_height="200dp"
@@ -379,14 +379,14 @@
                     android:textIsSelectable="true"
                     android:textSize="12sp" />
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:text="@string/terminal_history_title"
                     android:textStyle="bold" />
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:id="@+id/tvTerminalHistory"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -411,7 +411,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/audit_tab_title"
@@ -466,14 +466,14 @@
                     android:layout_marginTop="8dp"
                     android:text="@string/audit_clear_view" />
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:text="@string/audit_output_title"
                     android:textStyle="bold" />
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:id="@+id/tvAuditDebugOutput"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -498,7 +498,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/permissions_tab_title"
@@ -574,7 +574,7 @@
                     android:layout_marginTop="8dp"
                     android:text="@string/open_default_assistant_settings" />
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:id="@+id/tvSpecialPermissionsStatus"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -599,7 +599,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:id="@+id/tvPrivilegeSectionTitle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -627,7 +627,7 @@
                     android:layout_marginTop="8dp"
                     android:text="@string/apply_core_delegated_scopes" />
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:id="@+id/tvPrivilegeCenter"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -637,7 +637,7 @@
                     android:textIsSelectable="true"
                     android:textSize="12sp" />
 
-                <TextView
+                <TextView android:textColor="@color/jarvis_on_dark"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
