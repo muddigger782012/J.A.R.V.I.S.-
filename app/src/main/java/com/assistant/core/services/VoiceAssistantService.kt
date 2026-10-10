@@ -11,12 +11,7 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
-import ai.picovoice.porcupine.Porcupine
-import ai.picovoice.porcupine.PorcupineException
-import ai.picovoice.porcupine.PorcupineManager
 import java.util.Locale
-import java.io.File
-import kotlin.concurrent.thread
 
 data class VoiceRecognitionResult(
     val transcript: String,
@@ -51,9 +46,7 @@ class VoiceAssistantService(
     private var speechRecognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech = TextToSpeech(context, this)
     private var ttsReady = false
-    private var porcupineManager: PorcupineManager? = null
-    private var trainingWakeModel = false
-    private val customWakeModel: File get() = File(context.filesDir, "hey_jarvis_android.ppn")
+    private var sherpaWakeWordEngine: SherpaWakeWordEngine? = null
     private var lastWakeEngineUsed = HotwordEngine.SPEECH_FALLBACK
     private var fallbackErrorStreak = 0
     private var fallbackStatusAnnounced = false
@@ -106,7 +99,7 @@ class VoiceAssistantService(
         fallbackStatusAnnounced = false
 
         if (shouldUseDedicatedWakeWord()) {
-            ensureCustomWakeModelAndStart()
+            startDedicatedWakeWordEngine()
         } else {
             // Android SpeechRecognizer is intentionally NOT used as a
             // continuous wake-word engine. Repeated recognizer sessions cause
@@ -239,83 +232,28 @@ class VoiceAssistantService(
     override fun onEvent(eventType: Int, params: Bundle?) = Unit
 
     private fun shouldUseDedicatedWakeWord(): Boolean {
-        return config.enableDedicatedWakeWord && config.porcupineAccessKey.isNotBlank()
-    }
-
-    private fun ensureCustomWakeModelAndStart() {
-        if (customWakeModel.isFile && customWakeModel.length() > 0L) {
-            startDedicatedWakeWordEngine()
-            return
-        }
-        if (trainingWakeModel) return
-        trainingWakeModel = true
-        onStatus("Preparing exact Hey Jarvis wake model. This requires internet access for initial training.")
-        val requestedKey = config.porcupineAccessKey
-        thread(name = "jarvis-wake-model-training") {
-            var failure: String? = null
-            try {
-                val temporary = File(context.filesDir, "hey_jarvis_android.pending.ppn")
-                if (temporary.exists()) temporary.delete()
-                Porcupine.trainWakeWordFromPhrase(requestedKey, temporary.absolutePath, "en", "Hey Jarvis")
-                if (!temporary.isFile || temporary.length() == 0L || !temporary.renameTo(customWakeModel)) {
-                    throw IllegalStateException("Wake model was not saved")
-                }
-            } catch (error: Throwable) {
-                failure = error.message ?: error.javaClass.simpleName
-            }
-            mainHandler.post {
-                trainingWakeModel = false
-                if (failure != null) {
-                    onStatus("Hey Jarvis model setup failed: $failure. Check Picovoice AccessKey and network.")
-                } else if (voiceActive && config.porcupineAccessKey == requestedKey && shouldUseDedicatedWakeWord()) {
-                    startDedicatedWakeWordEngine()
-                }
-            }
-        }
+        return config.enableDedicatedWakeWord
     }
 
     private fun startDedicatedWakeWordEngine() {
         stopDedicatedWakeWordEngine()
-        try {
-            porcupineManager = PorcupineManager.Builder()
-                .setAccessKey(config.porcupineAccessKey)
-                .setKeywordPath(customWakeModel.absolutePath)
-                .setSensitivity(config.wakeSensitivity.coerceIn(0.1f, 1.0f))
-                .setErrorCallback { error ->
-                    mainHandler.post {
-                        onStatus("Dedicated wake-word error: ${error.message ?: "unknown error"}")
-                        if (voiceActive) {
-                            switchToSpeechHotwordFallback("Switching to speech fallback hotword.")
-                        }
-                    }
-                }
-                .build(context) {
-                    mainHandler.post {
-                        onWakeWordDetected()
-                    }
-                }
-            porcupineManager?.start()
+        val phrase = config.wakeWord.trim().ifBlank { "hey jarvis" }
+        val engine = SherpaWakeWordEngine(context, phrase, config.wakeSensitivity,
+            onDetected = { mainHandler.post { onWakeWordDetected() } },
+            onStatus = { message -> mainHandler.post { onStatus(message) } })
+        sherpaWakeWordEngine = engine
+        if (engine.start()) {
             currentHotwordEngine = HotwordEngine.DEDICATED_OFFLINE
-            onStatus("Exact Hey Jarvis wake-word engine active.")
-        } catch (error: PorcupineException) {
-            switchToSpeechHotwordFallback(
-                "Dedicated wake-word unavailable: ${error.message ?: "setup failed"}"
-            )
-        } catch (error: Throwable) {
-            switchToSpeechHotwordFallback(
-                "Dedicated wake-word unavailable: ${error.message ?: "setup failed"}"
-            )
+            onStatus("Sherpa-ONNX wake-word engine active. Say \"$phrase\".")
+        } else {
+            sherpaWakeWordEngine = null
+            switchToSpeechHotwordFallback("Sherpa-ONNX wake-word engine is not ready.")
         }
     }
 
     private fun stopDedicatedWakeWordEngine() {
-        try {
-            porcupineManager?.stop()
-        } catch (_: Throwable) {
-            // no-op
-        }
-        porcupineManager?.delete()
-        porcupineManager = null
+        sherpaWakeWordEngine?.stop()
+        sherpaWakeWordEngine = null
     }
 
     private fun switchToSpeechHotwordFallback(reason: String) {
@@ -432,7 +370,7 @@ class VoiceAssistantService(
         recognizer.startListening(intent)
         if (mode == RecognitionMode.FALLBACK_SPEECH_HOTWORD) {
             if (!fallbackStatusAnnounced) {
-                onStatus("Speech fallback hotword mode active. Configure Porcupine AccessKey to reduce beeps.")
+                onStatus("Speech fallback hotword mode active.")
                 fallbackStatusAnnounced = true
             }
         } else {
