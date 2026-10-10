@@ -8,6 +8,7 @@ import android.provider.AlarmClock
 import android.provider.Settings
 import android.content.pm.PackageManager
 import android.provider.ContactsContract
+import android.provider.CalendarContract
 
 /**
  * Standard Android assistant capabilities that do not require privileged shell access.
@@ -87,6 +88,20 @@ class AndroidAssistantService(private val context: Context) {
         audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, keyCode))
         true
     }.getOrDefault(false)
+
+    fun createCalendarEvent(title: String, beginMillis: Long? = null): Boolean =
+        launch(Intent(Intent.ACTION_INSERT).setData(CalendarContract.Events.CONTENT_URI).apply {
+            putExtra(CalendarContract.Events.TITLE, title)
+            beginMillis?.let { putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, it) }
+        })
+
+    fun createReminder(title: String, beginMillis: Long? = null): Boolean =
+        createCalendarEvent(title, beginMillis)
+
+    fun openNotificationSettings(): Boolean =
+        launch(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        })
 
     fun openSettings(): Boolean = launch(Intent(Settings.ACTION_SETTINGS))
 
