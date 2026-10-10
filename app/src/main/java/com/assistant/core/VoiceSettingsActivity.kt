@@ -58,6 +58,7 @@ class VoiceSettingsActivity : AppCompatActivity() {
         val gatewayPrefs = getSharedPreferences("jarvis_cloud_ai", MODE_PRIVATE)
         val gatewayButton = Button(this).apply {
             text = "Weather and AI"
+            isAllCaps = false
             setOnClickListener {
                 val fields = android.widget.LinearLayout(this@VoiceSettingsActivity).apply {
                     orientation = android.widget.LinearLayout.VERTICAL
@@ -131,6 +132,7 @@ class VoiceSettingsActivity : AppCompatActivity() {
 
         (saveButton.parent as android.view.ViewGroup).addView(Button(this).apply {
             text = "Optional assistant connections"
+            isAllCaps = false
             setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, AssistantConnectionsActivity::class.java)) }
         }, 4)
 

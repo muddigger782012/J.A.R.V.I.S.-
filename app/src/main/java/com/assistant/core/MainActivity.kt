@@ -271,11 +271,10 @@ class MainActivity : AppCompatActivity() {
         initViews()
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
             val keyboard = insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())
-            val compact = keyboard && resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
             findViewById<View>(R.id.quickPromptScroller).visibility = if (keyboard) View.GONE else View.VISIBLE
             voiceButton.visibility = if (keyboard) View.GONE else View.VISIBLE
-            findViewById<View>(R.id.jarvisHeader).visibility = if (compact) View.GONE else View.VISIBLE
-            findViewById<View>(R.id.conversationToolbar).visibility = if (compact) View.GONE else View.VISIBLE
+            findViewById<View>(R.id.jarvisHeader).visibility = if (keyboard) View.GONE else View.VISIBLE
+            findViewById<View>(R.id.conversationToolbar).visibility = if (keyboard) View.GONE else View.VISIBLE
             insets
         }
         setupTabs()

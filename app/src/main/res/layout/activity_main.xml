@@ -15,10 +15,10 @@
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
             android:layout_marginStart="12dp" android:orientation="vertical">
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="J.A.R.V.I.S." android:textSize="21sp" android:textStyle="bold" android:letterSpacing="0.08"
+                android:text="J.A.R.V.I.S." android:maxLines="1" android:ellipsize="end" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="14sp" android:autoSizeMaxTextSize="21sp" android:autoSizeStepGranularity="1sp" android:textSize="21sp" android:textStyle="bold" android:letterSpacing="0.08"
                 android:textColor="@color/jarvis_on_dark" />
             <TextView android:id="@+id/tvAssistantState" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="@string/ui_ready" android:textSize="12sp" android:layout_marginTop="4dp" android:textColor="@color/jarvis_secondary" />
+                android:text="@string/ui_ready" android:maxLines="1" android:ellipsize="end" android:textSize="12sp" android:layout_marginTop="4dp" android:textColor="@color/jarvis_secondary" />
         </LinearLayout>
         <Button android:id="@+id/btnVoiceSettings" style="@style/Widget.AssistantPlatform.QuietButton"
             android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/ui_settings" />
@@ -118,7 +118,7 @@
             <LinearLayout android:id="@+id/conversationToolbar" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:gravity="center_vertical" android:orientation="horizontal">
                 <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                    android:text="@string/ui_conversation" android:textColor="@color/jarvis_on_dark_muted" android:textSize="12sp" />
+                    android:text="@string/ui_conversation" android:maxLines="1" android:ellipsize="end" android:textColor="@color/jarvis_on_dark_muted" android:textSize="12sp" />
                 <Button android:id="@+id/btnNewAssistantChat" style="@style/Widget.AssistantPlatform.QuietButton"
                     android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/ui_new_chat" />
                 <Button android:id="@+id/btnAssistantHistory" style="@style/Widget.AssistantPlatform.QuietButton"

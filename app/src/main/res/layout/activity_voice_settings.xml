@@ -7,9 +7,9 @@
       <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:text="@string/voice_settings_title" android:textColor="@color/jarvis_on_dark" android:textStyle="bold" android:textSize="22sp" />
     </LinearLayout>
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/ui_voice_settings_hint" android:textSize="15sp" android:textColor="@color/jarvis_on_dark_muted" android:layout_marginTop="12dp" android:layout_marginBottom="12dp" />
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Wake word (editable)" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Wake phrase" />
     <EditText android:id="@+id/etWakeWord" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Hey Jarvis" android:inputType="textNoSuggestions" android:minHeight="48dp" />
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Custom wake words work with speech-fallback detection. The bundled Porcupine offline model currently supports the built-in JARVIS wake word." android:textSize="12sp" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Say this phrase before your command. Custom phrases use your phone’s speech recognition." android:textSize="12sp" />
     <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switchAutoStartVoice" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/voice_auto_start_label" />
     <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switchPreferOfflineCommand" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/voice_prefer_offline_command_label" />
     <Button android:id="@+id/btnToggleAdvancedVoice" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/ui_advanced_voice" style="@style/Widget.AssistantPlatform.QuietButton" />
