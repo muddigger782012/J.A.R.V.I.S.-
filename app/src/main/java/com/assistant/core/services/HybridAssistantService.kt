@@ -146,6 +146,27 @@ class HybridAssistantService(
             val response = if (ok) "Volume decreased." else "I couldn't change the volume."
             remember(userInput, response); return HybridAssistantReply(response)
         }
+        parseAppName(normalized)?.let { appName ->
+            val ok = androidAssistant.launchAppByLabel(appName)
+            val response = if (ok) "Opening $appName." else "I couldn't find an installed app named $appName."
+            remember(userInput, response); return HybridAssistantReply(response)
+        }
+        if (normalized in setOf("play", "pause", "play music", "pause music", "play pause", "resume music")) {
+            val ok = androidAssistant.playPauseMedia()
+            val response = if (ok) "Media control sent." else "I couldn't control media playback."
+            remember(userInput, response); return HybridAssistantReply(response)
+        }
+        if (normalized in setOf("next", "next song", "next track", "skip song", "skip track")) {
+            val ok = androidAssistant.nextMedia()
+            val response = if (ok) "Skipping to the next track." else "I couldn't control media playback."
+            remember(userInput, response); return HybridAssistantReply(response)
+        }
+        if (normalized in setOf("previous song", "previous track", "go back a track")) {
+            val ok = androidAssistant.previousMedia()
+            val response = if (ok) "Going to the previous track." else "I couldn't control media playback."
+            remember(userInput, response); return HybridAssistantReply(response)
+        }
+
         if (normalized in setOf("open settings", "device settings", "system settings")) {
             val ok = androidAssistant.openSettings()
             val response = if (ok) "Opening Android settings." else "I couldn't open Android settings."
@@ -280,6 +301,11 @@ class HybridAssistantService(
             "minute", "minutes" -> amount * 60
             else -> amount
         }
+    }
+
+    private fun parseAppName(text: String): String? {
+        if (!text.startsWith("open ") || text in setOf("open settings", "open voice settings")) return null
+        return text.removePrefix("open ").trim().takeIf { it.isNotBlank() }
     }
 
     private fun parseNavigationDestination(text: String): String? {
