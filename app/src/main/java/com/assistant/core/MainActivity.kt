@@ -845,10 +845,34 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var pendingWeatherPermissionCommand: String? = null
+    private val weatherPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        val command = pendingWeatherPermissionCommand
+        pendingWeatherPermissionCommand = null
+        if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true && command != null) {
+            handleVoiceTranscript(command)
+        } else {
+            appendOutput("J.A.R.V.I.S.: Precise location wasn't granted. Enable Precise location in Android app permissions, or choose a saved weather location.")
+        }
+    }
+
+    private fun handleAssistantWithLocation(command: String, callback: (com.assistant.core.services.HybridAssistantReply) -> Unit) {
+        val prefs = getSharedPreferences("jarvis_cloud_ai", MODE_PRIVATE)
+        val wantsLocation = com.assistant.core.services.OnlineAnswers.wantsDeviceLocation(command)
+        if (wantsLocation) prefs.edit().putBoolean("weather_device_location", true).apply()
+        if (com.assistant.core.services.OnlineAnswers.isWeather(command) && prefs.getBoolean("weather_device_location", false) &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            pendingWeatherPermissionCommand = command
+            weatherPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            return
+        }
+        hybridAssistantService.handleUserInputAsync(command, callback)
+    }
+
     private fun runAssistantCommandFromInput() {
         val commandText = commandInput.text?.toString()?.trim().orEmpty()
         appendOutput("You: ${if (commandText.isBlank()) "(status request)" else commandText}")
-        hybridAssistantService.handleUserInputAsync(commandText) { reply ->
+        handleAssistantWithLocation(commandText) { reply ->
             runOnUiThread {
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
                 statusOutput.text = reply.actionResult?.output ?: reply.text
@@ -1409,7 +1433,7 @@ class MainActivity : AppCompatActivity() {
     private fun handleVoiceTranscript(command: String) {
         commandInput.setText(command)
         appendOutput("You: $command")
-        hybridAssistantService.handleUserInputAsync(command) { reply ->
+        handleAssistantWithLocation(command) { reply ->
             runOnUiThread {
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
                 statusOutput.text = reply.actionResult?.output ?: reply.text
@@ -1495,7 +1519,7 @@ class MainActivity : AppCompatActivity() {
                         statusOutput.text = directResult.output ?: directResult.message
                         voiceService.speak(if (directResult.success) directResult.message else "I couldn't complete that command.")
                     } else {
-                        hybridAssistantService.handleUserInputAsync(parsed.fallbackTextCommand ?: command) { reply ->
+                        handleAssistantWithLocation(parsed.fallbackTextCommand ?: command) { reply ->
                             runOnUiThread {
                                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
                                 statusOutput.text = reply.actionResult?.output ?: reply.text

@@ -11,6 +11,11 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 object OnlineAnswers {
+    fun wantsDeviceLocation(text: String): Boolean =
+        Regex("\\b(use|enable|switch to)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text) &&
+            Regex("\\b(my|current|precise|phone|device)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text) &&
+            text.contains("location", ignoreCase = true) && isWeather(text)
+
     fun isWeather(text: String): Boolean {
         val words = text.trim().lowercase(Locale.ROOT)
         if (Regex("^(call|dial|text|message|remind|create|add|open|navigate|set|run)\\b").containsMatchIn(words)) return false
@@ -50,6 +55,7 @@ object OnlineAnswers {
 
 class DirectOnlineClient(context: Context) {
     private val prefs = context.getSharedPreferences("jarvis_cloud_ai", Context.MODE_PRIVATE)
+    private val location = WeatherLocation(context)
     private val keys = ApiKeyStore(context)
     fun hasGeminiKey(): Boolean = keys.read().isNotBlank()
     private fun request(url: String, body: JSONObject? = null, apiKey: String? = null): Pair<Int, JSONObject?> {
@@ -73,8 +79,15 @@ class DirectOnlineClient(context: Context) {
         } finally { connection.disconnect() }
     }
     fun weather(question: String): String {
-        val lat = prefs.getString("weather_latitude", "").orEmpty().toDoubleOrNull()
-        val lon = prefs.getString("weather_longitude", "").orEmpty().toDoubleOrNull()
+        if (OnlineAnswers.wantsDeviceLocation(question)) prefs.edit().putBoolean("weather_device_location", true).apply()
+        val deviceMode = prefs.getBoolean("weather_device_location", false)
+        val coordinates = if (deviceMode) {
+            if (!location.hasPrecisePermission()) return "Allow Precise location for J.A.R.V.I.S. while using the app, then ask for weather again."
+            val fix = location.current() ?: return "I couldn't get a fresh precise location. Turn on Location, keep J.A.R.V.I.S. open, and try again. GPS may need a clearer view of the sky."
+            fix.latitude to fix.longitude
+        } else null
+        val lat = coordinates?.first ?: prefs.getString("weather_latitude", "").orEmpty().toDoubleOrNull()
+        val lon = coordinates?.second ?: prefs.getString("weather_longitude", "").orEmpty().toDoubleOrNull()
         if (lat == null || lon == null || !lat.isFinite() || !lon.isFinite() || lat !in -90.0..90.0 || lon !in -180.0..180.0)
             return "Set your weather location in Voice Settings → Weather and AI. No gateway or API key is needed for weather."
         return try {

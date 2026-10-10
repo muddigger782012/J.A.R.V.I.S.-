@@ -71,11 +71,16 @@ class VoiceSettingsActivity : AppCompatActivity() {
                 }
                 val endpoint = field("Optional gateway HTTPS URL ending in /chat", "endpoint")
                 val token = field("Gateway token", "gateway_token", true)
+                val deviceLocation = SwitchMaterial(this@VoiceSettingsActivity).apply {
+                    text = "Use my precise phone location for weather"
+                    isChecked = gatewayPrefs.getBoolean("weather_device_location", false)
+                }
+                fields.addView(deviceLocation)
                 val latitude = field("Weather latitude", "weather_latitude")
                 val longitude = field("Weather longitude", "weather_longitude")
                 fields.addView(Button(this@VoiceSettingsActivity).apply {
                     text = "Use Chesapeake, VA for weather"
-                    setOnClickListener { latitude.setText("36.7682"); longitude.setText("-76.2875") }
+                    setOnClickListener { deviceLocation.isChecked = false; latitude.setText("36.7682"); longitude.setText("-76.2875") }
                 })
                 val scroll = android.widget.ScrollView(this@VoiceSettingsActivity).apply { addView(fields) }
                 val dialog = androidx.appcompat.app.AlertDialog.Builder(this@VoiceSettingsActivity)
@@ -101,7 +106,7 @@ class VoiceSettingsActivity : AppCompatActivity() {
                                 geminiKey.error = "Couldn't save the API key securely. Try again."
                                 return@setOnClickListener
                             }
-                            gatewayPrefs.edit().putString("gemini_model", geminiModel.text.toString().trim()).putString("endpoint", url)
+                            gatewayPrefs.edit().putBoolean("weather_device_location", deviceLocation.isChecked).putString("gemini_model", geminiModel.text.toString().trim()).putString("endpoint", url)
                                 .putString("gateway_token", token.text.toString().trim())
                                 .putString("weather_latitude", lat).putString("weather_longitude", lon).apply()
                             dialog.dismiss()

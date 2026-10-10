@@ -7,6 +7,11 @@ import org.junit.Test
 import java.time.Instant
 
 class OnlineAnswersTest {
+    @Test fun preciseLocationCommandIsRecognized() {
+        assertTrue(OnlineAnswers.wantsDeviceLocation("Use my precise location for the weather"))
+        assertFalse(OnlineAnswers.wantsDeviceLocation("What's tomorrow's weather"))
+        assertFalse(OnlineAnswers.wantsDeviceLocation("Use my current location for navigation"))
+    }
     @Test fun weatherRoutingPreservesDeviceCommands() {
         assertTrue(OnlineAnswers.isWeather("What day is the rain in the forecast next"))
         assertFalse(OnlineAnswers.isWeather("Call Rain"))
