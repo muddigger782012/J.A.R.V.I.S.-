@@ -1702,7 +1702,10 @@ class MainActivity : ThemedActivity() {
         if (showStatus) updateVoiceInteractionState(if (voiceEnabled) VoiceInteractionState.WAKE_LISTENING else VoiceInteractionState.IDLE)
         refreshVoiceButtonLabel()
         if (currentVoiceConfig.useForegroundServiceMode) {
-            if (currentVoiceConfig.autoStartForegroundService && !voicePreferences.isForegroundServiceRunning()) {
+            if (currentVoiceConfig.autoStartForegroundService) {
+                // Always issue the idempotent start request. The persisted running
+                // flag can outlive an Android-killed service process and is not
+                // evidence that the live Sherpa pipeline exists.
                 ensureMicPermissionAndStartVoice()
             }
         } else if (currentVoiceConfig.autoStartVoice && !voiceEnabled) {
