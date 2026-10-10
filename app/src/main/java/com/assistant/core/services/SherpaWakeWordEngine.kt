@@ -43,7 +43,10 @@ class SherpaWakeWordEngine(
                 featConfig = getFeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
                 modelConfig = getKwsModelConfig(type = 1)!!,
                 keywordsFile = "$MODEL_DIR/keywords.txt",
-                keywordsScore = 1.5f,
+                // Sherpa's own KWS examples use a stronger keyword boost and
+                // low acoustic threshold. The previous 1.5/0.27 defaults were
+                // too conservative for an always-on wake phrase.
+                keywordsScore = 3.0f,
                 keywordsThreshold = thresholdFor(sensitivity),
                 numTrailingBlanks = 2
             )
@@ -153,6 +156,6 @@ class SherpaWakeWordEngine(
 
     private fun thresholdFor(value: Float): Float {
         val v = value.coerceIn(0f, 1f)
-        return (0.45f - (v * 0.30f)).coerceIn(0.10f, 0.45f)
+        return (0.22f - (v * 0.20f)).coerceIn(0.02f, 0.20f)
     }
 }
