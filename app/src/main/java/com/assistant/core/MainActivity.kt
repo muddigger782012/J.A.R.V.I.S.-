@@ -68,6 +68,7 @@ import com.assistant.core.services.ShizukuShellService
 import com.assistant.core.services.SystemService
 import com.assistant.core.services.VoiceAssistantService
 import com.assistant.core.services.VoiceInteractionState
+import com.assistant.core.services.VoiceSessionController
 import com.assistant.core.services.userLabel
 import com.assistant.core.services.VoiceCommandParser
 import com.assistant.core.services.VoiceConfig
@@ -160,6 +161,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var systemService: SystemService
     private lateinit var capabilityState: CapabilityState
     private lateinit var voiceService: VoiceAssistantService
+    private lateinit var voiceSession: VoiceSessionController
     private lateinit var voicePreferences: VoicePreferences
     private lateinit var voiceCommandParser: VoiceCommandParser
     private lateinit var hybridAssistantService: HybridAssistantService
@@ -318,13 +320,22 @@ class MainActivity : AppCompatActivity() {
             capabilityProvider = { capabilityState }
         )
 
+        voiceSession = VoiceSessionController(
+            onStateChanged = { state -> runOnUiThread { updateVoiceInteractionState(state) } },
+            onTranscript = { transcript -> runOnUiThread { handleVoiceTranscript(transcript) } },
+            onError = { failure -> runOnUiThread { appendOutput("J.A.R.V.I.S.: ${failure.message}") } }
+        )
         voiceService = VoiceAssistantService(
             context = this,
-            onStatus = { status -> runOnUiThread { updateVoiceInteractionState(mapVoiceStatus(status)) } },
-            onHotwordDetected = { runOnUiThread { updateVoiceInteractionState(VoiceInteractionState.LISTENING) } },
+            onStatus = { },
+            onHotwordDetected = {
+                voiceSession.beginCapture(VoiceSessionController.Trigger.WAKE_WORD)
+            },
             onCommandDetected = { recognition ->
-                runOnUiThread { handleVoiceRecognition(recognition) }
-            }
+                voiceSession.transcriptReady(recognition.transcript)
+            },
+            onSpeechStarted = { voiceSession.speaking() },
+            onSpeechFinished = { voiceSession.responseFinished(keepArmed = voiceEnabled) }
         )
 
         bindUiListeners()
@@ -775,9 +786,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        voiceButton.setOnClickListener {
-            if (voiceEnabled) stopVoiceHotwordMode() else ensureMicPermissionAndStartVoice()
-        }
+        voiceButton.setOnClickListener { ensureMicPermissionAndPushToTalk() }
 
         settingsButton.setOnClickListener { openVoiceSettings() }
 
@@ -1392,6 +1401,25 @@ class MainActivity : AppCompatActivity() {
             else -> "unknown"
         }
         return "Shizuku state -> binderReady=$binderReady, permission=$permissionState."
+    }
+
+    private fun handleVoiceTranscript(command: String) {
+        commandInput.setText(command)
+        appendOutput("You: $command")
+        val reply = hybridAssistantService.handleUserInput(command)
+        appendOutput("J.A.R.V.I.S.: ${reply.text}")
+        statusOutput.text = reply.actionResult?.output ?: reply.text
+        voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(240) ?: "Done.")
+    }
+
+    private fun ensureMicPermissionAndPushToTalk() {
+        if (hasMicrophonePermission()) {
+            voiceSession.beginCapture(VoiceSessionController.Trigger.PUSH_TO_TALK)
+            voiceService.startPushToTalk()
+        } else {
+            shouldStartVoiceAfterPermission = true
+            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
 
     private fun handleVoiceRecognition(recognition: VoiceRecognitionResult) {
