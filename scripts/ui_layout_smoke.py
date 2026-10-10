@@ -63,7 +63,7 @@ try:
             adb('shell', 'input', 'swipe', '500', '1500', '500', '500', '350')
             time.sleep(1)
         tap('btnTheme' + name)
-        assert any(n.get('text') == name + ' • Active' for n in hierarchy().iter('node')), 'Theme not applied'
+        assert any(n.get('text') in (name + ' • Active', 'Current theme: ' + name) for n in hierarchy().iter('node')), 'Theme not applied'
         capture('theme-picker-' + name.lower())
         adb('shell', 'input', 'keyevent', '4')
         time.sleep(1)
