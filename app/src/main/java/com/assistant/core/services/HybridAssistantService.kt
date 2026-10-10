@@ -370,10 +370,19 @@ class HybridAssistantService(
     }
 
     private fun isDateRequest(text: String): Boolean {
-        return text in setOf(
-            "date", "what date is it", "whats the date", "what is the date",
-            "todays date", "what is todays date", "tell me the date",
-            "tell me todays date", "give me the date", "give me todays date"
+        if (text in setOf(
+                "date", "what date is it", "whats the date", "what is the date",
+                "todays date", "what is todays date", "tell me the date",
+                "tell me todays date", "give me the date", "give me todays date"
+            )
+        ) return true
+
+        // Speech recognition varies contractions and filler words. Date lookup is
+        // a core local capability and must never depend on cloud fallback.
+        val words = text.split(" ").filter { it.isNotBlank() }.toSet()
+        return "date" in words && (
+            "today" in words || "todays" in words || "what" in words ||
+                "tell" in words || "give" in words
         )
     }
 
