@@ -8,6 +8,8 @@ import com.assistant.core.models.Project
 import com.assistant.core.services.CodingService
 import com.assistant.core.services.FileService
 import com.assistant.core.services.SystemService
+import com.assistant.core.services.JarvisAccessibilityService
+import android.accessibilityservice.AccessibilityService
 import com.assistant.core.storage.ProjectRepository
 import java.io.File
 import java.util.UUID
@@ -24,6 +26,10 @@ class StandardAdapter(
             ActionRegistry.CREATE_PROJECT -> createProject(actionRequest)
             ActionRegistry.WRITE_FILE -> writeFile(actionRequest)
             ActionRegistry.SHOW_STATUS -> showStatus(actionRequest, capabilityState)
+            ActionRegistry.READ_SCREEN -> accessibilityResult(actionRequest, "read screen") { it.currentWindowSummary() }
+            ActionRegistry.ACCESSIBILITY_BACK -> accessibilityGlobal(actionRequest, AccessibilityService.GLOBAL_ACTION_BACK, "Back")
+            ActionRegistry.ACCESSIBILITY_HOME -> accessibilityGlobal(actionRequest, AccessibilityService.GLOBAL_ACTION_HOME, "Home")
+            ActionRegistry.ACCESSIBILITY_RECENTS -> accessibilityGlobal(actionRequest, AccessibilityService.GLOBAL_ACTION_RECENTS, "Recents")
             else -> ActionResult(
                 id = actionRequest.id,
                 success = false,
@@ -74,6 +80,22 @@ class StandardAdapter(
             message = "File written successfully",
             output = target.absolutePath
         )
+    }
+
+    private fun accessibilityGlobal(actionRequest: ActionRequest, globalAction: Int, label: String): ActionResult {
+        return accessibilityResult(actionRequest, label) { service ->
+            if (service.performGlobal(globalAction)) "$label action completed." else "$label action was not accepted by Android."
+        }
+    }
+
+    private fun accessibilityResult(actionRequest: ActionRequest, label: String, operation: (JarvisAccessibilityService) -> String): ActionResult {
+        val service = JarvisAccessibilityService.active()
+            ?: return ActionResult(actionRequest.id, false, "ACCESSIBILITY", "J.A.R.V.I.S. Accessibility is not enabled. Enable it in Android Accessibility settings.")
+        return runCatching { operation(service) }
+            .fold(
+                onSuccess = { ActionResult(actionRequest.id, true, "ACCESSIBILITY", "$label completed.", it) },
+                onFailure = { ActionResult(actionRequest.id, false, "ACCESSIBILITY", "$label failed: ${it.message ?: "unknown error"}") }
+            )
     }
 
     private fun showStatus(actionRequest: ActionRequest, capabilityState: CapabilityState): ActionResult {
