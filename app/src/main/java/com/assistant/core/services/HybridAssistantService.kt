@@ -146,6 +146,26 @@ class HybridAssistantService(
             val response = if (ok) "Volume decreased." else "I couldn't change the volume."
             remember(userInput, response); return HybridAssistantReply(response)
         }
+        parseCallTarget(normalized)?.let { target ->
+            val number = target.filter { it.isDigit() || it == '+' }.takeIf { it.any(Char::isDigit) }
+                ?: androidAssistant.resolveContactPhone(target)
+            val ok = number?.let(androidAssistant::dial) ?: false
+            val response = if (ok) "Opening the dialer for $target." else "I couldn't find a phone number for $target. Contact access may be required."
+            remember(userInput, response); return HybridAssistantReply(response)
+        }
+        parseMessageRequest(userInput)?.let { (target, body) ->
+            val number = target.filter { it.isDigit() || it == '+' }.takeIf { it.any(Char::isDigit) }
+                ?: androidAssistant.resolveContactPhone(target)
+            val ok = number?.let { androidAssistant.composeSms(it, body) } ?: false
+            val response = if (ok) "Opening your messaging app with the message ready for $target." else "I couldn't find a phone number for $target. Contact access may be required."
+            remember(userInput, response); return HybridAssistantReply(response)
+        }
+        parseAlarm(normalized)?.let { (hour, minute) ->
+            val ok = androidAssistant.setAlarm(hour, minute)
+            val response = if (ok) "Alarm set." else "I couldn't open the Android alarm service."
+            remember(userInput, response); return HybridAssistantReply(response)
+        }
+
         parseAppName(normalized)?.let { appName ->
             val ok = androidAssistant.launchAppByLabel(appName)
             val response = if (ok) "Opening $appName." else "I couldn't find an installed app named $appName."
@@ -301,6 +321,29 @@ class HybridAssistantService(
             "minute", "minutes" -> amount * 60
             else -> amount
         }
+    }
+
+    private fun parseCallTarget(text: String): String? {
+        val prefixes = listOf("call ", "dial ")
+        val prefix = prefixes.firstOrNull { text.startsWith(it) } ?: return null
+        return text.removePrefix(prefix).trim().takeIf { it.isNotBlank() }
+    }
+
+    private fun parseMessageRequest(raw: String): Pair<String, String>? {
+        val match = Regex("(?i)^(?:text|message)\\s+(.+?)\\s+(?:saying|say|that)\\s+(.+)$").find(raw.trim()) ?: return null
+        return match.groupValues[1].trim() to match.groupValues[2].trim()
+    }
+
+    private fun parseAlarm(text: String): Pair<Int, Int>? {
+        val match = Regex("(?:set|create) (?:an )?alarm (?:for|at) (\\d{1,2})(?::(\\d{2}))? ?(am|pm)?").find(text) ?: return null
+        var hour = match.groupValues[1].toIntOrNull() ?: return null
+        val minute = match.groupValues[2].toIntOrNull() ?: 0
+        when (match.groupValues[3]) {
+            "pm" -> if (hour < 12) hour += 12
+            "am" -> if (hour == 12) hour = 0
+        }
+        if (hour !in 0..23 || minute !in 0..59) return null
+        return hour to minute
     }
 
     private fun parseAppName(text: String): String? {
