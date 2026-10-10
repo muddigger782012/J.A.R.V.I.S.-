@@ -53,7 +53,6 @@ class VoiceAssistantService(
     private var config: VoiceConfig = VoiceConfig(
         enableDedicatedWakeWord = true,
         wakeWord = "hey jarvis",
-        porcupineAccessKey = "",
         wakeSensitivity = 0.6f,
         autoStartVoice = false,
         preferOfflineCommandRecognition = true,
