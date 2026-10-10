@@ -835,7 +835,11 @@ class MainActivity : ThemedActivity() {
             }
         }
 
-        voiceButton.setOnClickListener { ensureMicPermissionAndPushToTalk() }
+        voiceButton.setOnClickListener {
+            // The primary voice control arms the persistent wake-word pipeline.
+            // Push-to-talk remains available through explicit PTT entry points.
+            ensureMicPermissionAndStartVoice()
+        }
 
         settingsButton.setOnClickListener { openVoiceSettings() }
 
