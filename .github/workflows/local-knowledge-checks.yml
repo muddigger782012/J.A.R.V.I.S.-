@@ -18,3 +18,12 @@ jobs:
       - uses: android-actions/setup-android@v4
       - run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
       - run: bash gradlew --no-daemon testDebugUnitTest assembleDebug
+  gateway:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r cloud-backend/requirements.txt
+      - run: python -m unittest discover -s cloud-backend -p 'test_*.py'
