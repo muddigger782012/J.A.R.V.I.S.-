@@ -6,6 +6,6 @@
         android:gradientRadius="420dp"
         android:centerX="50%"
         android:centerY="35%"
-        android:startColor="#225DFF99"
+        android:startColor="?attr/jarvis_pulse_tint"
         android:endColor="#0013223A" />
 </shape>

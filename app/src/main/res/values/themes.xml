@@ -43,6 +43,9 @@
         <item name="jarvis_button_fill">@color/jarvis_button_fill</item>
         <item name="jarvis_button_fill_pressed">@color/jarvis_button_fill_pressed</item>
         <item name="jarvis_background">@drawable/bg_jarvis_space</item>
+        <item name="jarvis_pulse_tint">#225DFF99</item>
+        <item name="jarvis_scan_tint">#CC5DFF99</item>
+        <item name="jarvis_panel_stroke">#665DFF99</item>
         <item name="jarvis_corner">16dp</item>
         <item name="jarvis_chat_corner">18dp</item>
     </style>
@@ -66,6 +69,9 @@
         <item name="jarvis_button_fill">#705493A4</item>
         <item name="jarvis_button_fill_pressed">#9980D3E4</item>
         <item name="jarvis_background">@drawable/bg_stark</item>
+        <item name="jarvis_pulse_tint">#22FFD078</item>
+        <item name="jarvis_scan_tint">#CCFFD078</item>
+        <item name="jarvis_panel_stroke">#6672C9DB</item>
         <item name="jarvis_corner">4dp</item>
         <item name="jarvis_chat_corner">4dp</item>
         <item name="android:fontFamily">sans-serif-condensed</item>
@@ -90,6 +96,9 @@
         <item name="jarvis_button_fill">#7033486F</item>
         <item name="jarvis_button_fill_pressed">#995DCDE0</item>
         <item name="jarvis_background">@drawable/bg_cybertron</item>
+        <item name="jarvis_pulse_tint">#22CE8CFF</item>
+        <item name="jarvis_scan_tint">#CC52F8FF</item>
+        <item name="jarvis_panel_stroke">#6666DFEE</item>
         <item name="jarvis_corner">22dp</item>
         <item name="jarvis_chat_corner">22dp</item>
     </style>

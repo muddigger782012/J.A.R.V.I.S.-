@@ -19,4 +19,4 @@
     <attr name="jarvis_button_fill_pressed" format="color" />
     <attr name="jarvis_background" format="reference" />
     <attr name="jarvis_corner" format="dimension" />
-<attr name="jarvis_chat_corner" format="dimension" /></resources>
+<attr name="jarvis_chat_corner" format="dimension" /><attr name="jarvis_pulse_tint" format="color" /><attr name="jarvis_scan_tint" format="color" /><attr name="jarvis_panel_stroke" format="color" /></resources>
