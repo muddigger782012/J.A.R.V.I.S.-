@@ -75,6 +75,7 @@
     <string name="open_battery_optimization_permission">Open Battery Optimization Exemption</string>
     <string name="open_notification_policy_permission">Open Notification Policy Access</string>
     <string name="open_accessibility_settings">Open Accessibility Settings</string>
+    <string name="open_default_assistant_settings">Choose J.A.R.V.I.S. as Default Assistant</string>
     <string name="apply_core_delegated_scopes">Apply Core Dhizuku Delegated Scopes</string>
     <string name="device_owner_controls_title">Device Owner / Dhizuku Modifiable Controls</string>
     <string name="do_camera_disabled">Disable Camera</string>
