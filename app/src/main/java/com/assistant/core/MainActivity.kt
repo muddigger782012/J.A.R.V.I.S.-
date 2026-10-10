@@ -67,6 +67,8 @@ import com.assistant.core.services.RunningShizukuCommand
 import com.assistant.core.services.ShizukuShellService
 import com.assistant.core.services.SystemService
 import com.assistant.core.services.VoiceAssistantService
+import com.assistant.core.services.VoiceInteractionState
+import com.assistant.core.services.userLabel
 import com.assistant.core.services.VoiceCommandParser
 import com.assistant.core.services.VoiceConfig
 import com.assistant.core.services.VoiceForegroundService
@@ -317,8 +319,8 @@ class MainActivity : AppCompatActivity() {
 
         voiceService = VoiceAssistantService(
             context = this,
-            onStatus = { status -> runOnUiThread { appendOutput(status) } },
-            onHotwordDetected = { runOnUiThread { appendOutput("Hotword detected: ${currentVoiceConfig.wakeWord}") } },
+            onStatus = { status -> runOnUiThread { updateVoiceInteractionState(mapVoiceStatus(status)) } },
+            onHotwordDetected = { runOnUiThread { updateVoiceInteractionState(VoiceInteractionState.LISTENING) } },
             onCommandDetected = { recognition ->
                 runOnUiThread { handleVoiceRecognition(recognition) }
             }
@@ -815,6 +817,22 @@ class MainActivity : AppCompatActivity() {
         btnApplyPackagePolicy.setOnClickListener { applyPackagePolicy() }
         btnLockNow.setOnClickListener { lockNow() }
         btnRebootFromDhizuku.setOnClickListener { rebootDevice() }
+    }
+
+    private fun updateVoiceInteractionState(state: VoiceInteractionState) {
+        voiceButton.text = state.userLabel()
+        voiceButton.isEnabled = state != VoiceInteractionState.PROCESSING
+    }
+
+    private fun mapVoiceStatus(status: String): VoiceInteractionState {
+        val value = status.lowercase()
+        return when {
+            "processing" in value || "thinking" in value -> VoiceInteractionState.PROCESSING
+            "speaking" in value -> VoiceInteractionState.SPEAKING
+            "command" in value && "listen" in value -> VoiceInteractionState.LISTENING
+            "listen" in value || "wake" in value || "hotword" in value -> VoiceInteractionState.WAKE_LISTENING
+            else -> VoiceInteractionState.IDLE
+        }
     }
 
     private fun runAssistantCommandFromInput() {
