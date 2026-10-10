@@ -66,6 +66,7 @@ class VoiceForegroundService : Service() {
             }
             else -> {
                 startForeground(NOTIFICATION_ID, buildNotification("Voice service is active"))
+                persistStage("entered-start-command")
                 publishEvent("Foreground service entered start command.")
                 // Android may deliver repeated startService intents (activity resume,
                 // settings reload, sticky restart). Do not tear down and recreate
@@ -76,11 +77,16 @@ class VoiceForegroundService : Service() {
                 if (!pipelineStarted) {
                     try {
                         publishEvent("Initializing foreground wake pipeline...")
+                        persistStage("before-engine")
                         initializeEngine()
+                        persistStage("after-engine")
                         initializeVoice()
+                        persistStage("after-voice")
                         startVoicePipeline()
+                        persistStage("pipeline-started")
                     } catch (t: Throwable) {
                         pipelineStarted = false
+                        persistStage("failed-" + t.javaClass.simpleName + "-" + (t.message ?: "unknown"))
                         voicePreferences.setForegroundServiceRunning(false)
                         publishEvent("Foreground wake pipeline failed: " + t.javaClass.simpleName + ": " + (t.message ?: "unknown error"))
                     }
@@ -292,6 +298,10 @@ class VoiceForegroundService : Service() {
         publishEvent("[$status][${result.adapterUsed}] ${result.message}")
         result.output?.let { publishEvent(it) }
         voiceService.speak(if (result.success) result.message else "I could not complete that command.")
+    }
+
+    private fun persistStage(stage: String) {
+        runCatching { java.io.File(filesDir, "wake-stage.txt").writeText(stage) }
     }
 
     private fun publishEvent(message: String) {
