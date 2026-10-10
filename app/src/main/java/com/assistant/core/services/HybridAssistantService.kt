@@ -7,6 +7,7 @@ import com.assistant.core.models.CapabilityState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.Calendar
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
@@ -126,6 +127,25 @@ class HybridAssistantService(
 
         if (isDayRequest(normalized)) {
             val response = "It's " + SimpleDateFormat("EEEE", Locale.getDefault()).format(Date()) + "."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
+        calendarRangeFor(normalized)?.let { range ->
+            if (!androidAssistant.hasCalendarReadPermission()) {
+                val response = "Calendar permission is required. Open J.A.R.V.I.S. and grant Calendar access, then ask again."
+                remember(userInput, response)
+                return HybridAssistantReply(response)
+            }
+            val events = androidAssistant.calendarEntries(range.first, range.second)
+            val response = if (events.isEmpty()) {
+                "You don't have any calendar events in that period."
+            } else {
+                val format = SimpleDateFormat("EEE, MMM d 'at' h:mm a", Locale.getDefault())
+                events.joinToString(prefix = "Your calendar: ", separator = "; ") {
+                    "${it.title}, ${format.format(Date(it.beginMillis))}"
+                }
+            }
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -367,6 +387,34 @@ class HybridAssistantService(
             "time", "what time", "what time is it", "whats the time",
             "tell me the time", "current time", "what is the time"
         )
+    }
+
+    private fun calendarRangeFor(text: String): Pair<Long, Long>? {
+        val asksCalendar = listOf(
+            "calendar", "appointment", "appointments", "schedule",
+            "what do i have", "whats on my", "what is on my", "next event"
+        ).any { text.contains(it) }
+        if (!asksCalendar) return null
+
+        val start = Calendar.getInstance()
+        val end = Calendar.getInstance()
+        when {
+            text.contains("tomorrow") -> {
+                start.add(Calendar.DAY_OF_YEAR, 1)
+                start.set(Calendar.HOUR_OF_DAY, 0); start.set(Calendar.MINUTE, 0); start.set(Calendar.SECOND, 0); start.set(Calendar.MILLISECOND, 0)
+                end.timeInMillis = start.timeInMillis
+                end.add(Calendar.DAY_OF_YEAR, 1)
+            }
+            text.contains("next") && (text.contains("event") || text.contains("appointment")) -> {
+                end.add(Calendar.DAY_OF_YEAR, 30)
+            }
+            else -> {
+                start.set(Calendar.HOUR_OF_DAY, 0); start.set(Calendar.MINUTE, 0); start.set(Calendar.SECOND, 0); start.set(Calendar.MILLISECOND, 0)
+                end.timeInMillis = start.timeInMillis
+                end.add(Calendar.DAY_OF_YEAR, 1)
+            }
+        }
+        return start.timeInMillis to end.timeInMillis
     }
 
     private fun isDateRequest(text: String): Boolean {
