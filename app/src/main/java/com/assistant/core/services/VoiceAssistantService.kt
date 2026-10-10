@@ -9,6 +9,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
 import ai.picovoice.porcupine.Porcupine
 import ai.picovoice.porcupine.PorcupineException
@@ -26,7 +27,9 @@ class VoiceAssistantService(
     private val context: Context,
     private val onStatus: (String) -> Unit,
     private val onHotwordDetected: () -> Unit,
-    private val onCommandDetected: (VoiceRecognitionResult) -> Unit
+    private val onCommandDetected: (VoiceRecognitionResult) -> Unit,
+    private val onSpeechStarted: () -> Unit = {},
+    private val onSpeechFinished: () -> Unit = {}
 ) : RecognitionListener, TextToSpeech.OnInitListener {
 
     private enum class RecognitionMode {
@@ -117,14 +120,27 @@ class VoiceAssistantService(
     }
 
     fun speak(text: String) {
-        if (ttsReady) {
-            tts.speak(text, TextToSpeech.QUEUE_ADD, null, "jarvis-response")
+        if (!ttsReady || text.isBlank()) {
+            onSpeechFinished()
+            return
         }
+        onSpeechStarted()
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis-response")
     }
 
     override fun onInit(status: Int) {
         ttsReady = status == TextToSpeech.SUCCESS
         if (ttsReady) {
+            tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) = Unit
+                override fun onDone(utteranceId: String?) {
+                    if (utteranceId == "jarvis-response") mainHandler.post { onSpeechFinished() }
+                }
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) {
+                    if (utteranceId == "jarvis-response") mainHandler.post { onSpeechFinished() }
+                }
+            })
             applyJarvisStyleVoiceProfile()
         }
     }
