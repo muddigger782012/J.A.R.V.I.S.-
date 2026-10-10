@@ -186,6 +186,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingClarification: String? = null
     private var runningTerminalCommand: RunningShizukuCommand? = null
     private var updateInProgress = false
+    private var pendingDownloadedUpdate: File? = null
     private var currentTabIndex = 0
     private var allowSwipeForCurrentTouch = true
     private var headerSelectionAnimator: ValueAnimator? = null
@@ -1215,7 +1216,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun launchInstallerForDownloadedApk(apkFile: File) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-            setUpdateStatus("Enable 'Install unknown apps' for J.A.R.V.I.S., then tap Update App again.")
+            pendingDownloadedUpdate = apkFile
+            setUpdateStatus("Allow J.A.R.V.I.S. to install this update, then return here. Installation will continue automatically.")
             startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
             return
         }
@@ -1237,6 +1239,19 @@ class MainActivity : AppCompatActivity() {
             }
             startActivity(fallbackIntent)
             setUpdateStatus("Installer opened. Confirm installation to complete update.")
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val pending = pendingDownloadedUpdate ?: return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()) {
+            pendingDownloadedUpdate = null
+            if (pending.exists() && isLikelyApkZip(pending)) {
+                launchInstallerForDownloadedApk(pending)
+            } else {
+                setUpdateStatus("Downloaded update is no longer available. Tap Update App to download it again.")
+            }
         }
     }
 
