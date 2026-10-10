@@ -5,6 +5,8 @@ import com.assistant.core.models.CapabilityState
 
 class SystemService(private val context: Context) {
 
+    fun context(): Context = context.applicationContext
+
     fun buildStatusSummary(capabilityState: CapabilityState): String {
         return buildString {
             appendLine("J.A.R.V.I.S. status")
