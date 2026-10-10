@@ -56,6 +56,32 @@ class AndroidAssistantService(private val context: Context) {
         }
     }
 
+    fun lastMissedCall(): String {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED)
+            return "Call Log permission is required. Open Android Settings → Apps → J.A.R.V.I.S. → Permissions, allow Call logs, then ask again."
+        return try {
+            val projection = arrayOf(android.provider.CallLog.Calls.NUMBER, android.provider.CallLog.Calls.CACHED_NAME,
+                android.provider.CallLog.Calls.DATE, android.provider.CallLog.Calls.NUMBER_PRESENTATION)
+            context.contentResolver.query(android.provider.CallLog.Calls.CONTENT_URI, projection,
+                "${android.provider.CallLog.Calls.TYPE} = ?", arrayOf(android.provider.CallLog.Calls.MISSED_TYPE.toString()),
+                "${android.provider.CallLog.Calls.DATE} DESC")?.use { cursor ->
+                if (!cursor.moveToFirst()) return "There are no missed calls in your call log."
+                val name = cursor.getString(cursor.getColumnIndexOrThrow(android.provider.CallLog.Calls.CACHED_NAME)).orEmpty()
+                val number = cursor.getString(cursor.getColumnIndexOrThrow(android.provider.CallLog.Calls.NUMBER)).orEmpty()
+                val presentation = cursor.getInt(cursor.getColumnIndexOrThrow(android.provider.CallLog.Calls.NUMBER_PRESENTATION))
+                val caller = when {
+                    presentation == android.provider.CallLog.Calls.PRESENTATION_RESTRICTED -> "a private number"
+                    presentation != android.provider.CallLog.Calls.PRESENTATION_ALLOWED || number.isBlank() -> "an unknown number"
+                    name.isNotBlank() -> "$name ($number)"
+                    else -> number
+                }
+                val time = cursor.getLong(cursor.getColumnIndexOrThrow(android.provider.CallLog.Calls.DATE))
+                val formatted = SimpleDateFormat("EEEE, MMMM d 'at' h:mm a", Locale.getDefault()).format(Date(time))
+                "Your last missed call was from $caller on $formatted."
+            } ?: "Android couldn't read the call log. Check Call Log permission and try again."
+        } catch (_: Exception) { "Android couldn't read the call log. Check Call Log permission and try again." }
+    }
+
     fun hasCallPermission(): Boolean =
         androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
 
@@ -85,6 +111,26 @@ class AndroidAssistantService(private val context: Context) {
             pm.getApplicationLabel(info).toString().trim().lowercase().contains(target)
         } ?: return false
         return launchApp(match.packageName)
+    }
+
+    fun amazonMusic(playMusic: Boolean): String {
+        val pm = context.packageManager
+        val app = pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0)).firstOrNull {
+            pm.getApplicationLabel(it).toString().trim().lowercase(java.util.Locale.ROOT) in
+                setOf("amazon music", "music amazon", "amazon prime music")
+        } ?: return "I couldn't find Amazon Music installed. Install it and sign in, then try again."
+        if (playMusic) {
+            val intent = Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                setPackage(app.packageName)
+                putExtra(android.app.SearchManager.QUERY, "")
+                putExtra(android.provider.MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
+            }
+            if (launch(intent)) return "Asked Amazon Music to start playing."
+        }
+        return if (launchApp(app.packageName)) {
+            if (playMusic) "Opening Amazon Music. Tap Play in the app to start your music."
+            else "Opening Amazon Music."
+        } else "Android couldn't open Amazon Music. Check that the app is enabled."
     }
 
     fun playPauseMedia(): Boolean = dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)

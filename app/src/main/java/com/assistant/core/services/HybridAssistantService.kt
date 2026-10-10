@@ -91,6 +91,12 @@ class HybridAssistantService(
             PendingPrompt.NONE -> Unit
         }
 
+        if (CommandPhrases.isLastMissedCall(userInput)) {
+            val response = androidAssistant.lastMissedCall()
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
         if (containsAny(normalized, "hello", "hi jarvis", "hey jarvis", "good morning", "good evening")) {
             val response = "Hello. I'm ready to help with device actions, status checks, Shizuku terminal commands, and project generation."
             remember(userInput, response)
@@ -218,6 +224,11 @@ class HybridAssistantService(
         parseAlarm(normalized)?.let { (hour, minute) ->
             val ok = androidAssistant.setAlarm(hour, minute)
             val response = if (ok) "Alarm set." else "I couldn't open the Android alarm service."
+            remember(userInput, response); return HybridAssistantReply(response)
+        }
+
+        if (CommandPhrases.isAmazonMusicRequest(userInput)) {
+            val response = androidAssistant.amazonMusic(Regex("(?i)\\bplay\\b").containsMatchIn(userInput))
             remember(userInput, response); return HybridAssistantReply(response)
         }
 
