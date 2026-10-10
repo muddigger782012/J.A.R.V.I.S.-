@@ -433,10 +433,14 @@ class HybridAssistantService(
     }
 
     private fun isTimeRequest(text: String): Boolean {
-        return text in setOf(
-            "time", "what time", "what time is it", "whats the time",
-            "tell me the time", "current time", "what is the time"
-        )
+        val cleaned = text
+            .replace(Regex("\\b(?:hey\\s+)?jarvis\\b[,:]?\\s*"), "")
+            .trim()
+        if (cleaned in setOf(
+                "time", "what time", "what time is it", "whats the time",
+                "tell me the time", "current time", "what is the time"
+            )) return true
+        return Regex("\\b(?:what|whats|what is|tell me)\\b.*\\btime\\b").containsMatchIn(cleaned)
     }
 
     private fun calendarRangeFor(text: String): Pair<Long, Long>? {
