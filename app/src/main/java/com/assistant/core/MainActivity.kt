@@ -856,7 +856,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var pendingMissedCallCommand: String? = null
+    private val callLogPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val command = pendingMissedCallCommand
+        pendingMissedCallCommand = null
+        if (granted && command != null) handleVoiceTranscript(command)
+        else appendOutput("J.A.R.V.I.S.: Call Log permission wasn't granted. Allow Call logs in Android app permissions, then ask again.")
+    }
+
     private fun handleAssistantWithLocation(command: String, callback: (com.assistant.core.services.HybridAssistantReply) -> Unit) {
+        if (com.assistant.core.services.CommandPhrases.isLastMissedCall(command) &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
+            pendingMissedCallCommand = command
+            callLogPermissionLauncher.launch(Manifest.permission.READ_CALL_LOG)
+            return
+        }
         val prefs = getSharedPreferences("jarvis_cloud_ai", MODE_PRIVATE)
         val wantsLocation = com.assistant.core.services.OnlineAnswers.wantsDeviceLocation(command)
         if (wantsLocation) prefs.edit().putBoolean("weather_device_location", true).apply()

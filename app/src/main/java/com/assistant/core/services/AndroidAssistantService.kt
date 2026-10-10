@@ -56,6 +56,32 @@ class AndroidAssistantService(private val context: Context) {
         }
     }
 
+    fun lastMissedCall(): String {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED)
+            return "Call Log permission is required. Open Android Settings → Apps → J.A.R.V.I.S. → Permissions, allow Call logs, then ask again."
+        return try {
+            val projection = arrayOf(android.provider.CallLog.Calls.NUMBER, android.provider.CallLog.Calls.CACHED_NAME,
+                android.provider.CallLog.Calls.DATE, android.provider.CallLog.Calls.NUMBER_PRESENTATION)
+            context.contentResolver.query(android.provider.CallLog.Calls.CONTENT_URI, projection,
+                "${android.provider.CallLog.Calls.TYPE} = ?", arrayOf(android.provider.CallLog.Calls.MISSED_TYPE.toString()),
+                "${android.provider.CallLog.Calls.DATE} DESC")?.use { cursor ->
+                if (!cursor.moveToFirst()) return "There are no missed calls in your call log."
+                val name = cursor.getString(cursor.getColumnIndexOrThrow(android.provider.CallLog.Calls.CACHED_NAME)).orEmpty()
+                val number = cursor.getString(cursor.getColumnIndexOrThrow(android.provider.CallLog.Calls.NUMBER)).orEmpty()
+                val presentation = cursor.getInt(cursor.getColumnIndexOrThrow(android.provider.CallLog.Calls.NUMBER_PRESENTATION))
+                val caller = when {
+                    presentation == android.provider.CallLog.Calls.PRESENTATION_RESTRICTED -> "a private number"
+                    presentation != android.provider.CallLog.Calls.PRESENTATION_ALLOWED || number.isBlank() -> "an unknown number"
+                    name.isNotBlank() -> "$name ($number)"
+                    else -> number
+                }
+                val time = cursor.getLong(cursor.getColumnIndexOrThrow(android.provider.CallLog.Calls.DATE))
+                val formatted = SimpleDateFormat("EEEE, MMMM d 'at' h:mm a", Locale.getDefault()).format(Date(time))
+                "Your last missed call was from $caller on $formatted."
+            } ?: "Android couldn't read the call log. Check Call Log permission and try again."
+        } catch (_: Exception) { "Android couldn't read the call log. Check Call Log permission and try again." }
+    }
+
     fun hasCallPermission(): Boolean =
         androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
 

@@ -4,6 +4,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CommandPhrasesTest {
+    @Test fun missedCallQuestionsAreLocalAndSpecific() {
+        assertTrue(CommandPhrases.isLastMissedCall("Who was my last missed call?"))
+        assertTrue(CommandPhrases.isLastMissedCall("Show my most recent missed call"))
+        assertFalse(CommandPhrases.isLastMissedCall("Text John about my last missed call"))
+        assertFalse(CommandPhrases.isLastMissedCall("What is a missed call"))
+    }
     @Test fun mapsDirectionsExtractOnlyTheDestination() {
         val address = "140 Patrick Drive Hertford North Carolina"
         assertEquals(address, CommandPhrases.navigationDestination("Open maps to $address"))

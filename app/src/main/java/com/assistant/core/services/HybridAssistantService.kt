@@ -91,6 +91,12 @@ class HybridAssistantService(
             PendingPrompt.NONE -> Unit
         }
 
+        if (CommandPhrases.isLastMissedCall(userInput)) {
+            val response = androidAssistant.lastMissedCall()
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
         if (containsAny(normalized, "hello", "hi jarvis", "hey jarvis", "good morning", "good evening")) {
             val response = "Hello. I'm ready to help with device actions, status checks, Shizuku terminal commands, and project generation."
             remember(userInput, response)
