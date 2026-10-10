@@ -333,6 +333,7 @@ class MainActivity : AppCompatActivity() {
         refreshShizukuRuntimeStatus()
         updateMicrophonePermissionUi()
         promptForMicrophonePermissionOnFirstLaunch()
+        showRestrictedSettingsGuideOnFirstLaunch()
 
         appendOutput("Startup capability status:\n${systemService.buildStatusSummary(capabilityState)}")
         appendOutput(getString(R.string.voice_hint))
@@ -1823,6 +1824,39 @@ class MainActivity : AppCompatActivity() {
 
     private fun openNotificationPolicyPermission() {
         startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+    }
+
+    private fun showRestrictedSettingsGuideOnFirstLaunch() {
+        val prefs = getSharedPreferences("jarvis_onboarding", MODE_PRIVATE)
+        if (prefs.getBoolean("restricted_settings_guide_seen", false)) return
+
+        AlertDialog.Builder(this)
+            .setTitle("Enable J.A.R.V.I.S. Accessibility")
+            .setMessage(
+                "Android may block Accessibility for apps installed outside an app store. " +
+                    "If you see “App was denied access,” open Settings > Apps > J.A.R.V.I.S., " +
+                    "tap the three-dot menu, choose “Allow restricted settings,” confirm your device security, " +
+                    "then return to Accessibility > Installed apps > J.A.R.V.I.S. Accessibility and turn it on.\n\n" +
+                    "Android requires you to approve this manually; J.A.R.V.I.S. cannot bypass this protection."
+            )
+            .setPositiveButton("Open App Settings") { _, _ ->
+                prefs.edit().putBoolean("restricted_settings_guide_seen", true).apply()
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            }
+            .setNeutralButton("Accessibility Settings") { _, _ ->
+                prefs.edit().putBoolean("restricted_settings_guide_seen", true).apply()
+                openAccessibilitySettings()
+            }
+            .setNegativeButton("Later") { _, _ ->
+                prefs.edit().putBoolean("restricted_settings_guide_seen", true).apply()
+            }
+            .setOnCancelListener {
+                prefs.edit().putBoolean("restricted_settings_guide_seen", true).apply()
+            }
+            .show()
     }
 
     private fun openDefaultAssistantSettings() {
