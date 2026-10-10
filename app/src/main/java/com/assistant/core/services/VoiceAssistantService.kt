@@ -320,7 +320,7 @@ class VoiceAssistantService(
     private fun resumeHotwordEngineAfterCommand() {
         if (!voiceActive) return
         if (shouldUseDedicatedWakeWord()) {
-            ensureCustomWakeModelAndStart()
+            startDedicatedWakeWordEngine()
         } else {
             mode = RecognitionMode.FALLBACK_SPEECH_HOTWORD
             onStatus("Wake-word standby unavailable; use push-to-talk until the dedicated engine is configured.")
