@@ -67,7 +67,10 @@ class VoiceForegroundService : Service() {
                 // Android may deliver repeated startService intents (activity resume,
                 // settings reload, sticky restart). Do not tear down and recreate
                 // the active Sherpa microphone pipeline for every duplicate start.
-                if (!voicePreferences.isForegroundServiceRunning()) {
+                // This Service instance owns the live pipeline. A persisted
+                // "running" flag can survive process death and must never be used
+                // as proof that Sherpa is actually armed in this new instance.
+                if (!::currentConfig.isInitialized) {
                     startVoicePipeline()
                 } else {
                     publishEvent("Foreground voice service already active; keeping wake listener armed.")
