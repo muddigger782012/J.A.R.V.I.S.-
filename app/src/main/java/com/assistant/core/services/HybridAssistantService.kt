@@ -30,6 +30,7 @@ class HybridAssistantService(
     private var pendingPrompt: PendingPrompt = PendingPrompt.NONE
     private var pendingShellCommand: String? = null
     private val history = ArrayDeque<Pair<String, String>>()
+    private val androidAssistant = AndroidAssistantService(systemService.context())
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
@@ -121,6 +122,34 @@ class HybridAssistantService(
             val response = "It's " + SimpleDateFormat("EEEE", Locale.getDefault()).format(Date()) + "."
             remember(userInput, response)
             return HybridAssistantReply(response)
+        }
+
+        parseTimerSeconds(normalized)?.let { seconds ->
+            val ok = androidAssistant.setTimer(seconds)
+            val response = if (ok) "Timer set for $seconds seconds." else "I couldn't open the Android timer service."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        parseNavigationDestination(normalized)?.let { destination ->
+            val ok = androidAssistant.navigate(destination)
+            val response = if (ok) "Starting navigation to $destination." else "I couldn't start navigation."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (normalized in setOf("volume up", "turn volume up", "increase volume")) {
+            val ok = androidAssistant.adjustVolume(android.media.AudioManager.ADJUST_RAISE)
+            val response = if (ok) "Volume increased." else "I couldn't change the volume."
+            remember(userInput, response); return HybridAssistantReply(response)
+        }
+        if (normalized in setOf("volume down", "turn volume down", "decrease volume")) {
+            val ok = androidAssistant.adjustVolume(android.media.AudioManager.ADJUST_LOWER)
+            val response = if (ok) "Volume decreased." else "I couldn't change the volume."
+            remember(userInput, response); return HybridAssistantReply(response)
+        }
+        if (normalized in setOf("open settings", "device settings", "system settings")) {
+            val ok = androidAssistant.openSettings()
+            val response = if (ok) "Opening Android settings." else "I couldn't open Android settings."
+            remember(userInput, response); return HybridAssistantReply(response)
         }
 
         if (normalized in setOf("go back", "back")) {
@@ -241,6 +270,22 @@ class HybridAssistantService(
             "what day is it", "what day is today", "what day is it today",
             "what day", "day"
         )
+    }
+
+    private fun parseTimerSeconds(text: String): Int? {
+        val match = Regex("(?:set|start) (?:a )?timer (?:for )?(\\d+) (second|seconds|minute|minutes|hour|hours)").find(text) ?: return null
+        val amount = match.groupValues[1].toIntOrNull() ?: return null
+        return when (match.groupValues[2]) {
+            "hour", "hours" -> amount * 3600
+            "minute", "minutes" -> amount * 60
+            else -> amount
+        }
+    }
+
+    private fun parseNavigationDestination(text: String): String? {
+        val prefixes = listOf("navigate to ", "directions to ", "take me to ")
+        val prefix = prefixes.firstOrNull { text.startsWith(it) } ?: return null
+        return text.removePrefix(prefix).trim().takeIf { it.isNotBlank() }
     }
 
     private fun containsAny(text: String, vararg options: String): Boolean {
