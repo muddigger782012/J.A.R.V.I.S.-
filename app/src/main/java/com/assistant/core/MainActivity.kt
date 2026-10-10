@@ -841,7 +841,7 @@ class MainActivity : AppCompatActivity() {
         appendOutput("You: ${if (commandText.isBlank()) "(status request)" else commandText}")
         appendOutput("J.A.R.V.I.S.: ${reply.text}")
         statusOutput.text = reply.actionResult?.output ?: reply.text
-        appendRecentAudit()
+        commandInput.setText("")
     }
 
     private fun appendActionResult(result: ActionResult) {
@@ -1395,7 +1395,8 @@ class MainActivity : AppCompatActivity() {
     private fun handleVoiceRecognition(recognition: VoiceRecognitionResult) {
         val command = recognition.transcript
         commandInput.setText(command)
-        appendOutput("Voice command (${(recognition.confidence * 100f).toInt()}%): $command")
+        appendOutput("You: $command")
+        updateVoiceInteractionState(VoiceInteractionState.PROCESSING)
 
         pendingClarification?.let { awaiting ->
             when {
@@ -1482,17 +1483,16 @@ class MainActivity : AppCompatActivity() {
         shouldStartVoiceAfterPermission = false
         pendingClarification = null
         if (currentVoiceConfig.enableDedicatedWakeWord && currentVoiceConfig.porcupineAccessKey.isBlank()) {
-            appendOutput("Porcupine AccessKey is not configured; using speech fallback mode.")
+            // Engine fallback is intentionally silent in the conversational UI.
         }
         if (currentVoiceConfig.useForegroundServiceMode) {
             VoiceForegroundService.start(this)
             voiceEnabled = true
-            appendOutput(getString(R.string.voice_service_started))
+            updateVoiceInteractionState(VoiceInteractionState.WAKE_LISTENING)
         } else {
             voiceEnabled = true
-            appendOutput(getString(R.string.voice_started))
+            updateVoiceInteractionState(VoiceInteractionState.WAKE_LISTENING)
             voiceService.startHotwordLoop()
-            appendOutput(getString(R.string.voice_engine_label, voiceService.getCurrentHotwordEngine().name))
         }
         refreshVoiceButtonLabel()
     }
@@ -1502,7 +1502,7 @@ class MainActivity : AppCompatActivity() {
         if (currentVoiceConfig.useForegroundServiceMode) {
             VoiceForegroundService.stop(this)
             voiceEnabled = false
-            appendOutput(getString(R.string.voice_service_stopped))
+            updateVoiceInteractionState(VoiceInteractionState.IDLE)
         } else {
             voiceEnabled = false
             voiceService.stopListening()
@@ -1526,15 +1526,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             voiceEnabled
         }
-        if (showStatus) {
-            appendOutput(getString(R.string.voice_engine_label, voiceService.getCurrentHotwordEngine().name))
-            appendOutput(
-                getString(
-                    R.string.voice_mode_label,
-                    if (currentVoiceConfig.useForegroundServiceMode) "FOREGROUND_SERVICE" else "IN_APP"
-                )
-            )
-        }
+        if (showStatus) updateVoiceInteractionState(if (voiceEnabled) VoiceInteractionState.WAKE_LISTENING else VoiceInteractionState.IDLE)
         refreshVoiceButtonLabel()
         if (currentVoiceConfig.useForegroundServiceMode) {
             if (currentVoiceConfig.autoStartForegroundService && !voicePreferences.isForegroundServiceRunning()) {
