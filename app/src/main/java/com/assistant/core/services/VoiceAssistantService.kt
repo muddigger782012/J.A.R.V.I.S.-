@@ -104,7 +104,12 @@ class VoiceAssistantService(
         if (shouldUseDedicatedWakeWord()) {
             startDedicatedWakeWordEngine()
         } else {
-            switchToSpeechHotwordFallback("Dedicated wake-word is disabled or not configured.")
+            // Android SpeechRecognizer is intentionally NOT used as a
+            // continuous wake-word engine. Repeated recognizer sessions cause
+            // the system start-listening beep every few seconds and are not a
+            // reliable always-on hotword implementation.
+            currentHotwordEngine = HotwordEngine.SPEECH_FALLBACK
+            onStatus("Wake-word standby requires the dedicated offline wake-word engine. Push-to-talk remains available.")
         }
     }
 
@@ -317,7 +322,7 @@ class VoiceAssistantService(
             startDedicatedWakeWordEngine()
         } else {
             mode = RecognitionMode.FALLBACK_SPEECH_HOTWORD
-            scheduleFallbackHotwordListening(5000)
+            onStatus("Wake-word standby unavailable; use push-to-talk until the dedicated engine is configured.")
         }
     }
 
