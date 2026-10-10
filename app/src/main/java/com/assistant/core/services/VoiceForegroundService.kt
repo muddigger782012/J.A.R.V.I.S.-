@@ -42,6 +42,7 @@ class VoiceForegroundService : Service() {
     private lateinit var systemService: SystemService
     private lateinit var capabilityState: CapabilityState
     private lateinit var currentConfig: VoiceConfig
+    private lateinit var voiceSession: VoiceSessionController
 
     private var pendingClarification: String? = null
 
@@ -120,12 +121,19 @@ class VoiceForegroundService : Service() {
     }
 
     private fun initializeVoice() {
+        voiceSession = VoiceSessionController(
+            onStateChanged = { state -> publishEvent("Voice state: ${state.userLabel()}") },
+            onTranscript = { transcript -> processTranscript(transcript) },
+            onError = { failure -> publishEvent("Voice error: ${failure.message}") }
+        )
         voiceService = VoiceAssistantService(
             context = this,
             onStatus = { status -> publishEvent(status) },
-            onHotwordDetected = { publishEvent("Hotword detected in background mode.") },
+            onHotwordDetected = {
+                voiceSession.beginCapture(VoiceSessionController.Trigger.WAKE_WORD)
+            },
             onCommandDetected = { recognition ->
-                processRecognition(recognition)
+                voiceSession.transcriptReady(recognition.transcript)
             }
         )
     }
@@ -133,6 +141,7 @@ class VoiceForegroundService : Service() {
     private fun startVoicePipeline() {
         currentConfig = voicePreferences.load()
         voiceService.updateConfig(currentConfig)
+        voiceSession.arm()
         voiceService.startHotwordLoop()
         voicePreferences.setForegroundServiceRunning(true)
         publishEvent("Foreground voice service started.")
@@ -140,9 +149,46 @@ class VoiceForegroundService : Service() {
 
     private fun stopVoicePipeline() {
         voiceService.stopListening()
+        voiceSession.stop()
         pendingClarification = null
         voicePreferences.setForegroundServiceRunning(false)
         publishEvent("Foreground voice service stopped.")
+    }
+
+    private fun processTranscript(transcript: String) {
+        currentConfig = voicePreferences.load()
+        publishEvent("You: $transcript")
+
+        val awaiting = pendingClarification
+        if (awaiting != null) {
+            when {
+                looksLikeYes(transcript) -> {
+                    pendingClarification = null
+                    processCommand(awaiting)
+                }
+                looksLikeNo(transcript) -> {
+                    pendingClarification = null
+                    speakResponse("Okay. Please repeat your command.")
+                }
+                else -> speakResponse("Please answer yes or no.")
+            }
+            return
+        }
+
+        // Voice 2.0 deliberately sends recognized speech through the same
+        // central assistant pipeline as typed input. Legacy parser routing is
+        // retained below only until the remaining migration is complete.
+        val reply = hybridAssistantService.handleUserInput(transcript)
+        publishEvent("J.A.R.V.I.S.: ${reply.text}")
+        speakResponse(reply.text.lineSequence().firstOrNull()?.take(240) ?: "Done.")
+    }
+
+    private fun speakResponse(text: String) {
+        voiceSession.speaking()
+        voiceService.speak(text)
+        // VoiceAssistantService will gain an utterance completion callback in
+        // the next migration step. Until then, return to armed wake listening.
+        voiceSession.responseFinished(keepArmed = true)
     }
 
     private fun processRecognition(recognition: VoiceRecognitionResult) {
