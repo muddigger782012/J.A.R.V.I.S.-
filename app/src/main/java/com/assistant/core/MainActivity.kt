@@ -1899,7 +1899,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openAccessibilitySettings() {
-        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        // Prefer the installed-services list where J.A.R.V.I.S. appears.
+        // Some Samsung/Android builds route the generic accessibility intent
+        // to the top-level page, which makes the service difficult to find.
+        val installedServices = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS").apply {
+            data = Uri.parse("package:$packageName")
+        }
+        val installedList = Intent("android.settings.ACCESSIBILITY_SETTINGS")
+        runCatching { startActivity(installedServices) }
+            .recoverCatching { startActivity(installedList) }
+            .onFailure { startActivity(Intent(Settings.ACTION_SETTINGS)) }
     }
 
     private fun openExactAlarmPermission() {
