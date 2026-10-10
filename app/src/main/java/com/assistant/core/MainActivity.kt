@@ -343,7 +343,11 @@ class MainActivity : ThemedActivity() {
         )
         voiceService = VoiceAssistantService(
             context = this,
-            onStatus = { },
+            onStatus = { status ->
+                runOnUiThread {
+                    appendOutput("[WAKE] $status")
+                }
+            },
             onHotwordDetected = {
                 voiceSession.beginCapture(VoiceSessionController.Trigger.WAKE_WORD)
             },
