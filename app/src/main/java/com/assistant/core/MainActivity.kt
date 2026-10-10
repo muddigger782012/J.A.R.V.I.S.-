@@ -269,7 +269,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         initViews()
-        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { _, insets ->
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
             val keyboard = insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())
             val compact = keyboard && resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
             findViewById<View>(R.id.quickPromptScroller).visibility = if (keyboard) View.GONE else View.VISIBLE
@@ -881,7 +881,7 @@ class MainActivity : AppCompatActivity() {
             VoiceInteractionState.WAKE_LISTENING -> "Say “${currentVoiceConfig.wakeWord}”"
             else -> state.userLabel()
         }
-        voiceButton.text = if (state == VoiceInteractionState.IDLE) getString(R.string.ui_talk) else getString(R.string.ui_stop_voice)
+        voiceButton.text = state.userLabel()
         voiceButton.isEnabled = state != VoiceInteractionState.PROCESSING
     }
 
@@ -1713,7 +1713,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshVoiceButtonLabel() {
         if (!::currentVoiceConfig.isInitialized) return
-        voiceButton.text = getString(if (voiceEnabled) R.string.ui_stop_voice else R.string.ui_talk)
+        voiceButton.text = getString(R.string.ui_talk)
     }
 
     private fun hasMicrophonePermission(): Boolean {
@@ -1726,7 +1726,7 @@ class MainActivity : AppCompatActivity() {
         micPermissionStatusView.text = if (granted) {
             getString(R.string.mic_permission_status_ok)
         } else {
-            getString(R.string.mic_permission_status_missing)
+            getString(R.string.ui_mic_hint)
         }
         grantMicPermissionButton.isEnabled = !granted
         findViewById<View>(R.id.micPermissionCard).visibility = if (granted) View.GONE else View.VISIBLE

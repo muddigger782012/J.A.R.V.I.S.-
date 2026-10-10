@@ -35,29 +35,34 @@ def capture(name):
     (output / (name + '.xml')).write_text(ET.tostring(hierarchy(), encoding='unicode'))
 
 
-adb('install', '-r', 'app-debug.apk')
-adb('shell', 'pm', 'grant', 'com.assistant.core', 'android.permission.RECORD_AUDIO')
-adb('shell', 'am', 'start', '-n', 'com.assistant.core/.MainActivity')
-time.sleep(3)
-assert any(n.get('resource-id') == 'com.assistant.core:id/etCommandInput' for n in hierarchy().iter('node')), 'Main screen did not open'
-capture('home')
-tap('etCommandInput')
-adb('shell', 'input', 'text', '2%s+%s2')
-time.sleep(1)
-capture('keyboard')
-tap('btnRunAssistantCommand')
-adb('shell', 'input', 'keyevent', '4')
-time.sleep(1)
-assert any(n.get('text') == '4' for n in hierarchy().iter('node')), 'Chat response card not rendered'
-capture('conversation')
-tap('btnVoiceSettings')
-assert any(n.get('text') == 'Weather and AI' for n in hierarchy().iter('node')), 'Weather and AI is not visible in settings'
-capture('settings')
-tap('btnCloseVoiceSettings')
-adb('shell', 'wm', 'size', '720x1280')
-adb('shell', 'wm', 'density', '360')  # 320dp width
-adb('shell', 'settings', 'put', 'system', 'font_scale', '1.3')
-time.sleep(2)
-tap('etCommandInput')
-assert any(n.get('resource-id') == 'com.assistant.core:id/btnRunAssistantCommand' for n in hierarchy().iter('node')), 'Send hidden on small screen'
-capture('small-screen-keyboard')
+try:
+    adb('install', '-r', 'app-debug.apk')
+    adb('shell', 'pm', 'grant', 'com.assistant.core', 'android.permission.RECORD_AUDIO')
+    adb('shell', 'am', 'start', '-n', 'com.assistant.core/.MainActivity')
+    time.sleep(3)
+    assert any(n.get('resource-id') == 'com.assistant.core:id/etCommandInput' for n in hierarchy().iter('node')), 'Main screen did not open'
+    capture('home')
+    tap('etCommandInput')
+    adb('shell', 'input', 'text', '2%s+%s2')
+    time.sleep(1)
+    capture('keyboard')
+    tap('btnRunAssistantCommand')
+    adb('shell', 'input', 'keyevent', '4')
+    time.sleep(1)
+    assert any(n.get('text') == '4' for n in hierarchy().iter('node')), 'Chat response card not rendered'
+    capture('conversation')
+    tap('btnVoiceSettings')
+    capture('settings')
+    assert any(n.get('text', '').casefold() == 'weather and ai' for n in hierarchy().iter('node')), 'Weather and AI is not visible in settings'
+    tap('btnCloseVoiceSettings')
+    adb('shell', 'wm', 'size', '720x1280')
+    adb('shell', 'wm', 'density', '360')  # 320dp width
+    adb('shell', 'settings', 'put', 'system', 'font_scale', '1.3')
+    time.sleep(2)
+    tap('etCommandInput')
+    assert any(n.get('resource-id') == 'com.assistant.core:id/btnRunAssistantCommand' for n in hierarchy().iter('node')), 'Send hidden on small screen'
+    capture('small-screen-keyboard')
+except Exception:
+    capture('failure')
+    (output / 'logcat.txt').write_text(adb('logcat', '-d'))
+    raise

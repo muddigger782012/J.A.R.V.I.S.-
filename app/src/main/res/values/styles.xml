@@ -11,6 +11,7 @@
     <style name="Widget.AssistantPlatform.Button" parent="Widget.MaterialComponents.Button">
         <item name="android:background">@drawable/glass_button_bg</item>
         <item name="android:textColor">@color/jarvis_on_dark</item>
+        <item name="cornerRadius">16dp</item>
         <item name="android:minHeight">48dp</item>
         <item name="android:textAllCaps">false</item>
     </style>

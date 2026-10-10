@@ -133,7 +133,7 @@
     <string name="ui_welcome_hint">Ask a question, check the weather, or get something done on your phone.</string>
     <string name="ui_message_hint">Message J.A.R.V.I.S.</string>
     <string name="ui_send">Send</string>
-    <string name="ui_talk">Start voice</string>
+    <string name="ui_talk">Talk to J.A.R.V.I.S.</string>
     <string name="ui_stop_voice">Stop voice</string>
     <string name="ui_weather">Weather</string>
     <string name="ui_maps">Maps</string>
