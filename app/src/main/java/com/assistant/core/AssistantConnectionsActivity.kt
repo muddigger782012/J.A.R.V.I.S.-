@@ -6,7 +6,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.assistant.core.services.ApiKeyStore
 import com.assistant.core.services.AssistantConnectionProtocol
 
-class AssistantConnectionsActivity : AppCompatActivity() {
+class AssistantConnectionsActivity : ThemedActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         supportActionBar?.title = "Assistant connections"
@@ -14,7 +14,7 @@ class AssistantConnectionsActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("jarvis_assistant_connections", MODE_PRIVATE)
         val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(32, 24, 32, 24) }
         setContentView(ScrollView(this).apply { addView(fields) })
-        fun note(value: String) { fields.addView(TextView(this).apply { text = value; setTextColor(androidx.core.content.ContextCompat.getColor(this@AssistantConnectionsActivity, R.color.jarvis_on_dark_muted)); setPadding(0, 16, 0, 8) }) }
+        fun note(value: String) { fields.addView(TextView(this).apply { text = value; setTextColor(androidx.core.content.ThemePreferences.color(this@AssistantConnectionsActivity, R.color.jarvis_on_dark_muted)); setPadding(0, 16, 0, 8) }) }
         fun field(label: String, value: String, secret: Boolean = false): EditText {
             note(label)
             return EditText(this).apply {

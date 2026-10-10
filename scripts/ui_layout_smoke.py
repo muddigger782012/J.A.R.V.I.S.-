@@ -55,6 +55,26 @@ try:
     capture('settings')
     assert any(n.get('text', '').casefold() == 'weather and ai' for n in hierarchy().iter('node')), 'Weather and AI is not visible in settings'
     tap('btnCloseVoiceSettings')
+    # Exercise each palette through the native settings flow, then verify persistence.
+    for name in ('Stark', 'Cybertron', 'Default'):
+        tap('btnVoiceSettings')
+        tap('btnThemes')
+        if name == 'Cybertron':
+            adb('shell', 'input', 'swipe', '500', '1500', '500', '500', '350')
+            time.sleep(1)
+        tap('btnTheme' + name)
+        assert any(n.get('text') == 'Current theme: ' + name for n in hierarchy().iter('node')), 'Theme not applied'
+        capture('theme-picker-' + name.lower())
+        tap('btnCloseThemes')
+        tap('btnCloseVoiceSettings')
+        capture('theme-' + name.lower())
+        if name == 'Cybertron':
+            adb('shell', 'am', 'force-stop', 'com.assistant.core')
+            adb('shell', 'am', 'start', '-n', 'com.assistant.core/.MainActivity')
+            time.sleep(2)
+            tap('btnVoiceSettings')
+            assert any(n.get('text') == 'Themes • Cybertron' for n in hierarchy().iter('node')), 'Theme did not survive restart'
+            tap('btnCloseVoiceSettings')
     adb('shell', 'wm', 'size', '720x1280')
     adb('shell', 'wm', 'density', '360')  # 320dp width
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1.3')

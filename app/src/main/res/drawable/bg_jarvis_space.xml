@@ -4,8 +4,8 @@
         <shape android:shape="rectangle">
             <gradient
                 android:angle="130"
-                android:startColor="@color/jarvis_bg_start"
-                android:endColor="@color/jarvis_bg_end" />
+                android:startColor="?attr/jarvis_bg_start"
+                android:endColor="?attr/jarvis_bg_end" />
         </shape>
     </item>
 

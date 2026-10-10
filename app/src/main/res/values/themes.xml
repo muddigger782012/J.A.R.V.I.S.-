@@ -1,28 +1,96 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.AssistantPlatform" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/jarvis_primary</item>
-        <item name="colorPrimaryVariant">@color/jarvis_primary_variant</item>
-        <item name="colorOnPrimary">@color/jarvis_bg_deep</item>
+        <item name="colorPrimary">?attr/jarvis_primary</item>
+        <item name="colorPrimaryVariant">?attr/jarvis_primary_variant</item>
+        <item name="colorOnPrimary">?attr/jarvis_bg_deep</item>
 
-        <item name="colorSecondary">@color/jarvis_secondary</item>
-        <item name="colorSecondaryVariant">@color/jarvis_secondary_variant</item>
-        <item name="colorOnSecondary">@color/jarvis_bg_deep</item>
+        <item name="colorSecondary">?attr/jarvis_secondary</item>
+        <item name="colorSecondaryVariant">?attr/jarvis_secondary_variant</item>
+        <item name="colorOnSecondary">?attr/jarvis_bg_deep</item>
 
-        <item name="colorSurface">@color/jarvis_bg_end</item>
-        <item name="colorOnBackground">@color/jarvis_on_dark</item>
-        <item name="android:colorBackground">@color/jarvis_bg_deep</item>
-        <item name="colorOnSurface">@color/jarvis_on_dark</item>
-        <item name="android:textColorPrimary">@color/jarvis_on_dark</item>
-        <item name="android:textColorSecondary">@color/jarvis_on_dark_muted</item>
+        <item name="colorSurface">?attr/jarvis_bg_end</item>
+        <item name="colorOnBackground">?attr/jarvis_on_dark</item>
+        <item name="android:colorBackground">?attr/jarvis_bg_deep</item>
+        <item name="colorOnSurface">?attr/jarvis_on_dark</item>
+        <item name="android:textColorPrimary">?attr/jarvis_on_dark</item>
+        <item name="android:textColorSecondary">?attr/jarvis_on_dark_muted</item>
 
-        <item name="android:windowBackground">@drawable/bg_jarvis_space</item>
+        <item name="android:windowBackground">?attr/jarvis_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@color/jarvis_bg_deep</item>
+        <item name="android:navigationBarColor">?attr/jarvis_bg_deep</item>
 
         <item name="buttonStyle">@style/Widget.AssistantPlatform.Button</item>
         <item name="materialButtonStyle">@style/Widget.AssistantPlatform.Button</item>
         <item name="editTextStyle">@style/Widget.AssistantPlatform.EditText</item>
         <item name="switchStyle">@style/Widget.AssistantPlatform.Switch</item>
+            <item name="jarvis_bg_deep">@color/jarvis_bg_deep</item>
+        <item name="jarvis_bg_start">@color/jarvis_bg_start</item>
+        <item name="jarvis_bg_end">@color/jarvis_bg_end</item>
+        <item name="jarvis_primary">@color/jarvis_primary</item>
+        <item name="jarvis_primary_variant">@color/jarvis_primary_variant</item>
+        <item name="jarvis_secondary">@color/jarvis_secondary</item>
+        <item name="jarvis_secondary_variant">@color/jarvis_secondary_variant</item>
+        <item name="jarvis_neon_green">@color/jarvis_neon_green</item>
+        <item name="jarvis_neon_green_soft">@color/jarvis_neon_green_soft</item>
+        <item name="jarvis_on_dark">@color/jarvis_on_dark</item>
+        <item name="jarvis_on_dark_muted">@color/jarvis_on_dark_muted</item>
+        <item name="jarvis_surface_glass">@color/jarvis_surface_glass</item>
+        <item name="jarvis_surface_glass_strong">@color/jarvis_surface_glass_strong</item>
+        <item name="jarvis_surface_stroke">@color/jarvis_surface_stroke</item>
+        <item name="jarvis_input_fill">@color/jarvis_input_fill</item>
+        <item name="jarvis_output_surface">@color/jarvis_output_surface</item>
+        <item name="jarvis_button_fill">@color/jarvis_button_fill</item>
+        <item name="jarvis_button_fill_pressed">@color/jarvis_button_fill_pressed</item>
+        <item name="jarvis_background">@drawable/bg_jarvis_space</item>
+        <item name="jarvis_corner">16dp</item>
+        <item name="jarvis_chat_corner">18dp</item>
+    </style>
+    <style name="Theme.AssistantPlatform.Stark" parent="Theme.AssistantPlatform">
+        <item name="jarvis_bg_deep">#030A0E</item>
+        <item name="jarvis_bg_start">#071821</item>
+        <item name="jarvis_bg_end">#102B37</item>
+        <item name="jarvis_primary">#8DEBFF</item>
+        <item name="jarvis_primary_variant">#42A2BD</item>
+        <item name="jarvis_secondary">#FFD078</item>
+        <item name="jarvis_secondary_variant">#D79837</item>
+        <item name="jarvis_neon_green">#FFD078</item>
+        <item name="jarvis_neon_green_soft">#D79837</item>
+        <item name="jarvis_on_dark">#E6F8FF</item>
+        <item name="jarvis_on_dark_muted">#A5BFCA</item>
+        <item name="jarvis_surface_glass">#48192E39</item>
+        <item name="jarvis_surface_glass_strong">#80203943</item>
+        <item name="jarvis_surface_stroke">#AA72C9DB</item>
+        <item name="jarvis_input_fill">#60203943</item>
+        <item name="jarvis_output_surface">#7013242E</item>
+        <item name="jarvis_button_fill">#705493A4</item>
+        <item name="jarvis_button_fill_pressed">#9980D3E4</item>
+        <item name="jarvis_background">@drawable/bg_stark</item>
+        <item name="jarvis_corner">4dp</item>
+        <item name="jarvis_chat_corner">4dp</item>
+        <item name="android:fontFamily">sans-serif-condensed</item>
+    </style>
+    <style name="Theme.AssistantPlatform.Cybertron" parent="Theme.AssistantPlatform">
+        <item name="jarvis_bg_deep">#030611</item>
+        <item name="jarvis_bg_start">#080E27</item>
+        <item name="jarvis_bg_end">#13122E</item>
+        <item name="jarvis_primary">#52F8FF</item>
+        <item name="jarvis_primary_variant">#18BCD1</item>
+        <item name="jarvis_secondary">#CE8CFF</item>
+        <item name="jarvis_secondary_variant">#9660E1</item>
+        <item name="jarvis_neon_green">#72FFE3</item>
+        <item name="jarvis_neon_green_soft">#20CDA9</item>
+        <item name="jarvis_on_dark">#EBFCFF</item>
+        <item name="jarvis_on_dark_muted">#A1B8D8</item>
+        <item name="jarvis_surface_glass">#50182545</item>
+        <item name="jarvis_surface_glass_strong">#801F2852</item>
+        <item name="jarvis_surface_stroke">#9966DFEE</item>
+        <item name="jarvis_input_fill">#70101732</item>
+        <item name="jarvis_output_surface">#70131C38</item>
+        <item name="jarvis_button_fill">#7033486F</item>
+        <item name="jarvis_button_fill_pressed">#995DCDE0</item>
+        <item name="jarvis_background">@drawable/bg_cybertron</item>
+        <item name="jarvis_corner">22dp</item>
+        <item name="jarvis_chat_corner">22dp</item>
     </style>
 </resources>
