@@ -13,8 +13,8 @@ android {
         targetSdk 34
         // CI supplies monotonically increasing values from the GitHub Actions run number.
         // Local builds retain a safe baseline above all historical versionCode 24 installs.
-        versionCode (System.getenv("JARVIS_VERSION_CODE") ?: "107").toInteger()
-        versionName (System.getenv("JARVIS_VERSION_NAME") ?: "3.4.107")
+        versionCode Integer.parseInt(System.getenv("JARVIS_VERSION_CODE") ?: "109")
+        versionName "${System.getenv('JARVIS_VERSION_NAME') ?: '3.4.109'}"
 
         buildConfigField "String", "GITHUB_REPO_OWNER", "\"muddigger782012\""
         buildConfigField "String", "GITHUB_REPO_NAME", "\"J.A.R.V.I.S.-\""
