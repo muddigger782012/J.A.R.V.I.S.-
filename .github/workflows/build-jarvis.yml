@@ -40,11 +40,25 @@ jobs:
           key: jarvis-stable-debug-signing-v1
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
-      - name: Compile debug APK
+      - name: Compile versioned debug APK
+        env:
+          JARVIS_VERSION_CODE: ${{ github.run_number }}
+          JARVIS_VERSION_NAME: 3.4.${{ github.run_number }}
         run: |
           mkdir -p ~/.android
           chmod +x ./gradlew
           ./gradlew --no-daemon assembleDebug
+      - name: Verify APK identity and signing
+        shell: bash
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
+          APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          "$AAPT" dump badging "$APK" | head -n 1
+          "$APKSIGNER" verify --print-certs "$APK"
+          "$AAPT" dump badging "$APK" | head -n 1 | grep -q "name='com.assistant.core'"
+          "$AAPT" dump badging "$APK" | head -n 1 | grep -q "versionCode='${{ github.run_number }}'"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
