@@ -9,6 +9,9 @@ import android.provider.Settings
 import android.content.pm.PackageManager
 import android.provider.ContactsContract
 import android.provider.CalendarContract
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Standard Android assistant capabilities that do not require privileged shell access.
@@ -94,6 +97,36 @@ class AndroidAssistantService(private val context: Context) {
             putExtra(CalendarContract.Events.TITLE, title)
             beginMillis?.let { putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, it) }
         })
+
+    data class CalendarEntry(val title: String, val beginMillis: Long)
+
+    fun hasCalendarReadPermission(): Boolean =
+        androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.READ_CALENDAR
+        ) == PackageManager.PERMISSION_GRANTED
+
+    fun calendarEntries(startMillis: Long, endMillis: Long, limit: Int = 12): List<CalendarEntry> {
+        if (!hasCalendarReadPermission()) return emptyList()
+        val projection = arrayOf(
+            CalendarContract.Instances.TITLE,
+            CalendarContract.Instances.BEGIN
+        )
+        val builder = CalendarContract.Instances.CONTENT_URI.buildUpon()
+        android.content.ContentUris.appendId(builder, startMillis)
+        android.content.ContentUris.appendId(builder, endMillis)
+        return context.contentResolver.query(
+            builder.build(), projection, null, null,
+            CalendarContract.Instances.BEGIN + " ASC"
+        )?.use { cursor ->
+            val titleIndex = cursor.getColumnIndexOrThrow(CalendarContract.Instances.TITLE)
+            val beginIndex = cursor.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
+            buildList {
+                while (cursor.moveToNext() && size < limit) {
+                    add(CalendarEntry(cursor.getString(titleIndex) ?: "Untitled event", cursor.getLong(beginIndex)))
+                }
+            }
+        } ?: emptyList()
+    }
 
     fun createReminder(title: String, beginMillis: Long? = null): Boolean =
         createCalendarEvent(title, beginMillis)
