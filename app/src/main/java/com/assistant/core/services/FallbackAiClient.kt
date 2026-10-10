@@ -26,8 +26,9 @@ class FallbackAiClient(private val context: Context) {
             .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", userText)))
             .toString()
 
-        val connection = URL(endpoint).openConnection() as HttpURLConnection
+        var connection: HttpURLConnection? = null
         return try {
+            connection = URL(endpoint).openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.connectTimeout = 12_000
             connection.readTimeout = 25_000
@@ -45,7 +46,7 @@ class FallbackAiClient(private val context: Context) {
         } catch (_: Exception) {
             null
         } finally {
-            connection.disconnect()
+            connection?.disconnect()
         }
     }
 }

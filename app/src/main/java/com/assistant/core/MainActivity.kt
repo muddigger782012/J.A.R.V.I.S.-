@@ -1495,10 +1495,14 @@ class MainActivity : AppCompatActivity() {
                         statusOutput.text = directResult.output ?: directResult.message
                         voiceService.speak(if (directResult.success) directResult.message else "I couldn't complete that command.")
                     } else {
-                        val reply = hybridAssistantService.handleUserInput(parsed.fallbackTextCommand ?: command)
-                        appendOutput("J.A.R.V.I.S.: ${reply.text}")
-                        statusOutput.text = reply.actionResult?.output ?: reply.text
-                        voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(180) ?: "Done.")
+                        hybridAssistantService.handleUserInputAsync(parsed.fallbackTextCommand ?: command) { reply ->
+                            runOnUiThread {
+                                appendOutput("J.A.R.V.I.S.: ${reply.text}")
+                                statusOutput.text = reply.actionResult?.output ?: reply.text
+                                voiceService.speak(reply.text.lineSequence().firstOrNull()?.take(180) ?: "Done.")
+                                appendRecentAudit()
+                            }
+                        }
                     }
                 }
                 appendRecentAudit()
