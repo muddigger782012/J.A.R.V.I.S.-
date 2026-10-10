@@ -1242,19 +1242,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        val pending = pendingDownloadedUpdate ?: return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()) {
-            pendingDownloadedUpdate = null
-            if (pending.exists() && isLikelyApkZip(pending)) {
-                launchInstallerForDownloadedApk(pending)
-            } else {
-                setUpdateStatus("Downloaded update is no longer available. Tap Update App to download it again.")
-            }
-        }
-    }
-
     private fun setUpdateStatus(text: String) {
         updateStatusOutput.text = text
         appendOutput("Updater: $text")
@@ -2000,6 +1987,16 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        pendingDownloadedUpdate?.let { pending ->
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()) {
+                pendingDownloadedUpdate = null
+                if (pending.exists() && isLikelyApkZip(pending)) {
+                    launchInstallerForDownloadedApk(pending)
+                } else {
+                    setUpdateStatus("Downloaded update is no longer available. Tap Update App to download it again.")
+                }
+            }
+        }
         reloadVoiceConfiguration(showStatus = false)
         updateMicrophonePermissionUi()
         refreshSpecialPermissionsStatus()
