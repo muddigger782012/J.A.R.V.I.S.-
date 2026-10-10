@@ -35,6 +35,7 @@ class HybridAssistantService(
     private var lastContactTarget: String? = null
     private val history = ArrayDeque<Pair<String, String>>()
     private val androidAssistant = AndroidAssistantService(systemService.context())
+    private val learningStore = IntentLearningStore(systemService.context())
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
@@ -334,7 +335,8 @@ class HybridAssistantService(
     private fun isDateRequest(text: String): Boolean {
         return text in setOf(
             "date", "what date is it", "whats the date", "what is the date",
-            "todays date", "what is todays date", "tell me the date"
+            "todays date", "what is todays date", "tell me the date",
+            "tell me todays date", "give me the date", "give me todays date"
         )
     }
 
