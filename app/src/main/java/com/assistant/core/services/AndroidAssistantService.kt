@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.Settings
+import android.content.pm.PackageManager
 
 /**
  * Standard Android assistant capabilities that do not require privileged shell access.
@@ -49,6 +50,29 @@ class AndroidAssistantService(private val context: Context) {
         val intent = context.packageManager.getLaunchIntentForPackage(packageName) ?: return false
         return launch(intent)
     }
+
+    fun launchAppByLabel(label: String): Boolean {
+        val pm = context.packageManager
+        val target = label.trim().lowercase()
+        val apps = pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+        val match = apps.firstOrNull { info ->
+            pm.getApplicationLabel(info).toString().trim().lowercase() == target
+        } ?: apps.firstOrNull { info ->
+            pm.getApplicationLabel(info).toString().trim().lowercase().contains(target)
+        } ?: return false
+        return launchApp(match.packageName)
+    }
+
+    fun playPauseMedia(): Boolean = dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+    fun nextMedia(): Boolean = dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_NEXT)
+    fun previousMedia(): Boolean = dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+
+    private fun dispatchMediaKey(keyCode: Int): Boolean = runCatching {
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode))
+        audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, keyCode))
+        true
+    }.getOrDefault(false)
 
     fun openSettings(): Boolean = launch(Intent(Settings.ACTION_SETTINGS))
 
