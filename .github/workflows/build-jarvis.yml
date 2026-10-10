@@ -33,25 +33,42 @@ jobs:
           java-version: '17'
           cache: gradle
       - uses: android-actions/setup-android@v4
-      - name: Restore stable debug signing key
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: jarvis-stable-debug-signing-v1
+      - name: Prepare permanent JARVIS signing key
+        id: signing
+        shell: bash
+        env:
+          JARVIS_SIGNING_KEY_B64: ${{ secrets.JARVIS_SIGNING_KEY_B64 }}
+          JARVIS_SIGNING_STORE_PASSWORD: ${{ secrets.JARVIS_SIGNING_STORE_PASSWORD }}
+          JARVIS_SIGNING_KEY_PASSWORD: ${{ secrets.JARVIS_SIGNING_KEY_PASSWORD }}
+          JARVIS_SIGNING_KEY_ALIAS: ${{ secrets.JARVIS_SIGNING_KEY_ALIAS }}
+        run: |
+          if [ -n "$JARVIS_SIGNING_KEY_B64" ] && [ -n "$JARVIS_SIGNING_STORE_PASSWORD" ] && [ -n "$JARVIS_SIGNING_KEY_PASSWORD" ] && [ -n "$JARVIS_SIGNING_KEY_ALIAS" ]; then
+            printf '%s' "$JARVIS_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/jarvis-release.jks"
+            chmod 600 "$RUNNER_TEMP/jarvis-release.jks"
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Permanent signing secrets are not configured; publishing is disabled for this run."
+          fi
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
-      - name: Compile versioned debug APK
+      - name: Compile versioned release APK
+        if: steps.signing.outputs.configured == 'true'
         env:
           JARVIS_VERSION_CODE: ${{ github.run_number }}
-          JARVIS_VERSION_NAME: 3.4.${{ github.run_number }}
+          JARVIS_VERSION_NAME: 3.5.${{ github.run_number }}
+          JARVIS_SIGNING_STORE_FILE: ${{ runner.temp }}/jarvis-release.jks
+          JARVIS_SIGNING_STORE_PASSWORD: ${{ secrets.JARVIS_SIGNING_STORE_PASSWORD }}
+          JARVIS_SIGNING_KEY_ALIAS: ${{ secrets.JARVIS_SIGNING_KEY_ALIAS }}
+          JARVIS_SIGNING_KEY_PASSWORD: ${{ secrets.JARVIS_SIGNING_KEY_PASSWORD }}
         run: |
-          mkdir -p ~/.android
           chmod +x ./gradlew
-          ./gradlew --no-daemon assembleDebug
+          ./gradlew --no-daemon assembleRelease
       - name: Verify APK identity and signing
+        if: steps.signing.outputs.configured == 'true'
         shell: bash
         run: |
-          APK="app/build/outputs/apk/debug/app-debug.apk"
+          APK="app/build/outputs/apk/release/app-release.apk"
           AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
           APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
           "$AAPT" dump badging "$APK" | head -n 1
@@ -60,16 +77,18 @@ jobs:
           "$AAPT" dump badging "$APK" | head -n 1 | grep -q "versionCode='${{ github.run_number }}'"
 
       - name: Upload APK artifact
+        if: steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: Jarvis-debug-APK
-          path: app/build/outputs/apk/debug/*.apk
+          name: Jarvis-release-APK
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
       - name: Publish APK for in-app updater
+        if: steps.signing.outputs.configured == 'true'
         shell: bash
         run: |
           apk_tmp="$(mktemp)"
-          cp app/build/outputs/apk/debug/app-debug.apk "$apk_tmp"
+          cp app/build/outputs/apk/release/app-release.apk "$apk_tmp"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main
