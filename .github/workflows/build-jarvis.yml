@@ -59,6 +59,11 @@ jobs:
           curl -fL --retry 3 -o app/libs/sherpa-onnx-1.13.8.aar \
             https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
           test -s app/libs/sherpa-onnx-1.13.8.aar
+          curl -fL --retry 3 -o /tmp/sherpa-kws.tar.bz2 \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01-mobile.tar.bz2
+          mkdir -p app/src/main/assets
+          tar -xjf /tmp/sherpa-kws.tar.bz2 -C app/src/main/assets
+          test -f app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/tokens.txt
       - name: Compile versioned release APK
         if: steps.signing.outputs.configured == 'true'
         env:
