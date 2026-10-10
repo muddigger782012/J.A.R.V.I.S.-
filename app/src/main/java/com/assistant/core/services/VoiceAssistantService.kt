@@ -15,6 +15,8 @@ import ai.picovoice.porcupine.Porcupine
 import ai.picovoice.porcupine.PorcupineException
 import ai.picovoice.porcupine.PorcupineManager
 import java.util.Locale
+import java.io.File
+import kotlin.concurrent.thread
 
 data class VoiceRecognitionResult(
     val transcript: String,
@@ -50,6 +52,8 @@ class VoiceAssistantService(
     private var tts: TextToSpeech = TextToSpeech(context, this)
     private var ttsReady = false
     private var porcupineManager: PorcupineManager? = null
+    private var trainingWakeModel = false
+    private val customWakeModel: File get() = File(context.filesDir, "hey_jarvis_android.ppn")
     private var lastWakeEngineUsed = HotwordEngine.SPEECH_FALLBACK
     private var fallbackErrorStreak = 0
     private var fallbackStatusAnnounced = false
@@ -102,7 +106,7 @@ class VoiceAssistantService(
         fallbackStatusAnnounced = false
 
         if (shouldUseDedicatedWakeWord()) {
-            startDedicatedWakeWordEngine()
+            ensureCustomWakeModelAndStart()
         } else {
             // Android SpeechRecognizer is intentionally NOT used as a
             // continuous wake-word engine. Repeated recognizer sessions cause
@@ -238,12 +242,44 @@ class VoiceAssistantService(
         return config.enableDedicatedWakeWord && config.porcupineAccessKey.isNotBlank()
     }
 
+    private fun ensureCustomWakeModelAndStart() {
+        if (customWakeModel.isFile && customWakeModel.length() > 0L) {
+            startDedicatedWakeWordEngine()
+            return
+        }
+        if (trainingWakeModel) return
+        trainingWakeModel = true
+        onStatus("Preparing exact Hey Jarvis wake model. This requires internet access for initial training.")
+        val requestedKey = config.porcupineAccessKey
+        thread(name = "jarvis-wake-model-training") {
+            var failure: String? = null
+            try {
+                val temporary = File(context.filesDir, "hey_jarvis_android.pending.ppn")
+                if (temporary.exists()) temporary.delete()
+                Porcupine.trainWakeWordFromPhrase(requestedKey, temporary.absolutePath, "en", "Hey Jarvis")
+                if (!temporary.isFile || temporary.length() == 0L || !temporary.renameTo(customWakeModel)) {
+                    throw IllegalStateException("Wake model was not saved")
+                }
+            } catch (error: Throwable) {
+                failure = error.message ?: error.javaClass.simpleName
+            }
+            mainHandler.post {
+                trainingWakeModel = false
+                if (failure != null) {
+                    onStatus("Hey Jarvis model setup failed: $failure. Check Picovoice AccessKey and network.")
+                } else if (voiceActive && config.porcupineAccessKey == requestedKey && shouldUseDedicatedWakeWord()) {
+                    startDedicatedWakeWordEngine()
+                }
+            }
+        }
+    }
+
     private fun startDedicatedWakeWordEngine() {
         stopDedicatedWakeWordEngine()
         try {
             porcupineManager = PorcupineManager.Builder()
                 .setAccessKey(config.porcupineAccessKey)
-                .setKeyword(Porcupine.BuiltInKeyword.JARVIS)
+                .setKeywordPath(customWakeModel.absolutePath)
                 .setSensitivity(config.wakeSensitivity.coerceIn(0.1f, 1.0f))
                 .setErrorCallback { error ->
                     mainHandler.post {
@@ -260,7 +296,7 @@ class VoiceAssistantService(
                 }
             porcupineManager?.start()
             currentHotwordEngine = HotwordEngine.DEDICATED_OFFLINE
-            onStatus("Dedicated Porcupine wake-word engine active. Say \"Jarvis\" to wake me.")
+            onStatus("Exact Hey Jarvis wake-word engine active.")
         } catch (error: PorcupineException) {
             switchToSpeechHotwordFallback(
                 "Dedicated wake-word unavailable: ${error.message ?: "setup failed"}"
@@ -346,7 +382,7 @@ class VoiceAssistantService(
     private fun resumeHotwordEngineAfterCommand() {
         if (!voiceActive) return
         if (shouldUseDedicatedWakeWord()) {
-            startDedicatedWakeWordEngine()
+            ensureCustomWakeModelAndStart()
         } else {
             mode = RecognitionMode.FALLBACK_SPEECH_HOTWORD
             onStatus("Wake-word standby unavailable; use push-to-talk until the dedicated engine is configured.")
