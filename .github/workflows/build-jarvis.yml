@@ -63,6 +63,13 @@ jobs:
             https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01-mobile.tar.bz2
           mkdir -p app/src/main/assets
           tar -xjf /tmp/sherpa-kws.tar.bz2 -C app/src/main/assets
+          KWS_DIR="$(find app/src/main/assets -maxdepth 1 -type d -name 'sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01*' | head -n1)"
+          test -n "$KWS_DIR"
+          if [ "$(basename "$KWS_DIR")" != "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01" ]; then
+            rm -rf app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
+            mv "$KWS_DIR" app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
+          fi
+          find app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01 -maxdepth 1 -type f -printf '%f\n'
           test -f app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/tokens.txt
       - name: Compile versioned release APK
         if: steps.signing.outputs.configured == 'true'
