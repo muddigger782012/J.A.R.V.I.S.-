@@ -87,13 +87,18 @@ jobs:
         if: steps.signing.outputs.configured == 'true'
         shell: bash
         run: |
-          APK="app/build/outputs/apk/release/app-release.apk"
           AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
           APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
-          "$AAPT" dump badging "$APK" | head -n 1
-          "$APKSIGNER" verify --print-certs "$APK"
-          "$AAPT" dump badging "$APK" | head -n 1 | grep -q "name='com.assistant.core'"
-          "$AAPT" dump badging "$APK" | head -n 1 | grep -q "versionCode='${{ github.run_number }}'"
+          found=0
+          for APK in app/build/outputs/apk/release/*.apk; do
+            found=1
+            echo "Verifying $APK ($(du -h "$APK" | cut -f1))"
+            "$AAPT" dump badging "$APK" | head -n 1
+            "$APKSIGNER" verify --print-certs "$APK"
+            "$AAPT" dump badging "$APK" | head -n 1 | grep -q "name='com.assistant.core'"
+            "$AAPT" dump badging "$APK" | head -n 1 | grep -q "versionCode='${{ github.run_number }}'"
+          done
+          test "$found" -eq 1
 
       - name: Upload APK artifact
         if: steps.signing.outputs.configured == 'true'
