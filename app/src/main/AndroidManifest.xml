@@ -65,7 +65,8 @@
             android:name=".services.VoiceForegroundService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="microphone" />
+            android:foregroundServiceType="microphone"
+            android:process=":wake" />
         <service
             android:name=".services.JarvisAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
