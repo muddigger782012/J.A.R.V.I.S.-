@@ -87,7 +87,7 @@ class VoiceForegroundService : Service() {
                 } else {
                     publishEvent("Foreground voice service already active; keeping wake listener armed.")
                 }
-                return START_STICKY
+                return START_NOT_STICKY
             }
         }
     }
