@@ -67,7 +67,8 @@ class VoiceSettingsActivity : ThemedActivity() {
             isAllCaps = false
             setOnClickListener {
                 val store = com.assistant.core.services.IntentLearningStore(this@VoiceSettingsActivity)
-                val summary = "Learned examples on this device: ${store.count()}\n\n" +
+                val commandCount = com.assistant.core.learning.ValidatedCommandMemory(this@VoiceSettingsActivity).learnedPhraseCount()
+                val summary = "Learned intent examples: ${store.count()}\nValidated command phrases: $commandCount\n\n" +
                     "Clear this device removes only locally saved examples. It does not delete learning on another device."
                 androidx.appcompat.app.AlertDialog.Builder(this@VoiceSettingsActivity)
                     .setTitle("Intelligence • Local Learning")
@@ -79,7 +80,9 @@ class VoiceSettingsActivity : ThemedActivity() {
                             .setMessage("This permanently clears the learned examples on this installation only. Other devices are unchanged.")
                             .setNegativeButton("Cancel", null)
                             .setPositiveButton("Clear this device") { _, _ ->
-                                val message = if (store.clear()) "Local learning cleared on this device" else "Unable to clear local learning; please retry"
+                                val intentsCleared = store.clear()
+                                val commandsCleared = com.assistant.core.learning.ValidatedCommandMemory(this@VoiceSettingsActivity).clear()
+                                val message = if (intentsCleared && commandsCleared) "Local learning cleared on this device" else "Unable to clear all local learning; please retry"
                                 android.widget.Toast.makeText(this@VoiceSettingsActivity, message, android.widget.Toast.LENGTH_LONG).show()
                             }
                             .show()
