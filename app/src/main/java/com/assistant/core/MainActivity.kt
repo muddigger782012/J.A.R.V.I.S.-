@@ -1472,6 +1472,11 @@ class MainActivity : ThemedActivity() {
                 setTextColor(ThemePreferences.color(this@MainActivity, if (user || assistant) R.color.jarvis_on_dark else R.color.jarvis_on_dark_muted))
                 setLineSpacing(dp(4).toFloat(), 1f)
                 setTextIsSelectable(true)
+                if (assistant && line.startsWith("J.A.R.V.I.S.: Search results for ")) {
+                    android.text.util.Linkify.addLinks(this, android.text.util.Linkify.WEB_URLS)
+                    movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                    linksClickable = true
+                }
             })
             if (assistant) {
                 val searchUrl = if ((line.startsWith("J.A.R.V.I.S.: Web search ready:") || line.startsWith("J.A.R.V.I.S.: Image search ready:")) && line.contains("\nhttps://www.google.com/search?"))
