@@ -34,10 +34,6 @@ object WebSearchCommand {
             ?.takeIf { it.length in 2..300 }
     }
 
-    /** A result preview requires an actual provider response; a URL alone is not a result. */
-    fun isResultPreviewAvailable(providerConfigured: Boolean, resultCount: Int): Boolean =
-        providerConfigured && resultCount > 0
-
     fun query(input: String): String? {
         val candidate = search.matchEntire(input.trim())?.groupValues?.get(1)
             ?.trim()?.trimEnd('.', '?', '!')?.trim() ?: return null
