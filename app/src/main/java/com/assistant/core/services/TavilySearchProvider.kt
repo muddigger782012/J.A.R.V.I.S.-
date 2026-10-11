@@ -37,7 +37,7 @@ class TavilySearchProvider(private val apiKey: String = "") {
                 val item = items.optJSONObject(index) ?: return@mapNotNull null
                 val url = item.optString("url")
                 val title = item.optString("title").trim()
-                if (!url.startsWith("https://") || title.isBlank()) return@mapNotNull null
+                if (!ChatSearchResults.safeUrl(url) || title.isBlank()) return@mapNotNull null
                 Result(title.take(250), item.optString("content").trim().take(700), url)
             }
         }

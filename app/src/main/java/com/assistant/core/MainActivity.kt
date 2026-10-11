@@ -1264,14 +1264,15 @@ class MainActivity : ThemedActivity() {
         commandInput.setText("")
     }
 
-    /** Search runs off the UI thread; missing credentials retain the existing browser card. */
+    /** Fetch structured results off the UI thread and preserve the originating conversation. */
     private fun fetchSearchResultsIfConfigured(replyText: String) {
         if (!replyText.startsWith("Web search ready:")) return
         val query = replyText.substringAfter("Web search ready:").substringBefore("\n").trim()
         if (query.length !in 2..300) return
         val apiKey = runCatching { com.assistant.core.services.ApiKeyStore(this, "tavily_search").read() }.getOrDefault("")
+        val searchSession = conversationSessionId
         Thread {
-            val cache = getSharedPreferences("jarvis_search_cache", MODE_PRIVATE)
+            val cache = getSharedPreferences("jarvis_search_cache_v2", MODE_PRIVATE)
             val cacheId = java.security.MessageDigest.getInstance("SHA-256")
                 .digest(query.lowercase(java.util.Locale.ROOT).toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }
@@ -1282,25 +1283,27 @@ class MainActivity : ThemedActivity() {
                 if (fresh && cached != null) cached
                 else {
                     val items = com.assistant.core.services.TavilySearchProvider(apiKey).search(query)
-                    if (items.isEmpty()) "" else items.joinToString("\n\n") { item ->
-                        item.title + "\n" + item.description + "\n" + item.url
-                    }.also { rendered ->
+                    if (items.isEmpty()) "" else com.assistant.core.services.ChatSearchResults.encode(query, items).also { rendered ->
                         cache.edit().putString(cacheId, rendered)
                             .putLong(cacheId + "_at", System.currentTimeMillis()).apply()
                     }
                 }
             }
             runOnUiThread {
-                result.onSuccess { rendered ->
-                    if (rendered.isEmpty()) {
-                        appendOutput("J.A.R.V.I.S.: No structured search results found. Open the search card to continue.")
-                    } else {
-                        appendOutput("J.A.R.V.I.S.: Search results for " + query +
-                            (if (fresh) " (cached)" else "") + ":\n\n" + rendered)
-                    }
-                }.onFailure {
-                    appendOutput("J.A.R.V.I.S.: Search previews unavailable. Open the search card to view results.")
+                if (isDestroyed) return@runOnUiThread
+                val response = result.fold(
+                    onSuccess = { rendered -> rendered.ifEmpty { "J.A.R.V.I.S.: No structured search results found. Open the search card to continue." } },
+                    onFailure = { "J.A.R.V.I.S.: Search previews unavailable. Open the search card to view results." }
+                )
+                if (searchSession != conversationSessionId) {
+                    val key = "messages_$searchSession"
+                    val history = runCatching { JSONArray(conversationPrefs.getString(key, "[]")) }.getOrElse { JSONArray() }
+                    history.put(response)
+                    conversationPrefs.edit().putString(key, history.toString()).apply()
+                    return@runOnUiThread
                 }
+                appendOutput(response)
+
             }
         }.start()
     }
@@ -1448,6 +1451,7 @@ class MainActivity : ThemedActivity() {
         messages.removeAllViews()
         fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
         visibleLines.forEach { line ->
+            val searchResults = com.assistant.core.services.ChatSearchResults.decode(line)
             val user = line.startsWith("You:")
             val assistant = line.startsWith("J.A.R.V.I.S.:")
             val card = LinearLayout(this).apply {
@@ -1467,7 +1471,7 @@ class MainActivity : ThemedActivity() {
                 setPadding(0, 0, 0, dp(6))
             })
             card.addView(TextView(this).apply {
-                text = when { user -> line.removePrefix("You:").trimStart(); assistant -> line.removePrefix("J.A.R.V.I.S.:").trimStart().substringBefore("\nhttps://www.google.com/search?"); else -> line }
+                text = when { searchResults != null -> "Search results for ${searchResults.query}"; user -> line.removePrefix("You:").trimStart(); assistant -> line.removePrefix("J.A.R.V.I.S.:").trimStart().substringBefore("\nhttps://www.google.com/search?"); else -> line }
                 textSize = if (user || assistant) 16f else 12f
                 setTextColor(ThemePreferences.color(this@MainActivity, if (user || assistant) R.color.jarvis_on_dark else R.color.jarvis_on_dark_muted))
                 setLineSpacing(dp(4).toFloat(), 1f)
@@ -1478,6 +1482,40 @@ class MainActivity : ThemedActivity() {
                     linksClickable = true
                 }
             })
+            searchResults?.items?.forEach { item ->
+                val source = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = ChatAppearancePreferences.background(this@MainActivity, false)
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
+                }
+                source.addView(TextView(this).apply {
+                    text = item.title
+                    textSize = 16f
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
+                })
+                source.addView(TextView(this).apply {
+                    text = item.description
+                    textSize = 14f
+                    setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_on_dark))
+                    setTextIsSelectable(true)
+                })
+                source.addView(TextView(this).apply {
+                    text = java.net.URI(item.url).host + "  ↗"
+                    textSize = 12f
+                    setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_on_dark_muted))
+                })
+                source.isFocusable = true
+                source.isClickable = true
+                source.contentDescription = "Open source: ${item.title}"
+                source.setOnClickListener {
+                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(item.url))) }
+                        .onFailure { android.widget.Toast.makeText(this, "No browser available", android.widget.Toast.LENGTH_SHORT).show() }
+                }
+                FontPreferences.applyTo(source, this@MainActivity)
+                card.addView(source)
+            }
             if (assistant) {
                 val searchUrl = if ((line.startsWith("J.A.R.V.I.S.: Web search ready:") || line.startsWith("J.A.R.V.I.S.: Image search ready:")) && line.contains("\nhttps://www.google.com/search?"))
                     Regex("""https://www\.google\.com/search\?[^\s<>]+""").find(line)?.value?.trimEnd('.', ',', ')', ']')
