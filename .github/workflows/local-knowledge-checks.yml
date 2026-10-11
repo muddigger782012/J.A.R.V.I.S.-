@@ -36,7 +36,10 @@ jobs:
         shell: bash
         run: |
           echo "Sherpa native libraries:"
-          unzip -Z1 app/libs/sherpa-onnx-1.13.8.aar | grep '^jni/.*\\.so      - run: bash gradlew --no-daemon testDebugUnitTest assembleDebug
+          unzip -Z1 app/libs/sherpa-onnx-1.13.8.aar | grep '^jni/.*[.]so' | cut -d/ -f2 | sort -u
+          echo "Supported APK splits:"
+          grep -A6 'splits {' app/build.gradle
+      - run: bash gradlew --no-daemon testDebugUnitTest assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: layout-smoke-apk
