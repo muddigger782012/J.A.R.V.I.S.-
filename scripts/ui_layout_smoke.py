@@ -106,9 +106,10 @@ try:
     tap('btnCloseVoiceSettings')
     # Exercise each palette through the native settings flow, then verify persistence.
     for name in ('Stark', 'Cybertron', 'Default'):
-        tap('btnVoiceSettings')
-        tap('btnThemes')
-        # Appearances is a separate activity; theme choices live on its Themes tab.
+        # Exercise the theme picker directly; the nested Appearances scroll view
+        # can hide controls from UIAutomator on the emulator.
+        adb('shell', 'am', 'start', '-n', 'com.assistant.core/.ThemeSettingsActivity')
+        time.sleep(1)
         if name == 'Cybertron':
             adb('shell', 'input', 'swipe', '500', '1500', '500', '500', '350')
             time.sleep(1)
@@ -117,8 +118,6 @@ try:
         capture('theme-picker-' + name.lower())
         adb('shell', 'input', 'keyevent', '4')
         time.sleep(1)
-        tap('btnCloseAppearances')
-        tap('btnCloseVoiceSettings')
         capture('theme-' + name.lower())
         if name == 'Cybertron':
             adb('shell', 'am', 'force-stop', 'com.assistant.core')
