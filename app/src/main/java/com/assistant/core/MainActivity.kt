@@ -1270,11 +1270,10 @@ class MainActivity : ThemedActivity() {
         if (!replyText.startsWith("Web search ready:")) return
         val query = replyText.substringAfter("Web search ready:").substringBefore("\n").trim()
         if (query.length !in 2..300) return
-        val apiKey = com.assistant.core.services.ApiKeyStore(this, "brave_search").read()
-        if (apiKey.isBlank()) return
+        val apiKey = com.assistant.core.services.ApiKeyStore(this, "tavily_search").read()
         Thread {
             val result = runCatching {
-                com.assistant.core.services.BraveSearchProvider(apiKey).search(query)
+                com.assistant.core.services.TavilySearchProvider(apiKey).search(query)
             }
             runOnUiThread {
                 result.onSuccess { items ->
