@@ -58,6 +58,23 @@ try:
     tap('btnVoiceSettings')
     capture('settings')
     assert any(n.get('text', '').casefold() == 'weather and ai' for n in hierarchy().iter('node')), 'Weather and AI is not visible in settings'
+    # Confirm the new learning control opens its diagnostics without deleting data.
+    learning_button = None
+    for attempt in range(4):
+        learning_button = next((n for n in hierarchy().iter('node')
+            if n.get('text') == 'Intelligence • Local Learning'), None)
+        if learning_button is not None:
+            break
+        adb('shell', 'input', 'swipe', '500', '1450', '500', '550', '300')
+        time.sleep(1)
+    assert learning_button is not None, 'Local Learning settings button not found'
+    x1, y1, x2, y2 = map(int, re.findall(r'\\d+', learning_button.get('bounds')))
+    adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
+    time.sleep(1)
+    assert any('Learned intent examples:' in n.get('text', '') for n in hierarchy().iter('node')), 'Learning diagnostics dialog did not open'
+    capture('learning-diagnostics')
+    adb('shell', 'input', 'keyevent', '4')
+    time.sleep(1)
     tap('btnCloseVoiceSettings')
     # Exercise each palette through the native settings flow, then verify persistence.
     for name in ('Stark', 'Cybertron', 'Default'):
