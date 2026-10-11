@@ -137,6 +137,15 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
+        // Keep malformed teaching requests local rather than letting cloud AI claim
+        // that an unapproved or unsupported routine was learned.
+        if (normalized.startsWith("teach jarvis that ") || normalized.startsWith("teach that ")) {
+            if (normalized.contains(" and ") && normalized.contains(" means ")) {
+                val response = "I could not approve that routine. Use supported steps: volume up, volume down, or update app. No routine was saved."
+                remember(userInput, response)
+                return HybridAssistantReply(response)
+            }
+        }
         routineRegistry.find(userInput)?.let { routine ->
             val results = mutableListOf<String>()
             for (action in routine.actions) {
