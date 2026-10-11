@@ -188,6 +188,14 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
+        // A teaching request for an unsupported updater action must not reach
+        // cloud AI, which cannot actually install local device shortcuts.
+        if (normalized.startsWith("teach jarvis that update app ") ||
+            normalized.startsWith("teach that update app ")) {
+            val response = "Update app is already built in. To teach a new phrase, say: Teach Jarvis that check for upgrades means update app."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
         volumeMemory.match(userInput, volumeCapabilities + "app_update")?.let { learnedUpdater ->
             if (learnedUpdater.capabilityId == "app_update") {
                 val launched = runCatching {
