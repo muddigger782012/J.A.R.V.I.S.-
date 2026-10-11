@@ -47,6 +47,7 @@ class VoiceAssistantService(
     private var speechRecognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech = TextToSpeech(context, this)
     private var ttsReady = false
+    private var wakeGeneration = 0L
     private var sherpaWakeWordEngine: SherpaWakeWordEngine? = null
     private var lastWakeEngineUsed = HotwordEngine.SPEECH_FALLBACK
     private var fallbackErrorStreak = 0
@@ -252,14 +253,29 @@ class VoiceAssistantService(
 
     private fun startDedicatedWakeWordEngine() {
         stopDedicatedWakeWordEngine()
+        if (sherpaWakeWordEngine?.hasLiveWorker() == true) {
+            if (sherpaWakeWordEngine?.hasStalled() == true) {
+                onStatus("Wake-word native decoder is stalled. Restart the app before retrying.")
+            } else {
+                mainHandler.postDelayed({ if (voiceActive) startDedicatedWakeWordEngine() }, 100L)
+            }
+            return
+        }
         val phrase = config.wakeWord.trim().ifBlank { "hey jarvis" }
+        val generation = ++wakeGeneration
         val engine = SherpaWakeWordEngine(context, phrase, config.wakeSensitivity,
-            onDetected = { mainHandler.post { onWakeWordDetected() } },
-            onStatus = { message -> mainHandler.post { onStatus(message) } })
+            onDetected = { mainHandler.post { if (generation == wakeGeneration) onWakeWordDetected() } },
+            onStatus = { message -> mainHandler.post { if (generation == wakeGeneration) onStatus(message) } },
+            onFailure = { mainHandler.post {
+                if (generation == wakeGeneration) {
+                    currentHotwordEngine = HotwordEngine.SPEECH_FALLBACK
+                    onStatus("Dedicated wake-word standby failed. Push-to-talk remains available.")
+                }
+            } })
         sherpaWakeWordEngine = engine
         if (engine.start()) {
             currentHotwordEngine = HotwordEngine.DEDICATED_OFFLINE
-            onStatus("Sherpa-ONNX wake-word engine active. Say \"$phrase\".")
+            onStatus("Sherpa-ONNX wake-word engine starting; checking native decoder.")
         } else {
             sherpaWakeWordEngine = null
             switchToSpeechHotwordFallback("Sherpa-ONNX wake-word engine is not ready.")
@@ -267,8 +283,9 @@ class VoiceAssistantService(
     }
 
     private fun stopDedicatedWakeWordEngine() {
+        wakeGeneration += 1
         sherpaWakeWordEngine?.stop()
-        sherpaWakeWordEngine = null
+        if (sherpaWakeWordEngine?.hasLiveWorker() != true) sherpaWakeWordEngine = null
     }
 
     private fun switchToSpeechHotwordFallback(reason: String) {

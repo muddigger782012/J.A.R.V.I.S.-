@@ -6,6 +6,9 @@ import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.k2fsa.sherpa.onnx.KeywordSpotter
 import com.k2fsa.sherpa.onnx.KeywordSpotterConfig
@@ -21,7 +24,8 @@ class SherpaWakeWordEngine(
     private val wakePhrase: String,
     private val sensitivity: Float,
     private val onDetected: () -> Unit,
-    private val onStatus: (String) -> Unit
+    private val onStatus: (String) -> Unit,
+    private val onFailure: () -> Unit = {}
 ) {
     companion object {
         private const val SAMPLE_RATE = 16000
@@ -29,6 +33,11 @@ class SherpaWakeWordEngine(
     }
 
     @Volatile private var running = false
+    @Volatile private var stalled = false
+    private val watchdog = Handler(Looper.getMainLooper())
+
+    fun hasLiveWorker(): Boolean = worker?.isAlive == true
+    fun hasStalled(): Boolean = stalled
     private fun stage(value: String) {
         runCatching { java.io.File(context.filesDir, "wake-stage.txt").writeText(value) }
     }
@@ -39,6 +48,11 @@ class SherpaWakeWordEngine(
 
     fun start(): Boolean {
         if (running) return true
+        if (hasLiveWorker()) {
+            onStatus("Sherpa native worker is still stopping. Restart the app before retrying.")
+            return false
+        }
+        stalled = false
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             onStatus("Microphone permission is required for Hey Jarvis.")
             return false
@@ -47,9 +61,11 @@ class SherpaWakeWordEngine(
             onStatus("Sherpa: verifying model and wake tokens...")
             val modelFiles = context.assets.list(MODEL_DIR)?.toSet().orEmpty()
             fun modelFile(prefix: String): String {
-                val name = modelFiles.firstOrNull { it.startsWith(prefix) && it.endsWith(".int8.onnx") }
-                    ?: modelFiles.firstOrNull { it.startsWith(prefix) && it.endsWith(".onnx") }
-                    ?: error("Missing $prefix model in $MODEL_DIR")
+                // Use the FP32 CPU path while investigating devices that stall
+                // on their first quantized decode. Do not silently select INT8.
+                val name = modelFiles.sorted().firstOrNull {
+                    it.startsWith(prefix) && it.endsWith(".onnx") && !it.endsWith(".int8.onnx")
+                } ?: error("Missing FP32 $prefix model in $MODEL_DIR")
                 return "$MODEL_DIR/$name"
             }
             val keywordsPath = "$MODEL_DIR/jarvis-keywords.txt"
@@ -65,7 +81,8 @@ class SherpaWakeWordEngine(
                         joiner = modelFile("joiner-")
                     ),
                     tokens = "$MODEL_DIR/tokens.txt",
-                    modelType = "",
+                    modelType = "zipformer2",
+                    provider = "cpu",
                     numThreads = 1
                 ),
                 keywordsFile = keywordsPath,
@@ -117,20 +134,12 @@ class SherpaWakeWordEngine(
             stream = onlineStream
             recorder = audio
             running = true
-            stage("sherpa-before-mic-start")
-            audio.startRecording()
-            if (audio.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
-                audio.release(); onlineStream.release(); kws.release()
-                recorder = null; stream = null; spotter = null; running = false
-                onStatus("Sherpa microphone did not enter recording state.")
-                return false
-            }
-            stage("sherpa-mic-recording")
-            onStatus("Sherpa microphone active at 16 kHz; listening for '$phrase'.")
-            stage("sherpa-mic-recording")
-            worker = thread(start = true, isDaemon = true, name = "jarvis-sherpa-kws") {
+            // The worker owns all native resources once it starts. A stop request
+            // may unblock AudioRecord, but must never delete objects inside JNI.
+            worker = thread(start = false, isDaemon = true, name = "jarvis-sherpa-kws") {
                 processAudio(kws, onlineStream, audio)
             }
+            worker?.start()
             true
         } catch (t: Throwable) {
             onStatus("Sherpa wake engine failed: ${t.message ?: t.javaClass.simpleName}")
@@ -141,15 +150,38 @@ class SherpaWakeWordEngine(
 
     fun stop() {
         running = false
+        watchdog.removeCallbacksAndMessages(null)
         runCatching { recorder?.stop() }
         worker?.interrupt()
-        worker = null
-        runCatching { recorder?.release() }
-        recorder = null
-        runCatching { stream?.release() }
-        stream = null
-        runCatching { spotter?.release() }
-        spotter = null
+        // Thread.interrupt cannot cancel native inference. The worker's finally
+        // block releases resources only after the native call actually returns.
+        if (worker?.isAlive != true) releaseSession(recorder, stream, spotter)
+    }
+
+    private fun decodeChecked(kws: KeywordSpotter, onlineStream: OnlineStream, label: String) {
+        val started = SystemClock.elapsedRealtime()
+        val timeout = Runnable {
+            if (running) {
+                stalled = true
+                running = false
+                stage("sherpa-native-decode-timeout-$label")
+                runCatching { recorder?.stop() }
+                onStatus("Wake word unavailable: native decode stalled for 10 seconds ($label). Restart the app; push-to-talk is available.")
+                onFailure()
+            }
+        }
+        stage("sherpa-before-decode-$label")
+        watchdog.postDelayed(timeout, 10_000L)
+        try {
+            kws.decode(onlineStream)
+            stage("sherpa-after-decode-$label")
+        } finally {
+            watchdog.removeCallbacks(timeout)
+        }
+        if (stalled) error("Native decode returned after timeout")
+        if (label == "self-test") {
+            onStatus("Sherpa native decode self-test passed in ${SystemClock.elapsedRealtime() - started} ms.")
+        }
     }
 
     private fun processAudio(kws: KeywordSpotter, onlineStream: OnlineStream, audio: AudioRecord) {
@@ -158,19 +190,32 @@ class SherpaWakeWordEngine(
         var peakSinceReport = 0
         var lastReportAt = System.currentTimeMillis()
         var totalChunks = 0
+        var detected = false
         try {
+            // Exercise the exact native inference path before claiming the
+            // microphone is listening. Silence is never treated as a wake event.
+            onStatus("Sherpa checking native decoder before opening microphone...")
+            onlineStream.acceptWaveform(FloatArray(SAMPLE_RATE), SAMPLE_RATE)
+            check(kws.isReady(onlineStream)) { "Native decoder did not become ready for self-test" }
+            while (running && kws.isReady(onlineStream)) decodeChecked(kws, onlineStream, "self-test")
+            if (!running) return
+            kws.reset(onlineStream)
+            audio.startRecording()
+            check(audio.recordingState == AudioRecord.RECORDSTATE_RECORDING) { "Microphone did not enter recording state" }
+            stage("sherpa-mic-recording")
+            onStatus("Sherpa microphone active at 16 kHz; listening for '$wakePhrase'.")
             while (running) {
-                if (chunks == 0) {
+                if (totalChunks == 0) {
                     stage("sherpa-worker-before-read")
                     onStatus("Sherpa audio worker started; waiting for microphone samples.")
                 }
                 val n = audio.read(buffer, 0, buffer.size)
                 if (n < 0) {
                     onStatus("Sherpa microphone read failed ($n).")
-                    break
+                    error("Microphone read failed ($n)")
                 }
                 if (n == 0) continue
-                if (chunks == 0) onStatus("Sherpa received first microphone audio buffer.")
+                if (totalChunks == 0) onStatus("Sherpa received first microphone audio buffer.")
                 var peak = 0
                 for (i in 0 until n) {
                     val level = abs(buffer[i].toInt())
@@ -202,49 +247,45 @@ class SherpaWakeWordEngine(
                 val ready = kws.isReady(onlineStream)
                 stage("sherpa-worker-after-is-ready-$totalChunks-$ready")
                 if (totalChunks <= 20) onStatus("Sherpa native readiness at chunk $totalChunks: $ready.")
-                if (running && ready) {
+                var decoderReady = ready
+                while (running && decoderReady) {
                     stage("sherpa-worker-before-decode-$totalChunks")
                     if (totalChunks <= 20) onStatus("Sherpa decoder ready after $totalChunks audio chunks; entering native decode.")
-                    kws.decode(onlineStream)
+                    decodeChecked(kws, onlineStream, "chunk-$totalChunks")
                     stage("sherpa-worker-after-decode-$totalChunks")
                     if (totalChunks <= 20) onStatus("Sherpa native decode completed at chunk $totalChunks.")
                     val keyword = kws.getResult(onlineStream).keyword
                     if (keyword.isNotBlank()) {
                         onStatus("Sherpa detected keyword '$keyword'.")
-                        kws.reset(onlineStream)
-                        // Release the continuous KWS microphone before command
-                        // SpeechRecognizer is started by the detection callback.
                         running = false
-                        releaseDetectedSession(audio, onlineStream, kws)
-                        onDetected()
+                        detected = true
                         return
                     }
+                    decoderReady = running && kws.isReady(onlineStream)
                 }
             }
         } catch (t: Throwable) {
             stage("sherpa-worker-failed-" + t.javaClass.simpleName + "-" + (t.message ?: "unknown"))
-            if (running) onStatus("Sherpa audio loop stopped: ${t.message ?: t.javaClass.simpleName}")
+            if (running) {
+                onStatus("Wake word unavailable: ${t.message ?: t.javaClass.simpleName}")
+                onFailure()
+            }
+        } finally {
+            running = false
+            watchdog.removeCallbacksAndMessages(null)
+            releaseSession(audio, onlineStream, kws)
+            if (detected) onDetected()
         }
     }
 
-    private fun releaseDetectedSession(
-        audio: AudioRecord,
-        onlineStream: OnlineStream,
-        kws: KeywordSpotter
-    ) {
-        runCatching { audio.stop() }
-        runCatching { audio.release() }
+    private fun releaseSession(audio: AudioRecord?, onlineStream: OnlineStream?, kws: KeywordSpotter?) {
+        runCatching { audio?.stop() }
+        runCatching { audio?.release() }
         if (recorder === audio) recorder = null
-
-        runCatching { onlineStream.release() }
+        runCatching { onlineStream?.release() }
         if (stream === onlineStream) stream = null
-
-        runCatching { kws.release() }
+        runCatching { kws?.release() }
         if (spotter === kws) spotter = null
-
-        // The worker is about to return; clear the reference without joining
-        // the current thread.
-        worker = null
     }
 
     private fun thresholdFor(value: Float): Float {

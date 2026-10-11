@@ -60,7 +60,7 @@ jobs:
             https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
           test -s app/libs/sherpa-onnx-1.13.8.aar
           curl -fL --retry 3 -o /tmp/sherpa-kws.tar.bz2 \
-            https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01-mobile.tar.bz2
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2
           mkdir -p app/src/main/assets
           tar -xjf /tmp/sherpa-kws.tar.bz2 -C app/src/main/assets
           KWS_DIR="$(find app/src/main/assets -maxdepth 1 -type d -name 'sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01*' | head -n1)"
@@ -71,10 +71,9 @@ jobs:
           fi
           find app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01 -maxdepth 1 -type f -printf '%f\n'
           test -f app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/tokens.txt
-          # The mobile archive uses quantized model filenames, not the FP32
-          # filenames hardcoded by the upstream getKwsModelConfig helper.
+          # Package FP32 models to isolate the first-decode INT8 stall.
           ls -lh app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/*onnx
-          python3 -m pip install --quiet sentencepiece
+          python3 -m pip install --quiet sentencepiece sherpa-onnx==1.13.8 numpy
           python3 - <<'PY'
           from pathlib import Path
           import sentencepiece as spm
@@ -94,6 +93,11 @@ jobs:
               if not any(p.name.startswith(prefix) and p.name.endswith(".onnx") for p in d.iterdir()):
                   raise SystemExit("Missing " + prefix + " ONNX model")
           PY
+      - name: Verify native keyword decoder and run unit tests
+        run: |
+          timeout 60s python3 scripts/wake_decoder_smoke.py app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
+          chmod +x ./gradlew
+          ./gradlew --no-daemon testDebugUnitTest
       - name: Compile versioned release APK
         if: steps.signing.outputs.configured == 'true'
         env:
