@@ -102,8 +102,9 @@ class HybridAssistantService(
         }
         if (normalized.startsWith("forget learned command ")) {
             val phrase = userInput.replace(Regex("(?i)^forget learned command\\s+"), "").trim()
-            val removed = phrase.isNotBlank() && learningStore.forget(phrase)
-            val response = if (removed) "Removed the learned command." else "No matching learned command was found."
+            val removedIntent = phrase.isNotBlank() && learningStore.forget(phrase)
+            val removedCommand = phrase.isNotBlank() && com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).forget(phrase)
+            val response = if (removedIntent || removedCommand) "Removed matching local learning for that phrase." else "No matching learned command was found."
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
