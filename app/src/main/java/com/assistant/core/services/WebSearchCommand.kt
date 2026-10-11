@@ -3,7 +3,7 @@ package com.assistant.core.services
 /** Explicit user-requested web searches, without pretending to fetch results in-app. */
 object WebSearchCommand {
     private val search = Regex(
-        """^(?:please\s+)?(?:search\s+(?:the\s+)?web\s+for|search\s+(?:online\s+)?for|google|look\s+up(?:\s+online)?)(?:\s+)(.+)$""",
+        """^(?:please\s+)?(?:search\s+(?:the\s+)?web\s+for|search\s+(?:online\s+)?for|google|look\s+up(?:\s+online)?|find\s+(?:me\s+)?(?:information|info)\s+(?:about|on))(?:\s+)(.+)$""",
         RegexOption.IGNORE_CASE
     )
 
