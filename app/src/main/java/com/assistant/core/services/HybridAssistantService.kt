@@ -93,6 +93,24 @@ class HybridAssistantService(
             PendingPrompt.NONE -> Unit
         }
 
+        // Explicit, on-device teaching for the verified clock capability.
+        // This never authorizes arbitrary device actions or cloud-generated code.
+        val teachTime = Regex("(?i)^teach (?:jarvis )?(?:that )?(.{1,200}?) (?:means|is the same as) (?:what time is it|tell me the time)[?.!]*$").matchEntire(userInput)
+        if (teachTime != null) {
+            val phrase = teachTime.groupValues[1].trim()
+            val reserved = normalize(phrase) in setOf("learning status", "clear local learning", "confirm learning reset")
+            val response = if (reserved || phrase.length < 3) {
+                "That phrase is reserved or too short to learn."
+            } else {
+                learningStore.learn(phrase, "GENERAL_QUESTION", source = "verified_local_time")
+                if (learningStore.classify(phrase)?.let { it.intent == "GENERAL_QUESTION" && it.source == "verified_local_time" && it.confidence == 1.0 } == true)
+                    "Learned on this device: \"$phrase\" now requests the current time. Say the phrase to test it."
+                else "Could not learn that phrase because it conflicts with an existing lesson."
+            }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
         // Learning diagnostics are handled locally, without an AI connection.
         if (normalized in setOf("learning status", "show learning status", "how many commands have you learned", "learned commands")) {
             val commandCount = com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).learnedPhraseCount()
