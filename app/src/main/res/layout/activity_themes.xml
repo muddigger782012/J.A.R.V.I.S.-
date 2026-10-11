@@ -12,4 +12,22 @@
 <Button android:id="@+id/btnThemeStark" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Stark" android:layout_marginTop="8dp" /></LinearLayout><LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="14dp" android:layout_marginTop="18dp" android:background="@drawable/chat_bubble_assistant">
 <View android:layout_width="match_parent" android:layout_height="54dp" android:importantForAccessibility="no" android:background="@drawable/preview_cybertron" />
 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Holographic circuitry. Electric cyan, violet highlights, flowing scanlines, and soft luminous panels." android:textColor="?attr/jarvis_on_dark" android:layout_marginTop="12dp" android:textSize="14sp" />
-<Button android:id="@+id/btnThemeCybertron" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Cybertron" android:layout_marginTop="8dp" /></LinearLayout></LinearLayout></ScrollView>
+<Button android:id="@+id/btnThemeCybertron" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Cybertron" android:layout_marginTop="8dp" /></LinearLayout>
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Alternative themes · Stark shapes" android:textSize="20sp" android:textStyle="bold" android:textColor="?attr/jarvis_on_dark" android:layout_marginTop="24dp" />
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Test Stark’s sharper boxes and controls with each original color scheme. Colors, fonts, backgrounds, layout, and motion are retained. The three original themes remain above." android:textColor="?attr/jarvis_on_dark_muted" android:layout_marginTop="8dp" />
+<LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="14dp" android:layout_marginTop="18dp" android:background="@drawable/chat_bubble_assistant">
+<View android:layout_width="match_parent" android:layout_height="54dp" android:importantForAccessibility="no" android:background="@drawable/preview_default_alternative" />
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Original Default colors with Stark’s 4dp control and chat corners." android:textColor="?attr/jarvis_on_dark" android:layout_marginTop="12dp" android:textSize="14sp" />
+<Button android:id="@+id/btnThemeDefaultAlternative" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Default Alternative" android:layout_marginTop="8dp" />
+</LinearLayout>
+<LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="14dp" android:layout_marginTop="18dp" android:background="@drawable/chat_bubble_assistant">
+<View android:layout_width="match_parent" android:layout_height="54dp" android:importantForAccessibility="no" android:background="@drawable/preview_stark_alternative" />
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Stark’s original colors and shapes, saved separately as a test variant." android:textColor="?attr/jarvis_on_dark" android:layout_marginTop="12dp" android:textSize="14sp" />
+<Button android:id="@+id/btnThemeStarkAlternative" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Stark Alternative" android:layout_marginTop="8dp" />
+</LinearLayout>
+<LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="14dp" android:layout_marginTop="18dp" android:background="@drawable/chat_bubble_assistant">
+<View android:layout_width="match_parent" android:layout_height="54dp" android:importantForAccessibility="no" android:background="@drawable/preview_cybertron_alternative" />
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Original Cybertron colors with Stark’s 4dp control and chat corners." android:textColor="?attr/jarvis_on_dark" android:layout_marginTop="12dp" android:textSize="14sp" />
+<Button android:id="@+id/btnThemeCybertronAlternative" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Cybertron Alternative" android:layout_marginTop="8dp" />
+</LinearLayout>
+</LinearLayout></ScrollView>

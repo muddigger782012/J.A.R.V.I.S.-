@@ -1484,7 +1484,7 @@ class MainActivity : ThemedActivity() {
         scanlineAnimator?.cancel()
 
         pulseAnimator = ObjectAnimator.ofFloat(hudPulseOverlay, View.ALPHA, 0.06f, 0.2f, 0.08f).apply {
-            duration = if (ThemePreferences.selected(this@MainActivity) == "cybertron") 2200L else 3200L
+            duration = if (ThemePreferences.baseTheme(this@MainActivity) == "cybertron") 2200L else 3200L
             interpolator = AccelerateDecelerateInterpolator()
             repeatCount = ObjectAnimator.INFINITE
             start()
@@ -1498,7 +1498,7 @@ class MainActivity : ThemedActivity() {
                 -scanlineView.height.toFloat(),
                 travel.toFloat()
             ).apply {
-                duration = if (ThemePreferences.selected(this@MainActivity) == "stark") 5500L else 3000L
+                duration = if (ThemePreferences.baseTheme(this@MainActivity) == "stark") 5500L else 3000L
                 interpolator = LinearInterpolator()
                 repeatCount = ObjectAnimator.INFINITE
                 start()

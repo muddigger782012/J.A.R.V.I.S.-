@@ -102,4 +102,18 @@
         <item name="jarvis_corner">22dp</item>
         <item name="jarvis_chat_corner">22dp</item>
     </style>
+    <!-- Test variants inherit their original palette, fonts, and background.
+         Only box/control/chat corner geometry is copied from Stark. -->
+    <style name="Theme.AssistantPlatform.DefaultAlternative" parent="Theme.AssistantPlatform">
+        <item name="jarvis_corner">4dp</item>
+        <item name="jarvis_chat_corner">4dp</item>
+    </style>
+    <style name="Theme.AssistantPlatform.StarkAlternative" parent="Theme.AssistantPlatform.Stark">
+        <item name="jarvis_corner">4dp</item>
+        <item name="jarvis_chat_corner">4dp</item>
+    </style>
+    <style name="Theme.AssistantPlatform.CybertronAlternative" parent="Theme.AssistantPlatform.Cybertron">
+        <item name="jarvis_corner">4dp</item>
+        <item name="jarvis_chat_corner">4dp</item>
+    </style>
 </resources>
