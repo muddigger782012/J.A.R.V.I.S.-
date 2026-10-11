@@ -55,7 +55,7 @@ class VoiceAssistantService(
     private var config: VoiceConfig = VoiceConfig(
         enableDedicatedWakeWord = true,
         wakeWord = "hey jarvis",
-        wakeSensitivity = 0.6f,
+        wakeSensitivity = 0.8f,
         autoStartVoice = false,
         preferOfflineCommandRecognition = true,
         commandConfidenceThreshold = 0.58f,

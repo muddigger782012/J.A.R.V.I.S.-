@@ -28,7 +28,7 @@ def run(model_dir: Path) -> None:
             tokens=str(model_dir / "tokens.txt"), encoder=model("encoder-"),
             decoder=model("decoder-"), joiner=model("joiner-"),
             keywords_file=keywords, num_threads=1, provider="cpu",
-            keywords_score=3.0, keywords_threshold=0.10, num_trailing_blanks=2,
+            keywords_score=3.0, keywords_threshold=0.037, num_trailing_blanks=1,
         )
 
     def feed(kws, stream, samples):

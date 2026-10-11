@@ -90,8 +90,8 @@ class SherpaWakeWordEngine(
                 // low acoustic threshold. The previous 1.5/0.27 defaults were
                 // too conservative for an always-on wake phrase.
                 keywordsScore = 3.0f,
-                keywordsThreshold = thresholdFor(sensitivity),
-                numTrailingBlanks = 2
+                keywordsThreshold = WakeWordTuning.thresholdFor(sensitivity),
+                numTrailingBlanks = 1
             )
             stage("sherpa-before-native-model")
             val kws = KeywordSpotter(assetManager = context.assets, config = config)
@@ -288,8 +288,4 @@ class SherpaWakeWordEngine(
         if (spotter === kws) spotter = null
     }
 
-    private fun thresholdFor(value: Float): Float {
-        val v = value.coerceIn(0f, 1f)
-        return (0.22f - (v * 0.20f)).coerceIn(0.02f, 0.20f)
-    }
 }

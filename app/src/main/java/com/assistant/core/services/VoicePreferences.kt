@@ -29,7 +29,7 @@ class VoicePreferences(context: Context) {
         return VoiceConfig(
             enableDedicatedWakeWord = preferences.getBoolean(KEY_DEDICATED_WAKE_WORD, true),
             wakeWord = preferences.getString(KEY_WAKE_WORD, "hey jarvis").orEmpty().trim().ifBlank { "hey jarvis" },
-            wakeSensitivity = preferences.getFloat(KEY_WAKE_SENSITIVITY, 0.6f),
+            wakeSensitivity = preferences.getFloat(KEY_WAKE_SENSITIVITY, 0.8f),
             autoStartVoice = preferences.getBoolean(KEY_AUTO_START, false),
             preferOfflineCommandRecognition = preferences.getBoolean(KEY_PREFER_OFFLINE_COMMAND, true),
             commandConfidenceThreshold = preferences.getFloat(KEY_COMMAND_CONFIDENCE_THRESHOLD, 0.58f),

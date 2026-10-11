@@ -174,6 +174,8 @@ class MainActivity : ThemedActivity() {
     private lateinit var currentDhizukuStatus: DhizukuStatus
 
     private val outputLines = mutableListOf<String>()
+    private val voiceDiagnosticLines = mutableListOf<String>()
+    private var voiceDiagnosticView: TextView? = null
     private val conversationPrefs by lazy { getSharedPreferences("jarvis_unified_chat", MODE_PRIVATE) }
     private var conversationSessionId: String = ""
     private val terminalOutputLines = mutableListOf<String>()
@@ -279,9 +281,10 @@ class MainActivity : ThemedActivity() {
         }
         setupTabs()
         findViewById<Button>(R.id.btnOpenTools).setOnClickListener {
-            val labels = arrayOf("Projects", "Device tools", "System status and updates", "Terminal", "Activity log", "Permissions", "Device administration")
+            val labels = arrayOf("Projects", "Device tools", "System status and updates", "Terminal", "Activity log", "Permissions", "Device administration", "Voice diagnostics")
             AlertDialog.Builder(this).setTitle("Tools").setItems(labels) { _, which ->
-                showTab(which + 1, animate = true, direction = 1)
+                if (which == labels.lastIndex) showVoiceDiagnostics()
+                else showTab(which + 1, animate = true, direction = 1)
             }.setNegativeButton("Close", null).show()
         }
         findViewById<android.widget.Button>(R.id.btnOpenJarvisChat).setOnClickListener {
@@ -1020,11 +1023,53 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun appendOutput(text: String) {
-        outputLines.add(text)
+        val message = com.assistant.core.services.ConversationMessages.chatMessage(text)
+        if (message == null) {
+            appendVoiceDiagnostic(text)
+            return
+        }
+        outputLines.add(message)
         while (outputLines.size > 200) outputLines.removeAt(0)
         outputLog.text = outputLines.joinToString(separator = "\n\n")
-        renderConversation(forceScroll = text.startsWith("You:"))
+        renderConversation(forceScroll = message.startsWith("You:"))
         persistActiveConversation()
+    }
+
+    private fun appendVoiceDiagnostic(text: String) {
+        val timestamp = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        voiceDiagnosticLines.add("$timestamp  $text")
+        while (voiceDiagnosticLines.size > 500) voiceDiagnosticLines.removeAt(0)
+        voiceDiagnosticView?.text = voiceDiagnosticLines.joinToString("\n\n")
+    }
+
+    private fun showVoiceDiagnostics() {
+        val logView = TextView(this).apply {
+            text = voiceDiagnosticLines.joinToString("\n\n").ifBlank { "No voice diagnostics yet." }
+            textSize = 12f
+            setPadding(24, 16, 24, 16)
+            setTextIsSelectable(true)
+        }
+        voiceDiagnosticView = logView
+        val scroll = ScrollView(this).apply { addView(logView) }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Voice diagnostics")
+            .setView(scroll)
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Copy", null)
+            .setNegativeButton("Clear", null)
+            .create()
+        dialog.setOnDismissListener { voiceDiagnosticView = null }
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Voice diagnostics", logView.text))
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+                voiceDiagnosticLines.clear()
+                logView.text = "No voice diagnostics yet."
+            }
+        }
+        dialog.show()
     }
 
     private fun loadOrCreateConversation() {
@@ -1037,9 +1082,15 @@ class MainActivity : ThemedActivity() {
         runCatching {
             val array = JSONArray(stored)
             outputLines.clear()
-            for (index in 0 until array.length()) outputLines.add(array.getString(index))
+            for (index in 0 until array.length()) {
+                val raw = array.getString(index)
+                val message = com.assistant.core.services.ConversationMessages.chatMessage(raw)
+                if (message != null) outputLines.add(message)
+                else appendVoiceDiagnostic(raw)
+            }
             outputLog.text = outputLines.joinToString(separator = "\n\n")
         }
+        persistActiveConversation()
         renderConversation(forceScroll = true)
     }
 
