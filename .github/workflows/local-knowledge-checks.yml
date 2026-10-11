@@ -5,6 +5,11 @@ on:
     branches: ['fix/local-date-math']
 permissions:
   contents: read
+# A new PR revision supersedes its older emulator run; avoid a backlog of
+# slow ARM64 emulators competing for GitHub Actions runners.
+concurrency:
+  group: local-assistant-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
     runs-on: ubuntu-latest
