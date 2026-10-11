@@ -189,7 +189,10 @@ class SherpaWakeWordEngine(
                     lastReportAt = now
                 }
                 val samples = FloatArray(n) { buffer[it] / 32768.0f }
-                if (totalChunks == 1) stage("sherpa-worker-before-accept")
+                if (totalChunks == 1) {
+                    stage("sherpa-worker-before-accept")
+                    onStatus("Sherpa submitting first audio buffer to native stream.")
+                }
                 onlineStream.acceptWaveform(samples, SAMPLE_RATE)
                 if (totalChunks == 1) {
                     stage("sherpa-worker-after-accept")
@@ -212,6 +215,9 @@ class SherpaWakeWordEngine(
                         onDetected()
                         return
                     }
+                    // One decode consumes the currently-ready frame. Re-check readiness
+                    // on the next microphone buffer to keep the JNI boundary explicit.
+                    break
                 }
             }
         } catch (t: Throwable) {
