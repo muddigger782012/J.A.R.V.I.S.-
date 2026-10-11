@@ -395,13 +395,14 @@ class HybridAssistantService(
     fun acceptFallbackLesson(userText: String, lessonJson: String): Boolean {
         val lesson = FallbackIntentLesson.fromJson(lessonJson) ?: return false
         if (!LearningAdmissionPolicy.canRecordWithoutActionResult(lesson)) return false
+        val before = learningStore.count()
         learningStore.learn(
             utterance = userText,
             intent = lesson.intent,
             entities = lesson.entities,
             source = "validated_fallback_v${FallbackLessonProtocol.VERSION}"
         )
-        return true
+        return learningStore.count() > before || learningStore.classify(userText)?.intent == lesson.intent
     }
 
     @Synchronized
