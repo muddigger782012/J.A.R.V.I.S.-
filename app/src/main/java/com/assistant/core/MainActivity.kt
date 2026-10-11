@@ -288,8 +288,7 @@ class MainActivity : ThemedActivity() {
         initViews()
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
             val keyboard = insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())
-            findViewById<View>(R.id.quickPromptScroller).visibility = if (keyboard) View.GONE else View.VISIBLE
-            voiceButton.visibility = if (keyboard) View.GONE else View.VISIBLE
+            voiceButton.visibility = View.VISIBLE
             findViewById<View>(R.id.jarvisHeader).visibility = if (keyboard) View.GONE else View.VISIBLE
             findViewById<View>(R.id.conversationToolbar).visibility = if (keyboard) View.GONE else View.VISIBLE
             insets
@@ -782,12 +781,8 @@ class MainActivity : ThemedActivity() {
         commandInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) { runAssistantCommandFromInput(); true } else false
         }
-        listOf(R.id.btnSuggestWeather to "What's tomorrow's weather?", R.id.btnSuggestMaps to "Open maps", R.id.btnSuggestMusic to "Play Prime music").forEach { (id, prompt) ->
-            findViewById<Button>(id).setOnClickListener {
-                commandInput.setText(prompt)
-                commandInput.setSelection(prompt.length)
-                commandInput.requestFocus()
-            }
+        findViewById<Button>(R.id.btnComposerTools).setOnClickListener {
+            findViewById<Button>(R.id.btnOpenTools).performClick()
         }
         findViewById<Button>(R.id.btnRunAssistantCommand).setOnClickListener {
             runAssistantCommandFromInput()
@@ -919,7 +914,7 @@ class MainActivity : ThemedActivity() {
             VoiceInteractionState.WAKE_LISTENING -> "Say “${currentVoiceConfig.wakeWord}”"
             else -> state.userLabel()
         }
-        voiceButton.text = state.userLabel()
+        voiceButton.contentDescription = state.userLabel()
         voiceButton.isEnabled = !liveChatStarted && state != VoiceInteractionState.PROCESSING
         findViewById<Button>(R.id.btnLiveChat).isEnabled = liveChatStarted || state in listOf(VoiceInteractionState.IDLE, VoiceInteractionState.WAKE_LISTENING)
         findViewById<ArcReactorView>(R.id.arcReactorHeader).setConversationState(state)
@@ -1685,7 +1680,7 @@ class MainActivity : ThemedActivity() {
         voiceService.stopListening()
         voiceService.stopSpeaking()
         liveChatStarted = true
-        findViewById<Button>(R.id.btnLiveChat).text = "End live chat"
+        findViewById<Button>(R.id.btnLiveChat).contentDescription = "End live chat"
         findViewById<TextView>(R.id.tvLiveChatStatus).text = "Starting live chat…"
         commandInput.isEnabled = false
         findViewById<Button>(R.id.btnRunAssistantCommand).isEnabled = false
@@ -1708,7 +1703,10 @@ class MainActivity : ThemedActivity() {
         val state = com.assistant.core.services.LiveChatStore.state(this)
         val wasActive = liveChatStarted
         liveChatStarted = state.optBoolean("active")
-        findViewById<Button>(R.id.btnLiveChat).text = if (liveChatStarted) "End live chat" else "Start live chat"
+        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnLiveChat).apply {
+            contentDescription = if (liveChatStarted) "End live chat" else "Start live chat"
+            setIconResource(if (liveChatStarted) R.drawable.ic_composer_stop else R.drawable.ic_composer_live)
+        }
         findViewById<TextView>(R.id.tvLiveChatStatus).text = state.optString("message", "Live chat continues outside the app. Say “end live chat” to finish.")
         commandInput.isEnabled = !liveChatStarted
         findViewById<Button>(R.id.btnRunAssistantCommand).isEnabled = !liveChatStarted

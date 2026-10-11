@@ -147,28 +147,37 @@
                     <TextView android:textColor="?attr/jarvis_on_dark" android:id="@+id/tvOutputLog" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" />
                 </LinearLayout>
             </ScrollView>
-            <HorizontalScrollView android:id="@+id/quickPromptScroller" android:layout_width="match_parent" android:layout_height="wrap_content" android:scrollbars="none">
-                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal">
-                    <Button android:id="@+id/btnSuggestWeather" style="@style/Widget.AssistantPlatform.QuietButton"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/ui_weather" />
-                    <Button android:id="@+id/btnSuggestMaps" style="@style/Widget.AssistantPlatform.QuietButton"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="6dp" android:text="@string/ui_maps" />
-                    <Button android:id="@+id/btnSuggestMusic" style="@style/Widget.AssistantPlatform.QuietButton"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="6dp" android:text="@string/ui_music" />
+            <LinearLayout android:id="@+id/chatComposer" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:padding="8dp" android:background="@drawable/chat_composer_background">
+                <EditText android:id="@+id/etCommandInput" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:hint="@string/ui_message_hint" android:inputType="textCapSentences" android:imeOptions="actionSend"
+                    android:singleLine="true" android:minHeight="52dp" android:textSize="16sp" android:background="@android:color/transparent" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="48dp" android:orientation="horizontal" android:gravity="center_vertical">
+                    <com.google.android.material.button.MaterialButton android:id="@+id/btnComposerTools"
+                        style="@style/Widget.MaterialComponents.Button.TextButton" android:layout_width="48dp" android:layout_height="48dp"
+                        android:minWidth="0dp" android:minHeight="48dp" android:padding="12dp" android:insetTop="0dp" android:insetBottom="0dp"
+                        android:text="" android:contentDescription="Open tools" app:icon="@drawable/ic_composer_tools"
+                        app:iconSize="24dp" app:iconPadding="0dp" app:iconGravity="textStart" app:iconTint="?attr/jarvis_primary" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/btnToggleVoice"
+                        style="@style/Widget.MaterialComponents.Button.TextButton" android:layout_width="48dp" android:layout_height="48dp"
+                        android:minWidth="0dp" android:minHeight="48dp" android:padding="12dp" android:insetTop="0dp" android:insetBottom="0dp"
+                        android:text="" android:contentDescription="Talk to J.A.R.V.I.S." app:icon="@drawable/ic_composer_mic"
+                        app:iconSize="24dp" app:iconPadding="0dp" app:iconGravity="textStart" app:iconTint="?attr/jarvis_primary" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/btnLiveChat"
+                        style="@style/Widget.MaterialComponents.Button.TextButton" android:layout_width="48dp" android:layout_height="48dp"
+                        android:minWidth="0dp" android:minHeight="48dp" android:padding="12dp" android:insetTop="0dp" android:insetBottom="0dp"
+                        android:text="" android:contentDescription="Start live chat" app:icon="@drawable/ic_composer_live"
+                        app:iconSize="24dp" app:iconPadding="0dp" app:iconGravity="textStart" app:iconTint="?attr/jarvis_primary" />
+                    <Space android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/btnRunAssistantCommand"
+                        style="@style/Widget.MaterialComponents.Button.TextButton" android:layout_width="48dp" android:layout_height="48dp"
+                        android:minWidth="0dp" android:minHeight="48dp" android:padding="12dp" android:insetTop="0dp" android:insetBottom="0dp"
+                        android:text="" android:contentDescription="Send message" app:icon="@drawable/ic_composer_send"
+                        app:iconSize="24dp" app:iconPadding="0dp" app:iconGravity="textStart" app:iconTint="?attr/jarvis_primary" />
                 </LinearLayout>
-            </HorizontalScrollView>
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginTop="4dp">
-                <EditText android:id="@+id/etCommandInput" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                    android:hint="@string/ui_message_hint" android:inputType="textCapSentences" android:imeOptions="actionSend" android:singleLine="true" android:minHeight="52dp" android:textSize="16sp" />
-                <Button android:id="@+id/btnRunAssistantCommand" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp" android:text="@string/ui_send" android:minHeight="52dp" />
             </LinearLayout>
-            <Button android:id="@+id/btnToggleVoice" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:minHeight="56dp" android:layout_marginTop="8dp" android:text="@string/ui_talk" />
-            <Button android:id="@+id/btnLiveChat" style="@style/Widget.AssistantPlatform.QuietButton"
-                android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Start live chat" />
             <TextView android:id="@+id/tvLiveChatStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Tap Start live chat to talk hands-free."
+                android:text="Tap the waveform to talk hands-free."
                 android:textColor="?attr/jarvis_on_dark_muted" android:textSize="12sp" android:accessibilityLiveRegion="polite" />
             <Button android:id="@+id/btnAssistantQuickStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:text="System status" />
         </LinearLayout>
