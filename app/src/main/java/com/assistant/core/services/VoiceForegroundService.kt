@@ -46,6 +46,7 @@ class VoiceForegroundService : Service() {
 
     private var pendingClarification: String? = null
     private var pipelineStarted = false
+    private var appliedVoiceConfig: VoiceConfig? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -91,7 +92,15 @@ class VoiceForegroundService : Service() {
                         publishEvent("Foreground wake pipeline failed: " + t.javaClass.simpleName + ": " + (t.message ?: "unknown error"))
                     }
                 } else {
-                    publishEvent("Foreground voice service already active; keeping wake listener armed.")
+                    val updatedConfig = voicePreferences.load()
+                    if (updatedConfig != appliedVoiceConfig) {
+                        currentConfig = updatedConfig
+                        appliedVoiceConfig = updatedConfig
+                        voiceService.updateConfig(updatedConfig)
+                        publishEvent("Voice settings applied; wake sensitivity updated.")
+                    } else {
+                        publishEvent("Foreground voice service already active; keeping wake listener armed.")
+                    }
                 }
                 return START_NOT_STICKY
             }
@@ -177,6 +186,7 @@ class VoiceForegroundService : Service() {
 
     private fun startVoicePipeline() {
         currentConfig = voicePreferences.load()
+        appliedVoiceConfig = currentConfig
         voiceService.updateConfig(currentConfig)
         voiceSession.arm()
         voiceService.startHotwordLoop()
