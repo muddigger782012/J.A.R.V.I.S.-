@@ -319,10 +319,17 @@ class VoiceForegroundService : Service() {
             context = this,
             onStatus = { status -> publishEvent(status) },
             onHotwordDetected = {
+                publishEvent("Voice diagnostic: wake word detected; requesting command capture.")
                 voiceSession.beginCapture(VoiceSessionController.Trigger.WAKE_WORD)
             },
             onCommandDetected = { recognition ->
-                voiceSession.transcriptReady(recognition.transcript)
+                val heard = recognition.transcript.trim()
+                if (heard.isEmpty()) {
+                    publishEvent("Voice diagnostic: recognition completed with no transcript.")
+                } else {
+                    publishEvent("Voice diagnostic: transcript received (${heard.length} characters); routing to assistant.")
+                    voiceSession.transcriptReady(heard)
+                }
             },
             onSpeechStarted = { voiceSession.speaking() },
             onSpeechFinished = {
