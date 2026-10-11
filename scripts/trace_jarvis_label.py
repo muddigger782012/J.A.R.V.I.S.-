@@ -33,8 +33,8 @@ def trace():
         elif left >= 290:
             points[:, 0] -= 10
         elif left >= 270:
-            # Keep the dot before I clear of its stroke as I moves toward V.
-            points[:, 0] -= 4
+            # Center the dot optically between the unchanged V and I strokes.
+            points[:, 0] -= 5.8
         paths.append("M" + " L".join(f"{x:.2f},{y:.2f}" for x, y in points) + " Z")
     plt.close("all")
     data = " ".join(paths)
