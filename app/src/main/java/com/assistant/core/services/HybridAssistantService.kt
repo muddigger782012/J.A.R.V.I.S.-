@@ -110,6 +110,21 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
+        if (normalized.startsWith("forget routine ")) {
+            pendingRoutine = null
+            val phrase = userInput.substringAfter(" ", "").substringAfter(" ", "").trim()
+            val response = if (routineRegistry.forget(phrase)) "Forgot routine: $phrase."
+                else "No matching approved routine was found."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (normalized == "routine status") {
+            val response = "Approved routines on this device: ${routineRegistry.count()}."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        // Confirmation is valid only as the immediately following input.
+        if (pendingRoutine != null) pendingRoutine = null
         val routineProposal = Regex("(?i)^teach (?:jarvis )?(?:that )?(.{3,120}?) (?:means|is the same as) (.+)$")
             .matchEntire(userInput)
         if (routineProposal != null && routineProposal.groupValues[2].contains(" and ", ignoreCase = true)) {
