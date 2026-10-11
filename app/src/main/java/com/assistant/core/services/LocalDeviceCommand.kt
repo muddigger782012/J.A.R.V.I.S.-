@@ -14,8 +14,8 @@ object LocalDeviceCommand {
         val phrase = input.lowercase(Locale.ROOT)
             .replace(Regex("[?.!,]+$"), "")
             .trim().replace(Regex("\\s+"), " ")
-            .removePrefix("hey jarvis ")
-            .removePrefix("jarvis ")
+            .replace(Regex("^hey jarvis[, ]+"), "")
+            .replace(Regex("^jarvis[, ]+"), "")
             .trim()
         return when {
             phrase in setOf("update app", "update jarvis", "upgrade app", "upgrade jarvis", "check for jarvis update") -> Action.UPDATE_APP
