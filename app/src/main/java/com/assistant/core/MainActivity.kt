@@ -1436,10 +1436,16 @@ class MainActivity : ThemedActivity() {
                     val query = parsed.getQueryParameter("q")
                     if (!query.isNullOrBlank()) {
                         val imageSearch = parsed.getQueryParameter("tbm") == "isch"
-                        val openSearch = android.widget.Button(this).apply {
-                            text = if (imageSearch) "View image results: $query" else "View search results: $query"
-                            isAllCaps = false
+                        val openSearch = TextView(this).apply {
+                            text = (if (imageSearch) "IMAGE SEARCH" else "WEB SEARCH") + "\n" + query + "\nTap to view results  ↗"
+                            textSize = 14f
+                            setLineSpacing(dp(3).toFloat(), 1f)
                             setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
+                            background = ChatAppearancePreferences.background(this@MainActivity, false)
+                            setPadding(dp(14), dp(12), dp(14), dp(12))
+                            isClickable = true
+                            isFocusable = true
+                            contentDescription = "Open " + (if (imageSearch) "image" else "web") + " search results for " + query
                             setOnClickListener {
                                 startActivity(android.content.Intent(this@MainActivity, SearchBrowserActivity::class.java)
                                     .putExtra(SearchBrowserActivity.EXTRA_URL, searchUrl))
