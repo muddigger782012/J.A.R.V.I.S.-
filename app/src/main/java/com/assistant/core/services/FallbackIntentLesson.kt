@@ -61,6 +61,7 @@ object FallbackLessonProtocol {
         "SEND_MESSAGE",
         "OPEN_APP",
         "OPEN_PREFERRED_APP",
+        "SET_APP_PREFERENCE",
         "REPEAT_ACTION",
         "NAVIGATE",
         "SET_ALARM",

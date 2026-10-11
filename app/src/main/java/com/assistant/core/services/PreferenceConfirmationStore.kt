@@ -15,10 +15,12 @@ class PreferenceConfirmationStore internal constructor(
             editor.commit()
         }
     )
-    data class Pending(val slot: String, val action: LearnableDeviceAction?, val approved: Boolean = false)
-    fun propose(slot: String, action: LearnableDeviceAction? = null): Boolean = synchronized(lock) {
+    data class Pending(val slot: String, val action: LearnableDeviceAction?, val approved: Boolean = false, val learningPhrase: String? = null)
+    fun propose(slot: String, action: LearnableDeviceAction? = null, learningPhrase: String? = null): Boolean = synchronized(lock) {
+        if (learningPhrase != null && (slot == "clear" || !validLearningPhrase(learningPhrase))) return@synchronized false
         if (slot != "clear" && (slot !in AssistantMemory.slots || action == null || action.capabilityId != "open_app" || !action.isValid())) return@synchronized false
         write(JSONObject().put("slot", slot).put("created", now()).apply {
+            learningPhrase?.let { put("learningPhrase", it) }
             action?.let { put("parameters", JSONObject(it.parameters)) }
         }.toString())
     }
@@ -35,8 +37,14 @@ class PreferenceConfirmationStore internal constructor(
                 val params = json.getJSONObject("parameters")
                 LearnableDeviceAction("open_app", params.keys().asSequence().associateWith { params.getString(it) }).takeIf { it.isValid() } ?: return@runCatching null
             }
-            Pending(slot, action, ConfirmationWords.approves(text))
+            val phrase = if (json.has("learningPhrase")) json.getString("learningPhrase") else null
+            if (phrase != null && (slot == "clear" || !validLearningPhrase(phrase))) return@runCatching null
+            Pending(slot, action, ConfirmationWords.approves(text), phrase)
         }.getOrNull()
     }
-    companion object { private val lock = Any() }
+    companion object {
+        private val lock = Any()
+        fun validLearningPhrase(phrase: String): Boolean = phrase.isNotBlank() && phrase.length <= 240 &&
+            !ConfirmationWords.isConfirmation(phrase) && !DeviceLearningSession.isOutcome(phrase)
+    }
 }
