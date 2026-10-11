@@ -53,6 +53,19 @@ class ValidatedCommandMemory(context: Context) {
             prefs.edit().putString("entries", output.toString()).commit()
         }
 
+    fun forget(utterance: String): Boolean = synchronized(lock) {
+        val phrase = normalize(utterance)
+        if (phrase.isBlank()) return@synchronized false
+        val entries = readEntries()
+        val remaining = JSONArray()
+        for (i in 0 until entries.length()) {
+            val entry = entries.optJSONObject(i) ?: continue
+            if (entry.optString("phrase") != phrase) remaining.put(entry)
+        }
+        if (remaining.length() == entries.length()) return@synchronized false
+        prefs.edit().putString("entries", remaining.toString()).commit()
+    }
+
     fun learnedPhraseCount(): Int = synchronized(lock) { readEntries().length() }
 
     fun clear(): Boolean = synchronized(lock) { prefs.edit().remove("entries").commit() }
