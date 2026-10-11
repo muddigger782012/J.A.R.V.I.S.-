@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.AssistantPlatform" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="alertDialogTheme">@style/ThemeOverlay.AssistantPlatform.Dialog</item>
         <item name="colorPrimary">?attr/jarvis_primary</item>
         <item name="colorPrimaryVariant">?attr/jarvis_primary_variant</item>
         <item name="colorOnPrimary">?attr/jarvis_bg_deep</item>

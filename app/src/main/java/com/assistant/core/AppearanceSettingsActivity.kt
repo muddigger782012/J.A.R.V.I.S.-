@@ -129,7 +129,7 @@ class AppearanceSettingsActivity : ThemedActivity() {
         val names = arrayOf("Theme default", "White", "Cyan", "Green", "Amber", "Lavender")
         val colors = arrayOf("", "#FFFFFF", "#8DEFFF", "#5DFF99", "#FFD166", "#C4B5FD")
         button("Choose a color") {
-            AlertDialog.Builder(this).setTitle("Font color").setItems(names) { _, which -> colorInput.setText(colors[which]) }.show()
+            ThemedDialogBuilder(this).setTitle("Font color").setItems(names) { _, which -> colorInput.setText(colors[which]) }.show()
         }
         label("Preview", 14f)
         val preview = label("J.A.R.V.I.S. is ready.\nYour chat messages will look like this.", 16f).apply {
