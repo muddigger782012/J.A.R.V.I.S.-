@@ -402,7 +402,9 @@ class HybridAssistantService(
             entities = lesson.entities,
             source = "validated_fallback_v${FallbackLessonProtocol.VERSION}"
         )
-        return learningStore.count() > before || learningStore.classify(userText)?.intent == lesson.intent
+        return learningStore.count() > before || learningStore.classify(userText)?.let {
+            it.intent == lesson.intent && it.confidence == 1.0
+        } == true
     }
 
     @Synchronized
