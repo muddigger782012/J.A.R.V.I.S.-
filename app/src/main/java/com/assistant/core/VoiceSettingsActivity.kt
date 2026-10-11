@@ -70,12 +70,12 @@ class VoiceSettingsActivity : ThemedActivity() {
                 val commandCount = com.assistant.core.learning.ValidatedCommandMemory(this@VoiceSettingsActivity).learnedPhraseCount()
                 val summary = "Learned intent examples: ${store.count()}\nValidated command phrases: $commandCount\n\n" +
                     "Clear this device removes only locally saved examples. It does not delete learning on another device."
-                androidx.appcompat.app.AlertDialog.Builder(this@VoiceSettingsActivity)
+                ThemedDialogBuilder(this@VoiceSettingsActivity)
                     .setTitle("Intelligence • Local Learning")
                     .setMessage(summary)
                     .setNegativeButton("Close", null)
                     .setNeutralButton("Clear this device") { _, _ ->
-                        androidx.appcompat.app.AlertDialog.Builder(this@VoiceSettingsActivity)
+                        ThemedDialogBuilder(this@VoiceSettingsActivity)
                             .setTitle("Clear learning on this device?")
                             .setMessage("This permanently clears the learned examples on this installation only. Other devices are unchanged.")
                             .setNegativeButton("Cancel", null)
@@ -132,7 +132,7 @@ class VoiceSettingsActivity : ThemedActivity() {
                     setOnClickListener { deviceLocation.isChecked = false; latitude.setText("36.7682"); longitude.setText("-76.2875") }
                 })
                 val scroll = android.widget.ScrollView(this@VoiceSettingsActivity).apply { addView(fields) }
-                val dialog = androidx.appcompat.app.AlertDialog.Builder(this@VoiceSettingsActivity)
+                val dialog = ThemedDialogBuilder(this@VoiceSettingsActivity)
                     .setTitle("Weather and AI")
                     .setView(scroll).setNegativeButton("Cancel", null)
                     .setPositiveButton("Save", null).create()

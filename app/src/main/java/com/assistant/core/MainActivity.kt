@@ -888,7 +888,7 @@ class MainActivity : ThemedActivity() {
 
         findViewById<Button>(R.id.btnLiveChatControls).setOnClickListener {
             val options = arrayOf(if (liveChatStarted) "End live chat" else "Start live chat", "Voice settings")
-            AlertDialog.Builder(this).setTitle("Live chat").setItems(options) { _, which ->
+            ThemedDialogBuilder(this).setTitle("Live chat").setItems(options) { _, which ->
                 if (which == 0) findViewById<Button>(R.id.btnLiveChat).performClick()
                 else openVoiceSettings()
             }.setNegativeButton("Close", null).show()
@@ -1066,7 +1066,7 @@ class MainActivity : ThemedActivity() {
         option("Files", android.R.drawable.ic_menu_upload) { filePicker.launch(arrayOf("application/pdf", "text/*", "image/*", "application/json", "application/xml")) }
         option("Search the web", android.R.drawable.ic_menu_search) {
             val input = EditText(this).apply { hint = "Search query"; setText(commandInput.text) }
-            AlertDialog.Builder(this).setTitle("Search the web").setView(input).setPositiveButton("Search") { _, _ ->
+            ThemedDialogBuilder(this).setTitle("Search the web").setView(input).setPositiveButton("Search") { _, _ ->
                 val query = input.text.toString().trim()
                 if (query.isNotEmpty()) runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(query)))) }
                     .onFailure { attachmentNotice("No browser is available.") }
@@ -1225,7 +1225,7 @@ class MainActivity : ThemedActivity() {
     private fun sendAttachments() {
         if (liveChatStarted) { attachmentNotice("End live chat before sending attachments."); return }
         if (!hybridAssistantService.canAnalyzeAttachments()) {
-            AlertDialog.Builder(this).setTitle("Configure attachment analysis")
+            ThemedDialogBuilder(this).setTitle("Configure attachment analysis")
                 .setMessage("Photo and file analysis uses your Gemini API key. Add it in Weather and AI settings; your attachments will stay here.")
                 .setPositiveButton("Open settings") { _, _ -> openVoiceSettings() }.setNegativeButton("Cancel", null).show()
             return
@@ -1350,7 +1350,7 @@ class MainActivity : ThemedActivity() {
         }
         voiceDiagnosticView = logView
         val scroll = ScrollView(this).apply { addView(logView) }
-        val dialog = AlertDialog.Builder(this)
+        val dialog = ThemedDialogBuilder(this)
             .setTitle("Diagnostics")
             .setView(scroll)
             .setPositiveButton("Close", null)
@@ -1468,7 +1468,7 @@ class MainActivity : ThemedActivity() {
             JSONArray(conversationPrefs.getString("session_history", "[]"))
         }.getOrElse { JSONArray() }
         if (history.length() == 0) {
-            AlertDialog.Builder(this).setTitle("Conversation history").setMessage("No saved conversations yet.").setPositiveButton("OK", null).show()
+            ThemedDialogBuilder(this).setTitle("Conversation history").setMessage("No saved conversations yet.").setPositiveButton("OK", null).show()
             return
         }
         val ids = mutableListOf<String>()
@@ -1479,7 +1479,7 @@ class MainActivity : ThemedActivity() {
             ids.add(item.optString("id"))
             labels.add(formatter.format(Date(item.optLong("time"))) + "\n" + item.optString("preview").take(90))
         }
-        AlertDialog.Builder(this)
+        ThemedDialogBuilder(this)
             .setTitle("Conversation history")
             .setItems(labels.toTypedArray()) { _, which ->
                 conversationSessionId = ids[which]
@@ -1682,7 +1682,7 @@ class MainActivity : ThemedActivity() {
             setText(getGithubUpdateToken())
             setSelection(text?.length ?: 0)
         }
-        AlertDialog.Builder(this)
+        ThemedDialogBuilder(this)
             .setTitle("GitHub Token Required")
             .setMessage(
                 "This repository is private. Enter a GitHub token with repository read access to enable automatic in-app updates."
@@ -2551,7 +2551,7 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun showRestrictedSettingsGuide() {
-        AlertDialog.Builder(this)
+        ThemedDialogBuilder(this)
             .setTitle("Enable J.A.R.V.I.S. Accessibility")
             .setMessage(
                 "Android may block Accessibility for apps installed outside an app store. " +
