@@ -660,7 +660,8 @@ class HybridAssistantService(
         }
         if (directOnlineClient.hasGeminiKey()) {
             Thread {
-                val response = directOnlineClient.gemini(rawInput, getConversationSnapshot())
+                val cloud = directOnlineClient.assistant(rawInput, getConversationSnapshot())
+                val response = executeFallbackVolume(rawInput, cloud.lessonJson) ?: cloud.reply
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
             }.start()
@@ -682,10 +683,30 @@ class HybridAssistantService(
             }
             // A plausible cloud interpretation is not proof of a successful action.
             // Do not train device-action intents from unverified cloud replies.
-            cloud.lessonJson?.let { acceptFallbackLesson(rawInput, it) }
-            remember(rawInput, cloud.reply)
-            callback(HybridAssistantReply(cloud.reply))
+            val actionResponse = executeFallbackVolume(rawInput, cloud.lessonJson)
+            if (actionResponse == null) cloud.lessonJson?.let { acceptFallbackLesson(rawInput, it) }
+            val response = actionResponse ?: cloud.reply
+            remember(rawInput, response)
+            callback(HybridAssistantReply(response))
         }.start()
+    }
+
+    private fun executeFallbackVolume(userText: String, lessonJson: String?): String? {
+        val lesson = lessonJson?.let(FallbackIntentLesson::fromJson) ?: return null
+        val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
+        val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
+        val outcome = VerifiedVolumeLearning.execute(
+            userText, lesson, prefs.getBoolean("automatic_command_learning", true),
+            adjust = { capability ->
+                androidAssistant.adjustVolume(if (capability == "volume_up") android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER)
+            },
+            record = { phrase, capability -> memory.recordSuccess(phrase, capability, VerifiedVolumeLearning.capabilities) }
+        ) ?: return null
+        return when {
+            !outcome.executed -> "I couldn't verify a media volume change. It may already be at its limit or Android may have blocked it. This request was not learned."
+            outcome.learned -> "Media volume changed and verified. Learned this phrase on this device for offline reuse."
+            else -> "Media volume changed and verified. This phrase was not saved for learning."
+        }
     }
 
     /**

@@ -6,7 +6,15 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-data class FallbackAiResult(val reply: String, val lessonJson: String?)
+data class FallbackAiResult(val reply: String, val lessonJson: String?) {
+    companion object {
+        fun fromAssistantJson(raw: String): FallbackAiResult? = runCatching {
+            val json = JSONObject(raw)
+            val reply = (json.opt("reply") as? String)?.trim()?.takeIf { it.isNotBlank() } ?: return null
+            FallbackAiResult(reply, json.optJSONObject("lesson")?.toString())
+        }.getOrNull()
+    }
+}
 
 class FallbackAiClient(private val context: Context) {
     private val prefs = context.getSharedPreferences("jarvis_cloud_ai", Context.MODE_PRIVATE)
