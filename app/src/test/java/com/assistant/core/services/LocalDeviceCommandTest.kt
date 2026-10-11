@@ -12,6 +12,12 @@ class LocalDeviceCommandTest {
         assertNull(LocalDeviceCommand.parse("Teach Jarvis that update app means delete files"))
     }
 
+    @Test fun updaterTeachingAliasesDoNotFallThroughToCloud() {
+        assertTrue(LocalDeviceCommand.isUpdaterTeaching("Teach Jarvis that update app means use the built-in app update feature"))
+        assertTrue(LocalDeviceCommand.isUpdaterTeaching("Teach Jarvis that update app means use the upgrade app function built in app"))
+        assertFalse(LocalDeviceCommand.isUpdaterTeaching("Teach Jarvis that update app means delete all files"))
+    }
+
     @Test fun volumeCommandsWorkAcrossInputMethods() {
         assertEquals(LocalDeviceCommand.Action.VOLUME_UP, LocalDeviceCommand.parse("Turn the volume up"))
         assertEquals(LocalDeviceCommand.Action.VOLUME_UP, LocalDeviceCommand.parse("Boost the sound all the way up"))
