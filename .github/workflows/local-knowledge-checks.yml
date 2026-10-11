@@ -42,6 +42,8 @@ jobs:
           python-version: '3.12'
       - run: pip install -r cloud-backend/requirements.txt
       - run: python -m unittest discover -s cloud-backend -p 'test_*.py'
+      - name: Validate Android UI smoke script syntax
+        run: python -m py_compile scripts/ui_layout_smoke.py
 
   ui-layout:
     needs: test
