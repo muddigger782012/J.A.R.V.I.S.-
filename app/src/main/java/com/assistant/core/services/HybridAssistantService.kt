@@ -163,6 +163,7 @@ class HybridAssistantService(
 
         if (isTimeRequest(normalized)) {
             val response = "It's " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date()) + "."
+            learningStore.learn(userInput, "GENERAL_QUESTION", source = "verified_local_time")
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
