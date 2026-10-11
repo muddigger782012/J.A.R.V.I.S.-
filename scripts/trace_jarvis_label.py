@@ -33,9 +33,9 @@ def trace():
         elif left >= 290:
             points[:, 0] -= 10
         elif left >= 270:
-            # Center against V's diagonal at the dot's actual baseline (y=33),
-            # not V's far-right tip at the top. Leave both letter contours fixed.
-            points[:, 0] -= 19.22
+            # User-calibrated dot position, midway between the last two previews.
+            # Leave both neighboring letter contours fixed.
+            points[:, 0] -= 12.51
         paths.append("M" + " L".join(f"{x:.2f},{y:.2f}" for x, y in points) + " Z")
     plt.close("all")
     data = " ".join(paths)
