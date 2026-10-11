@@ -39,7 +39,7 @@ class DefaultWallpaperDrawable : Drawable() {
         val checkpoint = canvas.save()
         canvas.clipRect(bounds)
         canvas.drawBitmap(image, null, destination, paint)
-        canvas.drawColor(0x66030E13)
+        canvas.drawColor(0x7A030E13)
         canvas.restoreToCount(checkpoint)
     }
 
