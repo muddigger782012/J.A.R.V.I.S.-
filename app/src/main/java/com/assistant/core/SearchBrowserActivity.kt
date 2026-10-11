@@ -1,6 +1,7 @@
 package com.assistant.core
 
 import android.content.Intent
+import android.content.ActivityNotFoundException
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.WebResourceRequest
@@ -58,7 +59,7 @@ class SearchBrowserActivity : ThemedActivity() {
             setPadding(dp(10), dp(4), dp(10), dp(4))
         }
         val external = icon("Open in browser") {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(browser.url ?: url)))
+            openExternal(Uri.parse(browser.url ?: url))
         }
         toolbar.addView(back, LinearLayout.LayoutParams(dp(48), dp(48)))
         toolbar.addView(title, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
@@ -72,7 +73,7 @@ class SearchBrowserActivity : ThemedActivity() {
                     val target = request.url
                     if (target.scheme == "https" && target.host in setOf("www.google.com", "google.com")) return false
                     if (target.scheme == "https") {
-                        startActivity(Intent(Intent.ACTION_VIEW, target))
+                        openExternal(target)
                     }
                     return true
                 }
@@ -81,6 +82,15 @@ class SearchBrowserActivity : ThemedActivity() {
         }
         container.addView(browser, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(container)
+    }
+
+    private fun openExternal(target: Uri) {
+        if (target.scheme != "https") return
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, target))
+        } catch (_: ActivityNotFoundException) {
+            android.widget.Toast.makeText(this, "No browser available to open this link", android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     @Deprecated("Deprecated in Java")
