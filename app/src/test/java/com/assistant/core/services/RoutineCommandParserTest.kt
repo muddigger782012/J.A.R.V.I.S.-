@@ -13,6 +13,7 @@ class RoutineCommandParserTest {
     @Test fun rejectsUnsupportedAndSensitiveActions() {
         assertNull(RoutineCommandParser.parse("Teach Jarvis that prepare means volume up and delete files"))
         assertNull(RoutineCommandParser.parse("Teach Jarvis that prepare means volume up and volume up"))
+        assertNull(RoutineCommandParser.parse("Teach Jarvis that update app means volume up and volume down"))
         assertNull(RoutineCommandParser.parse("Teach Jarvis that prepare means send a text"))
         assertNull(RoutineCommandParser.parse("Teach Jarvis that prepare means volume up and send a text"))
     }
