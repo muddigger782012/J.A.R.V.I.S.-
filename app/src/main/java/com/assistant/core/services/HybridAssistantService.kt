@@ -313,11 +313,9 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        learningStore.classify(normalized)?.let { learned ->
-            val response = "I recognized this as ${learned.intent} from local learning, but that learned intent is not connected to an executable capability yet."
-            remember(userInput, response)
-            return HybridAssistantReply(response)
-        }
+        // Learned intent labels are advisory until a vetted capability executor
+        // exists. Never short-circuit cloud fallback with a non-actionable label.
+        // This prevents previously learned phrases from becoming dead ends.
 
         val fallback = assistantEngine.handleUserCommand(userInput)
         if (!fallback.success && fallback.adapterUsed == "ENGINE") {
@@ -381,6 +379,8 @@ class HybridAssistantService(
                 callback(HybridAssistantReply(response, local.actionResult))
                 return@Thread
             }
+            // A plausible cloud interpretation is not proof of a successful action.
+            // Do not train device-action intents from unverified cloud replies.
             cloud.lessonJson?.let { acceptFallbackLesson(rawInput, it) }
             remember(rawInput, cloud.reply)
             callback(HybridAssistantReply(cloud.reply))
@@ -395,6 +395,9 @@ class HybridAssistantService(
     fun acceptFallbackLesson(userText: String, lessonJson: String): Boolean {
         val lesson = FallbackIntentLesson.fromJson(lessonJson) ?: return false
         if (!FallbackLessonProtocol.accepts(lesson) || !lesson.canTeachLocally()) return false
+        // General informational responses can be learned as classifications.
+        // Device actions require an actual executor success signal, not an AI claim.
+        if (lesson.intent != "GENERAL_QUESTION") return false
         learningStore.learn(
             utterance = userText,
             intent = lesson.intent,
