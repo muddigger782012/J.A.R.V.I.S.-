@@ -864,6 +864,13 @@ class MainActivity : ThemedActivity() {
             ensureMicPermissionAndPushToTalk()
         }
 
+        findViewById<Button>(R.id.btnLiveChatControls).setOnClickListener {
+            val options = arrayOf(if (liveChatStarted) "End live chat" else "Start live chat", "Voice settings")
+            AlertDialog.Builder(this).setTitle("Live chat").setItems(options) { _, which ->
+                if (which == 0) findViewById<Button>(R.id.btnLiveChat).performClick()
+                else openVoiceSettings()
+            }.setNegativeButton("Close", null).show()
+        }
         findViewById<Button>(R.id.btnLiveChat).setOnClickListener {
             if (liveChatStarted) endLiveChat("Live chat ended.") else requestLiveChat()
         }
@@ -1681,7 +1688,10 @@ class MainActivity : ThemedActivity() {
         voiceService.stopSpeaking()
         liveChatStarted = true
         findViewById<Button>(R.id.btnLiveChat).contentDescription = "End live chat"
-        findViewById<TextView>(R.id.tvLiveChatStatus).text = "Starting live chat…"
+        findViewById<TextView>(R.id.tvLiveChatStatus).apply {
+            text = "Starting live chat…"
+            visibility = View.VISIBLE
+        }
         commandInput.isEnabled = false
         findViewById<Button>(R.id.btnRunAssistantCommand).isEnabled = false
         voiceButton.isEnabled = false
@@ -1708,6 +1718,7 @@ class MainActivity : ThemedActivity() {
             setIconResource(if (liveChatStarted) R.drawable.ic_composer_stop else R.drawable.ic_composer_live)
         }
         findViewById<TextView>(R.id.tvLiveChatStatus).text = state.optString("message", "Live chat continues outside the app. Say “end live chat” to finish.")
+        findViewById<TextView>(R.id.tvLiveChatStatus).visibility = if (liveChatStarted) View.VISIBLE else View.GONE
         commandInput.isEnabled = !liveChatStarted
         findViewById<Button>(R.id.btnRunAssistantCommand).isEnabled = !liveChatStarted
         val phase = runCatching { VoiceInteractionState.valueOf(state.optString("phase", "IDLE")) }.getOrDefault(VoiceInteractionState.IDLE)
