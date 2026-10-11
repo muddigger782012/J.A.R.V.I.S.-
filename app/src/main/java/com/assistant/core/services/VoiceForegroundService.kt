@@ -460,19 +460,16 @@ class VoiceForegroundService : Service() {
                 publishEvent("Voice settings requested; open app to configure.")
             }
             LocalVoiceCommand.NONE -> {
-                val proposedAction = parsed.actionRequest
-                if (proposedAction != null && proposedAction.riskLevel >= 2 &&
-                    (proposedAction.parameters["confirmed"] as? Boolean != true)
-                ) {
-                    val reply = hybridAssistantService.handleUserInput(command)
-                    publishEvent("J.A.R.V.I.S.: ${reply.text}")
-                    voiceService.speak(reply.text)
-                } else if (proposedAction != null) {
-                    handleActionResult(assistantEngine.executeAction(proposedAction))
-                } else {
-                    val reply = hybridAssistantService.handleUserInput(parsed.fallbackTextCommand ?: command)
-                    publishEvent("J.A.R.V.I.S.: ${reply.text}")
-                    voiceService.speak(reply.text)
+                // Use the same assistant path as typed and live-chat turns.
+                // Bypassing it through the legacy ActionRequest parser caused
+                // learned routines and local aliases to behave differently.
+                hybridAssistantService.handleUserInputAsync(
+                    parsed.fallbackTextCommand ?: command
+                ) { reply ->
+                    liveHandler.post {
+                        publishEvent("J.A.R.V.I.S.: ${reply.text}")
+                        speakResponse(reply.text)
+                    }
                 }
             }
         }
