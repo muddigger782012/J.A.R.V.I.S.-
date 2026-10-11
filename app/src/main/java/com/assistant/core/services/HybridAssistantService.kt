@@ -536,6 +536,26 @@ class HybridAssistantService(
             return replyFromResult(userInput, "Reading the current screen.", assistantEngine.executeAction(actionRegistry.readScreenRequest()))
         }
 
+        // Image requests should open real image results rather than receive a
+        // misleading text-only fallback claiming that pictures are impossible.
+        WebSearchCommand.imageQuery(userInput)?.let { query ->
+            val launched = runCatching {
+                val url = android.net.Uri.parse("https://www.google.com/search")
+                    .buildUpon()
+                    .appendQueryParameter("tbm", "isch")
+                    .appendQueryParameter("q", query)
+                    .build()
+                systemService.context().startActivity(
+                    android.content.Intent(android.content.Intent.ACTION_VIEW, url)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }.isSuccess
+            val response = if (launched) "Opening image search for: $query"
+                else "Could not open image search. Check that a browser is installed and enabled."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
         // Explicit web search is a real Android browser action, not an AI claim.
         WebSearchCommand.query(userInput)?.let { query ->
             val launched = runCatching {
