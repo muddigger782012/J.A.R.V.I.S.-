@@ -25,7 +25,11 @@ class ApprovedRoutineRegistry(context: Context) {
         if (key.length !in 3..120 || actions.size !in 1..5 ||
             actions.any { it !in allowed } || actions.distinct().size != actions.size ||
             key.startsWith("teach ") || key.startsWith("confirm ") ||
-            key.startsWith("delete ") || key.startsWith("reset ")) return null
+            key.startsWith("delete ") || key.startsWith("reset ") ||
+            key.startsWith("forget ") || key.startsWith("cancel ") ||
+            key in setOf("routine status", "update app", "update jarvis", "upgrade app",
+                "upgrade jarvis", "check for jarvis update", "volume up", "volume down",
+                "learning status", "clear local learning")) return null
         return Routine(key, actions.toList())
     }
 
