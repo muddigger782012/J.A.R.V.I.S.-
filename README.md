@@ -12,3 +12,5 @@ No private API keys or user-specific server credentials are bundled. The signed 
 ## Main-screen navigation
 
 The themed gear icon in the header combines Settings and Tools. Its menu opens settings, projects, device tools, system status and updates, terminal, activity log, permissions, device administration, and diagnostics. Use Chat to return to the conversation. The plus menu is reserved for camera, photos, files, and web search.
+
+App-owned dialogs, including Diagnostics, use the selected appearance theme's panel colors, border and corner shape. Dialog text also respects the font size and color preferences. Android permission prompts and other system-owned windows retain the device's system appearance.
