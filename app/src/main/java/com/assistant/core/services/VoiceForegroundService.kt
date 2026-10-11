@@ -331,8 +331,12 @@ class VoiceForegroundService : Service() {
                     voiceSession.transcriptReady(heard)
                 }
             },
-            onSpeechStarted = { voiceSession.speaking() },
+            onSpeechStarted = {
+                publishEvent("Voice diagnostic: spoken response playback started.")
+                voiceSession.speaking()
+            },
             onSpeechFinished = {
+                publishEvent("Voice diagnostic: spoken response playback finished.")
                 if (liveChatActive) {
                     if (liveSession.speechFinished()) nextLiveTurn(650L)
                 } else {
