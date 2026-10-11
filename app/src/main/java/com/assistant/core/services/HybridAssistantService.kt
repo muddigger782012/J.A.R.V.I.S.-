@@ -95,7 +95,8 @@ class HybridAssistantService(
 
         // Learning diagnostics are handled locally, without an AI connection.
         if (normalized in setOf("learning status", "show learning status", "how many commands have you learned", "learned commands")) {
-            val response = "Local learned examples: ${learningStore.count()}. Say 'forget learned command' followed by the exact phrase, or 'clear learned database on this device' to erase this installation's examples."
+            val commandCount = com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).learnedPhraseCount()
+            val response = "Local learned intent examples: ${learningStore.count()}; validated command phrases: $commandCount. Say 'forget learned command' followed by the exact phrase, or 'clear learned database on this device' to erase both local stores."
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
