@@ -7,20 +7,20 @@ import java.net.URI
 /** Versioned chat payload: saved history keeps source fields rather than flattened text. */
 object ChatSearchResults {
     private const val PREFIX = "J.A.R.V.I.S.: [search-results-v1]"
-    data class Message(val query: String, val items: List<SearchRouter.Result>)
+    data class Message(val query: String, val items: List<SearchRouter.Result>, val answer: String? = null)
 
     fun safeUrl(url: String): Boolean = runCatching {
         val uri = URI(url)
         uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.rawUserInfo == null
     }.getOrDefault(false)
 
-    fun encode(query: String, items: List<SearchRouter.Result>): String {
+    fun encode(query: String, items: List<SearchRouter.Result>, answer: String? = null): String {
         val results = JSONArray()
         items.take(11).filter { safeUrl(it.url) }.forEach {
             results.put(JSONObject().put("title", it.title).put("content", it.description).put("url", it.url)
                 .put("kind", it.kind).put("thumbnail", it.thumbnail?.takeIf(::safeUrl)))
         }
-        return PREFIX + JSONObject().put("query", query).put("results", results).toString()
+        return PREFIX + JSONObject().put("query", query).put("results", results).put("answer", answer?.take(12000)).toString()
     }
 
     fun decode(message: String): Message? {
@@ -38,7 +38,7 @@ object ChatSearchResults {
                 val thumbnail = item.optString("thumbnail").takeIf(::safeUrl)
                 SearchRouter.Result(title, item.optString("content").take(700), url, kind, thumbnail)
             }
-            Message(document.getString("query"), items)
+            Message(document.getString("query"), items, document.optString("answer").takeIf { it.isNotBlank() && it != "null" })
         }.getOrNull()
     }
 }
