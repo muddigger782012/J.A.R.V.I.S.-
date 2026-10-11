@@ -165,9 +165,18 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        if (isTimeRequest(normalized)) {
+        // Only verified time examples can reuse the local time handler.
+        // A generic GENERAL_QUESTION label must never authorize device actions.
+        val learnedTime = learningStore.classify(userInput)?.let {
+            it.intent == "GENERAL_QUESTION" &&
+                it.source == "verified_local_time" &&
+                it.confidence >= 0.99
+        } == true
+        if (isTimeRequest(normalized) || learnedTime) {
             val response = "It's " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date()) + "."
-            learningStore.learn(userInput, "GENERAL_QUESTION", source = "verified_local_time")
+            if (isTimeRequest(normalized)) {
+                learningStore.learn(userInput, "GENERAL_QUESTION", source = "verified_local_time")
+            }
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
