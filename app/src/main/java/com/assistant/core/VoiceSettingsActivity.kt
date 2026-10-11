@@ -67,7 +67,7 @@ class VoiceSettingsActivity : ThemedActivity() {
             isAllCaps = false
             setOnClickListener {
                 val store = com.assistant.core.services.IntentLearningStore(this@VoiceSettingsActivity)
-                val summary = "Learned examples on this device: ${store.count()}\\n\\n" +
+                val summary = "Learned examples on this device: ${store.count()}\n\n" +
                     "Clear this device removes only locally saved examples. It does not delete learning on another device."
                 androidx.appcompat.app.AlertDialog.Builder(this@VoiceSettingsActivity)
                     .setTitle("Intelligence • Local Learning")
