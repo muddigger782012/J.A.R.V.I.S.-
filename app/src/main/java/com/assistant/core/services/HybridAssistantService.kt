@@ -106,19 +106,19 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
-        if (normalized == "reset learned commands") {
+        if (normalized in setOf("reset learned commands", "reset learned commands on this device", "clear learned database on this device", "clear local learning")) {
             pendingLearningReset = true
-            val response = "This will erase all locally learned commands. Say 'confirm learning reset' to continue, or 'cancel learning reset' to keep them."
+            val response = "This will erase learned commands stored on this device only. Other devices are not affected. Say 'confirm learning reset on this device' to continue, or 'cancel learning reset' to keep them."
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
-        if (normalized in setOf("confirm learning reset", "cancel learning reset")) {
+        if (normalized in setOf("confirm learning reset", "confirm learning reset on this device", "cancel learning reset")) {
             val response = when {
                 !pendingLearningReset -> "No learning reset is pending."
                 normalized == "cancel learning reset" -> "Learning reset cancelled."
                 else -> {
                     learningStore.clear()
-                    "Local learned commands have been cleared."
+                    "Learned commands on this device have been cleared. Other devices are unchanged."
                 }
             }
             pendingLearningReset = false
