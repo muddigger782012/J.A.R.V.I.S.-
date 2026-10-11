@@ -127,6 +127,7 @@ class SherpaWakeWordEngine(
             }
             stage("sherpa-mic-recording")
             onStatus("Sherpa microphone active at 16 kHz; listening for '$phrase'.")
+            stage("sherpa-mic-recording")
             worker = thread(start = true, isDaemon = true, name = "jarvis-sherpa-kws") {
                 processAudio(kws, onlineStream, audio)
             }
@@ -165,6 +166,7 @@ class SherpaWakeWordEngine(
                     break
                 }
                 if (n == 0) continue
+                if (chunks == 0) onStatus("Sherpa received first microphone audio buffer.")
                 var peak = 0
                 for (i in 0 until n) {
                     val level = abs(buffer[i].toInt())
@@ -184,7 +186,10 @@ class SherpaWakeWordEngine(
                 val samples = FloatArray(n) { buffer[it] / 32768.0f }
                 if (chunks == 1) stage("sherpa-worker-before-accept")
                 onlineStream.acceptWaveform(samples, SAMPLE_RATE)
-                if (chunks == 1) stage("sherpa-worker-after-accept")
+                if (chunks == 1) {
+                    stage("sherpa-worker-after-accept")
+                    onStatus("Sherpa accepted first audio buffer; decoder running.")
+                }
                 while (running && kws.isReady(onlineStream)) {
                     if (chunks == 1) stage("sherpa-worker-before-decode")
                     kws.decode(onlineStream)
