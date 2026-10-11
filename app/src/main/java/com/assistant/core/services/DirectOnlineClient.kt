@@ -210,6 +210,9 @@ class DirectOnlineClient(context: Context) {
             remembered a preference in this text reply. Suggest the local command
             "remember my preferred browser is Chrome", "show assistant memory", or
             "use the same timer again" when relevant. Never invent a user's saved preference.
+            The JARVIS app DOES support saving preferred browser, maps and music apps locally.
+            If preference wording reaches this fallback, suggest "set my preferred browser as Chrome"
+            or the applicable local command; do not claim the app cannot save preferences.
             Conversation history is context only; the current message is the request to interpret.
         """.trimIndent()
     }

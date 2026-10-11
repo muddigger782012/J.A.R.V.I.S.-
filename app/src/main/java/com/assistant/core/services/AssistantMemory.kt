@@ -66,17 +66,23 @@ class AssistantMemory internal constructor(private val read: () -> String, priva
 
 object AssistantMemoryCommands {
     data class Preference(val slot: String, val appName: String)
+    private const val SLOT_WORDS = "browser|maps(?: app)?|navigation(?: app)?|music(?: app)?"
+    private fun slotName(value: String) = value.lowercase(java.util.Locale.ROOT).removeSuffix(" app").let { if (it == "navigation") "maps" else it }
     private fun normalized(text: String) = text.lowercase(java.util.Locale.ROOT).trim().trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
     fun preference(text: String): Preference? {
-        val match = Regex("(?i)^(?:remember (?:that )?)?my preferred (browser|maps(?: app)?|music(?: app)?) is (.{1,100})[.!]?$")
-            .matchEntire(text.trim()) ?: return null
-        return Preference(match.groupValues[1].lowercase(java.util.Locale.ROOT).removeSuffix(" app"), match.groupValues[2].trim().trimEnd('.', '!'))
+        val cleaned = text.trim().trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
+        val forward = Regex("(?i)^(?:please )?(?:(?:remember|save)(?: that)? |(?:set|change|update) )?(?:(?:my|the) )?preferred ($SLOT_WORDS) (?:is|as|to) (.{1,100})$")
+            .matchEntire(cleaned)
+        if (forward != null) return Preference(slotName(forward.groupValues[1]), forward.groupValues[2].trim())
+        val reverse = Regex("(?i)^(?:please )?(?:set|make) (.{1,100}?) (?:(?:as|to be) )?(?:(?:my|the) )?preferred ($SLOT_WORDS)$")
+            .matchEntire(cleaned) ?: return null
+        return Preference(slotName(reverse.groupValues[2]), reverse.groupValues[1].trim())
     }
     fun preferredSlot(text: String): String? {
         val cleaned = normalized(text)
-        Regex("^(?:open|use) my preferred (browser|maps|music)(?: app)?$").matchEntire(cleaned)?.let { return it.groupValues[1] }
-        return Regex("^(?:open|use|reopen) (?:(?:the|that) )?same (browser|maps|music)(?: app)?(?: again)?$")
-            .matchEntire(cleaned)?.groupValues?.get(1)
+        Regex("^(?:please )?(?:open|use|launch|start) (?:(?:my|the) )?preferred ($SLOT_WORDS)(?: please)?$").matchEntire(cleaned)?.let { return slotName(it.groupValues[1]) }
+        return Regex("^(?:please )?(?:open|use|reopen|launch) (?:(?:the|that) )?same ($SLOT_WORDS)(?: again)?(?: please)?$")
+            .matchEntire(cleaned)?.groupValues?.get(1)?.let(::slotName)
     }
     fun repeatCapability(text: String): String? {
         val cleaned = normalized(text)
@@ -88,7 +94,7 @@ object AssistantMemoryCommands {
     }
     fun forgetKey(text: String): String? {
         val cleaned = normalized(text)
-        Regex("^forget my preferred (browser|maps|music)(?: app)?$").matchEntire(cleaned)?.let { return "preferred_${it.groupValues[1]}" }
+        Regex("^(?:forget|remove) (?:(?:my|the) )?preferred ($SLOT_WORDS)$").matchEntire(cleaned)?.let { return "preferred_${slotName(it.groupValues[1])}" }
         return when (cleaned) { "forget the last timer" -> "last_timer"; "forget the last app" -> "last_open_app"; else -> null }
     }
 }

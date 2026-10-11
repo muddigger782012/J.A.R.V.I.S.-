@@ -11,8 +11,12 @@ a subsequent request uses cloud AI.
 - “Remember my preferred browser is Chrome” proposes a preference. “Yes” saves
   it only after the host resolves a unique installed launcher app. This is a
   JARVIS preference; it does not change Android's system-default applications.
+- “Set my preferred browser as Chrome,” “set preferred browser to Chrome,” and
+  “make Chrome my preferred browser” reach the same local proposal/approval flow.
 - “Open my preferred browser” opens the retained package locally. Browser, maps
   and music slots are supported; use each app's exact launcher label.
+- “Open preferred browser” and “launch the preferred browser” also use that saved
+  preference; the word “my” is optional. Navigation app maps to the maps slot.
 - “Use the same timer again” repeats the saved timer duration.
 - “Open the same app again” opens the last confirmed app package.
 - “Use that same timer again” and “use the last confirmed timer” are supported
@@ -44,6 +48,8 @@ ContextualFollowupTest covers the exact online/offline screenshot phrases and
 preferred-browser launch → outcome → persisted last-app context, plus failed launch,
 failed outcome and storage failures. AssistantMemoryTest covers instance recreation, migration, no resurrection after
 clear/forget, failed writes/corrupt records, command parsing and approval expiry.
+NaturalPreferenceCommandTest covers set/as/to and optional-my wording, approval
+and persistent-target lookup, plus negated/unclear input rejection.
 Run all Android unit tests and assembleDebug, including existing timer/app and
 volume-learning tests. Actual device/provider behavior remains a phone check.
 
