@@ -122,7 +122,7 @@ class HybridAssistantService(
                         if (contextSaved) "You confirmed it worked. Remembered ${pending.action.description()} as your last confirmed action on this device."
                         else "You confirmed the result, but I couldn't save its recent-action context."
                     } else if (prefs.getBoolean("automatic_command_learning", true) &&
-                        memory.recordSuccess(pending.phrase, pending.action.capabilityId, LearnableDeviceAction.capabilities, pending.action.parameters))
+                        memory.recordSuccess(pending.phrase, pending.contextual?.capabilityId ?: pending.action.capabilityId, LearnableDeviceAction.capabilities + ContextualAction.capabilities, pending.contextual?.parameters ?: pending.action.parameters))
                         "You confirmed it worked. Learned \"${pending.phrase}\" on this device for offline reuse."
                     else "Your successful result was noted, but this phrase was not saved. Learning may be disabled or the phrase may conflict with another command."
                     lessonReply + if (contextSaved || !pending.learnable) "" else " Recent-action context could not be saved."
@@ -197,6 +197,13 @@ class HybridAssistantService(
                 action == null -> "No confirmed ${if (kind == "timer") "timer" else "app launch"} is saved yet. Complete an action and confirm 'it worked' first."
                 else -> requestContextAction(userInput, action, "using your last confirmed ${if (kind == "timer") "timer" else "app"}")
             }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        deviceMemory.match(userInput, ContextualAction.capabilities)?.let { learned ->
+            val action = ContextualAction(learned.capabilityId, learned.parameters).resolve(assistantMemory)
+            val response = if (action == null) "That learned phrase needs a saved preference or confirmed action. Restore its assistant memory first; nothing was requested."
+                else requestContextAction(userInput, action, "using your learned reference and current assistant memory")
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -611,7 +618,7 @@ class HybridAssistantService(
         parseAppName(normalized)?.let { appName ->
             val target = androidAssistant.resolveLearnableApp(appName)
             val response = if (target != null) requestContextAction(userInput, LearnableDeviceAction("open_app", mapOf("package" to target.first, "label" to target.second)))
-                else "I couldn't find one installed app with the exact launcher name $appName. Please specify its exact name."
+                else "I don't understand that locally yet. No unique installed app matched $appName."
             remember(userInput, response); return HybridAssistantReply(response)
         }
         if (normalized in setOf("play", "pause", "play music", "pause music", "play pause", "resume music")) {
@@ -781,7 +788,7 @@ class HybridAssistantService(
         }
         if (directOnlineClient.hasGeminiKey()) {
             Thread {
-                val cloud = directOnlineClient.assistant(rawInput, getConversationSnapshot())
+                val cloud = directOnlineClient.assistant(rawInput, getConversationSnapshot(), ContextualAction.aiContext(assistantMemory))
                 val response = proposeFallbackVolume(rawInput, cloud.lessonJson) ?: proposeFallbackDeviceAction(rawInput, cloud.lessonJson) ?: cloud.reply
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
@@ -795,7 +802,7 @@ class HybridAssistantService(
             return
         }
         Thread {
-            val cloud = fallbackAiClient.ask(rawInput)
+            val cloud = fallbackAiClient.ask(rawInput, capabilityContext = ContextualAction.aiContext(assistantMemory))
             if (cloud == null) {
                 val response = "I don't understand that locally yet. Cloud fallback failed or returned no usable reply. Check your connection and AI settings."
                 remember(rawInput, response)
@@ -821,6 +828,15 @@ class HybridAssistantService(
 
     private fun proposeFallbackDeviceAction(userText: String, lessonJson: String?): String? {
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson) ?: return null
+        if (lesson.intent in setOf("OPEN_PREFERRED_APP", "REPEAT_ACTION")) {
+            val reference = ContextualAction.fromLesson(lesson)
+                ?: return "I couldn't safely interpret that saved-context reference. Specify which preferred app or confirmed timer/app you mean. Nothing was changed or learned."
+            val action = reference.resolve(assistantMemory)
+                ?: return "No matching preference or confirmed action is saved. Set the preference or complete an action and confirm 'it worked' first. Nothing was changed or learned."
+            if (!deviceLearningSession.propose(DeviceLearningSession.Pending(userText, action, true, contextual = reference)))
+                return "I couldn't retain this contextual request for confirmation. Nothing was changed or learned."
+            return "Would you like me to ${action.description()}, using your saved assistant memory? Say yes to confirm or no to cancel."
+        }
         if (lesson.intent !in setOf("SET_TIMER", "OPEN_APP")) return null
         val action = LearnableDeviceAction.fromLesson(lesson, androidAssistant::resolveLearnableApp)
             ?: return "I couldn't prepare a safe timer or unique installed-app match. Specify a timer duration from 1 second to 24 hours, or the app's exact launcher name. Nothing was changed or learned."

@@ -23,7 +23,7 @@ class FallbackAiClient(private val context: Context) {
         prefs.getString("endpoint", "").orEmpty().startsWith("https://") &&
             prefs.getString("gateway_token", "").orEmpty().isNotBlank()
 
-    fun ask(userText: String, learnIntent: Boolean = true): FallbackAiResult? {
+    fun ask(userText: String, learnIntent: Boolean = true, capabilityContext: String = "{}"): FallbackAiResult? {
         val endpoint = prefs.getString("endpoint", "").orEmpty()
         val token = prefs.getString("gateway_token", "").orEmpty()
         if (!endpoint.startsWith("https://") || token.isBlank()) return null
@@ -31,6 +31,7 @@ class FallbackAiClient(private val context: Context) {
         val request = JSONObject()
             .put("session_id", "android")
             .put("learn_intent", learnIntent)
+            .put("capability_context", JSONObject(capabilityContext))
             .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", userText)))
         val latitude = prefs.getString("weather_latitude", "").orEmpty().toDoubleOrNull()
         val longitude = prefs.getString("weather_longitude", "").orEmpty().toDoubleOrNull()
