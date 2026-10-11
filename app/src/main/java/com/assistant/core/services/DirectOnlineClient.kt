@@ -89,6 +89,17 @@ class DirectOnlineClient(context: Context) {
     private val location = WeatherLocation(context)
     private val keys = ApiKeyStore(context)
     fun hasGeminiKey(): Boolean = keys.read().isNotBlank()
+    fun searchAnswer(evidence: String): String? = runCatching {
+        val apiKey = keys.read()
+        val model = prefs.getString("gemini_model", "gemini-3.5-flash-lite").orEmpty()
+        if (apiKey.isBlank() || !Regex("[a-zA-Z0-9._-]+").matches(model)) return null
+        val body = JSONObject().put("systemInstruction", JSONObject().put("parts", JSONArray()
+            .put(JSONObject().put("text", SearchAiContext.INSTRUCTIONS))))
+            .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray()
+                .put(JSONObject().put("text", "Search evidence (JSON):\n$evidence")))))
+        val (code, response) = request("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent", body, apiKey)
+        if (code !in 200..299) null else response?.let(OnlineAnswers::geminiText)
+    }.getOrNull()
     private fun request(url: String, body: JSONObject? = null, apiKey: String? = null): Pair<Int, JSONObject?> {
         val connection = URL(url).openConnection() as HttpURLConnection
         try {

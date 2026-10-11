@@ -1311,6 +1311,34 @@ class MainActivity : ThemedActivity() {
                 appendOutput(response)
 
             }
+            // Publish source/media cards first; AI synthesis must never delay or replace retrieval.
+            val original = result.getOrNull()?.takeIf { it.isNotBlank() } ?: return@Thread
+            val evidence = com.assistant.core.services.ChatSearchResults.decode(original) ?: return@Thread
+            if (evidence.answer != null) return@Thread
+            val answer = runCatching {
+                com.assistant.core.services.SearchAiClient(this).answer(query, evidence.items)
+            }.getOrNull() ?: return@Thread
+            val enriched = com.assistant.core.services.ChatSearchResults.encode(query, evidence.items, answer)
+            cache.edit().putString(cacheId, enriched).apply()
+            runOnUiThread {
+                if (searchSession == conversationSessionId && !isDestroyed) {
+                    val index = outputLines.indexOfLast { it == original }
+                    if (index >= 0) {
+                        outputLines[index] = enriched
+                        outputLog.text = outputLines.joinToString("\n\n")
+                        persistActiveConversation()
+                        renderConversation()
+                    }
+                } else {
+                    val key = "messages_$searchSession"
+                    val history = runCatching { JSONArray(conversationPrefs.getString(key, "[]")) }.getOrElse { JSONArray() }
+                    val index = (0 until history.length()).lastOrNull { history.optString(it) == original }
+                    if (index != null) {
+                        history.put(index, enriched)
+                        conversationPrefs.edit().putString(key, history.toString()).apply()
+                    }
+                }
+            }
         }.start()
     }
 
@@ -1488,9 +1516,32 @@ class MainActivity : ThemedActivity() {
                     linksClickable = true
                 }
             })
+            searchResults?.answer?.let { answer ->
+                val sources = searchResults.items.filter { it.kind != "image" }.take(5)
+                val cited = android.text.SpannableString(answer)
+                Regex("""\[(\d+)\]""").findAll(answer).forEach { match ->
+                    val source = match.groupValues[1].toIntOrNull()?.let { sources.getOrNull(it - 1) }
+                    if (source != null) cited.setSpan(object : android.text.style.ClickableSpan() {
+                        override fun onClick(widget: View) {
+                            runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(source.url))) }
+                                .onFailure { Toast.makeText(this@MainActivity, "No browser available", Toast.LENGTH_SHORT).show() }
+                        }
+                    }, match.range.first, match.range.last + 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                card.addView(TextView(this).apply {
+                    text = cited
+                    textSize = 16f
+                    setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_on_dark))
+                    setLinkTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
+                    setLineSpacing(dp(4).toFloat(), 1f)
+                    setPadding(0, dp(10), 0, dp(10))
+                    movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                    FontPreferences.applyTo(this, this@MainActivity)
+                })
+            }
             val images = searchResults?.items?.filter { it.kind == "image" }.orEmpty()
             if (images.isNotEmpty()) card.addView(SearchMediaViews.images(this, images))
-            searchResults?.items?.filter { it.kind != "image" }?.forEach { item ->
+            searchResults?.items?.filter { it.kind != "image" }?.forEachIndexed { index, item ->
                 val source = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     background = ChatAppearancePreferences.background(this@MainActivity, false)
@@ -1505,7 +1556,7 @@ class MainActivity : ThemedActivity() {
                     setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
                 })
                 source.addView(TextView(this).apply {
-                    text = item.title
+                    text = "[${index + 1}] ${item.title}"
                     textSize = 16f
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                     setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
