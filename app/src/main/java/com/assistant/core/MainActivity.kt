@@ -1429,6 +1429,26 @@ class MainActivity : ThemedActivity() {
                 setLineSpacing(dp(4).toFloat(), 1f)
                 setTextIsSelectable(true)
             })
+            if (assistant) {
+                val searchUrl = Regex("""https://www\\.google\\.com/search\\?[^\\s<>]+""").find(line)?.value
+                if (searchUrl != null) {
+                    val parsed = android.net.Uri.parse(searchUrl)
+                    val query = parsed.getQueryParameter("q")
+                    if (!query.isNullOrBlank()) {
+                        val imageSearch = parsed.getQueryParameter("tbm") == "isch"
+                        val openSearch = android.widget.Button(this).apply {
+                            text = if (imageSearch) "View image results: $query" else "View search results: $query"
+                            isAllCaps = false
+                            setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
+                            setOnClickListener {
+                                startActivity(android.content.Intent(this@MainActivity, SearchBrowserActivity::class.java)
+                                    .putExtra(SearchBrowserActivity.EXTRA_URL, searchUrl))
+                            }
+                        }
+                        card.addView(openSearch)
+                    }
+                }
+            }
             messages.addView(card)
         }
         scroll.post { if (forceScroll || nearBottom) scroll.scrollTo(0, scroll.getChildAt(0)?.height ?: 0) else scroll.scrollTo(0, oldScroll) }
