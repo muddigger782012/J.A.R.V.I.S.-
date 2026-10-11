@@ -106,18 +106,21 @@ try:
     tap('btnCloseVoiceSettings')
     # Exercise each palette through the native settings flow, then verify persistence.
     for name in ('Stark', 'Cybertron', 'Default'):
-        # Exercise the theme picker directly; the nested Appearances scroll view
-        # can hide controls from UIAutomator on the emulator.
-        adb('shell', 'am', 'start', '-n', 'com.assistant.core/.ThemeSettingsActivity')
-        time.sleep(1)
+        # Navigate through the public app UI; theme activities are intentionally not exported.
+        tap('btnVoiceSettings')
+        tap('btnThemes')
+        assert any(n.get('resource-id') == 'com.assistant.core:id/appearanceTabs' for n in hierarchy().iter('node')), 'Appearances screen did not open'
         if name == 'Cybertron':
             adb('shell', 'input', 'swipe', '500', '1500', '500', '500', '350')
             time.sleep(1)
+        # Theme choices may be nested in a scroll view below the appearance controls.
         tap_scrolling('btnTheme' + name)
         assert any(n.get('text') in (name + ' • Active', 'Current theme: ' + name) for n in hierarchy().iter('node')), 'Theme not applied'
         capture('theme-picker-' + name.lower())
         adb('shell', 'input', 'keyevent', '4')
         time.sleep(1)
+        tap('btnCloseAppearances')
+        tap('btnCloseVoiceSettings')
         capture('theme-' + name.lower())
         if name == 'Cybertron':
             adb('shell', 'am', 'force-stop', 'com.assistant.core')
