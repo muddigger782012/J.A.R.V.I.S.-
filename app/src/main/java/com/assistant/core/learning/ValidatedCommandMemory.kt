@@ -4,6 +4,7 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+import com.assistant.core.services.ConfirmationWords
 
 /**
  * Persistent, opt-in command phrase learning. This class never executes a command:
@@ -27,15 +28,16 @@ class ValidatedCommandMemory internal constructor(
     data class Match(val capabilityId: String, val confidence: Double)
 
     private fun normalize(value: String): String =
-        value.lowercase(Locale.ROOT).trim().replace(Regex("\\s+"), " ")
+        value.lowercase(Locale.ROOT).trim().trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
 
     fun match(utterance: String, allowedCapabilityIds: Set<String>): Match? = synchronized(lock) {
         val key = normalize(utterance)
-        if (key.isBlank()) return@synchronized null
+        // Older builds could incorrectly retain the approval instead of its request.
+        if (key.isBlank() || ConfirmationWords.isConfirmation(utterance)) return@synchronized null
         val entries = readEntries()
         val found = (0 until entries.length()).mapNotNull { i ->
             entries.optJSONObject(i)?.takeIf {
-                it.optString("phrase") == key &&
+                normalize(it.optString("phrase")) == key &&
                     it.optString("capabilityId") in allowedCapabilityIds
             }
         }.maxByOrNull { it.optInt("successes", 0) }
@@ -46,13 +48,13 @@ class ValidatedCommandMemory internal constructor(
     fun recordSuccess(utterance: String, capabilityId: String, allowedCapabilityIds: Set<String>): Boolean =
         synchronized(lock) {
             val phrase = normalize(utterance)
-            if (phrase.isBlank() || phrase.length > 240 || capabilityId !in allowedCapabilityIds) return@synchronized false
+            if (phrase.isBlank() || phrase.length > 240 || ConfirmationWords.isConfirmation(utterance) || capabilityId !in allowedCapabilityIds) return@synchronized false
             val existing = readEntries()
             val output = JSONArray()
             var successes = 1
             for (i in 0 until existing.length()) {
                 val item = existing.optJSONObject(i) ?: continue
-                if (item.optString("phrase") == phrase) {
+                if (normalize(item.optString("phrase")) == phrase) {
                     if (item.optString("capabilityId") != capabilityId) return@synchronized false
                     successes = item.optInt("successes", 1) + 1
                 } else output.put(item)
@@ -69,7 +71,7 @@ class ValidatedCommandMemory internal constructor(
         val remaining = JSONArray()
         for (i in 0 until entries.length()) {
             val entry = entries.optJSONObject(i) ?: continue
-            if (entry.optString("phrase") != phrase) remaining.put(entry)
+            if (normalize(entry.optString("phrase")) != phrase) remaining.put(entry)
         }
         if (remaining.length() == entries.length()) return@synchronized false
         write(remaining.toString())

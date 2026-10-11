@@ -43,6 +43,7 @@ class HybridAssistantService(
     private val directOnlineClient = DirectOnlineClient(systemService.context())
     private val assistantConnections = AssistantConnections(systemService.context())
     private val fallbackAiClient = FallbackAiClient(systemService.context())
+    private val volumeConfirmations = VolumeConfirmationStore(systemService.context())
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
@@ -56,6 +57,7 @@ class HybridAssistantService(
             )
         }
 
+        if (pendingPrompt != PendingPrompt.NONE) volumeConfirmations.consume("")
         when (pendingPrompt) {
             PendingPrompt.PROJECT_NAME -> {
                 pendingPrompt = PendingPrompt.NONE
@@ -93,6 +95,18 @@ class HybridAssistantService(
                 }
             }
             PendingPrompt.NONE -> Unit
+        }
+
+        volumeConfirmations.consume(userInput)?.let { resolution ->
+            val response = if (resolution.approved) executeConfirmedVolume(resolution.pending.phrase, resolution.pending.lesson)
+                else "Media volume request cancelled. Nothing was changed or learned."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (ConfirmationWords.isConfirmation(userInput)) {
+            val response = "No media volume request is awaiting confirmation. Please repeat the original request."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
         }
 
         // Explicit review/approval boundary for persistent, local multi-action routines.
@@ -658,10 +672,18 @@ class HybridAssistantService(
             callback(local)
             return
         }
+        val network = systemService.context().getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val capabilities = network.getNetworkCapabilities(network.activeNetwork)
+        if (capabilities?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) != true) {
+            val response = "You're offline, and this phrase isn't saved as a local command yet. Go online, repeat the original request, and confirm it. It must execute successfully before it can be learned for offline use."
+            remember(rawInput, response)
+            callback(HybridAssistantReply(response, local.actionResult))
+            return
+        }
         if (directOnlineClient.hasGeminiKey()) {
             Thread {
                 val cloud = directOnlineClient.assistant(rawInput, getConversationSnapshot())
-                val response = executeFallbackVolume(rawInput, cloud.lessonJson) ?: cloud.reply
+                val response = proposeFallbackVolume(rawInput, cloud.lessonJson) ?: cloud.reply
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
             }.start()
@@ -683,7 +705,7 @@ class HybridAssistantService(
             }
             // A plausible cloud interpretation is not proof of a successful action.
             // Do not train device-action intents from unverified cloud replies.
-            val actionResponse = executeFallbackVolume(rawInput, cloud.lessonJson)
+            val actionResponse = proposeFallbackVolume(rawInput, cloud.lessonJson)
             if (actionResponse == null) cloud.lessonJson?.let { acceptFallbackLesson(rawInput, it) }
             val response = actionResponse ?: cloud.reply
             remember(rawInput, response)
@@ -691,8 +713,14 @@ class HybridAssistantService(
         }.start()
     }
 
-    private fun executeFallbackVolume(userText: String, lessonJson: String?): String? {
+    private fun proposeFallbackVolume(userText: String, lessonJson: String?): String? {
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson) ?: return null
+        val capability = VerifiedVolumeLearning.capability(lesson) ?: return null
+        if (!volumeConfirmations.propose(userText, lesson)) return "I couldn't retain this volume request for confirmation. Nothing was changed or learned. Please repeat it."
+        return "Would you like me to ${if (capability == "volume_up") "raise" else "lower"} the media volume? Say yes to confirm or no to cancel."
+    }
+
+    private fun executeConfirmedVolume(userText: String, lesson: FallbackIntentLesson): String {
         val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
         val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
         val outcome = VerifiedVolumeLearning.execute(
@@ -701,7 +729,7 @@ class HybridAssistantService(
                 androidAssistant.adjustVolume(if (capability == "volume_up") android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER)
             },
             record = { phrase, capability -> memory.recordSuccess(phrase, capability, VerifiedVolumeLearning.capabilities) }
-        ) ?: return null
+        ) ?: return "This volume interpretation is unsupported. Nothing was changed or learned."
         return when {
             !outcome.executed -> "I couldn't verify a media volume change. It may already be at its limit or Android may have blocked it. This request was not learned."
             outcome.learned -> "Media volume changed and verified. Learned this phrase on this device for offline reuse."
