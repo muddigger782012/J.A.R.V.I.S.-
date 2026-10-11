@@ -1430,7 +1430,7 @@ class MainActivity : ThemedActivity() {
                 setTextIsSelectable(true)
             })
             if (assistant) {
-                val searchUrl = if (line.startsWith("J.A.R.V.I.S.: Web search ready:") || line.startsWith("J.A.R.V.I.S.: Image search ready:"))
+                val searchUrl = if ((line.startsWith("J.A.R.V.I.S.: Web search ready:") || line.startsWith("J.A.R.V.I.S.: Image search ready:")) && line.contains("\nhttps://www.google.com/search?"))
                     Regex("""https://www\.google\.com/search\?[^\s<>]+""").find(line)?.value?.trimEnd('.', ',', ')', ']')
                 else null
                 if (searchUrl != null) {
