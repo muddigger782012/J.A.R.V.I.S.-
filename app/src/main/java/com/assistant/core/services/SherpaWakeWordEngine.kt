@@ -157,6 +157,7 @@ class SherpaWakeWordEngine(
         var chunks = 0
         var peakSinceReport = 0
         var lastReportAt = System.currentTimeMillis()
+        var totalChunks = 0
         try {
             while (running) {
                 if (chunks == 0) {
@@ -177,6 +178,7 @@ class SherpaWakeWordEngine(
                 }
                 if (peak > peakSinceReport) peakSinceReport = peak
                 chunks += 1
+                totalChunks += 1
                 val now = System.currentTimeMillis()
                 if (now - lastReportAt >= 3000L) {
                     val pct = (peakSinceReport * 100 / 32767).coerceIn(0, 100)
@@ -187,16 +189,22 @@ class SherpaWakeWordEngine(
                     lastReportAt = now
                 }
                 val samples = FloatArray(n) { buffer[it] / 32768.0f }
-                if (chunks == 1) stage("sherpa-worker-before-accept")
+                if (totalChunks == 1) stage("sherpa-worker-before-accept")
                 onlineStream.acceptWaveform(samples, SAMPLE_RATE)
-                if (chunks == 1) {
+                if (totalChunks == 1) {
                     stage("sherpa-worker-after-accept")
                     onStatus("Sherpa accepted first audio buffer; decoder running.")
                 }
                 while (running && kws.isReady(onlineStream)) {
-                    if (chunks == 1) stage("sherpa-worker-before-decode")
+                    if (totalChunks == 1) {
+                        stage("sherpa-worker-before-decode")
+                        onStatus("Sherpa decoder received enough audio; starting first native decode.")
+                    }
                     kws.decode(onlineStream)
-                    if (chunks == 1) stage("sherpa-worker-after-decode")
+                    if (totalChunks == 1) {
+                        stage("sherpa-worker-after-decode")
+                        onStatus("Sherpa first native decode completed.")
+                    }
                     val keyword = kws.getResult(onlineStream).keyword
                     if (keyword.isNotBlank()) {
                         onStatus("Sherpa detected keyword '$keyword'.")
