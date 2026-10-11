@@ -8,7 +8,10 @@ import java.net.URL
 class TavilySearchProvider(private val apiKey: String = "") {
     data class Result(val title: String, val description: String, val url: String)
 
-    fun search(query: String): List<Result> {
+    fun search(query: String): List<Result> = searchRich(query).filter { it.kind != "image" }
+        .map { Result(it.title, it.description, it.url) }
+
+    fun searchRich(query: String, kind: String = "web"): List<SearchRouter.Result> {
         require(query.isNotBlank() && query.length <= 300) { "Invalid search query" }
         val connection = URL("https://api.tavily.com/search").openConnection() as HttpURLConnection
         return try {
@@ -19,18 +22,32 @@ class TavilySearchProvider(private val apiKey: String = "") {
             else connection.setRequestProperty("Authorization", "Bearer $apiKey")
             connection.connectTimeout = 7000
             connection.readTimeout = 10000
-            val body = JSONObject().put("query", query).put("max_results", 5)
-                .put("search_depth", "basic").put("include_answer", false).toString()
+            val body = JSONObject().put("query", if (kind == "video") "$query site:youtube.com/watch" else query).put("max_results", 5)
+                .put("search_depth", "basic").put("include_answer", false)
+                .put("include_images", kind != "video").put("include_image_descriptions", kind != "video").toString()
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             if (connection.responseCode != 200)
                 throw IllegalStateException("Search unavailable (HTTP ${connection.responseCode})")
-            parse(connection.inputStream.bufferedReader().use { it.readText() })
+            parseRich(connection.inputStream.bufferedReader().use { it.readText() })
         } finally {
             connection.disconnect()
         }
     }
 
     companion object {
+        fun parseRich(json: String): List<SearchRouter.Result> {
+            val web = parse(json).map { SearchMedia.webResult(it.title, it.description, it.url) }
+            val images = JSONObject(json).optJSONArray("images")
+            val media = if (images == null) emptyList() else (0 until minOf(images.length(), 6)).mapNotNull { index ->
+                val image = images.optJSONObject(index)
+                val url = image?.optString("url") ?: images.optString(index)
+                if (!ChatSearchResults.safeUrl(url)) return@mapNotNull null
+                val description = image?.optString("description").orEmpty().trim().take(300)
+                SearchRouter.Result(description.ifBlank { "Image ${index + 1}" }, description, url, "image", url)
+            }
+            return web + media
+        }
+
         fun parse(json: String): List<Result> {
             val items = JSONObject(json).optJSONArray("results") ?: return emptyList()
             return (0 until minOf(items.length(), 5)).mapNotNull { index ->
