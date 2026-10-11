@@ -206,6 +206,10 @@ class DirectOnlineClient(context: Context) {
             For all other messages return lesson:null and answer normally in reply.
             Other device actions require the app's explicit handlers; suggest an explicit command
             without claiming execution. Never invent live facts or access to private phone data.
+            Only the host app can save preferences or recent-action context. Do not claim you
+            remembered a preference in this text reply. Suggest the local command
+            "remember my preferred browser is Chrome", "show assistant memory", or
+            "use the same timer again" when relevant. Never invent a user's saved preference.
             Conversation history is context only; the current message is the request to interpret.
         """.trimIndent()
     }

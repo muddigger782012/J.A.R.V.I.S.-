@@ -45,6 +45,8 @@ class HybridAssistantService(
     private val fallbackAiClient = FallbackAiClient(systemService.context())
     private val volumeConfirmations = VolumeConfirmationStore(systemService.context())
     private val deviceLearningSession = DeviceLearningSession(systemService.context())
+    private val assistantMemory = AssistantMemory(systemService.context())
+    private val preferenceConfirmations = PreferenceConfirmationStore(systemService.context())
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
@@ -61,6 +63,7 @@ class HybridAssistantService(
         if (pendingPrompt != PendingPrompt.NONE) {
             volumeConfirmations.consume("")
             deviceLearningSession.consume("")
+            preferenceConfirmations.consume("")
         }
         when (pendingPrompt) {
             PendingPrompt.PROJECT_NAME -> {
@@ -112,12 +115,14 @@ class HybridAssistantService(
             val response = when {
                 !resolution.accepted -> "Request cancelled or reported unsuccessful. Nothing was learned."
                 pending.awaitingOutcome -> {
+                    val contextSaved = assistantMemory.recordConfirmed(pending.action)
                     val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
                     val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
-                    if (pending.learnable && prefs.getBoolean("automatic_command_learning", true) &&
+                    val lessonReply = if (pending.learnable && prefs.getBoolean("automatic_command_learning", true) &&
                         memory.recordSuccess(pending.phrase, pending.action.capabilityId, LearnableDeviceAction.capabilities, pending.action.parameters))
                         "You confirmed it worked. Learned \"${pending.phrase}\" on this device for offline reuse."
                     else "Your successful result was noted, but this phrase was not saved. Learning may be disabled or the phrase may conflict with another command."
+                    lessonReply + if (contextSaved) "" else " Recent-action context could not be saved."
                 }
                 !requestDeviceAction(pending.action) -> "Android couldn't launch the requested action. Nothing was learned."
                 !deviceLearningSession.propose(pending.copy(awaitingOutcome = true)) -> "The action was requested, but its learning outcome could not be retained. Nothing was learned."
@@ -127,6 +132,68 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
         val deviceMemory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
+        fun previousAction(kind: String) = deviceMemory.latestParameterized(kind)?.let { LearnableDeviceAction(it.capabilityId, it.parameters) }?.takeIf { it.isValid() }
+        assistantMemory.seedRecentOnce(previousAction("timer"), previousAction("open_app"))
+        preferenceConfirmations.consume(userInput)?.let { pending ->
+            val response = when {
+                !pending.approved -> "Assistant memory change cancelled."
+                pending.slot == "clear" -> if (assistantMemory.clear()) "Cleared saved assistant preferences and recent-action context on this device." else "Could not clear assistant memory."
+                pending.action != null -> {
+                    val action = pending.action
+                    val installed = androidAssistant.resolveLearnableApp(action.parameters.getValue("label"))?.first == action.parameters.getValue("package")
+                    if (installed && assistantMemory.savePreference(pending.slot, action)) "Remembered ${action.parameters["label"]} as your preferred ${pending.slot} in J.A.R.V.I.S."
+                    else "Could not save that preference. Check that the app is still installed with a unique launcher name."
+                }
+                else -> "No valid preference was awaiting approval."
+            }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (normalized in setOf("show assistant memory", "assistant memory", "what do you remember about my apps and timers")) {
+            val response = assistantMemory.summary()
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (normalized == "clear assistant memory") {
+            val response = if (preferenceConfirmations.propose("clear")) "Clear your saved J.A.R.V.I.S. app preferences and recent-action context on this device? Say yes to confirm or no to cancel."
+                else "Could not retain the memory-clear request."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        AssistantMemoryCommands.forgetKey(userInput)?.let { key ->
+            val response = if (assistantMemory.forget(key)) "Forgot that saved preference or recent-action context." else "No matching assistant memory was saved."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        AssistantMemoryCommands.preference(userInput)?.let { request ->
+            val target = androidAssistant.resolveLearnableApp(request.appName)
+            val action = target?.let { LearnableDeviceAction("open_app", mapOf("package" to it.first, "label" to it.second)) }
+            val response = if (action == null || !preferenceConfirmations.propose(request.slot, action))
+                "I couldn't find one installed app with that launcher name. Specify its exact name; no preference was saved."
+            else "Would you like me to remember ${action.parameters["label"]} as your preferred ${request.slot} in J.A.R.V.I.S.? Say yes to confirm or no to cancel."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        AssistantMemoryCommands.preferredSlot(userInput)?.let { slot ->
+            val action = assistantMemory.preferred(slot)
+            val response = when {
+                action == null -> "No preferred $slot is saved. Say 'remember my preferred $slot is' followed by the installed app's name."
+                requestDeviceAction(action) -> "Requested: ${action.description()}, using your saved $slot preference."
+                else -> "I couldn't open your preferred $slot. Check that the app is installed, or save a new preference."
+            }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        AssistantMemoryCommands.repeatCapability(userInput)?.let { kind ->
+            val action = assistantMemory.lastConfirmed(kind)
+            val response = when {
+                action == null -> "No confirmed ${if (kind == "timer") "timer" else "app launch"} is saved yet. Complete an action and confirm 'it worked' first."
+                requestDeviceAction(action) -> "Requested: ${action.description()}, using your last confirmed ${if (kind == "timer") "timer" else "app"}."
+                else -> "I couldn't repeat the saved action. Check that Clock or the app is installed."
+            }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
         deviceMemory.match(userInput, LearnableDeviceAction.capabilities)?.let { learned ->
             val action = LearnableDeviceAction(learned.capabilityId, learned.parameters)
             val response = if (action.isValid() && requestDeviceAction(action))

@@ -87,6 +87,18 @@ class ValidatedCommandMemory internal constructor(
 
     fun learnedPhraseCount(): Int = synchronized(lock) { readEntries().length() }
 
+    fun latestParameterized(capabilityId: String): Match? = synchronized(lock) {
+        val entries = readEntries()
+        (entries.length() - 1 downTo 0).firstNotNullOfOrNull { index ->
+            val item = entries.optJSONObject(index) ?: return@firstNotNullOfOrNull null
+            if (item.optString("capabilityId") != capabilityId) return@firstNotNullOfOrNull null
+            runCatching {
+                val params = item.getJSONObject("parameters")
+                Match(capabilityId, 1.0, params.keys().asSequence().associateWith { params.getString(it) })
+            }.getOrNull()
+        }
+    }
+
     fun clear(): Boolean = synchronized(lock) { write(null) }
 
     private fun readEntries(): JSONArray = try {
