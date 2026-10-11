@@ -550,7 +550,7 @@ class HybridAssistantService(
                         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
             }.isSuccess
-            val response = if (launched) "Opening image search for: $query"
+            val response = if (launched) "Opening image search for: $query\nhttps://www.google.com/search?tbm=isch&q=${android.net.Uri.encode(query)}"
                 else "Could not open image search. Check that a browser is installed and enabled."
             remember(userInput, response)
             return HybridAssistantReply(response)
@@ -565,7 +565,7 @@ class HybridAssistantService(
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                 systemService.context().startActivity(intent)
             }.isSuccess
-            val response = if (launched) "Opening web search for: $query"
+            val response = if (launched) "Opening web search for: $query\nhttps://www.google.com/search?q=${android.net.Uri.encode(query)}"
                 else "Could not open a browser for the search. Check that a browser is installed and enabled."
             remember(userInput, response)
             return HybridAssistantReply(response)
