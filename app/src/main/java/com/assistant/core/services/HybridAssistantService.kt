@@ -118,7 +118,7 @@ class HybridAssistantService(
                 normalized == "cancel learning reset" -> "Learning reset cancelled."
                 else -> {
                     val intentsCleared = learningStore.clear()
-                    val commandsCleared = com.assistant.core.learning.ValidatedCommandMemory(context).clear()
+                    val commandsCleared = com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).clear()
                     if (intentsCleared && commandsCleared) {
                         "Learned commands on this device have been cleared. Other devices are unchanged."
                     } else {
