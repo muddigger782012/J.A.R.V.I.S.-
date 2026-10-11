@@ -74,7 +74,7 @@ object AssistantMemoryCommands {
         val forward = Regex("(?i)^(?:please )?(?:(?:remember|save)(?: that)? |(?:set|change|update) )?(?:(?:my|the) )?preferred ($SLOT_WORDS) (?:is|as|to) (.{1,100})$")
             .matchEntire(cleaned)
         if (forward != null) return Preference(slotName(forward.groupValues[1]), forward.groupValues[2].trim())
-        val reverse = Regex("(?i)^(?:please )?(?:set|make) (.{1,100}?) (?:(?:as|to be) )?(?:(?:my|the) )?preferred ($SLOT_WORDS)$")
+        val reverse = Regex("(?i)^(?:please )?(?:set|make) (.{1,100}?) (?:(?:as|to be) (?:(?:my|the) )?|(?:my|the) )preferred ($SLOT_WORDS)$")
             .matchEntire(cleaned) ?: return null
         return Preference(slotName(reverse.groupValues[2]), reverse.groupValues[1].trim())
     }
