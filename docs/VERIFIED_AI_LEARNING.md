@@ -10,11 +10,16 @@ lessons to an allowlisted executor for one-step **media** volume changes.
 2. Direct Gemini returns a conversational reply plus an optional structured lesson.
 3. Only `DEVICE_SETTING` with exactly `setting=media_volume` and `direction=up|down`,
    valid confidence of at least 0.90, can reach this executor.
-4. Android volume is read before and after adjustment. No change, a wrong-direction
+4. A valid interpretation becomes a local confirmation proposal holding the original
+   phrase and lesson. “Yes” approves that proposal without another AI call. A proposal
+   is consumed once, expires after two minutes, and is cancelled by an unrelated turn.
+   Proposals are shared by foreground and background instances. Bare approval phrases
+   cannot become learned aliases, including any incorrectly saved by an older build.
+5. Android volume is read before and after adjustment. No change, a wrong-direction
    change, an exception, or a blocked action is not a verified success.
-5. A verified action is persisted only when the lesson is learnable and
+6. A verified action is persisted under the original phrase, never “yes,” only when the lesson is learnable and
    `jarvis_cloud_ai.automatic_command_learning` is enabled (default true).
-6. The existing exact-match validated-command memory handles subsequent offline
+7. The existing exact-match validated-command memory handles subsequent offline
    requests. Disk-write failures and conflicting phrase meanings are not reported
    as learned. Foreground/background instances share the memory mutation lock.
 
@@ -27,7 +32,9 @@ an unverified result and is not learned.
 
 `VerifiedVolumeLearningTest` covers persistence across memory recreation, offline
 capability lookup, failed/no-op actions, exceptions, confidence/allowlist rejection,
-disabled learning, conflicting phrases and failed writes.
+disabled learning, conflicting phrases and failed writes. `VolumeConfirmationStoreTest`
+adds proposal/approval/offline-memory integration, cross-instance persistence,
+cancellation, expiry, unrelated-turn invalidation and storage-failure coverage.
 
 Run `bash gradlew --no-daemon testDebugUnitTest assembleDebug` in Android CI.
 The repository currently disables its UI emulator job; a successful source build
@@ -36,8 +43,9 @@ is not a claim of device or UI verification.
 ## Phone acceptance check
 
 With media volume above zero and below maximum, ask an unfamiliar phrase such as
-“less racket please.” Check that JARVIS actually lowers media volume and reports
-verified learning. Restart JARVIS, disable networking, and repeat the phrase by
+“less racket please.” JARVIS should offer to lower media volume. Say “yes,” then check
+that it actually lowers media volume and reports verified learning of the original
+request. Restart JARVIS, disable networking, and repeat the original phrase by
 text and voice. The exact alias should run locally. Use “forget learned command
 less racket please” to remove it.
 
