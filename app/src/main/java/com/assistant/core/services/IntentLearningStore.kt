@@ -40,8 +40,10 @@ class IntentLearningStore(context: Context) {
         source: String = "validated_fallback"
     ) {
         val normalized = normalize(utterance)
-        if (normalized.isBlank() || intent.isBlank()) return
+        if (normalized.isBlank() || normalized.length > 240 || intent.isBlank() || !FallbackLessonProtocol.supportedIntents.contains(intent)) return
         val all = load().toMutableList()
+        // Never allow conflicting labels for the same phrase to train the router.
+        if (all.any { it.utterance == normalized && it.intent != intent }) return
         val index = all.indexOfFirst { it.utterance == normalized && it.intent == intent }
         val previous = all.getOrNull(index)
         val next = Example(
@@ -70,6 +72,9 @@ class IntentLearningStore(context: Context) {
     fun classify(utterance: String): Match? {
         val query = normalize(utterance)
         if (query.isBlank()) return null
+        // Exact matches must win over fuzzy matches, especially for device actions.
+        val exact = load().firstOrNull { it.utterance == query && it.failures == 0 }
+        if (exact != null) return Match(exact.intent, 1.0, exact.entities, exact.source)
         var best: Example? = null
         var bestScore = 0.0
         for (example in load()) {
@@ -88,6 +93,19 @@ class IntentLearningStore(context: Context) {
     }
 
     fun count(): Int = load().size
+
+    @Synchronized
+    fun clear(): Boolean = prefs.edit().remove(KEY).commit()
+
+    @Synchronized
+    fun forget(utterance: String): Boolean {
+        val normalized = normalize(utterance)
+        val examples = load()
+        val remaining = examples.filterNot { it.utterance == normalized }
+        if (remaining.size == examples.size) return false
+        save(remaining)
+        return true
+    }
 
     private fun normalize(text: String): String = text.lowercase(Locale.US)
         .replace(Regex("[^a-z0-9+ ]"), " ")

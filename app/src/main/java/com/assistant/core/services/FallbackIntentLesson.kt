@@ -71,3 +71,11 @@ object FallbackLessonProtocol {
     fun accepts(lesson: FallbackIntentLesson): Boolean =
         lesson.isValid() && lesson.intent in supportedIntents
 }
+
+/** Only informational classifications can be retained without a verified device action. */
+object LearningAdmissionPolicy {
+    fun canRecordWithoutActionResult(lesson: FallbackIntentLesson): Boolean =
+        FallbackLessonProtocol.accepts(lesson) &&
+            lesson.canTeachLocally() &&
+            lesson.intent == "GENERAL_QUESTION"
+}

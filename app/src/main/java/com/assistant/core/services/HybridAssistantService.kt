@@ -32,6 +32,7 @@ class HybridAssistantService(
 ) {
 
     private var pendingPrompt: PendingPrompt = PendingPrompt.NONE
+    private var pendingLearningReset: Boolean = false
     private var pendingShellCommand: String? = null
     private var lastContactTarget: String? = null
     private val history = ArrayDeque<Pair<String, String>>()
@@ -92,6 +93,50 @@ class HybridAssistantService(
             PendingPrompt.NONE -> Unit
         }
 
+        // Learning diagnostics are handled locally, without an AI connection.
+        if (normalized in setOf("learning status", "show learning status", "how many commands have you learned", "learned commands")) {
+            val commandCount = com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).learnedPhraseCount()
+            val response = "Local learned intent examples: ${learningStore.count()}; validated command phrases: $commandCount. Say 'forget learned command' followed by the exact phrase, or 'clear learned database on this device' to erase both local stores."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (normalized.startsWith("forget learned command ")) {
+            val phrase = userInput.replace(Regex("(?i)^forget learned command\\s+"), "").trim()
+            val removedIntent = phrase.isNotBlank() && learningStore.forget(phrase)
+            val removedCommand = phrase.isNotBlank() && com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).forget(phrase)
+            val response = if (removedIntent || removedCommand) "Removed matching local learning for that phrase." else "No matching learned command was found."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (normalized in setOf("reset learned commands", "reset learned commands on this device", "clear learned database on this device", "clear local learning")) {
+            pendingLearningReset = true
+            val response = "This will erase learned commands stored on this device only. Other devices are not affected. Say 'confirm learning reset on this device' to continue, or 'cancel learning reset' to keep them."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (normalized in setOf("confirm learning reset", "confirm learning reset on this device", "cancel learning reset")) {
+            val response = when {
+                !pendingLearningReset -> "No learning reset is pending."
+                normalized == "cancel learning reset" -> "Learning reset cancelled."
+                else -> {
+                    val intentsCleared = learningStore.clear()
+                    val commandsCleared = com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).clear()
+                    if (intentsCleared && commandsCleared) {
+                        "Learned commands on this device have been cleared. Other devices are unchanged."
+                    } else {
+                        "Could not clear local learning. Please try again."
+                    }
+                }
+            }
+            pendingLearningReset = false
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
+        // A reset confirmation is valid only for the immediately following command.
+        // An unrelated command cancels it to avoid accidental deletion later.
+        pendingLearningReset = false
+
         if (CommandPhrases.isLastMissedCall(userInput)) {
             val response = androidAssistant.lastMissedCall()
             remember(userInput, response)
@@ -120,8 +165,18 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        if (isTimeRequest(normalized)) {
+        // Only verified time examples can reuse the local time handler.
+        // A generic GENERAL_QUESTION label must never authorize device actions.
+        val learnedTime = learningStore.classify(userInput)?.let {
+            it.intent == "GENERAL_QUESTION" &&
+                it.source == "verified_local_time" &&
+                it.confidence >= 0.99
+        } == true
+        if (isTimeRequest(normalized) || learnedTime) {
             val response = "It's " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date()) + "."
+            if (isTimeRequest(normalized)) {
+                learningStore.learn(userInput, "GENERAL_QUESTION", source = "verified_local_time")
+            }
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -313,11 +368,9 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        learningStore.classify(normalized)?.let { learned ->
-            val response = "I recognized this as ${learned.intent} from local learning, but that learned intent is not connected to an executable capability yet."
-            remember(userInput, response)
-            return HybridAssistantReply(response)
-        }
+        // Learned intent labels are advisory until a vetted capability executor
+        // exists. Never short-circuit cloud fallback with a non-actionable label.
+        // This prevents previously learned phrases from becoming dead ends.
 
         val fallback = assistantEngine.handleUserCommand(userInput)
         if (!fallback.success && fallback.adapterUsed == "ENGINE") {
@@ -381,6 +434,8 @@ class HybridAssistantService(
                 callback(HybridAssistantReply(response, local.actionResult))
                 return@Thread
             }
+            // A plausible cloud interpretation is not proof of a successful action.
+            // Do not train device-action intents from unverified cloud replies.
             cloud.lessonJson?.let { acceptFallbackLesson(rawInput, it) }
             remember(rawInput, cloud.reply)
             callback(HybridAssistantReply(cloud.reply))
@@ -394,14 +449,17 @@ class HybridAssistantService(
      */
     fun acceptFallbackLesson(userText: String, lessonJson: String): Boolean {
         val lesson = FallbackIntentLesson.fromJson(lessonJson) ?: return false
-        if (!FallbackLessonProtocol.accepts(lesson) || !lesson.canTeachLocally()) return false
+        if (!LearningAdmissionPolicy.canRecordWithoutActionResult(lesson)) return false
+        val before = learningStore.count()
         learningStore.learn(
             utterance = userText,
             intent = lesson.intent,
             entities = lesson.entities,
             source = "validated_fallback_v${FallbackLessonProtocol.VERSION}"
         )
-        return true
+        return learningStore.count() > before || learningStore.classify(userText)?.let {
+            it.intent == lesson.intent && it.confidence == 1.0
+        } == true
     }
 
     @Synchronized
@@ -420,6 +478,17 @@ class HybridAssistantService(
                 append(it)
             }
         }.trim()
+        // Record only actions that actually succeeded. Never learn a privileged
+        // command, and never execute an AI-supplied label directly.
+        if (result.success && result.adapterUsed != "ENGINE") {
+            val safeIntent = when {
+                isTimeRequest(normalize(userText)) -> "GENERAL_QUESTION"
+                else -> null
+            }
+            if (safeIntent != null) {
+                learningStore.learn(userText, safeIntent, source = "verified_local_action")
+            }
+        }
         remember(userText, reply)
         return HybridAssistantReply(reply, result)
     }
