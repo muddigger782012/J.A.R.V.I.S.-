@@ -65,7 +65,7 @@ class SherpaWakeWordEngine(
                         joiner = modelFile("joiner-")
                     ),
                     tokens = "$MODEL_DIR/tokens.txt",
-                    modelType = "zipformer2",
+                    modelType = "",
                     numThreads = 1
                 ),
                 keywordsFile = keywordsPath,
