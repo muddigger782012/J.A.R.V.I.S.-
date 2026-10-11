@@ -410,6 +410,7 @@ class MainActivity : ThemedActivity() {
             "voice" -> ensureMicPermissionAndStartVoice()
             "weather_settings" -> voiceSettingsLauncher.launch(Intent(this, VoiceSettingsActivity::class.java))
             "connections" -> startActivity(Intent(this, AssistantConnectionsActivity::class.java))
+            "app_update" -> startAppUpgradeFlow()
         }
     }
 
