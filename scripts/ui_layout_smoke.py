@@ -93,6 +93,7 @@ try:
     for name in ('Stark', 'Cybertron', 'Default'):
         tap('btnVoiceSettings')
         tap('btnThemes')
+        # Appearances is a separate activity; theme choices live on its Themes tab.
         if name == 'Cybertron':
             adb('shell', 'input', 'swipe', '500', '1500', '500', '500', '350')
             time.sleep(1)
@@ -101,6 +102,7 @@ try:
         capture('theme-picker-' + name.lower())
         adb('shell', 'input', 'keyevent', '4')
         time.sleep(1)
+        tap('btnCloseAppearances')
         tap('btnCloseVoiceSettings')
         capture('theme-' + name.lower())
         if name == 'Cybertron':
@@ -108,7 +110,7 @@ try:
             adb('shell', 'am', 'start', '-n', 'com.assistant.core/.MainActivity')
             time.sleep(2)
             tap('btnVoiceSettings')
-            assert any(n.get('text') == 'Themes • Cybertron' for n in hierarchy().iter('node')), 'Theme did not survive restart'
+            assert any('Cybertron' in n.get('text', '') and 'Appearances' in n.get('text', '') for n in hierarchy().iter('node')), 'Theme did not survive restart'
             tap('btnCloseVoiceSettings')
     adb('shell', 'wm', 'size', '720x1280')
     adb('shell', 'wm', 'density', '360')  # 320dp width
