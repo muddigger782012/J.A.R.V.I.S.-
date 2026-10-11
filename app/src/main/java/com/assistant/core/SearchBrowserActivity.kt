@@ -51,7 +51,11 @@ class SearchBrowserActivity : ThemedActivity() {
             if (browser.canGoBack()) browser.goBack() else finish()
         }
         val title = TextView(this).apply {
-            text = if (uri.getQueryParameter("tbm") == "isch") "J.A.R.V.I.S. · Images" else "J.A.R.V.I.S. · Search"
+            text = when (uri.getQueryParameter("tbm")) {
+                "isch" -> "J.A.R.V.I.S. · Images"
+                "vid" -> "J.A.R.V.I.S. · Videos"
+                else -> "J.A.R.V.I.S. · Search"
+            }
             setTextColor(ThemePreferences.color(this@SearchBrowserActivity, R.color.jarvis_on_dark))
             textSize = 14f
             maxLines = 1

@@ -1266,16 +1266,21 @@ class MainActivity : ThemedActivity() {
 
     /** Fetch structured results off the UI thread and preserve the originating conversation. */
     private fun fetchSearchResultsIfConfigured(replyText: String) {
-        if (!replyText.startsWith("Web search ready:")) return
-        val query = replyText.substringAfter("Web search ready:").substringBefore("\n").trim()
+        val kind = when {
+            replyText.startsWith("Image search ready:") -> "image"
+            replyText.startsWith("Video search ready:") -> "video"
+            replyText.startsWith("Web search ready:") -> "web"
+            else -> return
+        }
+        val query = replyText.substringAfter("search ready:").substringBefore("\n").trim()
         if (query.length !in 2..300) return
         val apiKey = runCatching { com.assistant.core.services.ApiKeyStore(this, "tavily_search").read() }.getOrDefault("")
         val braveKey = runCatching { com.assistant.core.services.ApiKeyStore(this, "brave_search").read() }.getOrDefault("")
         val searchSession = conversationSessionId
         Thread {
-            val cache = getSharedPreferences("jarvis_search_cache_v2", MODE_PRIVATE)
+            val cache = getSharedPreferences("jarvis_search_cache_v3", MODE_PRIVATE)
             val cacheId = java.security.MessageDigest.getInstance("SHA-256")
-                .digest(query.lowercase(java.util.Locale.ROOT).toByteArray(Charsets.UTF_8))
+                .digest((kind + ":" + query.lowercase(java.util.Locale.ROOT)).toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }
             val savedAt = cache.getLong(cacheId + "_at", 0L)
             val cached = cache.getString(cacheId, null)
@@ -1283,7 +1288,7 @@ class MainActivity : ThemedActivity() {
             val result = runCatching {
                 if (fresh && cached != null) cached
                 else {
-                    val items = com.assistant.core.services.SearchRouter.configured(apiKey, braveKey).search(query).items
+                    val items = com.assistant.core.services.SearchRouter.configured(apiKey, braveKey, kind).search(query).items
                     if (items.isEmpty()) "" else com.assistant.core.services.ChatSearchResults.encode(query, items).also { rendered ->
                         cache.edit().putString(cacheId, rendered)
                             .putLong(cacheId + "_at", System.currentTimeMillis()).apply()
@@ -1293,7 +1298,7 @@ class MainActivity : ThemedActivity() {
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
                 val response = result.fold(
-                    onSuccess = { rendered -> rendered.ifEmpty { "J.A.R.V.I.S.: Search providers are unavailable or returned no results. Tap the web search card above to search in the embedded browser." } },
+                    onSuccess = { rendered -> rendered.ifEmpty { "J.A.R.V.I.S.: No $kind previews available. Tap the search card above to continue in the embedded browser." } },
                     onFailure = { "J.A.R.V.I.S.: Search previews unavailable. Open the search card to view results." }
                 )
                 if (searchSession != conversationSessionId) {
@@ -1377,7 +1382,7 @@ class MainActivity : ThemedActivity() {
         outputLog.text = outputLines.joinToString(separator = "\n\n")
         renderConversation(forceScroll = message.startsWith("You:"))
         persistActiveConversation()
-        if (message.startsWith("J.A.R.V.I.S.: Web search ready:")) {
+        if (listOf("Web", "Image", "Video").any { message.startsWith("J.A.R.V.I.S.: $it search ready:") }) {
             fetchSearchResultsIfConfigured(message.removePrefix("J.A.R.V.I.S.: "))
         }
     }
@@ -1483,13 +1488,22 @@ class MainActivity : ThemedActivity() {
                     linksClickable = true
                 }
             })
-            searchResults?.items?.forEach { item ->
+            val images = searchResults?.items?.filter { it.kind == "image" }.orEmpty()
+            if (images.isNotEmpty()) card.addView(SearchMediaViews.images(this, images))
+            searchResults?.items?.filter { it.kind != "image" }?.forEach { item ->
                 val source = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     background = ChatAppearancePreferences.background(this@MainActivity, false)
                     setPadding(dp(12), dp(10), dp(12), dp(10))
                     layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
                 }
+                if (item.thumbnail != null) source.addView(SearchMediaViews.thumbnail(this, item, 180))
+                if (item.kind == "video") source.addView(TextView(this).apply {
+                    text = "▶  WATCH VIDEO"
+                    textSize = 14f
+                    setPadding(0, dp(8), 0, dp(8))
+                    setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
+                })
                 source.addView(TextView(this).apply {
                     text = item.title
                     textSize = 16f
@@ -1509,25 +1523,27 @@ class MainActivity : ThemedActivity() {
                 })
                 source.isFocusable = true
                 source.isClickable = true
-                source.contentDescription = "Open source: ${item.title}"
+                source.contentDescription = (if (item.kind == "video") "Play video: " else "Open source: ") + item.title
                 source.setOnClickListener {
-                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(item.url))) }
+                    if (item.kind == "video") SearchMediaViews.play(this, item)
+                    else runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(item.url))) }
                         .onFailure { android.widget.Toast.makeText(this, "No browser available", android.widget.Toast.LENGTH_SHORT).show() }
                 }
                 FontPreferences.applyTo(source, this@MainActivity)
                 card.addView(source)
             }
             if (assistant) {
-                val searchUrl = if ((line.startsWith("J.A.R.V.I.S.: Web search ready:") || line.startsWith("J.A.R.V.I.S.: Image search ready:")) && line.contains("\nhttps://www.google.com/search?"))
+                val searchUrl = if (listOf("Web", "Image", "Video").any { line.startsWith("J.A.R.V.I.S.: $it search ready:") } && line.contains("\nhttps://www.google.com/search?"))
                     Regex("""https://www\.google\.com/search\?[^\s<>]+""").find(line)?.value?.trimEnd('.', ',', ')', ']')
                 else null
                 if (searchUrl != null) {
                     val parsed = android.net.Uri.parse(searchUrl)
                     val query = parsed.getQueryParameter("q")
-                    if (!query.isNullOrBlank() && query.length <= 500 && parsed.scheme == "https" && parsed.host == "www.google.com" && parsed.path == "/search" && (parsed.getQueryParameter("tbm") == null || parsed.getQueryParameter("tbm") == "isch")) {
+                    if (!query.isNullOrBlank() && query.length <= 500 && parsed.scheme == "https" && parsed.host == "www.google.com" && parsed.path == "/search" && parsed.getQueryParameter("tbm") in listOf(null, "isch", "vid")) {
                         val imageSearch = parsed.getQueryParameter("tbm") == "isch"
+                        val videoSearch = parsed.getQueryParameter("tbm") == "vid"
                         val openSearch = TextView(this).apply {
-                            text = (if (imageSearch) "IMAGE SEARCH" else "WEB SEARCH") + "\n" + query + "\nTap to view results  ↗"
+                            text = (if (imageSearch) "IMAGE SEARCH" else if (videoSearch) "VIDEO SEARCH" else "WEB SEARCH") + "\n" + query + "\nMore results in browser  ↗"
                             textSize = 14f
                             setLineSpacing(dp(3).toFloat(), 1f)
                             setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))

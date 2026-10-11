@@ -539,6 +539,13 @@ class HybridAssistantService(
         // Return a search card in the conversation instead of interrupting chat
         // by opening another activity. The user opens the embedded browser by
         // tapping the card; the same response works for voice and text input.
+        WebSearchCommand.videoQuery(userInput)?.let { query ->
+            val url = android.net.Uri.parse("https://www.google.com/search").buildUpon()
+                .appendQueryParameter("tbm", "vid").appendQueryParameter("q", query).build()
+            val response = "Video search ready: $query\n$url"
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
         WebSearchCommand.imageQueryNatural(userInput)?.let { query ->
             val url = android.net.Uri.parse("https://www.google.com/search")
                 .buildUpon().appendQueryParameter("tbm", "isch")
