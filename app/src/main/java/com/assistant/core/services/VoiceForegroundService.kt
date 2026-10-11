@@ -410,7 +410,11 @@ class VoiceForegroundService : Service() {
 
     private fun processRecognition(recognition: VoiceRecognitionResult) {
         currentConfig = voicePreferences.load()
-        val transcript = recognition.transcript
+        val transcript = recognition.transcript.trim()
+        if (transcript.isEmpty()) {
+            publishEvent("Voice recognition returned an empty transcript; waiting for another command.")
+            return
+        }
         publishEvent(
             "Voice command (${(recognition.confidence * 100f).toInt()}%): $transcript"
         )
