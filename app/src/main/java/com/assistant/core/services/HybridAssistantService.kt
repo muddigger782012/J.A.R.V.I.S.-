@@ -97,6 +97,8 @@ class HybridAssistantService(
 
         // Explicit review/approval boundary for persistent, local multi-action routines.
         // Only the three existing, allowlisted device actions can be used.
+        // A routine proposal is only valid for the immediately following turn.
+        // Handle cancellation and approval before any cloud fallback or device action.
         if (normalized == "cancel routine") {
             pendingRoutine = null
             return HybridAssistantReply("Routine proposal cancelled.")
