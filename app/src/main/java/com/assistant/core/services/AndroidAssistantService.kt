@@ -190,12 +190,16 @@ class AndroidAssistantService(private val context: Context) {
 
     fun openSettings(): Boolean = launch(Intent(Settings.ACTION_SETTINGS))
 
-    fun adjustVolume(direction: Int): Boolean = runCatching {
+    fun adjustVolume(direction: Int): Boolean = synchronized(volumeLock) { runCatching {
         if (direction != AudioManager.ADJUST_RAISE && direction != AudioManager.ADJUST_LOWER) return@runCatching false
         val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val before = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
         audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
         val after = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
         VolumeChangeVerification.changed(before, after, direction == AudioManager.ADJUST_RAISE)
-    }.getOrDefault(false)
+    }.getOrDefault(false) }
+
+    companion object {
+        private val volumeLock = Any()
+    }
 }

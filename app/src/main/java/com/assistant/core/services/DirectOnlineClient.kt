@@ -149,10 +149,10 @@ class DirectOnlineClient(context: Context) {
     }
     fun assistant(question: String, conversation: String): FallbackAiResult {
         val response = gemini(question, conversation, interpretCommands = true)
-        return runCatching {
-            val json = JSONObject(response)
-            FallbackAiResult(json.getString("reply"), json.optJSONObject("lesson")?.toString())
-        }.getOrElse { FallbackAiResult(response, null) }
+        return FallbackAiResult.fromAssistantJson(response) ?: FallbackAiResult(
+            if (response.trimStart().startsWith("{")) "Gemini returned an unusable interpretation. No device action was performed. Try rephrasing." else response,
+            null
+        )
     }
 
     fun gemini(question: String, conversation: String = "", attachments: List<ChatAttachment> = emptyList(), interpretCommands: Boolean = false): String {

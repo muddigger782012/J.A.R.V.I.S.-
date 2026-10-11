@@ -5,6 +5,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class VerifiedVolumeLearningTest {
+    @Test fun providerEnvelopeRequiresUsableReplyAndStructuredLesson() {
+        assertNull(FallbackAiResult.fromAssistantJson("not json"))
+        assertNull(FallbackAiResult.fromAssistantJson("{\"reply\":\"\"}"))
+        assertNull(FallbackAiResult.fromAssistantJson("{\"reply\":5}"))
+        assertNull(FallbackAiResult.fromAssistantJson("{\"lesson\":{\"intent\":\"DEVICE_SETTING\"}}"))
+        val conversational = FallbackAiResult.fromAssistantJson("{\"reply\":\"Hello\",\"lesson\":null}")
+        assertEquals("Hello", conversational?.reply)
+        assertNull(conversational?.lessonJson)
+        val interpreted = FallbackAiResult.fromAssistantJson("""{"reply":"I'll try lowering media volume","lesson":{"intent":"DEVICE_SETTING","confidence":0.95,"entities":{"setting":"media_volume","direction":"down"},"learnable":true}}""")
+        assertEquals("volume_down", VerifiedVolumeLearning.capability(FallbackIntentLesson.fromJson(interpreted!!.lessonJson!!)!!))
+    }
+
     private fun lesson(direction: String = "down", confidence: Double = 0.95, learnable: Boolean = true) =
         FallbackIntentLesson("DEVICE_SETTING", confidence, mapOf("setting" to "media_volume", "direction" to direction), learnable = learnable)
 
