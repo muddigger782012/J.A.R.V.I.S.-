@@ -55,7 +55,7 @@ class ValidatedCommandMemory(context: Context) {
 
     fun learnedPhraseCount(): Int = synchronized(lock) { readEntries().length() }
 
-    fun clear() = synchronized(lock) { prefs.edit().remove("entries").apply() }
+    fun clear(): Boolean = synchronized(lock) { prefs.edit().remove("entries").commit() }
 
     private fun readEntries(): JSONArray = try {
         JSONArray(prefs.getString("entries", "[]") ?: "[]")
