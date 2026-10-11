@@ -87,7 +87,7 @@ jobs:
           valid = {line.rsplit(" ", 1)[0] for line in (d / "tokens.txt").read_text().splitlines() if line.strip()}
           if not pieces or any(piece not in valid for piece in pieces):
               raise SystemExit("HEY JARVIS cannot be represented by the model's token vocabulary: " + repr(pieces))
-          keyword = " ".join(pieces) + " @HEY_JARVIS\\n"
+          keyword = " ".join(pieces) + " @HEY_JARVIS\n"
           (d / "jarvis-keywords.txt").write_text(keyword)
           print("Generated Sherpa wake tokens:", keyword.strip())
           for prefix in ("encoder-", "decoder-", "joiner-"):
