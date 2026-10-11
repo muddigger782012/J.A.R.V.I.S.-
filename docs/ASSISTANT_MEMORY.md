@@ -15,12 +15,19 @@ a subsequent request uses cloud AI.
   and music slots are supported; use each app's exact launcher label.
 - “Use the same timer again” repeats the saved timer duration.
 - “Open the same app again” opens the last confirmed app package.
+- “Use that same timer again” and “use the last confirmed timer” are supported
+  local variants. “Open that same app again” is also local. “Open the same browser
+  again” uses the saved browser preference rather than looking for an app literally
+  named “the same browser again.”
 - “Show assistant memory” lists retained preferences and confirmed actions.
 - “Forget my preferred browser,” “forget the last timer,” and “forget the last app”
   remove individual entries.
 - “Clear assistant memory” asks approval to clear these records on this device.
 
-Recent action context is recorded only after “it worked” for timer/app learning.
+Recent action context is recorded only after “it worked” for timer/app requests.
+Preferred-app launches, learned aliases, repeat actions and direct local timer/app
+commands now establish the same outcome check. These existing local commands
+update recent context after feedback; they do not need to become newly learned aliases.
 Unconfirmed/failed requests do not replace it. Existing parameterized lessons from
 the earlier user-verified learning flow are imported once on update, preserving
 newer context. Clear/forget does not resurrect imported context. Learned command
@@ -33,7 +40,9 @@ local clarification rather than a claim of remembering or successful execution.
 
 ## Verification
 
-AssistantMemoryTest covers instance recreation, migration, no resurrection after
+ContextualFollowupTest covers the exact online/offline screenshot phrases and
+preferred-browser launch → outcome → persisted last-app context, plus failed launch,
+failed outcome and storage failures. AssistantMemoryTest covers instance recreation, migration, no resurrection after
 clear/forget, failed writes/corrupt records, command parsing and approval expiry.
 Run all Android unit tests and assembleDebug, including existing timer/app and
 volume-learning tests. Actual device/provider behavior remains a phone check.

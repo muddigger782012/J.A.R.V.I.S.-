@@ -19,6 +19,14 @@ class DeviceLearningSession internal constructor(
     )
     data class Pending(val phrase: String, val action: LearnableDeviceAction, val learnable: Boolean, val awaitingOutcome: Boolean = false)
     data class Resolution(val pending: Pending, val accepted: Boolean)
+    enum class RequestResult { FAILED, REQUESTED_WITHOUT_TRACKING, AWAITING_OUTCOME }
+
+    /** Used for local/preferred/learned actions as well as AI-interpreted ones. */
+    fun requestAndTrack(phrase: String, action: LearnableDeviceAction, request: () -> Boolean): RequestResult {
+        if (!action.isValid() || !runCatching(request).getOrDefault(false)) return RequestResult.FAILED
+        return if (propose(Pending(phrase, action, learnable = false, awaitingOutcome = true))) RequestResult.AWAITING_OUTCOME
+            else RequestResult.REQUESTED_WITHOUT_TRACKING
+    }
 
     fun propose(pending: Pending): Boolean = synchronized(lock) {
         if (!pending.action.isValid() || pending.phrase.isBlank() || pending.phrase.length > 240 ||
