@@ -21,6 +21,19 @@ object WebSearchCommand {
             ?.takeIf { it.length in 2..300 }
     }
 
+    /** Detect picture requests phrased as ordinary assistant commands. */
+    fun imageQueryNatural(input: String): String? {
+        val direct = imageQuery(input)
+        if (direct != null) return direct
+        val pattern = Regex(
+            """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:show|find|get)\s+(?:me\s+)?(?:some\s+|a\s+|an\s+)?(?:pictures|photos|images|picture|photo|image)\s+(?:of|for)\s+(.+)$""",
+            RegexOption.IGNORE_CASE
+        )
+        return pattern.matchEntire(input.trim())?.groupValues?.get(1)
+            ?.trim()?.trimEnd('.', '?', '!')?.trim()
+            ?.takeIf { it.length in 2..300 }
+    }
+
     fun query(input: String): String? {
         val candidate = search.matchEntire(input.trim())?.groupValues?.get(1)
             ?.trim()?.trimEnd('.', '?', '!')?.trim() ?: return null
