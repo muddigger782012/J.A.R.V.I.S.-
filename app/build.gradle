@@ -63,9 +63,7 @@ android {
             enable true
             reset()
             include 'arm64-v8a', 'armeabi-v7a'
-            // Build a universal APK for x86_64 CI emulator installation.
-            // Release APKs remain split by the two supported ARM ABIs.
-            universalApk true
+            universalApk false
         }
     }
 }
