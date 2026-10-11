@@ -94,7 +94,7 @@ class HybridAssistantService(
         }
 
         // Route the built-in updater locally. Never let cloud AI claim it installed a shortcut.
-        val updaterTeaching = Regex("(?i)^teach (?:jarvis )?(?:that )?update (?:the )?app means (?:use|run|open|start) the (?:upgrade|update) app function (?:built )?in (?:the )?app[?.!]*$").matches(userInput)
+        val updaterTeaching = LocalDeviceCommand.isUpdaterTeaching(userInput)
         if (updaterTeaching) {
             val response = "The command \"update app\" is built in. Say \"update app\" to open the J.A.R.V.I.S. updater."
             remember(userInput, response)
