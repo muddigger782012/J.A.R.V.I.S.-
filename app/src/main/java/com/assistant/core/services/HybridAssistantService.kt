@@ -361,7 +361,7 @@ class HybridAssistantService(
         }
         if (directOnlineClient.hasGeminiKey()) {
             Thread {
-                val response = directOnlineClient.gemini(rawInput)
+                val response = directOnlineClient.gemini(rawInput, getConversationSnapshot())
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
             }.start()
@@ -406,7 +406,7 @@ class HybridAssistantService(
 
     @Synchronized
     fun getConversationSnapshot(limit: Int = 8): String {
-        return history.takeLast(limit).joinToString(separator = "\n\n") { (user, assistant) ->
+        return history.filterNot { it.second.startsWith("I don’t understand that locally yet.") || it.second.startsWith("I don't understand that locally yet.") }.takeLast(limit).joinToString(separator = "\n\n") { (user, assistant) ->
             "You: $user\nJ.A.R.V.I.S.: $assistant"
         }
     }

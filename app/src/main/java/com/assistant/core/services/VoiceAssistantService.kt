@@ -135,6 +135,12 @@ class VoiceAssistantService(
     private var activeSpeechPrefix: String? = null
     private var finalSpeechId: String? = null
 
+    fun stopSpeaking() {
+        activeSpeechPrefix = null
+        finalSpeechId = null
+        tts.stop()
+    }
+
     fun speak(text: String) {
         if (!ttsReady || text.isBlank()) {
             onSpeechFinished()

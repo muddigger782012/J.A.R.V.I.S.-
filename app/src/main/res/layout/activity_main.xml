@@ -165,6 +165,11 @@
             </LinearLayout>
             <Button android:id="@+id/btnToggleVoice" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:minHeight="56dp" android:layout_marginTop="8dp" android:text="@string/ui_talk" />
+            <Button android:id="@+id/btnLiveChat" style="@style/Widget.AssistantPlatform.QuietButton"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Start live chat" />
+            <TextView android:id="@+id/tvLiveChatStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Tap Start live chat to talk hands-free."
+                android:textColor="?attr/jarvis_on_dark_muted" android:textSize="12sp" android:accessibilityLiveRegion="polite" />
             <Button android:id="@+id/btnAssistantQuickStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:text="System status" />
         </LinearLayout>
 

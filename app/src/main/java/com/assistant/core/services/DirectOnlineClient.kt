@@ -136,14 +136,14 @@ class DirectOnlineClient(context: Context) {
             OnlineAnswers.weatherSummary(data.getJSONObject("properties").getJSONArray("periods"), question, "${place.getString("city")}, ${place.getString("state")}")
         } catch (_: Exception) { "I couldn't retrieve live weather. Check your connection and try again." }
     }
-    fun gemini(question: String): String {
+    fun gemini(question: String, conversation: String = ""): String {
         val apiKey = keys.read()
         if (apiKey.isBlank()) return "Gemini fallback needs your API key. Enter it in Voice Settings → Weather and AI."
         val model = prefs.getString("gemini_model", "gemini-3.5-flash-lite").orEmpty()
         if (!Regex("[a-zA-Z0-9._-]+").matches(model)) return "The Gemini model name is invalid. Check Weather and AI settings."
         return try {
             val body = JSONObject().put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", "You are the general-answer component of the J.A.R.V.I.S. Android app. The host app has local handlers for phone calls, missed-call lookup, SMS composition, maps directions, app launching, alarms, and media commands; Android permissions and installed apps may be needed. Weather is fetched directly from the National Weather Service. Do not describe the entire app as a text-only AI without device capabilities. Your current response is text only: never claim that you executed a device action or accessed private phone data. For an unhandled device request, suggest a supported explicit command instead of claiming the app cannot act. Do not invent current weather or other live facts; explain when live data is needed."))))
-                .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", question)))))
+                .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", if (conversation.isBlank()) question else "Recent conversation:\n$conversation\n\nCurrent question:\n$question")))))
             val (code, json) = request("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent", body, apiKey)
             if (code in 200..299) {
                 json?.let(OnlineAnswers::geminiText) ?: "Gemini returned no usable text answer. Try rephrasing the question."

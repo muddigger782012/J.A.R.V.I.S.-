@@ -187,6 +187,13 @@ class MainActivity : ThemedActivity() {
 
     private var voiceEnabled = false
     private var shouldStartVoiceAfterPermission = false
+    private var pendingLiveChatPermission = false
+    private var askedLiveNotificationPermission = false
+    private val liveNotificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        startLiveChat()
+    }
+    private var liveChatStarted = false
+    private var restoreLocalWake = false
     private var receiverRegistered = false
     private var shizukuListenersRegistered = false
     private var pendingClarification: String? = null
@@ -230,6 +237,10 @@ class MainActivity : ThemedActivity() {
     private val voiceEventReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != VoiceForegroundService.ACTION_EVENT) return
+            if (intent.getBooleanExtra(VoiceForegroundService.EXTRA_LIVE_CHAT, false)) {
+                syncLiveChatUi()
+                return
+            }
             intent.getStringExtra(VoiceForegroundService.EXTRA_EVENT_MESSAGE)?.let { message ->
                 appendOutput("[BG] $message")
             }
@@ -243,10 +254,14 @@ class MainActivity : ThemedActivity() {
     ) { granted ->
         updateMicrophonePermissionUi()
         if (granted) {
-            if (shouldStartVoiceAfterPermission) startVoiceHotwordMode()
+            if (pendingLiveChatPermission) {
+                pendingLiveChatPermission = false
+                startLiveChat()
+            } else if (shouldStartVoiceAfterPermission) startVoiceHotwordMode()
         } else {
             appendOutput(getString(R.string.voice_permission_required))
             shouldStartVoiceAfterPermission = false
+            pendingLiveChatPermission = false
         }
     }
 
@@ -749,6 +764,7 @@ class MainActivity : ThemedActivity() {
 
     private fun bindUiListeners() {
         findViewById<Button>(R.id.btnNewAssistantChat).setOnClickListener {
+            if (liveChatStarted) endLiveChat("Live chat ended for the new conversation.")
             archiveConversation()
             conversationSessionId = "session_" + System.currentTimeMillis()
             outputLines.clear()
@@ -852,6 +868,15 @@ class MainActivity : ThemedActivity() {
             ensureMicPermissionAndPushToTalk()
         }
 
+        findViewById<Button>(R.id.btnLiveChat).setOnClickListener {
+            if (liveChatStarted) endLiveChat("Live chat ended.")
+            else if (hasMicrophonePermission()) startLiveChat()
+            else {
+                pendingLiveChatPermission = true
+                shouldStartVoiceAfterPermission = false
+                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
         settingsButton.setOnClickListener { openVoiceSettings() }
 
         grantMicPermissionButton.setOnClickListener {
@@ -900,7 +925,10 @@ class MainActivity : ThemedActivity() {
             else -> state.userLabel()
         }
         voiceButton.text = state.userLabel()
-        voiceButton.isEnabled = state != VoiceInteractionState.PROCESSING
+        voiceButton.isEnabled = !liveChatStarted && state != VoiceInteractionState.PROCESSING
+        findViewById<Button>(R.id.btnLiveChat).isEnabled = liveChatStarted || state in listOf(VoiceInteractionState.IDLE, VoiceInteractionState.WAKE_LISTENING)
+        findViewById<ArcReactorView>(R.id.arcReactorHeader).setConversationState(state)
+        findViewById<ArcReactorView>(R.id.arcReactorConversation).setConversationState(state)
     }
 
     private fun mapVoiceStatus(status: String): VoiceInteractionState {
@@ -1617,6 +1645,74 @@ class MainActivity : ThemedActivity() {
         }
     }
 
+    private fun startLiveChat() {
+        if (liveChatStarted) return
+        if (Build.VERSION.SDK_INT >= 33 && !askedLiveNotificationPermission &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            askedLiveNotificationPermission = true
+            liveNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        restoreLocalWake = voiceEnabled && !currentVoiceConfig.useForegroundServiceMode
+        val resumeWake = voicePreferences.isForegroundServiceRunning() || (voiceEnabled && currentVoiceConfig.useForegroundServiceMode)
+        voiceService.stopListening()
+        voiceService.stopSpeaking()
+        liveChatStarted = true
+        findViewById<Button>(R.id.btnLiveChat).text = "End live chat"
+        findViewById<TextView>(R.id.tvLiveChatStatus).text = "Starting live chat…"
+        commandInput.isEnabled = false
+        findViewById<Button>(R.id.btnRunAssistantCommand).isEnabled = false
+        voiceButton.isEnabled = false
+        try {
+            VoiceForegroundService.startLiveChat(this, conversationSessionId, resumeWake)
+        } catch (_: Exception) {
+            liveChatStarted = false
+            syncLiveChatUi()
+            findViewById<TextView>(R.id.tvLiveChatStatus).text = "Live chat couldn’t start. Try again while the app is open."
+        }
+    }
+
+    private fun endLiveChat(message: String) {
+        VoiceForegroundService.stopLiveChat(this)
+        findViewById<TextView>(R.id.tvLiveChatStatus).text = message
+    }
+
+    private fun syncLiveChatUi() {
+        val state = com.assistant.core.services.LiveChatStore.state(this)
+        val wasActive = liveChatStarted
+        liveChatStarted = state.optBoolean("active")
+        findViewById<Button>(R.id.btnLiveChat).text = if (liveChatStarted) "End live chat" else "Start live chat"
+        findViewById<TextView>(R.id.tvLiveChatStatus).text = state.optString("message", "Live chat continues outside the app. Say “end live chat” to finish.")
+        commandInput.isEnabled = !liveChatStarted
+        findViewById<Button>(R.id.btnRunAssistantCommand).isEnabled = !liveChatStarted
+        val phase = runCatching { VoiceInteractionState.valueOf(state.optString("phase", "IDLE")) }.getOrDefault(VoiceInteractionState.IDLE)
+        updateVoiceInteractionState(if (liveChatStarted) phase else VoiceInteractionState.IDLE)
+        importLiveChatMessages()
+        if (wasActive && !liveChatStarted && restoreLocalWake && hasMicrophonePermission()) voiceService.startHotwordLoop()
+        if (!liveChatStarted) restoreLocalWake = false
+    }
+
+    private fun importLiveChatMessages() {
+        val imported = conversationPrefs.getStringSet("live_imported_ids", emptySet()).orEmpty().toMutableSet()
+        val entries = com.assistant.core.services.LiveChatStore.messages(this)
+        for (i in 0 until entries.length()) {
+            val entry = entries.getJSONObject(i)
+            val id = entry.getString("id")
+            if (id in imported) continue
+            val session = entry.getString("conversation")
+            val text = entry.getString("text")
+            if (session == conversationSessionId) appendOutput(text)
+            else {
+                val history = runCatching { JSONArray(conversationPrefs.getString("messages_$session", "[]")) }.getOrDefault(JSONArray())
+                history.put(text)
+                conversationPrefs.edit().putString("messages_$session", history.toString()).apply()
+            }
+            imported.add(id)
+        }
+        val retained = (0 until entries.length()).map { entries.getJSONObject(it).getString("id") }.toSet()
+        conversationPrefs.edit().putStringSet("live_imported_ids", imported.intersect(retained)).apply()
+    }
+
     private fun ensureMicPermissionAndPushToTalk() {
         if (hasMicrophonePermission()) {
             voiceSession.beginCapture(VoiceSessionController.Trigger.PUSH_TO_TALK)
@@ -1761,6 +1857,7 @@ class MainActivity : ThemedActivity() {
         currentVoiceConfig = voicePreferences.load()
         voiceService.updateConfig(currentVoiceConfig)
         capabilityState = CapabilityDetector().detect(this)
+        if (com.assistant.core.services.LiveChatStore.state(this).optBoolean("active")) return
         if (currentVoiceConfig.useForegroundServiceMode && voiceEnabled) {
             voiceService.stopListening()
         }
@@ -1794,7 +1891,7 @@ class MainActivity : ThemedActivity() {
 
     private fun refreshVoiceButtonLabel() {
         if (!::currentVoiceConfig.isInitialized) return
-        voiceButton.text = getString(R.string.ui_talk)
+        voiceButton.text = if (liveChatStarted) "Live chat active" else getString(R.string.ui_talk)
     }
 
     private fun hasMicrophonePermission(): Boolean {
@@ -2260,7 +2357,8 @@ class MainActivity : ThemedActivity() {
                 }
             }
         }
-        reloadVoiceConfiguration(showStatus = false)
+        syncLiveChatUi()
+        if (!liveChatStarted) reloadVoiceConfiguration(showStatus = false)
         runCatching {
             val wakeStage = java.io.File(filesDir, "wake-stage.txt")
             if (wakeStage.exists()) appendOutput("[BG-DIAG] Wake stage: " + wakeStage.readText().trim())

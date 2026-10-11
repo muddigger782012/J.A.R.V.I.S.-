@@ -28,6 +28,12 @@ class ArcReactorView @JvmOverloads constructor(
     private var elapsedMs = 0L
     private var lastFrameMs = 0L
     private var motionEnabled = true
+    private var conversationState = com.assistant.core.services.VoiceInteractionState.IDLE
+
+    fun setConversationState(state: com.assistant.core.services.VoiceInteractionState) {
+        conversationState = state
+        invalidate()
+    }
     private val tick = Runnable { invalidate() }
 
     init { importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO }
@@ -67,7 +73,15 @@ class ArcReactorView @JvmOverloads constructor(
             canvas.restore()
         }
         // Light only: the central hardware stays stationary rather than breathing in size.
-        val alpha = ((0.025 + 0.015 * sin(seconds * Math.PI * 2.0 / 5.0)) * 255).toInt()
+        val period = when (conversationState) {
+            com.assistant.core.services.VoiceInteractionState.LISTENING -> 2.2
+            com.assistant.core.services.VoiceInteractionState.PROCESSING -> 1.4
+            com.assistant.core.services.VoiceInteractionState.SPEAKING -> 0.9
+            else -> 5.0
+        }
+        val strength = if (conversationState in listOf(com.assistant.core.services.VoiceInteractionState.LISTENING,
+            com.assistant.core.services.VoiceInteractionState.PROCESSING, com.assistant.core.services.VoiceInteractionState.SPEAKING)) 0.12 else 0.025
+        val alpha = ((strength + strength * 0.6 * sin(seconds * Math.PI * 2.0 / period)) * 255).toInt()
         paint.shader = RadialGradient(cx, cy, side * 115f / 1254f,
             Color.argb(alpha, 195, 247, 255), Color.TRANSPARENT, Shader.TileMode.CLAMP)
         canvas.drawCircle(cx, cy, side * 115f / 1254f, paint)

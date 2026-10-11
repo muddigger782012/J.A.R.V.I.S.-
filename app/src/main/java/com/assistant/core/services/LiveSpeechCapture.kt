@@ -1,0 +1,58 @@
+package com.assistant.core.services
+
+import android.content.Context
+import android.content.Intent
+import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import java.util.Locale
+
+/** Foreground, one-turn capture. Every turn owns its recognizer and callbacks. */
+class LiveSpeechCapture(private val context: Context) {
+    private var generation = 0L
+    private var recognizer: SpeechRecognizer? = null
+    fun stop() {
+        generation++
+        recognizer?.cancel()
+        recognizer?.destroy()
+        recognizer = null
+    }
+    fun listen(preferOffline: Boolean, onPartial: (String) -> Unit, onResult: (String) -> Unit, onError: (Int) -> Unit) {
+        stop()
+        val current = generation
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) { onError(SpeechRecognizer.ERROR_CLIENT); return }
+        try {
+            val engine = SpeechRecognizer.createSpeechRecognizer(context)
+            recognizer = engine
+            engine.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) = Unit
+                override fun onBeginningOfSpeech() = Unit
+                override fun onRmsChanged(rmsdB: Float) = Unit
+                override fun onBufferReceived(buffer: ByteArray?) = Unit
+                override fun onEndOfSpeech() = Unit
+                override fun onEvent(eventType: Int, params: Bundle?) = Unit
+                override fun onPartialResults(partialResults: Bundle?) {
+                    if (current == generation) onPartial(partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty())
+                }
+                override fun onResults(results: Bundle?) {
+                    if (current != generation) return
+                    val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().trim()
+                    stop()
+                    if (text.isBlank()) onError(SpeechRecognizer.ERROR_NO_MATCH) else onResult(text)
+                }
+                override fun onError(error: Int) {
+                    if (current != generation) return
+                    stop(); onError(error)
+                }
+            })
+            engine.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            })
+        } catch (_: Exception) { stop(); onError(SpeechRecognizer.ERROR_CLIENT) }
+    }
+}
