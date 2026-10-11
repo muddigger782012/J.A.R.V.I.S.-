@@ -159,7 +159,10 @@ class SherpaWakeWordEngine(
         var lastReportAt = System.currentTimeMillis()
         try {
             while (running) {
-                if (chunks == 0) stage("sherpa-worker-before-read")
+                if (chunks == 0) {
+                    stage("sherpa-worker-before-read")
+                    onStatus("Sherpa audio worker started; waiting for microphone samples.")
+                }
                 val n = audio.read(buffer, 0, buffer.size)
                 if (n < 0) {
                     onStatus("Sherpa microphone read failed ($n).")
@@ -208,6 +211,7 @@ class SherpaWakeWordEngine(
                 }
             }
         } catch (t: Throwable) {
+            stage("sherpa-worker-failed-" + t.javaClass.simpleName + "-" + (t.message ?: "unknown"))
             if (running) onStatus("Sherpa audio loop stopped: ${t.message ?: t.javaClass.simpleName}")
         }
     }
