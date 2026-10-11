@@ -308,8 +308,8 @@ class VoiceForegroundService : Service() {
 
     private fun handleActionResult(result: ActionResult) {
         val status = if (result.success) "SUCCESS" else "FAIL"
-        publishEvent("[$status][${result.adapterUsed}] ${result.message}")
-        result.output?.let { publishEvent(it) }
+        publishEvent("J.A.R.V.I.S.: [$status][${result.adapterUsed}] ${result.message}")
+        result.output?.let { publishEvent("J.A.R.V.I.S.: $it") }
         voiceService.speak(if (result.success) result.message else "I could not complete that command.")
     }
 

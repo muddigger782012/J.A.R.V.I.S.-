@@ -281,7 +281,7 @@ class MainActivity : ThemedActivity() {
         }
         setupTabs()
         findViewById<Button>(R.id.btnOpenTools).setOnClickListener {
-            val labels = arrayOf("Projects", "Device tools", "System status and updates", "Terminal", "Activity log", "Permissions", "Device administration", "Voice diagnostics")
+            val labels = arrayOf("Projects", "Device tools", "System status and updates", "Terminal", "Activity log", "Permissions", "Device administration", "Diagnostics")
             AlertDialog.Builder(this).setTitle("Tools").setItems(labels) { _, which ->
                 if (which == labels.lastIndex) showVoiceDiagnostics()
                 else showTab(which + 1, animate = true, direction = 1)
@@ -967,8 +967,8 @@ class MainActivity : ThemedActivity() {
 
     private fun appendActionResult(result: ActionResult) {
         val status = if (result.success) "SUCCESS" else "FAIL"
-        appendOutput("[$status][${result.adapterUsed}] ${result.message}")
-        result.output?.let { appendOutput(it) }
+        appendOutput("J.A.R.V.I.S.: [$status][${result.adapterUsed}] ${result.message}")
+        result.output?.let { appendOutput("J.A.R.V.I.S.: $it") }
     }
 
     private fun appendRecentAudit() {
@@ -1044,7 +1044,7 @@ class MainActivity : ThemedActivity() {
 
     private fun showVoiceDiagnostics() {
         val logView = TextView(this).apply {
-            text = voiceDiagnosticLines.joinToString("\n\n").ifBlank { "No voice diagnostics yet." }
+            text = voiceDiagnosticLines.joinToString("\n\n").ifBlank { "No diagnostics yet." }
             textSize = 12f
             setPadding(24, 16, 24, 16)
             setTextIsSelectable(true)
@@ -1052,7 +1052,7 @@ class MainActivity : ThemedActivity() {
         voiceDiagnosticView = logView
         val scroll = ScrollView(this).apply { addView(logView) }
         val dialog = AlertDialog.Builder(this)
-            .setTitle("Voice diagnostics")
+            .setTitle("Diagnostics")
             .setView(scroll)
             .setPositiveButton("Close", null)
             .setNeutralButton("Copy", null)
@@ -1066,7 +1066,7 @@ class MainActivity : ThemedActivity() {
             }
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
                 voiceDiagnosticLines.clear()
-                logView.text = "No voice diagnostics yet."
+                logView.text = "No diagnostics yet."
             }
         }
         dialog.show()
@@ -1641,11 +1641,11 @@ class MainActivity : ThemedActivity() {
                 }
                 looksLikeNo(command) -> {
                     pendingClarification = null
-                    appendOutput(getString(R.string.voice_clarification_cancelled))
+                    appendOutput("J.A.R.V.I.S.: " + getString(R.string.voice_clarification_cancelled))
                     voiceService.speak(getString(R.string.voice_repeat_prompt))
                 }
                 else -> {
-                    appendOutput(getString(R.string.voice_clarification_yes_no))
+                    appendOutput("J.A.R.V.I.S.: " + getString(R.string.voice_clarification_yes_no))
                     voiceService.speak(getString(R.string.voice_clarification_yes_no))
                 }
             }
@@ -1655,7 +1655,7 @@ class MainActivity : ThemedActivity() {
         if (recognition.confidence < currentVoiceConfig.commandConfidenceThreshold) {
             pendingClarification = command
             val prompt = getString(R.string.voice_clarification_prompt, command)
-            appendOutput(prompt)
+            appendOutput("J.A.R.V.I.S.: $prompt")
             voiceService.speak(prompt)
             return
         }
@@ -1665,7 +1665,7 @@ class MainActivity : ThemedActivity() {
 
     private fun executeVoiceCommand(command: String) {
         val parsed = voiceCommandParser.parse(command, currentVoiceConfig)
-        parsed.responseHint?.let { appendOutput(it) }
+        parsed.responseHint?.let { appendOutput("J.A.R.V.I.S.: $it") }
 
         when (parsed.localCommand) {
             LocalVoiceCommand.STOP_VOICE -> {
