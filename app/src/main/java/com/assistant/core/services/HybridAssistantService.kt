@@ -125,22 +125,10 @@ class HybridAssistantService(
         }
         // Confirmation is valid only as the immediately following input.
         if (pendingRoutine != null) pendingRoutine = null
-        val routineProposal = Regex("(?i)^teach (?:jarvis )?(?:that )?(.{3,120}?) (?:means|is the same as) (.+)$")
-            .matchEntire(userInput)
-        if (routineProposal != null && routineProposal.groupValues[2].contains(" and ", ignoreCase = true)) {
-            val alias = routineProposal.groupValues[1].trim()
-            val parts = routineProposal.groupValues[2].split(Regex("(?i)\\s+and\\s+"))
-            val actions = parts.map { LocalDeviceCommand.parse(it.trim().trimEnd('.', '!', '?')) }
-            val ids = actions.mapNotNull {
-                when (it) {
-                    LocalDeviceCommand.Action.UPDATE_APP -> "app_update"
-                    LocalDeviceCommand.Action.VOLUME_UP -> "volume_up"
-                    LocalDeviceCommand.Action.VOLUME_DOWN -> "volume_down"
-                    null -> null
-                }
-            }
-            val proposal = if (ids.size == parts.size) routineRegistry.propose(alias, ids) else null
-            val response = if (proposal == null || LocalDeviceCommand.parse(alias) != null)
+        val routineProposal = RoutineCommandParser.parse(userInput)
+        if (routineProposal != null) {
+            val proposal = routineRegistry.propose(routineProposal.phrase, routineProposal.actions)
+            val response = if (proposal == null || LocalDeviceCommand.parse(routineProposal.phrase) != null)
                 "That routine is unsupported or uses a reserved phrase. Supported steps are update app, volume up, and volume down."
             else {
                 pendingRoutine = proposal
