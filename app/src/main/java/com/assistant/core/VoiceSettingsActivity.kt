@@ -79,8 +79,8 @@ class VoiceSettingsActivity : ThemedActivity() {
                             .setMessage("This permanently clears the learned examples on this installation only. Other devices are unchanged.")
                             .setNegativeButton("Cancel", null)
                             .setPositiveButton("Clear this device") { _, _ ->
-                                store.clear()
-                                android.widget.Toast.makeText(this@VoiceSettingsActivity, "Local learning cleared on this device", android.widget.Toast.LENGTH_LONG).show()
+                                val message = if (store.clear()) "Local learning cleared on this device" else "Unable to clear local learning; please retry"
+                                android.widget.Toast.makeText(this@VoiceSettingsActivity, message, android.widget.Toast.LENGTH_LONG).show()
                             }
                             .show()
                     }
