@@ -94,6 +94,21 @@ class IntentLearningStore(context: Context) {
 
     fun count(): Int = load().size
 
+    @Synchronized
+    fun clear() {
+        prefs.edit().remove(KEY).commit()
+    }
+
+    @Synchronized
+    fun forget(utterance: String): Boolean {
+        val normalized = normalize(utterance)
+        val examples = load()
+        val remaining = examples.filterNot { it.utterance == normalized }
+        if (remaining.size == examples.size) return false
+        save(remaining)
+        return true
+    }
+
     private fun normalize(text: String): String = text.lowercase(Locale.US)
         .replace(Regex("[^a-z0-9+ ]"), " ")
         .replace(Regex("\\s+"), " ")
