@@ -33,6 +33,8 @@ class HybridAssistantService(
 
     private var pendingPrompt: PendingPrompt = PendingPrompt.NONE
     private var pendingLearningReset: Boolean = false
+    private var pendingRoutine: com.assistant.core.learning.ApprovedRoutineRegistry.Routine? = null
+    private val routineRegistry = com.assistant.core.learning.ApprovedRoutineRegistry(systemService.context())
     private var pendingShellCommand: String? = null
     private var lastContactTarget: String? = null
     private val history = ArrayDeque<Pair<String, String>>()
@@ -93,6 +95,66 @@ class HybridAssistantService(
             PendingPrompt.NONE -> Unit
         }
 
+        // Explicit review/approval boundary for persistent, local multi-action routines.
+        // Only the three existing, allowlisted device actions can be used.
+        if (normalized == "cancel routine") {
+            pendingRoutine = null
+            return HybridAssistantReply("Routine proposal cancelled.")
+        }
+        if (normalized == "confirm routine") {
+            val proposal = pendingRoutine
+            pendingRoutine = null
+            val response = if (proposal == null) "No routine is awaiting approval."
+                else if (routineRegistry.saveApproved(proposal)) "Saved approved routine: ${proposal.phrase}."
+                else "Could not save the routine."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        val routineProposal = Regex("(?i)^teach (?:jarvis )?(?:that )?(.{3,120}?) (?:means|is the same as) (.+)$")
+            .matchEntire(userInput)
+        if (routineProposal != null && routineProposal.groupValues[2].contains(" and ", ignoreCase = true)) {
+            val alias = routineProposal.groupValues[1].trim()
+            val parts = routineProposal.groupValues[2].split(Regex("(?i)\\s+and\\s+"))
+            val actions = parts.map { LocalDeviceCommand.parse(it.trim().trimEnd('.', '!', '?')) }
+            val ids = actions.mapNotNull {
+                when (it) {
+                    LocalDeviceCommand.Action.UPDATE_APP -> "app_update"
+                    LocalDeviceCommand.Action.VOLUME_UP -> "volume_up"
+                    LocalDeviceCommand.Action.VOLUME_DOWN -> "volume_down"
+                    null -> null
+                }
+            }
+            val proposal = if (ids.size == parts.size) routineRegistry.propose(alias, ids) else null
+            val response = if (proposal == null || LocalDeviceCommand.parse(alias) != null)
+                "That routine is unsupported or uses a reserved phrase. Supported steps are update app, volume up, and volume down."
+            else {
+                pendingRoutine = proposal
+                "Review routine '${proposal.phrase}': ${proposal.actions.joinToString(" then ")}. Say 'confirm routine' to save or 'cancel routine' to discard. Nothing has run yet."
+            }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        routineRegistry.find(userInput)?.let { routine ->
+            val results = mutableListOf<String>()
+            for (action in routine.actions) {
+                val ok = when (action) {
+                    "volume_up" -> androidAssistant.adjustVolume(android.media.AudioManager.ADJUST_RAISE)
+                    "volume_down" -> androidAssistant.adjustVolume(android.media.AudioManager.ADJUST_LOWER)
+                    "app_update" -> runCatching {
+                        val context = systemService.context()
+                        context.startActivity(android.content.Intent(context, com.assistant.core.MainActivity::class.java)
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                            .putExtra("jarvis_feature", "app_update"))
+                    }.isSuccess
+                    else -> false
+                }
+                results.add("$action: ${if (ok) "requested" else "failed"}")
+                if (!ok) break
+            }
+            val response = "Routine '${routine.phrase}': ${results.joinToString("; ")}. Android may still require approval for installation."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
         // Route the built-in updater locally. Never let cloud AI claim it installed a shortcut.
         val updaterTeaching = LocalDeviceCommand.isUpdaterTeaching(userInput)
         if (updaterTeaching) {
