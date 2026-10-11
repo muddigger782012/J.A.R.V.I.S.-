@@ -40,7 +40,20 @@ def capture(name):
 try:
     apk_files = sorted(Path('app/build/outputs/apk/debug').glob('*.apk'))
     assert apk_files, 'No debug APK found after artifact download'
-    adb('install', '-r', str(apk_files[0]))
+    device_abi = adb('shell', 'getprop', 'ro.product.cpu.abi').strip()
+    compatible = [p for p in apk_files if device_abi in p.name]
+    universal = [p for p in apk_files if 'universal' in p.name]
+    if compatible:
+        selected_apk = compatible[0]
+    elif universal:
+        selected_apk = universal[0]
+    else:
+        raise AssertionError(
+            f'No compatible APK for emulator ABI {device_abi}. '
+            f'Available APKs: {[p.name for p in apk_files]}'
+        )
+    print(f'Installing {selected_apk.name} for {device_abi}', flush=True)
+    adb('install', '-r', str(selected_apk))
     adb('shell', 'pm', 'grant', 'com.assistant.core', 'android.permission.RECORD_AUDIO')
     adb('shell', 'am', 'start', '-n', 'com.assistant.core/.MainActivity')
     time.sleep(3)
