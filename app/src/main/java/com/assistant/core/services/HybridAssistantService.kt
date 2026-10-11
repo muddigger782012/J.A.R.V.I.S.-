@@ -93,6 +93,26 @@ class HybridAssistantService(
             PendingPrompt.NONE -> Unit
         }
 
+        // Route the built-in updater locally. Never let cloud AI claim it installed a shortcut.
+        val updaterTeaching = Regex("(?i)^teach (?:jarvis )?(?:that )?update (?:the )?app means (?:use|run|open|start) the (?:upgrade|update) app function (?:built )?in (?:the )?app[?.!]*$").matches(userInput)
+        if (updaterTeaching) {
+            val response = "The command \"update app\" is built in. Say \"update app\" to open the J.A.R.V.I.S. updater."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (normalized in setOf("update app", "update jarvis", "upgrade app", "upgrade jarvis", "check for jarvis update")) {
+            val launched = runCatching {
+                val context = systemService.context()
+                val intent = android.content.Intent(context, com.assistant.core.MainActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra("jarvis_feature", "app_update")
+                context.startActivity(intent)
+            }.isSuccess
+            val response = if (launched) "Opening the J.A.R.V.I.S. updater. Android will ask you to approve installation." else "Could not open the updater. Open J.A.R.V.I.S., then go to Tools > System status and updates."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
         // Explicit, on-device teaching for the verified clock capability.
         // This never authorizes arbitrary device actions or cloud-generated code.
         val teachTime = Regex("(?i)^teach (?:jarvis )?(?:that )?(.{1,200}?) (?:means|is the same as) (?:what time is it|tell me the time)[?.!]*$").matchEntire(userInput)
