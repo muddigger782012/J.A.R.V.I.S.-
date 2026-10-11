@@ -1445,6 +1445,11 @@ class MainActivity : ThemedActivity() {
                             setPadding(dp(14), dp(12), dp(14), dp(12))
                             isClickable = true
                             isFocusable = true
+                            foreground = android.util.TypedValue().let { out ->
+                                if (theme.resolveAttribute(android.R.attr.selectableItemBackground, out, true))
+                                    androidx.core.content.ContextCompat.getDrawable(this@MainActivity, out.resourceId)
+                                else null
+                            }
                             contentDescription = "Open " + (if (imageSearch) "image" else "web") + " search results for " + query
                             setOnClickListener {
                                 startActivity(android.content.Intent(this@MainActivity, SearchBrowserActivity::class.java)
