@@ -60,6 +60,8 @@ object FallbackLessonProtocol {
         "CALL_CONTACT",
         "SEND_MESSAGE",
         "OPEN_APP",
+        "OPEN_PREFERRED_APP",
+        "REPEAT_ACTION",
         "NAVIGATE",
         "SET_ALARM",
         "SET_TIMER",
