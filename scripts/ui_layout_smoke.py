@@ -38,7 +38,9 @@ def capture(name):
 
 
 try:
-    adb('install', '-r', 'app-debug.apk')
+    apk_files = sorted(Path('app/build/outputs/apk/debug').glob('*.apk'))
+    assert apk_files, 'No debug APK found after artifact download'
+    adb('install', '-r', str(apk_files[0]))
     adb('shell', 'pm', 'grant', 'com.assistant.core', 'android.permission.RECORD_AUDIO')
     adb('shell', 'am', 'start', '-n', 'com.assistant.core/.MainActivity')
     time.sleep(3)
