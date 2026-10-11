@@ -25,6 +25,13 @@ def trace():
         if np.linalg.norm(points[0] - points[-1]) < .01:
             points = points[:-1]
         points = .8 * points + .1 * np.roll(points, 1, axis=0) + .1 * np.roll(points, -1, axis=0)
+        # Optical spacing: move I toward V, then bring the final dot and S inward.
+        # Translation preserves each approved contour's shape and stroke thickness.
+        left = points[:, 0].min()
+        if left >= 305:
+            points[:, 0] -= 12
+        elif left >= 290:
+            points[:, 0] -= 6
         paths.append("M" + " L".join(f"{x:.2f},{y:.2f}" for x, y in points) + " Z")
     plt.close("all")
     data = " ".join(paths)

@@ -22,7 +22,7 @@ class JarvisLabelView @JvmOverloads constructor(
         super.onDraw(canvas)
         val availableWidth = (width - paddingLeft - paddingRight).toFloat()
         val availableHeight = (height - paddingTop - paddingBottom).toFloat()
-        val scale = min(availableWidth / 376f, availableHeight / 41f) * 0.9f
+        val scale = min(availableWidth / 376f, availableHeight / 41f) * 0.81f
         if (scale <= 0f) return
         val drawWidth = 376f * scale
         val drawHeight = 41f * scale
