@@ -32,6 +32,7 @@ class HybridAssistantService(
 ) {
 
     private var pendingPrompt: PendingPrompt = PendingPrompt.NONE
+    private var pendingLearningReset: Boolean = false
     private var pendingShellCommand: String? = null
     private var lastContactTarget: String? = null
     private val history = ArrayDeque<Pair<String, String>>()
@@ -90,6 +91,39 @@ class HybridAssistantService(
                 }
             }
             PendingPrompt.NONE -> Unit
+        }
+
+        // Learning diagnostics are handled locally, without an AI connection.
+        if (normalized in setOf("learning status", "show learning status", "how many commands have you learned", "learned commands")) {
+            val response = "Local learned examples: ${learningStore.count()}. Say 'forget learned command' followed by the exact phrase, or 'reset learned commands' to erase all local examples."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (normalized.startsWith("forget learned command ")) {
+            val phrase = userInput.substringAfter("forget learned command ", "", ignoreCase = true).trim()
+            val removed = phrase.isNotBlank() && learningStore.forget(phrase)
+            val response = if (removed) "Removed the learned command." else "No matching learned command was found."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (normalized == "reset learned commands") {
+            pendingLearningReset = true
+            val response = "This will erase all locally learned commands. Say 'confirm learning reset' to continue, or 'cancel learning reset' to keep them."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (normalized in setOf("confirm learning reset", "cancel learning reset")) {
+            val response = when {
+                !pendingLearningReset -> "No learning reset is pending."
+                normalized == "cancel learning reset" -> "Learning reset cancelled."
+                else -> {
+                    learningStore.clear()
+                    "Local learned commands have been cleared."
+                }
+            }
+            pendingLearningReset = false
+            remember(userInput, response)
+            return HybridAssistantReply(response)
         }
 
         if (CommandPhrases.isLastMissedCall(userInput)) {
