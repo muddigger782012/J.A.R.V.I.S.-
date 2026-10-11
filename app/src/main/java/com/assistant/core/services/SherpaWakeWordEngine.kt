@@ -196,15 +196,11 @@ class SherpaWakeWordEngine(
                     onStatus("Sherpa accepted first audio buffer; decoder running.")
                 }
                 while (running && kws.isReady(onlineStream)) {
-                    if (totalChunks == 1) {
-                        stage("sherpa-worker-before-decode")
-                        onStatus("Sherpa decoder received enough audio; starting first native decode.")
-                    }
+                    stage("sherpa-worker-before-decode-$totalChunks")
+                    if (totalChunks <= 20) onStatus("Sherpa decoder ready after $totalChunks audio chunks; entering native decode.")
                     kws.decode(onlineStream)
-                    if (totalChunks == 1) {
-                        stage("sherpa-worker-after-decode")
-                        onStatus("Sherpa first native decode completed.")
-                    }
+                    stage("sherpa-worker-after-decode-$totalChunks")
+                    if (totalChunks <= 20) onStatus("Sherpa native decode completed at chunk $totalChunks.")
                     val keyword = kws.getResult(onlineStream).keyword
                     if (keyword.isNotBlank()) {
                         onStatus("Sherpa detected keyword '$keyword'.")
