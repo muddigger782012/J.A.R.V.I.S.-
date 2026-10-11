@@ -536,6 +536,21 @@ class HybridAssistantService(
             return replyFromResult(userInput, "Reading the current screen.", assistantEngine.executeAction(actionRegistry.readScreenRequest()))
         }
 
+        // Explicit web search is a real Android browser action, not an AI claim.
+        WebSearchCommand.query(userInput)?.let { query ->
+            val launched = runCatching {
+                val url = android.net.Uri.parse("https://www.google.com/search")
+                    .buildUpon().appendQueryParameter("q", query).build()
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, url)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                systemService.context().startActivity(intent)
+            }.isSuccess
+            val response = if (launched) "Opening web search for: $query"
+                else "Could not open a browser for the search. Check that a browser is installed and enabled."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
         if (containsAny(normalized, "create project", "new project", "generate project", "make project")) {
             val extracted = extractProjectName(normalized)
             if (extracted == null) {
