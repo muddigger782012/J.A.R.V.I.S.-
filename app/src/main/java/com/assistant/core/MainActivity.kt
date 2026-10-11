@@ -2232,12 +2232,16 @@ class MainActivity : ThemedActivity() {
 
     override fun onStart() {
         super.onStart()
+        findViewById<ArcReactorView>(R.id.arcReactorHeader).setMotionEnabled(true)
+        findViewById<ArcReactorView>(R.id.arcReactorConversation).setMotionEnabled(true)
         registerVoiceEventReceiver()
         registerShizukuListeners()
         startHudAnimations()
     }
 
     override fun onStop() {
+        findViewById<ArcReactorView>(R.id.arcReactorHeader).setMotionEnabled(false)
+        findViewById<ArcReactorView>(R.id.arcReactorConversation).setMotionEnabled(false)
         stopHudAnimations()
         unregisterShizukuListeners()
         unregisterVoiceEventReceiver()

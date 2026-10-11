@@ -10,8 +10,8 @@
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingTop="16dp" android:paddingBottom="12dp"
         android:gravity="center_vertical" android:orientation="horizontal">
-        <ImageView android:layout_width="44dp" android:layout_height="44dp"
-            android:src="@drawable/ic_jarvis_core" android:importantForAccessibility="no" />
+        <com.assistant.core.ArcReactorView android:id="@+id/arcReactorHeader"
+            android:layout_width="44dp" android:layout_height="44dp" android:importantForAccessibility="no" />
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
             android:layout_marginStart="12dp" android:orientation="vertical">
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -136,7 +136,8 @@
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
                     <LinearLayout android:id="@+id/chatEmptyState" android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:padding="24dp" android:layout_marginTop="20dp" android:gravity="center_horizontal" android:orientation="vertical">
-                        <ImageView android:layout_width="88dp" android:layout_height="88dp" android:src="@drawable/ic_jarvis_core" android:importantForAccessibility="no" />
+                        <com.assistant.core.ArcReactorView android:id="@+id/arcReactorConversation"
+                            android:layout_width="144dp" android:layout_height="144dp" android:importantForAccessibility="no" />
                         <TextView android:textColor="?attr/jarvis_on_dark" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp"
                             android:text="@string/ui_welcome" android:textSize="24sp" android:textStyle="bold" android:gravity="center" />
                         <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp"
