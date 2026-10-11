@@ -115,14 +115,15 @@ class HybridAssistantService(
         // Exact phrase matches avoid fuzzy routing of unrelated or sensitive commands.
         val volumeCapabilities = setOf("volume_up", "volume_down")
         val volumeMemory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
-        val teachVolume = Regex("(?i)^teach (?:jarvis )?(?:that )?(.{3,160}?) (?:means|is the same as) (?:turn volume up|increase volume|turn volume down|decrease volume)[?.!]*$").matchEntire(userInput)
+        val teachVolume = Regex("(?i)^teach (?:jarvis )?(?:that )?(.{3,160}?) (?:means|is the same as) (?:turn (?:the )?volume up|increase (?:the )?volume|turn (?:the )?volume down|decrease (?:the )?volume)[?.!]*$").matchEntire(userInput)
         if (teachVolume != null) {
             val phrase = teachVolume.groupValues[1].trim()
             val target = normalize(userInput).substringAfterLast(" means ", "").ifBlank {
                 normalize(userInput).substringAfterLast(" is the same as ", "")
             }.trimEnd('?', '.', '!')
-            val capability = if (target.endsWith("up") || target == "increase volume") "volume_up" else "volume_down"
+            val capability = if (target.endsWith("up") || target.startsWith("increase ")) "volume_up" else "volume_down"
             val reserved = phrase.startsWith("teach ", ignoreCase = true) ||
+                normalize(phrase).matches(Regex(".*\\b(?:call|text|message|delete|reset|reboot|pay|purchase|send)\\b.*")) ||
                 normalize(phrase) in setOf("learning status", "clear local learning", "confirm learning reset", "cancel learning reset")
             val response = if (reserved) {
                 "That phrase is reserved and cannot be learned."
