@@ -182,7 +182,7 @@ class HybridAssistantService(
                 }.isSuccess
                 if (!launched) "Could not open the updater, so the alias was not learned."
                 else if (volumeMemory.recordSuccess(alias, "app_update", volumeCapabilities + "app_update"))
-                    "Opened the updater and learned on this device: \\"$alias\\" means \\"$target\\"."
+                    "Opened the updater and learned on this device: $alias means $target."
                 else "Opened the updater, but the phrase conflicts with an existing learned command."
             }
             remember(userInput, response)
