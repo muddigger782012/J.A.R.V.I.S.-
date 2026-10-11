@@ -54,13 +54,13 @@ class VoiceSettingsActivity : ThemedActivity() {
         }
         val saveButton: Button = findViewById(R.id.btnSaveVoiceSettings)
 
-        val themeButton = com.google.android.material.button.MaterialButton(this).apply {
+        val appearanceButton = com.google.android.material.button.MaterialButton(this).apply {
             id = R.id.btnThemes
-            text = "Themes • " + ThemePreferences.label(ThemePreferences.selected(this@VoiceSettingsActivity))
+            text = "Appearances • " + ThemePreferences.label(ThemePreferences.selected(this@VoiceSettingsActivity))
             isAllCaps = false
-            setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, ThemeSettingsActivity::class.java)) }
+            setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, AppearanceSettingsActivity::class.java)) }
         }
-        (saveButton.parent as android.view.ViewGroup).addView(themeButton, 3)
+        (saveButton.parent as android.view.ViewGroup).addView(appearanceButton, 3)
 
         val gatewayPrefs = getSharedPreferences("jarvis_cloud_ai", MODE_PRIVATE)
         val gatewayButton = com.google.android.material.button.MaterialButton(this).apply {

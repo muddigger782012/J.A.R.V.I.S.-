@@ -1,0 +1,5 @@
+<resources>
+    <item name="font_original_size" type="id" />
+    <item name="font_applied_size" type="id" />
+    <item name="font_preview_exempt" type="id" />
+</resources>

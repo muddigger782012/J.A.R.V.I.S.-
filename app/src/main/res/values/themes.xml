@@ -105,7 +105,6 @@
     <!-- Test variants inherit their original palette, fonts, and background.
          Only box/control/chat corner geometry is copied from Stark. -->
     <style name="Theme.AssistantPlatform.DefaultAlternative" parent="Theme.AssistantPlatform">
-        <item name="jarvis_background">@drawable/bg_jarvis_space</item>
         <item name="jarvis_corner">4dp</item>
         <item name="jarvis_chat_corner">4dp</item>
     </style>

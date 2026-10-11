@@ -45,13 +45,23 @@ object ThemePreferences {
 
 open class ThemedActivity : AppCompatActivity() {
     private var displayedTheme = ""
+    private var displayedFonts = ""
+    private val fontLayoutListener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
+        FontPreferences.applyTo(window.decorView, this)
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         displayedTheme = ThemePreferences.selected(this)
+        displayedFonts = FontPreferences.signature(this)
         setTheme(ThemePreferences.style(this))
         super.onCreate(savedInstanceState)
+        window.decorView.viewTreeObserver.addOnGlobalLayoutListener(fontLayoutListener)
+    }
+    override fun onDestroy() {
+        window.decorView.viewTreeObserver.removeOnGlobalLayoutListener(fontLayoutListener)
+        super.onDestroy()
     }
     override fun onResume() {
         super.onResume()
-        if (displayedTheme != ThemePreferences.selected(this)) recreate()
+        if (displayedTheme != ThemePreferences.selected(this) || displayedFonts != FontPreferences.signature(this)) recreate()
     }
 }
