@@ -394,10 +394,7 @@ class HybridAssistantService(
      */
     fun acceptFallbackLesson(userText: String, lessonJson: String): Boolean {
         val lesson = FallbackIntentLesson.fromJson(lessonJson) ?: return false
-        if (!FallbackLessonProtocol.accepts(lesson) || !lesson.canTeachLocally()) return false
-        // General informational responses can be learned as classifications.
-        // Device actions require an actual executor success signal, not an AI claim.
-        if (lesson.intent != "GENERAL_QUESTION") return false
+        if (!LearningAdmissionPolicy.canRecordWithoutActionResult(lesson)) return false
         learningStore.learn(
             utterance = userText,
             intent = lesson.intent,
