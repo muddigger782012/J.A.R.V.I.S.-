@@ -546,7 +546,7 @@ class HybridAssistantService(
                     .appendQueryParameter("q", query)
                     .build()
                 systemService.context().startActivity(
-                    android.content.Intent(android.content.Intent.ACTION_VIEW, url)
+                    android.content.Intent(context, com.assistant.core.SearchBrowserActivity::class.java).putExtra(com.assistant.core.SearchBrowserActivity.EXTRA_URL, url.toString())
                         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
             }.isSuccess
@@ -561,7 +561,7 @@ class HybridAssistantService(
             val launched = runCatching {
                 val url = android.net.Uri.parse("https://www.google.com/search")
                     .buildUpon().appendQueryParameter("q", query).build()
-                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, url)
+                val intent = android.content.Intent(context, com.assistant.core.SearchBrowserActivity::class.java).putExtra(com.assistant.core.SearchBrowserActivity.EXTRA_URL, url.toString())
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                 systemService.context().startActivity(intent)
             }.isSuccess
