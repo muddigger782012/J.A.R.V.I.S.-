@@ -1,0 +1,43 @@
+# Persistent assistant preferences and recent-action context
+
+JARVIS stores a small local record: preferred browser/maps/music app targets and
+the last user-confirmed timer/app action. It does not store a new conversational
+transcript or transmit these records to the AI provider.
+
+## Local commands
+
+- “Remember my preferred browser is Chrome” proposes a preference. “Yes” saves
+  it only after the host resolves a unique installed launcher app. This is a
+  JARVIS preference; it does not change Android's system-default applications.
+- “Open my preferred browser” opens the retained package locally. Browser, maps
+  and music slots are supported; use each app's exact launcher label.
+- “Use the same timer again” repeats the saved timer duration.
+- “Open the same app again” opens the last confirmed app package.
+- “Show assistant memory” lists retained preferences and confirmed actions.
+- “Forget my preferred browser,” “forget the last timer,” and “forget the last app”
+  remove individual entries.
+- “Clear assistant memory” asks approval to clear these records on this device.
+
+Recent action context is recorded only after “it worked” for timer/app learning.
+Unconfirmed/failed requests do not replace it. Existing parameterized lessons from
+the earlier user-verified learning flow are imported once on update, preserving
+newer context. Clear/forget does not resurrect imported context. Learned command
+phrases remain managed by the existing separate learned-command controls.
+
+Offline follow-ups use bounded saved parameters and existing Android executors.
+They report that an action was requested, not that its resulting screen/timer was
+automatically verified. Missing memory, missing apps and disk-write failures yield
+local clarification rather than a claim of remembering or successful execution.
+
+## Verification
+
+AssistantMemoryTest covers instance recreation, migration, no resurrection after
+clear/forget, failed writes/corrupt records, command parsing and approval expiry.
+Run all Android unit tests and assembleDebug, including existing timer/app and
+volume-learning tests. Actual device/provider behavior remains a phone check.
+
+On the phone: approve a preferred browser, inspect memory, restart offline and
+open that preference. Repeat a previously confirmed timer using “use the same
+timer again,” and repeat the last confirmed app. Forget/clear and confirm the
+entries remain absent after restart. New unconfirmed or failed actions must not
+replace a previously confirmed recent-action entry.
