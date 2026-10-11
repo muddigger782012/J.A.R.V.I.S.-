@@ -10,11 +10,11 @@ object WebSearchCommand {
     fun imageQuery(input: String): String? {
         val trimmed = input.trim()
         val direct = Regex(
-            """^(?:please\\s+)?(?:show\\s+me\\s+(?:a\\s+)?(?:picture|photo|image)\\s+of|find\\s+(?:me\\s+)?(?:pictures|photos|images)\\s+of)\\s+(.+)$""",
+            """^(?:please\s+)?(?:show\s+me\s+(?:a\s+)?(?:picture|photo|image)\s+of|find\s+(?:me\s+)?(?:pictures|photos|images)\s+of)\s+(.+)$""",
             RegexOption.IGNORE_CASE
         ).matchEntire(trimmed)?.groupValues?.get(1)
         val suffix = Regex(
-            """^(?:please\\s+)?search\\s+(?:the\\s+)?web\\s+for\\s+(.+?)\\s+(?:pictures|photos|images)$""",
+            """^(?:please\s+)?search\s+(?:the\s+)?web\s+for\s+(.+?)\s+(?:pictures|photos|images)$""",
             RegexOption.IGNORE_CASE
         ).matchEntire(trimmed)?.groupValues?.get(1)
         return (direct ?: suffix)?.trim()?.trimEnd('.', '?', '!')?.trim()
