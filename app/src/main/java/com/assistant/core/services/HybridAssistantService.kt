@@ -100,7 +100,7 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
-        if (normalized in setOf("update app", "update jarvis", "upgrade app", "upgrade jarvis", "check for jarvis update")) {
+        if (LocalDeviceCommand.parse(userInput) == LocalDeviceCommand.Action.UPDATE_APP) {
             val launched = runCatching {
                 val context = systemService.context()
                 val intent = android.content.Intent(context, com.assistant.core.MainActivity::class.java)
@@ -290,12 +290,12 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
-        if (normalized.matches(Regex("^(?:(?:hey )?jarvis[, ]+)?(?:volume up|turn (?:the )?volume up|increase (?:the )?volume|(?:boost|raise) (?:the )?(?:sound|volume)(?: all the way up)?)$"))) {
+        if (LocalDeviceCommand.parse(userInput) == LocalDeviceCommand.Action.VOLUME_UP) {
             val ok = androidAssistant.adjustVolume(android.media.AudioManager.ADJUST_RAISE)
             val response = if (ok) "Volume increased." else "I couldn't change the volume."
             remember(userInput, response); return HybridAssistantReply(response)
         }
-        if (normalized.matches(Regex("^(?:(?:hey )?jarvis[, ]+)?(?:volume down|turn (?:the )?volume down|decrease (?:the )?volume|lower (?:the )?(?:sound|volume))$"))) {
+        if (LocalDeviceCommand.parse(userInput) == LocalDeviceCommand.Action.VOLUME_DOWN) {
             val ok = androidAssistant.adjustVolume(android.media.AudioManager.ADJUST_LOWER)
             val response = if (ok) "Volume decreased." else "I couldn't change the volume."
             remember(userInput, response); return HybridAssistantReply(response)
