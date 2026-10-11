@@ -189,10 +189,20 @@ class DirectOnlineClient(context: Context) {
             {"intent":"DEVICE_SETTING","confidence":0.95,"entities":{"setting":"media_volume","direction":"up"},"learnable":true}
             Use direction "down" for lowering. If you propose raising/lowering media volume,
             ALWAYS include the matching lesson even when reply asks for confirmation.
-            Bare approvals such as "yes" or "sure" MUST return lesson:null; only the host app
+            Also interpret unambiguous requests to start a timer or open an installed app.
+            For timers return {"intent":"SET_TIMER","confidence":0.95,"entities":{"seconds":"300"},"learnable":true}
+            with the actual requested duration in seconds (1 through 86400). For example,
+            "give me five minutes to finish this" can propose a 300-second timer.
+            Do not guess a duration when missing, and do not turn a request for information into a timer.
+            For opening an app return {"intent":"OPEN_APP","confidence":0.95,"entities":{"app_name":"Maps"},"learnable":true}
+            using the requested app's launcher name. For example "bring up Chrome" proposes Chrome.
+            The host resolves the installed app and asks approval, then asks the user to verify the result.
+            Missing or ambiguous targets require clarification and lesson:null.
+            Bare approvals such as "yes" or "sure", and outcome reports such as "it worked" or
+            "it failed", MUST return lesson:null; only the host app
             can associate approval with its pending request. If a different target is specified
             or direction is unclear, ask for clarification and return lesson:null.
-            No other capability or entity is allowed in a lesson.
+            No capabilities or entities besides these media-volume, timer and app-launch formats are allowed.
             For all other messages return lesson:null and answer normally in reply.
             Other device actions require the app's explicit handlers; suggest an explicit command
             without claiming execution. Never invent live facts or access to private phone data.

@@ -25,11 +25,11 @@ class AndroidAssistantService(private val context: Context) {
         true
     }.getOrDefault(false)
 
-    fun setTimer(seconds: Int, message: String = "J.A.R.V.I.S. timer"): Boolean =
+    fun setTimer(seconds: Int, message: String = "J.A.R.V.I.S. timer", showUi: Boolean = false): Boolean =
         launch(Intent(AlarmClock.ACTION_SET_TIMER).apply {
             putExtra(AlarmClock.EXTRA_LENGTH, seconds.coerceAtLeast(1))
             putExtra(AlarmClock.EXTRA_MESSAGE, message)
-            putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+            putExtra(AlarmClock.EXTRA_SKIP_UI, !showUi)
         })
 
     fun setAlarm(hour: Int, minute: Int, message: String = "J.A.R.V.I.S. alarm"): Boolean =
@@ -99,6 +99,16 @@ class AndroidAssistantService(private val context: Context) {
     fun launchApp(packageName: String): Boolean {
         val intent = context.packageManager.getLaunchIntentForPackage(packageName) ?: return false
         return launch(intent)
+    }
+
+    /** Resolve one visible launcher app; ambiguous names never select the first match. */
+    fun resolveLearnableApp(label: String): Pair<String, String>? {
+        val pm = context.packageManager
+        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val candidates = pm.queryIntentActivities(launcher, 0).map {
+            it.activityInfo.packageName to it.loadLabel(pm).toString()
+        }.distinctBy { it.first }.filter { it.second.equals(label.trim(), ignoreCase = true) }
+        return candidates.singleOrNull()
     }
 
     fun launchAppByLabel(label: String): Boolean {

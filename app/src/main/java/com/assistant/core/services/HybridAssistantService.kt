@@ -44,6 +44,7 @@ class HybridAssistantService(
     private val assistantConnections = AssistantConnections(systemService.context())
     private val fallbackAiClient = FallbackAiClient(systemService.context())
     private val volumeConfirmations = VolumeConfirmationStore(systemService.context())
+    private val deviceLearningSession = DeviceLearningSession(systemService.context())
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
@@ -57,7 +58,10 @@ class HybridAssistantService(
             )
         }
 
-        if (pendingPrompt != PendingPrompt.NONE) volumeConfirmations.consume("")
+        if (pendingPrompt != PendingPrompt.NONE) {
+            volumeConfirmations.consume("")
+            deviceLearningSession.consume("")
+        }
         when (pendingPrompt) {
             PendingPrompt.PROJECT_NAME -> {
                 pendingPrompt = PendingPrompt.NONE
@@ -100,6 +104,34 @@ class HybridAssistantService(
         volumeConfirmations.consume(userInput)?.let { resolution ->
             val response = if (resolution.approved) executeConfirmedVolume(resolution.pending.phrase, resolution.pending.lesson)
                 else "Media volume request cancelled. Nothing was changed or learned."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        deviceLearningSession.consume(userInput)?.let { resolution ->
+            val pending = resolution.pending
+            val response = when {
+                !resolution.accepted -> "Request cancelled or reported unsuccessful. Nothing was learned."
+                pending.awaitingOutcome -> {
+                    val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
+                    val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
+                    if (pending.learnable && prefs.getBoolean("automatic_command_learning", true) &&
+                        memory.recordSuccess(pending.phrase, pending.action.capabilityId, LearnableDeviceAction.capabilities, pending.action.parameters))
+                        "You confirmed it worked. Learned \"${pending.phrase}\" on this device for offline reuse."
+                    else "Your successful result was noted, but this phrase was not saved. Learning may be disabled or the phrase may conflict with another command."
+                }
+                !requestDeviceAction(pending.action) -> "Android couldn't launch the requested action. Nothing was learned."
+                !deviceLearningSession.propose(pending.copy(awaitingOutcome = true)) -> "The action was requested, but its learning outcome could not be retained. Nothing was learned."
+                else -> "Requested: ${pending.action.description()}. Check the timer or app, then say 'it worked' to save your original phrase, or 'it failed' to discard it. Nothing is learned yet."
+            }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        val deviceMemory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
+        deviceMemory.match(userInput, LearnableDeviceAction.capabilities)?.let { learned ->
+            val action = LearnableDeviceAction(learned.capabilityId, learned.parameters)
+            val response = if (action.isValid() && requestDeviceAction(action))
+                "Requested: ${action.description()}, using your learned command."
+            else "I couldn't launch the action for this learned command. Check that the app or Clock is installed."
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -677,7 +709,7 @@ class HybridAssistantService(
         if (directOnlineClient.hasGeminiKey()) {
             Thread {
                 val cloud = directOnlineClient.assistant(rawInput, getConversationSnapshot())
-                val response = proposeFallbackVolume(rawInput, cloud.lessonJson) ?: cloud.reply
+                val response = proposeFallbackVolume(rawInput, cloud.lessonJson) ?: proposeFallbackDeviceAction(rawInput, cloud.lessonJson) ?: cloud.reply
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
             }.start()
@@ -699,7 +731,7 @@ class HybridAssistantService(
             }
             // A plausible cloud interpretation is not proof of a successful action.
             // Do not train device-action intents from unverified cloud replies.
-            val actionResponse = proposeFallbackVolume(rawInput, cloud.lessonJson)
+            val actionResponse = proposeFallbackVolume(rawInput, cloud.lessonJson) ?: proposeFallbackDeviceAction(rawInput, cloud.lessonJson)
             if (actionResponse == null) cloud.lessonJson?.let { acceptFallbackLesson(rawInput, it) }
             val response = actionResponse ?: cloud.reply
             remember(rawInput, response)
@@ -713,6 +745,25 @@ class HybridAssistantService(
         if (!volumeConfirmations.propose(userText, lesson)) return "I couldn't retain this volume request for confirmation. Nothing was changed or learned. Please repeat it."
         return "Would you like me to ${if (capability == "volume_up") "raise" else "lower"} the media volume? Say yes to confirm or no to cancel."
     }
+
+    private fun proposeFallbackDeviceAction(userText: String, lessonJson: String?): String? {
+        val lesson = lessonJson?.let(FallbackIntentLesson::fromJson) ?: return null
+        if (lesson.intent !in setOf("SET_TIMER", "OPEN_APP")) return null
+        val action = LearnableDeviceAction.fromLesson(lesson, androidAssistant::resolveLearnableApp)
+            ?: return "I couldn't prepare a safe timer or unique installed-app match. Specify a timer duration from 1 second to 24 hours, or the app's exact launcher name. Nothing was changed or learned."
+        if (!deviceLearningSession.propose(DeviceLearningSession.Pending(userText, action, lesson.canTeachLocally())))
+            return "I couldn't retain this action for confirmation. Nothing was changed or learned."
+        return "Would you like me to ${action.description()}? Say yes to confirm or no to cancel."
+    }
+
+    private fun requestDeviceAction(action: LearnableDeviceAction): Boolean = runCatching {
+        if (!action.isValid()) return@runCatching false
+        when (action.capabilityId) {
+            "timer" -> androidAssistant.setTimer(action.parameters.getValue("seconds").toInt(), showUi = true)
+            "open_app" -> androidAssistant.launchApp(action.parameters.getValue("package"))
+            else -> false
+        }
+    }.getOrDefault(false)
 
     private fun executeConfirmedVolume(userText: String, lesson: FallbackIntentLesson): String {
         val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
