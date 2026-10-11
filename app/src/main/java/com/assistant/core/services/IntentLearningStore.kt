@@ -95,9 +95,7 @@ class IntentLearningStore(context: Context) {
     fun count(): Int = load().size
 
     @Synchronized
-    fun clear() {
-        prefs.edit().remove(KEY).commit()
-    }
+    fun clear(): Boolean = prefs.edit().remove(KEY).commit()
 
     @Synchronized
     fun forget(utterance: String): Boolean {
