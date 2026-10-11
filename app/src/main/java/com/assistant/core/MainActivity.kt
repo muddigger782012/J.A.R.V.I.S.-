@@ -1916,7 +1916,7 @@ class MainActivity : ThemedActivity() {
 
     private fun refreshVoiceButtonLabel() {
         if (!::currentVoiceConfig.isInitialized) return
-        voiceButton.text = if (liveChatStarted) "Live chat active" else getString(R.string.ui_talk)
+        voiceButton.contentDescription = if (liveChatStarted) "Live chat active" else getString(R.string.ui_talk)
     }
 
     private fun hasMicrophonePermission(): Boolean {
