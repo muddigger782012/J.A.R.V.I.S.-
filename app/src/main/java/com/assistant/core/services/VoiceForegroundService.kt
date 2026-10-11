@@ -474,10 +474,12 @@ class VoiceForegroundService : Service() {
                 // Use the same assistant path as typed and live-chat turns.
                 // Bypassing it through the legacy ActionRequest parser caused
                 // learned routines and local aliases to behave differently.
+                publishEvent("Voice diagnostic: assistant processing started.")
                 hybridAssistantService.handleUserInputAsync(
                     parsed.fallbackTextCommand ?: command
                 ) { reply ->
                     liveHandler.post {
+                        publishEvent("Voice diagnostic: assistant response received (${reply.text.length} characters).")
                         publishEvent("J.A.R.V.I.S.: ${reply.text}")
                         speakResponse(reply.text)
                     }
