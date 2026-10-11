@@ -270,12 +270,12 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
-        if (normalized in setOf("volume up", "turn volume up", "increase volume")) {
+        if (normalized.matches(Regex("^(?:(?:hey )?jarvis[, ]+)?(?:volume up|turn (?:the )?volume up|increase (?:the )?volume|(?:boost|raise) (?:the )?(?:sound|volume)(?: all the way up)?)$"))) {
             val ok = androidAssistant.adjustVolume(android.media.AudioManager.ADJUST_RAISE)
             val response = if (ok) "Volume increased." else "I couldn't change the volume."
             remember(userInput, response); return HybridAssistantReply(response)
         }
-        if (normalized in setOf("volume down", "turn volume down", "decrease volume")) {
+        if (normalized.matches(Regex("^(?:(?:hey )?jarvis[, ]+)?(?:volume down|turn (?:the )?volume down|decrease (?:the )?volume|lower (?:the )?(?:sound|volume))$"))) {
             val ok = androidAssistant.adjustVolume(android.media.AudioManager.ADJUST_LOWER)
             val response = if (ok) "Volume decreased." else "I couldn't change the volume."
             remember(userInput, response); return HybridAssistantReply(response)
