@@ -1430,7 +1430,7 @@ class MainActivity : ThemedActivity() {
                 setTextIsSelectable(true)
             })
             if (assistant) {
-                val searchUrl = Regex("""https://www\.google\.com/search\?[^\s<>]+""").find(line)?.value
+                val searchUrl = Regex("""https://www\.google\.com/search\?[^\s<>]+""").find(line)?.value?.trimEnd('.', ',', ')', ']')
                 if (searchUrl != null) {
                     val parsed = android.net.Uri.parse(searchUrl)
                     val query = parsed.getQueryParameter("q")
