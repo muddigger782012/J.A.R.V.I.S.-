@@ -37,6 +37,9 @@ class AssistantConnectionsActivity : ThemedActivity() {
         note("Web search uses free Tavily keyless access automatically. No account or key is required for light usage. An optional Tavily key raises usage limits.")
         val tavilyKeys = ApiKeyStore(this, "tavily_search")
         val tavilyToken = field("Tavily Search API key (optional)", tavilyKeys.read(), true)
+        note("Search results appear in chat and are cached for 10 minutes. If Tavily is unavailable, J.A.R.V.I.S. tries your optional Brave key, then offers the embedded browser search card.")
+        val braveKeys = ApiKeyStore(this, "brave_search")
+        val braveToken = field("Brave Search API key (optional fallback)", braveKeys.read(), true)
         note("Examples: Home Assistant turn on the kitchen lights. Mycroft what time is it?")
         note("Android App Actions declarations and launcher shortcuts are included. Google voice invocation needs App Actions preview or Play review; sideloading alone does not activate it.")
         fields.addView(com.google.android.material.button.MaterialButton(this).apply {
@@ -52,7 +55,7 @@ class AssistantConnectionsActivity : ThemedActivity() {
                     Toast.makeText(this@AssistantConnectionsActivity, "Enter both the address and token, or clear both.", Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
-                try { homeKeys.save(homeToken.text.toString().trim()); bridgeKeys.save(bridgeToken.text.toString().trim()); tavilyKeys.save(tavilyToken.text.toString().trim()) }
+                try { homeKeys.save(homeToken.text.toString().trim()); bridgeKeys.save(bridgeToken.text.toString().trim()); tavilyKeys.save(tavilyToken.text.toString().trim()); braveKeys.save(braveToken.text.toString().trim()) }
                 catch (_: Exception) { Toast.makeText(this@AssistantConnectionsActivity, "Couldn't securely save tokens. Try again.", Toast.LENGTH_LONG).show(); return@setOnClickListener }
                 prefs.edit().putString("home_url", home).putString("home_agent", agent.text.toString().trim())
                     .putString("language", language.text.toString().trim().ifBlank { "en" }).putString("bridge_url", bridge).apply()

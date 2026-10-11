@@ -5,7 +5,7 @@ import org.junit.Test
 
 class ChatSearchResultsTest {
     @Test fun savedChatRestoresSourceFieldsWithNewlines() {
-        val item = TavilySearchProvider.Result("A title", "Two\nparagraphs", "https://example.org/a?q=1")
+        val item = SearchRouter.Result("A title", "Two\nparagraphs", "https://example.org/a?q=1")
         val message = ChatSearchResults.encode("diesel repair", listOf(item))
         assertEquals(message, ConversationMessages.chatMessage(message))
         val restored = ChatSearchResults.decode(message)!!

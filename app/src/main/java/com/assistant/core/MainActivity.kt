@@ -1270,6 +1270,7 @@ class MainActivity : ThemedActivity() {
         val query = replyText.substringAfter("Web search ready:").substringBefore("\n").trim()
         if (query.length !in 2..300) return
         val apiKey = runCatching { com.assistant.core.services.ApiKeyStore(this, "tavily_search").read() }.getOrDefault("")
+        val braveKey = runCatching { com.assistant.core.services.ApiKeyStore(this, "brave_search").read() }.getOrDefault("")
         val searchSession = conversationSessionId
         Thread {
             val cache = getSharedPreferences("jarvis_search_cache_v2", MODE_PRIVATE)
@@ -1282,7 +1283,7 @@ class MainActivity : ThemedActivity() {
             val result = runCatching {
                 if (fresh && cached != null) cached
                 else {
-                    val items = com.assistant.core.services.TavilySearchProvider(apiKey).search(query)
+                    val items = com.assistant.core.services.SearchRouter.configured(apiKey, braveKey).search(query).items
                     if (items.isEmpty()) "" else com.assistant.core.services.ChatSearchResults.encode(query, items).also { rendered ->
                         cache.edit().putString(cacheId, rendered)
                             .putLong(cacheId + "_at", System.currentTimeMillis()).apply()
@@ -1292,7 +1293,7 @@ class MainActivity : ThemedActivity() {
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
                 val response = result.fold(
-                    onSuccess = { rendered -> rendered.ifEmpty { "J.A.R.V.I.S.: No structured search results found. Open the search card to continue." } },
+                    onSuccess = { rendered -> rendered.ifEmpty { "J.A.R.V.I.S.: Search providers are unavailable or returned no results. Tap the web search card above to search in the embedded browser." } },
                     onFailure = { "J.A.R.V.I.S.: Search previews unavailable. Open the search card to view results." }
                 )
                 if (searchSession != conversationSessionId) {
