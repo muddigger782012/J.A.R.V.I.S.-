@@ -103,12 +103,6 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
-        if (ConfirmationWords.isConfirmation(userInput)) {
-            val response = "No media volume request is awaiting confirmation. Please repeat the original request."
-            remember(userInput, response)
-            return HybridAssistantReply(response)
-        }
-
         // Explicit review/approval boundary for persistent, local multi-action routines.
         // Only the three existing, allowlisted device actions can be used.
         // A routine proposal is only valid for the immediately following turn.
