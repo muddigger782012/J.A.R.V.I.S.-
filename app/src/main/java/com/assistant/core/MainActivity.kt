@@ -154,7 +154,7 @@ class MainActivity : ThemedActivity() {
     private lateinit var auditAdapterFilterInput: EditText
 
     private lateinit var voiceButton: Button
-    private lateinit var settingsButton: Button
+    private lateinit var settingsButton: android.widget.ImageButton
 
     private lateinit var switchCameraDisabled: SwitchMaterial
     private lateinit var switchScreenCaptureDisabled: SwitchMaterial
@@ -322,13 +322,6 @@ class MainActivity : ThemedActivity() {
             insets
         }
         setupTabs()
-        findViewById<Button>(R.id.btnOpenTools).setOnClickListener {
-            val labels = arrayOf("Projects", "Device tools", "System status and updates", "Terminal", "Activity log", "Permissions", "Device administration", "Diagnostics")
-            AlertDialog.Builder(this).setTitle("Tools").setItems(labels) { _, which ->
-                if (which == labels.lastIndex) showVoiceDiagnostics()
-                else showTab(which + 1, animate = true, direction = 1)
-            }.setNegativeButton("Close", null).show()
-        }
         findViewById<android.widget.Button>(R.id.btnOpenJarvisChat).setOnClickListener {
             showTab(0, animate = true, direction = if (currentTabIndex == 0) 0 else -1)
             commandInput.requestFocus()
@@ -627,7 +620,6 @@ class MainActivity : ThemedActivity() {
         title.text = listOf("", "Projects", "Device tools", "System", "Terminal", "Activity log", "Permissions", "Device administration")[index]
         title.visibility = if (index == 0) View.GONE else View.VISIBLE
         findViewById<Button>(R.id.btnOpenJarvisChat).setTextColor(ThemePreferences.color(this, if (index == 0) R.color.jarvis_primary else R.color.jarvis_on_dark_muted))
-        findViewById<Button>(R.id.btnOpenTools).setTextColor(ThemePreferences.color(this, if (index != 0) R.color.jarvis_primary else R.color.jarvis_on_dark_muted))
         val activeColor = ThemePreferences.color(this, R.color.jarvis_neon_green)
         val inactiveColor = ThemePreferences.color(this, R.color.jarvis_on_dark)
         headerTabButtons.forEachIndexed { i, button ->
@@ -904,7 +896,7 @@ class MainActivity : ThemedActivity() {
         findViewById<Button>(R.id.btnLiveChat).setOnClickListener {
             if (liveChatStarted) endLiveChat("Live chat ended.") else requestLiveChat()
         }
-        settingsButton.setOnClickListener { openVoiceSettings() }
+        settingsButton.setOnClickListener { showToolsAndSettingsMenu() }
 
         grantMicPermissionButton.setOnClickListener {
             shouldStartVoiceAfterPermission = false
@@ -2163,6 +2155,22 @@ class MainActivity : ThemedActivity() {
             voiceService.stopListening()
         }
         refreshVoiceButtonLabel()
+    }
+
+    private fun showToolsAndSettingsMenu() {
+        val labels = arrayOf("Settings", "Projects", "Device tools", "System status and updates",
+            "Terminal", "Activity log", "Permissions", "Device administration", "Diagnostics")
+        val menu = androidx.appcompat.widget.PopupMenu(this, settingsButton)
+        labels.forEachIndexed { index, label -> menu.menu.add(0, index, index, label) }
+        menu.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                0 -> openVoiceSettings()
+                labels.lastIndex -> showVoiceDiagnostics()
+                else -> showTab(item.itemId, animate = true, direction = 1)
+            }
+            true
+        }
+        menu.show()
     }
 
     private fun openVoiceSettings() {

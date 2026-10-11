@@ -143,4 +143,5 @@
     <string name="ui_advanced_voice">Advanced options</string>
     <string name="ui_hide_advanced_voice">Hide advanced options</string>
     <string name="ui_command_examples">Command examples</string>
+    <string name="ui_tools_and_settings">Tools and settings</string>
 </resources>
