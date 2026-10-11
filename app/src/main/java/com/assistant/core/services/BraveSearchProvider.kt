@@ -36,7 +36,7 @@ class BraveSearchProvider(private val apiKey: String) {
             return (0 until minOf(items.length(), 5)).mapNotNull { index ->
                 val item = items.optJSONObject(index) ?: return@mapNotNull null
                 val url = item.optString("url")
-                if (!url.startsWith("https://")) return@mapNotNull null
+                if (!ChatSearchResults.safeUrl(url)) return@mapNotNull null
                 val title = item.optString("title").trim()
                 if (title.isBlank()) return@mapNotNull null
                 Result(title.take(250), item.optString("description").trim().take(700), url)
