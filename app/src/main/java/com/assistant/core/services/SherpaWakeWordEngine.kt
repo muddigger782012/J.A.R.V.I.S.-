@@ -29,6 +29,9 @@ class SherpaWakeWordEngine(
     }
 
     @Volatile private var running = false
+    private fun stage(value: String) {
+        runCatching { java.io.File(context.filesDir, "wake-stage.txt").writeText(value) }
+    }
     private var recorder: AudioRecord? = null
     private var worker: Thread? = null
     private var spotter: KeywordSpotter? = null
@@ -73,13 +76,17 @@ class SherpaWakeWordEngine(
                 keywordsThreshold = thresholdFor(sensitivity),
                 numTrailingBlanks = 2
             )
+            stage("sherpa-before-native-model")
             val kws = KeywordSpotter(assetManager = context.assets, config = config)
+            stage("sherpa-after-native-model")
             val phrase = wakePhrase.trim().ifBlank { "hey jarvis" }
             // Do not load the model's bundled generic keyword list in addition
             // to the configured wake phrase. This stream should react only to
             // the user's JARVIS wake phrase.
             // The generated keywords file contains BPE pieces; plain English is invalid here.
+            stage("sherpa-before-stream")
             val onlineStream = kws.createStream()
+            stage("sherpa-after-stream")
             if (onlineStream.ptr == 0L) {
                 kws.release()
                 onStatus("Sherpa could not create a stream for '$phrase'.")
@@ -110,6 +117,7 @@ class SherpaWakeWordEngine(
             stream = onlineStream
             recorder = audio
             running = true
+            stage("sherpa-before-mic-start")
             audio.startRecording()
             if (audio.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
                 audio.release(); onlineStream.release(); kws.release()
@@ -117,6 +125,7 @@ class SherpaWakeWordEngine(
                 onStatus("Sherpa microphone did not enter recording state.")
                 return false
             }
+            stage("sherpa-mic-recording")
             onStatus("Sherpa microphone active at 16 kHz; listening for '$phrase'.")
             worker = thread(start = true, isDaemon = true, name = "jarvis-sherpa-kws") {
                 processAudio(kws, onlineStream, audio)
@@ -149,6 +158,7 @@ class SherpaWakeWordEngine(
         var lastReportAt = System.currentTimeMillis()
         try {
             while (running) {
+                if (chunks == 0) stage("sherpa-worker-before-read")
                 val n = audio.read(buffer, 0, buffer.size)
                 if (n < 0) {
                     onStatus("Sherpa microphone read failed ($n).")
@@ -165,15 +175,20 @@ class SherpaWakeWordEngine(
                 val now = System.currentTimeMillis()
                 if (now - lastReportAt >= 3000L) {
                     val pct = (peakSinceReport * 100 / 32767).coerceIn(0, 100)
+                    stage("sherpa-audio-running-peak-$pct")
                     onStatus("Sherpa audio active: peak $pct%, chunks $chunks; waiting for '$wakePhrase'.")
                     peakSinceReport = 0
                     chunks = 0
                     lastReportAt = now
                 }
                 val samples = FloatArray(n) { buffer[it] / 32768.0f }
+                if (chunks == 1) stage("sherpa-worker-before-accept")
                 onlineStream.acceptWaveform(samples, SAMPLE_RATE)
+                if (chunks == 1) stage("sherpa-worker-after-accept")
                 while (running && kws.isReady(onlineStream)) {
+                    if (chunks == 1) stage("sherpa-worker-before-decode")
                     kws.decode(onlineStream)
+                    if (chunks == 1) stage("sherpa-worker-after-decode")
                     val keyword = kws.getResult(onlineStream).keyword
                     if (keyword.isNotBlank()) {
                         onStatus("Sherpa detected keyword '$keyword'.")
