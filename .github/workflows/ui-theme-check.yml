@@ -1,0 +1,24 @@
+name: UI theme contract
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - 'app/src/main/**'
+      - 'scripts/check_ui_theme.py'
+      - 'scripts/ui_theme_baseline.json'
+      - '.github/workflows/ui-theme-check.yml'
+      - 'AGENTS.md'
+      - 'docs/UI_THEMING.md'
+permissions:
+  contents: read
+jobs:
+  theme:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reject new theme bypasses
+        run: python3 scripts/check_ui_theme.py
