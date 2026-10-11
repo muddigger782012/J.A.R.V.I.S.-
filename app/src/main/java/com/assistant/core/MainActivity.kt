@@ -1423,14 +1423,14 @@ class MainActivity : ThemedActivity() {
                 setPadding(0, 0, 0, dp(6))
             })
             card.addView(TextView(this).apply {
-                text = when { user -> line.removePrefix("You:").trimStart(); assistant -> line.removePrefix("J.A.R.V.I.S.:").trimStart(); else -> line }
+                text = when { user -> line.removePrefix("You:").trimStart(); assistant -> line.removePrefix("J.A.R.V.I.S.:").trimStart().substringBefore("\nhttps://www.google.com/search?"); else -> line }
                 textSize = if (user || assistant) 16f else 12f
                 setTextColor(ThemePreferences.color(this@MainActivity, if (user || assistant) R.color.jarvis_on_dark else R.color.jarvis_on_dark_muted))
                 setLineSpacing(dp(4).toFloat(), 1f)
                 setTextIsSelectable(true)
             })
             if (assistant) {
-                val searchUrl = Regex("""https://www\\.google\\.com/search\\?[^\\s<>]+""").find(line)?.value
+                val searchUrl = Regex("""https://www\.google\.com/search\?[^\s<>]+""").find(line)?.value
                 if (searchUrl != null) {
                     val parsed = android.net.Uri.parse(searchUrl)
                     val query = parsed.getQueryParameter("q")
