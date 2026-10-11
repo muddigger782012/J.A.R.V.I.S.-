@@ -118,6 +118,13 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
+        if (normalized == "list routines" || normalized == "show routines") {
+            val routines = routineRegistry.listSummaries()
+            val response = if (routines.isEmpty()) "No approved routines are stored on this device."
+                else "Approved routines (showing up to 10):\\n${routines.joinToString("\\n")}"
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
         if (normalized == "routine status") {
             val response = "Approved routines on this device: ${routineRegistry.count()}."
             remember(userInput, response)
