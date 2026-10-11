@@ -37,7 +37,7 @@ data class ContextualAction(val capabilityId: String, val parameters: Map<String
             memory.lastConfirmed("open_app")?.let { recent.put("open_app", JSONObject().put("label", it.parameters.getValue("label"))) }
             return JSONObject().put("preferred_apps", preferred).put("confirmed_actions", recent)
                 .put("capabilities", JSONArray(listOf("DEVICE_SETTING: media_volume direction up/down", "SET_TIMER: seconds 1..86400",
-                    "OPEN_APP: app_name", "OPEN_PREFERRED_APP: slot browser/maps/music", "REPEAT_ACTION: kind timer/open_app"))).toString()
+                    "OPEN_APP: app_name", "OPEN_PREFERRED_APP: slot browser/maps/music", "REPEAT_ACTION: kind timer/open_app", "SET_APP_PREFERENCE: slot browser/maps/music and app_name"))).toString()
         }
     }
 }

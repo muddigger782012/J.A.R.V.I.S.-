@@ -134,11 +134,6 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
-        if (DeviceLearningSession.isOutcome(userInput)) {
-            val response = "No timer or app request is awaiting outcome confirmation. Run the action first, then report 'it worked' or 'it failed'. Nothing was added to memory."
-            remember(userInput, response)
-            return HybridAssistantReply(response)
-        }
         val deviceMemory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
         fun previousAction(kind: String) = deviceMemory.latestParameterized(kind)?.let { LearnableDeviceAction(it.capabilityId, it.parameters) }?.takeIf { it.isValid() }
         assistantMemory.seedRecentOnce(previousAction("timer"), previousAction("open_app"))
@@ -148,12 +143,25 @@ class HybridAssistantService(
                 pending.slot == "clear" -> if (assistantMemory.clear()) "Cleared saved assistant preferences and recent-action context on this device." else "Could not clear assistant memory."
                 pending.action != null -> {
                     val action = pending.action
-                    val installed = androidAssistant.resolveLearnableApp(action.parameters.getValue("label"))?.first == action.parameters.getValue("package")
-                    if (installed && assistantMemory.savePreference(pending.slot, action)) "Remembered ${action.parameters["label"]} as your preferred ${pending.slot} in J.A.R.V.I.S."
-                    else "Could not save that preference. Check that the app is still installed with a unique launcher name."
+                    val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
+                    val outcome = PreferenceLearning.commit(pending, prefs.getBoolean("automatic_command_learning", true),
+                        installed = { androidAssistant.resolveLearnableApp(it.parameters.getValue("label"))?.first == it.parameters.getValue("package") },
+                        save = assistantMemory::savePreference, read = assistantMemory::preferred,
+                        record = { phrase, preference -> deviceMemory.recordSuccess(phrase, LearnablePreference.CAPABILITY, LearnablePreference.capabilities, preference.parameters()) })
+                    when {
+                        !outcome.saved -> "Could not verify that preference was saved. Check that the app is still installed with a unique launcher name. No phrase was learned."
+                        outcome.learned -> "Remembered ${action.parameters["label"]} as your preferred ${pending.slot} in J.A.R.V.I.S. Saved and verified. Learned your original phrase for offline reuse."
+                        else -> "Remembered ${action.parameters["label"]} as your preferred ${pending.slot} in J.A.R.V.I.S." +
+                            if (pending.learningPhrase != null) " The preference was saved and verified, but the phrase was not learned; learning may be disabled or the phrase may conflict." else ""
+                    }
                 }
                 else -> "No valid preference was awaiting approval."
             }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (DeviceLearningSession.isOutcome(userInput)) {
+            val response = "No timer or app request is awaiting outcome confirmation. Run the action first, then report 'it worked' or 'it failed'. Nothing was added to memory."
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -197,6 +205,13 @@ class HybridAssistantService(
                 action == null -> "No confirmed ${if (kind == "timer") "timer" else "app launch"} is saved yet. Complete an action and confirm 'it worked' first."
                 else -> requestContextAction(userInput, action, "using your last confirmed ${if (kind == "timer") "timer" else "app"}")
             }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        deviceMemory.match(userInput, LearnablePreference.capabilities)?.let { learned ->
+            val preference = LearnablePreference.fromParameters(learned.parameters)
+            val response = if (preference == null) "That learned preference command is invalid. Nothing was changed."
+                else proposePreference(preference)
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -828,6 +843,11 @@ class HybridAssistantService(
 
     private fun proposeFallbackDeviceAction(userText: String, lessonJson: String?): String? {
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson) ?: return null
+        if (lesson.intent == "SET_APP_PREFERENCE") {
+            val preference = LearnablePreference.fromLesson(lesson, androidAssistant::resolveLearnableApp)
+                ?: return "I couldn't safely match that preference to one installed app. Specify browser, maps or music and the app's exact launcher name. No preference was saved."
+            return proposePreference(preference, userText.takeIf { lesson.canTeachLocally() })
+        }
         if (lesson.intent in setOf("OPEN_PREFERRED_APP", "REPEAT_ACTION")) {
             val reference = ContextualAction.fromLesson(lesson)
                 ?: return "I couldn't safely interpret that saved-context reference. Specify which preferred app or confirmed timer/app you mean. Nothing was changed or learned."
@@ -843,6 +863,14 @@ class HybridAssistantService(
         if (!deviceLearningSession.propose(DeviceLearningSession.Pending(userText, action, lesson.canTeachLocally())))
             return "I couldn't retain this action for confirmation. Nothing was changed or learned."
         return "Would you like me to ${action.description()}? Say yes to confirm or no to cancel."
+    }
+
+    private fun proposePreference(preference: LearnablePreference, learningPhrase: String? = null): String {
+        if (!preference.isValid() || androidAssistant.resolveLearnableApp(preference.action.parameters.getValue("label"))?.first != preference.action.parameters.getValue("package"))
+            return "I couldn't find that uniquely named installed app. No preference was changed."
+        if (!preferenceConfirmations.propose(preference.slot, preference.action, learningPhrase))
+            return "I couldn't retain this preference for confirmation. Nothing was saved or learned."
+        return "Would you like me to remember ${preference.action.parameters["label"]} as your preferred ${preference.slot} in J.A.R.V.I.S.? This changes J.A.R.V.I.S.'s preference only. Say yes to confirm or no to cancel."
     }
 
     private fun requestDeviceAction(action: LearnableDeviceAction): Boolean = runCatching {

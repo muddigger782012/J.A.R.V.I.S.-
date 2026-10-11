@@ -57,6 +57,22 @@ class GatewayTests(unittest.TestCase):
             self.assertIn('Chrome', instructions)
             self.assertIn('REPEAT_ACTION', instructions)
 
+    def test_preference_proposal_does_not_require_existing_context(self):
+        self.body['messages'][0]['content'] = 'Chrome should be my go-to browser'
+        self.body['learn_intent'] = True
+        create = AsyncMock(return_value=SimpleNamespace(output_text='{"reply":"Please confirm", "lesson":{"intent":"SET_APP_PREFERENCE", "confidence":0.95,"entities":{"slot":"browser","app_name":"Chrome"},"learnable":true}}'))
+        manager = MagicMock()
+        manager.__aenter__ = AsyncMock(return_value=SimpleNamespace(responses=SimpleNamespace(create=create)))
+        manager.__aexit__ = AsyncMock(return_value=False)
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'}), patch('main.AsyncOpenAI', return_value=manager):
+            response = self.client.post('/chat', json=self.body, headers={'Authorization': 'Bearer test-token'})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()['lesson']['intent'], 'SET_APP_PREFERENCE')
+            instructions = create.call_args.kwargs['instructions']
+            self.assertIn('An existing preference is not required', instructions)
+            self.assertIn('durable save/readback', instructions)
+            self.assertIn('Android system defaults', instructions)
+
     def test_oversized_context_is_rejected_before_provider_request(self):
         self.body['messages'][0]['content'] = 'launch my usual browser'
         self.body['learn_intent'] = True

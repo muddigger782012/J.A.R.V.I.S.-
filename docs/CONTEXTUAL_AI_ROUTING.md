@@ -8,6 +8,14 @@ The host binds a proposal to an actual saved action. Yes requests that action; o
 
 Learned contextual aliases retain a reference, not a frozen target. After a browser preference change, `launch my usual browser` resolves to the new browser offline. Clearing the underlying preference makes the reference unavailable. Existing command-memory deletion and conflict checks apply.
 
-Unmatched `open ...` requests now reach online interpretation. Installed-app resolution remains unique and exact before a proposal executes. Preference-setting requests still use local approved handlers; AI-generated preference mutation is outside this release.
+Unmatched `open ...` requests now reach online interpretation. Installed-app resolution remains unique and exact before a proposal executes. AI can also propose SET_APP_PREFERENCE with exactly slot (browser/maps/music) and app_name. The host binds one uniquely named installed app, then asks approval through its local preference handler. This changes JARVIS memory only, not Android system defaults. No AI reply can directly mutate memory.
 
 Gateway users must deploy the updated backend to interpret the new context. Existing gateways can ignore the additional request field without affecting prior intents. Phone verification is separate from CI unit/build checks.
+
+## Verified preference learning
+
+A preference proposal may retain the original phrase. On yes, the host rechecks the installed package, commits the preference and reads it back. Only a matching readback permits alias storage, and automatic command learning must be enabled. Saved preference and learned phrase are separate outcomes: alias write failure or a phrase conflict does not undo an approved successful preference change. Cancellation, expiry, unrelated input and missing/ambiguous apps never train a phrase.
+
+A preference-setting alias stores the explicit target slot/package/label. Offline reuse rechecks the app and asks yes/no again before changing the preference. It does not open the app or change Android defaults. Opening contextual aliases continue to resolve the current preference dynamically. Bare confirmations and result reports cannot become aliases.
+
+Phone verification of these new preference proposals is pending separately from source/build checks.
