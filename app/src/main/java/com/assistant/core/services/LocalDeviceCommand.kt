@@ -10,6 +10,17 @@ import java.util.Locale
 object LocalDeviceCommand {
     enum class Action { UPDATE_APP, VOLUME_UP, VOLUME_DOWN }
 
+    /** Teaching an existing updater alias must never be mistaken for creating a new action. */
+    fun isUpdaterTeaching(input: String): Boolean {
+        val phrase = input.lowercase(Locale.ROOT).trim().replace(Regex("[?.!]+$"), "")
+            .replace(Regex("\\s+"), " ")
+        return phrase.matches(Regex(
+            "^teach (?:jarvis )?(?:that )?update (?:the )?app (?:means|is the same as) " +
+                "(?:use|run|open|start) the (?:(?:upgrade|update) app function (?:built )?in (?:the )?app|" +
+                "built[- ]in app (?:update|upgrade) feature)$"
+        ))
+    }
+
     fun parse(input: String): Action? {
         val phrase = input.lowercase(Locale.ROOT)
             .replace(Regex("[?.!,]+$"), "")
