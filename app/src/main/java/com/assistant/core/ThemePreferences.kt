@@ -7,11 +7,11 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 
 object ThemePreferences {
-    val ids = listOf("default", "stark", "cybertron", "default_alternative", "stark_alternative", "cybertron_alternative", "aurora", "sunset", "glacier", "emerald", "royal")
-    val names = listOf("Default", "Stark", "Cybertron", "Default Alternative", "Stark Alternative", "Cybertron Alternative", "Aurora", "Sunset", "Glacier", "Emerald", "Royal")
+    val ids = listOf("default", "stark", "cybertron", "default_alternative", "stark_alternative", "cybertron_alternative", "aurora", "sunset", "glacier", "emerald", "royal", "hacker")
+    val names = listOf("Default", "Stark", "Cybertron", "Default Alternative", "Stark Alternative", "Cybertron Alternative", "Aurora", "Sunset", "Glacier", "Emerald", "Royal", "Hacker")
     fun label(theme: String): String = names[ids.indexOf(theme).coerceAtLeast(0)]
     fun baseTheme(context: Context): String = selected(context).let {
-        if (it in listOf("aurora", "sunset", "glacier", "emerald", "royal")) "stark"
+        if (it in listOf("aurora", "sunset", "glacier", "emerald", "royal", "hacker")) "stark"
         else it.removeSuffix("_alternative")
     }
     fun selected(context: Context): String = context.getSharedPreferences("jarvis_appearance", Context.MODE_PRIVATE)
@@ -28,6 +28,7 @@ object ThemePreferences {
         "sunset" -> R.style.Theme_AssistantPlatform_Sunset
         "glacier" -> R.style.Theme_AssistantPlatform_Glacier
         "emerald" -> R.style.Theme_AssistantPlatform_Emerald
+        "hacker" -> R.style.Theme_AssistantPlatform_Hacker
         "royal" -> R.style.Theme_AssistantPlatform_Royal
         "stark" -> R.style.Theme_AssistantPlatform_Stark
         "cybertron" -> R.style.Theme_AssistantPlatform_Cybertron

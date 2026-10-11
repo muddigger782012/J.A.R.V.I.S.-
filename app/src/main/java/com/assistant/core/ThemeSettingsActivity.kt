@@ -18,7 +18,8 @@ class ThemeSettingsActivity : ThemedActivity() {
             R.id.btnThemeSunset to "sunset",
             R.id.btnThemeGlacier to "glacier",
             R.id.btnThemeEmerald to "emerald",
-            R.id.btnThemeRoyal to "royal"
+            R.id.btnThemeRoyal to "royal",
+            R.id.btnThemeHacker to "hacker"
         )
         options.forEach { (id, name) ->
             findViewById<Button>(id).apply {

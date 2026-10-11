@@ -251,4 +251,31 @@
         <item name="buttonStyle">@style/Widget.AssistantPlatform.GradientButton</item>
         <item name="materialButtonStyle">@style/Widget.AssistantPlatform.GradientButton</item>
     </style>
+    <style name="Theme.AssistantPlatform.Hacker" parent="Theme.AssistantPlatform.StarkAlternative">
+        <item name="jarvis_bg_deep">#000000</item>
+        <item name="jarvis_bg_start">#000000</item>
+        <item name="jarvis_bg_end">#000000</item>
+        <item name="jarvis_gradient_center">#000000</item>
+        <item name="jarvis_primary">#66FF88</item>
+        <item name="jarvis_primary_variant">#22A84A</item>
+        <item name="jarvis_secondary">#9CFFB2</item>
+        <item name="jarvis_secondary_variant">#278B43</item>
+        <item name="jarvis_neon_green">#66FF88</item>
+        <item name="jarvis_neon_green_soft">#226838</item>
+        <item name="jarvis_on_dark">#EEFFF1</item>
+        <item name="jarvis_on_dark_muted">#9EBAA5</item>
+        <item name="jarvis_surface_glass">#C008100A</item>
+        <item name="jarvis_surface_glass_strong">#E00B170E</item>
+        <item name="jarvis_surface_stroke">#8053D977</item>
+        <item name="jarvis_input_fill">#F0050B07</item>
+        <item name="jarvis_output_surface">#ED050A06</item>
+        <item name="jarvis_button_fill">#D0102C17</item>
+        <item name="jarvis_button_fill_pressed">#E01C4828</item>
+        <item name="jarvis_pulse_tint">#1866FF88</item>
+        <item name="jarvis_scan_tint">#8066FF88</item>
+        <item name="jarvis_panel_stroke">#6653D977</item>
+        <item name="jarvis_background">@drawable/bg_hacker</item>
+        <item name="buttonStyle">@style/Widget.AssistantPlatform.HackerButton</item>
+        <item name="materialButtonStyle">@style/Widget.AssistantPlatform.HackerButton</item>
+    </style>
 </resources>

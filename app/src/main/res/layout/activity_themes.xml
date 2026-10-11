@@ -58,4 +58,11 @@
 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Midnight indigo, purple, and warm gold." android:textColor="?attr/jarvis_on_dark" android:layout_marginTop="12dp" android:textSize="14sp" />
 <Button android:id="@+id/btnThemeRoyal" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Royal" android:layout_marginTop="8dp" />
 </LinearLayout>
+
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Black theme" android:textSize="20sp" android:textStyle="bold" android:textColor="?attr/jarvis_on_dark" android:layout_marginTop="24dp" />
+<LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="14dp" android:layout_marginTop="18dp" android:background="@drawable/chat_bubble_assistant">
+<View android:layout_width="match_parent" android:layout_height="54dp" android:importantForAccessibility="no" android:background="@drawable/preview_hacker" />
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="True black background, dark panels, and terminal-green accents." android:textColor="?attr/jarvis_on_dark" android:layout_marginTop="12dp" android:textSize="14sp" />
+<Button android:id="@+id/btnThemeHacker" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Hacker" android:layout_marginTop="8dp" />
+</LinearLayout>
 </LinearLayout></ScrollView>

@@ -46,4 +46,8 @@
         <item name="android:background">@drawable/gradient_button_bg</item>
         <item name="backgroundTint">@null</item>
     </style>
+    <style name="Widget.AssistantPlatform.HackerButton" parent="Widget.AssistantPlatform.Button">
+        <item name="android:background">@drawable/hacker_button_bg</item>
+        <item name="backgroundTint">@null</item>
+    </style>
 </resources>
