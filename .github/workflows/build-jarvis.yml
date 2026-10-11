@@ -71,6 +71,29 @@ jobs:
           fi
           find app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01 -maxdepth 1 -type f -printf '%f\n'
           test -f app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/tokens.txt
+          # The mobile archive uses quantized model filenames, not the FP32
+          # filenames hardcoded by the upstream getKwsModelConfig helper.
+          ls -lh app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/*onnx
+          python3 -m pip install --quiet sentencepiece
+          python3 - <<'PY'
+          from pathlib import Path
+          import sentencepiece as spm
+          d = Path("app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01")
+          model = d / "bpe.model"
+          if not model.is_file():
+              raise SystemExit("English KWS BPE tokenizer is missing: " + str(model))
+          sp = spm.SentencePieceProcessor(model_file=str(model))
+          pieces = sp.encode("HEY JARVIS", out_type=str)
+          valid = {line.rsplit(" ", 1)[0] for line in (d / "tokens.txt").read_text().splitlines() if line.strip()}
+          if not pieces or any(piece not in valid for piece in pieces):
+              raise SystemExit("HEY JARVIS cannot be represented by the model's token vocabulary: " + repr(pieces))
+          keyword = " ".join(pieces) + " @HEY_JARVIS\\n"
+          (d / "jarvis-keywords.txt").write_text(keyword)
+          print("Generated Sherpa wake tokens:", keyword.strip())
+          for prefix in ("encoder-", "decoder-", "joiner-"):
+              if not any(p.name.startswith(prefix) and p.name.endswith(".onnx") for p in d.iterdir()):
+                  raise SystemExit("Missing " + prefix + " ONNX model")
+          PY
       - name: Compile versioned release APK
         if: steps.signing.outputs.configured == 'true'
         env:
