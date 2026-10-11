@@ -538,7 +538,7 @@ class HybridAssistantService(
 
         // Image requests should open real image results rather than receive a
         // misleading text-only fallback claiming that pictures are impossible.
-        WebSearchCommand.imageQuery(userInput)?.let { query ->
+        WebSearchCommand.imageQueryNatural(userInput)?.let { query ->
             val launched = runCatching {
                 val url = android.net.Uri.parse("https://www.google.com/search")
                     .buildUpon()
