@@ -1436,7 +1436,7 @@ class MainActivity : ThemedActivity() {
                 if (searchUrl != null) {
                     val parsed = android.net.Uri.parse(searchUrl)
                     val query = parsed.getQueryParameter("q")
-                    if (!query.isNullOrBlank()) {
+                    if (!query.isNullOrBlank() && parsed.scheme == "https" && parsed.host == "www.google.com" && parsed.path == "/search") {
                         val imageSearch = parsed.getQueryParameter("tbm") == "isch"
                         val openSearch = TextView(this).apply {
                             text = (if (imageSearch) "IMAGE SEARCH" else "WEB SEARCH") + "\n" + query + "\nTap to view results  ↗"
