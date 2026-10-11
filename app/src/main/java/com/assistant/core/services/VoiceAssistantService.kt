@@ -42,6 +42,7 @@ class VoiceAssistantService(
     private val mainHandler = Handler(Looper.getMainLooper())
     private var mode: RecognitionMode = RecognitionMode.FALLBACK_SPEECH_HOTWORD
     private var voiceActive = false
+    private var commandFromWake = false
     private var listeningWithSpeechRecognizer = false
     private var speechRecognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech = TextToSpeech(context, this)
@@ -84,6 +85,7 @@ class VoiceAssistantService(
     }
 
     fun startPushToTalk() {
+        commandFromWake = false
         voiceActive = true
         fallbackErrorStreak = 0
         if (currentHotwordEngine == HotwordEngine.DEDICATED_OFFLINE) stopDedicatedWakeWordEngine()
@@ -91,6 +93,7 @@ class VoiceAssistantService(
     }
 
     fun startHotwordLoop() {
+        commandFromWake = false
         voiceActive = true
         mode = RecognitionMode.FALLBACK_SPEECH_HOTWORD
         mainHandler.removeCallbacksAndMessages(null)
@@ -202,13 +205,15 @@ class VoiceAssistantService(
         when (mode) {
             RecognitionMode.FALLBACK_SPEECH_HOTWORD -> scheduleFallbackAfterError(error)
             RecognitionMode.COMMAND -> {
+                val wasWake = commandFromWake
+                if (wasWake) commandFromWake = false
                 when (error) {
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
                     SpeechRecognizer.ERROR_NO_MATCH -> {
                         onStatus("No speech detected. Push-to-talk ended.")
                         // A silent push-to-talk session is a normal outcome.
                         // Do not launch/re-arm the background wake engine here.
-                        mode = RecognitionMode.FALLBACK_SPEECH_HOTWORD
+                        if (wasWake) resumeHotwordEngineAfterCommand() else mode = RecognitionMode.FALLBACK_SPEECH_HOTWORD
                     }
                     else -> {
                         onStatus("Command capture error ($error). Push-to-talk ended.")
@@ -277,6 +282,7 @@ class VoiceAssistantService(
 
     private fun onWakeWordDetected() {
         if (!voiceActive) return
+        commandFromWake = true
         fallbackErrorStreak = 0
         lastWakeEngineUsed = currentHotwordEngine
         onHotwordDetected()
@@ -306,6 +312,13 @@ class VoiceAssistantService(
         } else {
             fallbackErrorStreak = 0
             scheduleFallbackHotwordListening(6000)
+        }
+    }
+
+    fun rearmAfterResponse() {
+        if (commandFromWake && voiceActive) {
+            commandFromWake = false
+            resumeHotwordEngineAfterCommand()
         }
     }
 
