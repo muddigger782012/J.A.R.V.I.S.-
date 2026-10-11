@@ -17,6 +17,16 @@ jobs:
           cache: gradle
       - uses: android-actions/setup-android@v4
       - run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
+      - name: Restore sherpa-onnx AAR required by Gradle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/libs
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output app/libs/sherpa-onnx-1.13.8.aar \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
+          test -s app/libs/sherpa-onnx-1.13.8.aar
+          unzip -tq app/libs/sherpa-onnx-1.13.8.aar
       - run: bash gradlew --no-daemon testDebugUnitTest assembleDebug
       - uses: actions/upload-artifact@v4
         with:
