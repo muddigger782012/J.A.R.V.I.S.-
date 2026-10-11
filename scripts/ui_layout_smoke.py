@@ -30,6 +30,21 @@ def tap(identifier):
     raise AssertionError(f'{identifier} missing from visible UI')
 
 
+
+def tap_scrolling(identifier, attempts=6):
+    for attempt in range(attempts):
+        nodes = list(hierarchy().iter('node'))
+        target = next((n for n in nodes if n.get('resource-id') == 'com.assistant.core:id/' + identifier), None)
+        if target is not None:
+            bounds = list(map(int, re.findall(r'\\d+', target.get('bounds', ''))))
+            if len(bounds) == 4 and bounds[2] > bounds[0] and bounds[3] > bounds[1]:
+                adb('shell', 'input', 'tap', str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
+                time.sleep(1)
+                return
+        adb('shell', 'input', 'swipe', '500', '1350', '500', '420', '300')
+        time.sleep(1)
+    raise AssertionError(f'{identifier} missing after scrolling')
+
 def capture(name):
     print('Screenshot: ' + name, flush=True)
     raw = subprocess.check_output(['adb', 'exec-out', 'screencap', '-p'], timeout=45)
@@ -97,7 +112,7 @@ try:
         if name == 'Cybertron':
             adb('shell', 'input', 'swipe', '500', '1500', '500', '500', '350')
             time.sleep(1)
-        tap('btnTheme' + name)
+        tap_scrolling('btnTheme' + name)
         assert any(n.get('text') in (name + ' • Active', 'Current theme: ' + name) for n in hierarchy().iter('node')), 'Theme not applied'
         capture('theme-picker-' + name.lower())
         adb('shell', 'input', 'keyevent', '4')
