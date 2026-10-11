@@ -5,6 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 import com.assistant.core.services.ConfirmationWords
+import com.assistant.core.services.DeviceLearningSession
 
 /**
  * Persistent, opt-in command phrase learning. This class never executes a command:
@@ -25,7 +26,7 @@ class ValidatedCommandMemory internal constructor(
     )
     private val maxEntries = 500
 
-    data class Match(val capabilityId: String, val confidence: Double)
+    data class Match(val capabilityId: String, val confidence: Double, val parameters: Map<String, String> = emptyMap())
 
     private fun normalize(value: String): String =
         value.lowercase(Locale.ROOT).trim().trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
@@ -33,7 +34,7 @@ class ValidatedCommandMemory internal constructor(
     fun match(utterance: String, allowedCapabilityIds: Set<String>): Match? = synchronized(lock) {
         val key = normalize(utterance)
         // Older builds could incorrectly retain the approval instead of its request.
-        if (key.isBlank() || ConfirmationWords.isConfirmation(utterance)) return@synchronized null
+        if (key.isBlank() || ConfirmationWords.isConfirmation(utterance) || DeviceLearningSession.isOutcome(utterance)) return@synchronized null
         val entries = readEntries()
         val found = (0 until entries.length()).mapNotNull { i ->
             entries.optJSONObject(i)?.takeIf {
@@ -41,14 +42,18 @@ class ValidatedCommandMemory internal constructor(
                     it.optString("capabilityId") in allowedCapabilityIds
             }
         }.maxByOrNull { it.optInt("successes", 0) }
-        found?.let { Match(it.getString("capabilityId"), 1.0) }
+        found?.let {
+            val params = it.optJSONObject("parameters")
+            Match(it.getString("capabilityId"), 1.0, params?.keys()?.asSequence()?.associateWith { key -> params.getString(key) } ?: emptyMap())
+        }
     }
 
     /** Call only after the action succeeds and learning consent is enabled. */
-    fun recordSuccess(utterance: String, capabilityId: String, allowedCapabilityIds: Set<String>): Boolean =
+    fun recordSuccess(utterance: String, capabilityId: String, allowedCapabilityIds: Set<String>, parameters: Map<String, String> = emptyMap()): Boolean =
         synchronized(lock) {
             val phrase = normalize(utterance)
-            if (phrase.isBlank() || phrase.length > 240 || ConfirmationWords.isConfirmation(utterance) || capabilityId !in allowedCapabilityIds) return@synchronized false
+            if (phrase.isBlank() || phrase.length > 240 || ConfirmationWords.isConfirmation(utterance) || DeviceLearningSession.isOutcome(utterance) || capabilityId !in allowedCapabilityIds) return@synchronized false
+            if (parameters.size > 12 || parameters.any { it.key.length > 64 || it.value.length > 256 }) return@synchronized false
             val existing = readEntries()
             val output = JSONArray()
             var successes = 1
@@ -56,10 +61,13 @@ class ValidatedCommandMemory internal constructor(
                 val item = existing.optJSONObject(i) ?: continue
                 if (normalize(item.optString("phrase")) == phrase) {
                     if (item.optString("capabilityId") != capabilityId) return@synchronized false
+                    val previous = item.optJSONObject("parameters")
+                    val previousMap = previous?.keys()?.asSequence()?.associateWith { previous.getString(it) } ?: emptyMap()
+                    if (previousMap != parameters) return@synchronized false
                     successes = item.optInt("successes", 1) + 1
                 } else output.put(item)
             }
-            output.put(JSONObject().put("phrase", phrase).put("capabilityId", capabilityId).put("successes", successes))
+            output.put(JSONObject().put("phrase", phrase).put("capabilityId", capabilityId).put("parameters", JSONObject(parameters)).put("successes", successes))
             while (output.length() > maxEntries) output.remove(0)
             write(output.toString())
         }
