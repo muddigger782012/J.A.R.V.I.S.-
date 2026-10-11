@@ -1014,26 +1014,65 @@ class MainActivity : ThemedActivity() {
     private fun showComposerMenu() {
         if (attachmentBusy) { attachmentNotice("Wait for the attachment request to finish."); return }
         if (liveChatStarted) { attachmentNotice("End live chat to attach files."); return }
-        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
+        fun themeColor(attr: Int): Int {
+            val value = android.util.TypedValue()
+            theme.resolveAttribute(attr, value, true)
+            return if (value.resourceId != 0) ContextCompat.getColor(this, value.resourceId) else value.data
+        }
+        val corner = android.util.TypedValue().also { theme.resolveAttribute(R.attr.jarvis_corner, it, true) }
+            .getDimension(resources.displayMetrics)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(24, 20, 24, 28)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(ColorUtils.compositeColors(themeColor(R.attr.jarvis_surface_glass_strong), themeColor(R.attr.jarvis_bg_deep)))
+                cornerRadius = corner
+                setStroke(dp(1), themeColor(R.attr.jarvis_panel_stroke))
+            }
+            clipToOutline = true
         }
-        panel.addView(TextView(this).apply { text = "Add to your message"; textSize = 20f; setPadding(12, 8, 12, 16) })
-        fun option(label: String, action: () -> Unit) {
-            panel.addView(Button(this).apply {
-                text = label
+        val anchor = findViewById<View>(R.id.btnComposerTools)
+        val visibleFrame = Rect().also { anchor.getWindowVisibleDisplayFrame(it) }
+        val menuWidth = minOf(dp(280), (visibleFrame.width() - dp(24)).coerceAtLeast(dp(160)))
+        val popup = android.widget.PopupWindow(panel, menuWidth, ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+            isOutsideTouchable = true
+            elevation = dp(10).toFloat()
+            inputMethodMode = android.widget.PopupWindow.INPUT_METHOD_NOT_NEEDED
+        }
+        fun option(label: String, icon: Int, action: () -> Unit) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(dp(12), 0, dp(12), 0)
+                val selectable = android.util.TypedValue()
+                theme.resolveAttribute(android.R.attr.selectableItemBackground, selectable, true)
+                setBackgroundResource(selectable.resourceId)
+                isFocusable = true
                 contentDescription = label
-                setOnClickListener { dialog.dismiss(); runCatching(action).onFailure { attachmentNotice("This option couldn't open on your device.") } }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                setOnClickListener { popup.dismiss(); runCatching(action).onFailure { attachmentNotice("This option couldn't open on your device.") } }
+            }
+            row.addView(android.widget.ImageView(this).apply {
+                setImageResource(icon)
+                imageTintList = android.content.res.ColorStateList.valueOf(themeColor(R.attr.jarvis_primary))
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginEnd = dp(14) })
+            row.addView(TextView(this).apply {
+                text = label
+                textSize = 16f
+                setTextColor(themeColor(R.attr.jarvis_on_dark))
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            panel.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
         }
-        option("Camera • Take a photo") {
+        option("Camera", android.R.drawable.ic_menu_camera) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) captureAttachmentPhoto()
             else cameraPermission.launch(Manifest.permission.CAMERA)
         }
-        option("Photos • Choose images") { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
-        option("Files • PDF, text, CSV and code") { filePicker.launch(arrayOf("application/pdf", "text/*", "image/*", "application/json", "application/xml")) }
-        option("Search the web") {
+        option("Photos", android.R.drawable.ic_menu_gallery) { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+        option("Files", android.R.drawable.ic_menu_upload) { filePicker.launch(arrayOf("application/pdf", "text/*", "image/*", "application/json", "application/xml")) }
+        option("Search the web", android.R.drawable.ic_menu_search) {
             val input = EditText(this).apply { hint = "Search query"; setText(commandInput.text) }
             AlertDialog.Builder(this).setTitle("Search the web").setView(input).setPositiveButton("Search") { _, _ ->
                 val query = input.text.toString().trim()
@@ -1041,14 +1080,8 @@ class MainActivity : ThemedActivity() {
                     .onFailure { attachmentNotice("No browser is available.") }
             }.setNegativeButton("Cancel", null).show()
         }
-        option("Device tools") { findViewById<Button>(R.id.btnOpenTools).performClick() }
-        option("AI and voice settings") { openVoiceSettings() }
-        panel.addView(TextView(this).apply {
-            text = "Up to 4 files • 8 MB per file • 12 MB total\nAttachments go to Gemini when you tap Send. They stay attached for follow-up questions until you remove them."
-            textSize = 12f; setPadding(12, 16, 12, 8)
-        })
-        dialog.setContentView(panel)
-        dialog.show()
+        panel.measure(View.MeasureSpec.makeMeasureSpec(menuWidth, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        popup.showAsDropDown(anchor, 0, -anchor.height - panel.measuredHeight - dp(8), android.view.Gravity.START)
     }
 
     private fun captureAttachmentPhoto() {
