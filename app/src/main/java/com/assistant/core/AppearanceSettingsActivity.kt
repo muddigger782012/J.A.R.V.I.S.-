@@ -22,6 +22,7 @@ class AppearanceSettingsActivity : ThemedActivity() {
         selectedTab = savedInstanceState?.getInt("appearance_tab") ?: 0
         setContentView(R.layout.activity_appearances)
         findViewById<Button>(R.id.btnCloseAppearances).setOnClickListener { finish() }
+        bindChatDarkness()
         val tabs = findViewById<TabLayout>(R.id.appearanceTabs)
         tabs.setTabTextColors(ThemePreferences.color(this, R.color.jarvis_on_dark_muted), ThemePreferences.color(this, R.color.jarvis_primary))
         tabs.setSelectedTabIndicatorColor(ThemePreferences.color(this, R.color.jarvis_primary))
@@ -38,6 +39,49 @@ class AppearanceSettingsActivity : ThemedActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("appearance_tab", selectedTab)
         super.onSaveInstanceState(outState)
+    }
+
+    private fun bindChatDarkness() {
+        val panel = findViewById<LinearLayout>(R.id.chatDarknessControls)
+        val label = TextView(this).apply {
+            textSize = 16f
+            setTextColor(ThemePreferences.color(this@AppearanceSettingsActivity, R.color.jarvis_on_dark))
+        }
+        panel.addView(label)
+        panel.addView(TextView(this).apply {
+            text = "0% uses the theme default; 100% is solid black. Saves automatically."
+            textSize = 12f
+            setTextColor(ThemePreferences.color(this@AppearanceSettingsActivity, R.color.jarvis_on_dark_muted))
+        })
+        val slider = SeekBar(this).apply { max = 100; progress = ChatAppearancePreferences.darkness(this@AppearanceSettingsActivity) }
+        panel.addView(slider)
+        val previewRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val assistant = TextView(this).apply { text = "J.A.R.V.I.S."; setPadding(16, 12, 16, 12) }
+        val user = TextView(this).apply { text = "Your message"; setPadding(16, 12, 16, 12) }
+        for (sample in listOf(assistant, user)) {
+            sample.setTextColor(FontPreferences.parseColor(FontPreferences.colorHex(this)) ?: ThemePreferences.color(this, R.color.jarvis_on_dark))
+            previewRow.addView(sample, LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(4, 0, 4, 0) })
+        }
+        panel.addView(previewRow)
+        fun preview(value: Int) {
+            label.text = "Chat box darkness: $value%"
+            slider.contentDescription = "Chat box darkness, $value percent"
+            assistant.background = ChatAppearancePreferences.background(this, false, value)
+            user.background = ChatAppearancePreferences.background(this, true, value)
+        }
+        slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                preview(progress)
+                if (fromUser) ChatAppearancePreferences.save(this@AppearanceSettingsActivity, progress)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+        panel.addView(MaterialButton(this).apply {
+            text = "Reset chat boxes"; isAllCaps = false
+            setOnClickListener { slider.progress = 0; ChatAppearancePreferences.save(this@AppearanceSettingsActivity, 0) }
+        })
+        preview(slider.progress)
     }
 
     private fun showTab() {

@@ -46,12 +46,14 @@ object ThemePreferences {
 open class ThemedActivity : AppCompatActivity() {
     private var displayedTheme = ""
     private var displayedFonts = ""
+    private var displayedChatDarkness = 0
     private val fontLayoutListener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
         FontPreferences.applyTo(window.decorView, this)
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         displayedTheme = ThemePreferences.selected(this)
         displayedFonts = FontPreferences.signature(this)
+        displayedChatDarkness = ChatAppearancePreferences.darkness(this)
         setTheme(ThemePreferences.style(this))
         super.onCreate(savedInstanceState)
         window.decorView.viewTreeObserver.addOnGlobalLayoutListener(fontLayoutListener)
@@ -62,6 +64,6 @@ open class ThemedActivity : AppCompatActivity() {
     }
     override fun onResume() {
         super.onResume()
-        if (displayedTheme != ThemePreferences.selected(this) || displayedFonts != FontPreferences.signature(this)) recreate()
+        if (displayedTheme != ThemePreferences.selected(this) || displayedFonts != FontPreferences.signature(this) || displayedChatDarkness != ChatAppearancePreferences.darkness(this)) recreate()
     }
 }

@@ -1109,7 +1109,7 @@ class MainActivity : ThemedActivity() {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(14), dp(12), dp(14), dp(12))
-                if (user || assistant) setBackgroundResource(if (user) R.drawable.chat_bubble_user else R.drawable.chat_bubble_assistant)
+                if (user || assistant) background = ChatAppearancePreferences.background(this@MainActivity, user)
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(8); bottomMargin = dp(4)
                     if (user) leftMargin = dp(32) else if (assistant) rightMargin = dp(20)
