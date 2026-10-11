@@ -2160,17 +2160,59 @@ class MainActivity : ThemedActivity() {
     private fun showToolsAndSettingsMenu() {
         val labels = arrayOf("Settings", "Projects", "Device tools", "System status and updates",
             "Terminal", "Activity log", "Permissions", "Device administration", "Diagnostics")
-        val menu = androidx.appcompat.widget.PopupMenu(this, settingsButton)
-        labels.forEachIndexed { index, label -> menu.menu.add(0, index, index, label) }
-        menu.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                0 -> openVoiceSettings()
-                labels.lastIndex -> showVoiceDiagnostics()
-                else -> showTab(item.itemId, animate = true, direction = 1)
-            }
-            true
+        fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
+        fun themeColor(attr: Int): Int {
+            val value = android.util.TypedValue()
+            theme.resolveAttribute(attr, value, true)
+            return if (value.resourceId != 0) ContextCompat.getColor(this, value.resourceId) else value.data
         }
-        menu.show()
+        val corner = android.util.TypedValue().also { theme.resolveAttribute(R.attr.jarvis_corner, it, true) }
+            .getDimension(resources.displayMetrics)
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val surface = ScrollView(this).apply {
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            isFillViewport = false
+            clipToOutline = true
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(ColorUtils.compositeColors(themeColor(R.attr.jarvis_surface_glass_strong), themeColor(R.attr.jarvis_bg_deep)))
+                cornerRadius = corner
+                setStroke(dp(1), themeColor(R.attr.jarvis_panel_stroke))
+            }
+            addView(panel, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val visibleFrame = Rect().also { settingsButton.getWindowVisibleDisplayFrame(it) }
+        val menuWidth = minOf(dp(280), (visibleFrame.width() - dp(24)).coerceAtLeast(dp(160)))
+        val location = IntArray(2).also { settingsButton.getLocationOnScreen(it) }
+        val availableHeight = (visibleFrame.bottom - location[1] - settingsButton.height - dp(16)).coerceAtLeast(dp(48))
+        val popup = android.widget.PopupWindow(surface, menuWidth,
+            minOf(dp(48) * labels.size + dp(16), availableHeight), true).apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+            isOutsideTouchable = true
+            elevation = dp(10).toFloat()
+            inputMethodMode = android.widget.PopupWindow.INPUT_METHOD_NOT_NEEDED
+        }
+        labels.forEachIndexed { index, label ->
+            panel.addView(TextView(this).apply {
+                text = label
+                textSize = 15f
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(dp(14), 0, dp(14), 0)
+                setTextColor(themeColor(if (index == 0) R.attr.jarvis_primary else R.attr.jarvis_on_dark))
+                isFocusable = true
+                background = android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(ColorUtils.setAlphaComponent(themeColor(R.attr.jarvis_primary), 48)),
+                    null, android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE))
+                setOnClickListener {
+                    popup.dismiss()
+                    when (index) {
+                        0 -> openVoiceSettings()
+                        labels.lastIndex -> showVoiceDiagnostics()
+                        else -> showTab(index, animate = true, direction = 1)
+                    }
+                }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+        }
+        popup.showAsDropDown(settingsButton, 0, dp(8), android.view.Gravity.END)
     }
 
     private fun openVoiceSettings() {
