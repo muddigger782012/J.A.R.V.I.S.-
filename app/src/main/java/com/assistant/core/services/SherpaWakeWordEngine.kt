@@ -198,7 +198,11 @@ class SherpaWakeWordEngine(
                     stage("sherpa-worker-after-accept")
                     onStatus("Sherpa accepted first audio buffer; decoder running.")
                 }
-                while (running && kws.isReady(onlineStream)) {
+                stage("sherpa-worker-before-is-ready-$totalChunks")
+                val ready = kws.isReady(onlineStream)
+                stage("sherpa-worker-after-is-ready-$totalChunks-$ready")
+                if (totalChunks <= 20) onStatus("Sherpa native readiness at chunk $totalChunks: $ready.")
+                if (running && ready) {
                     stage("sherpa-worker-before-decode-$totalChunks")
                     if (totalChunks <= 20) onStatus("Sherpa decoder ready after $totalChunks audio chunks; entering native decode.")
                     kws.decode(onlineStream)
@@ -215,9 +219,6 @@ class SherpaWakeWordEngine(
                         onDetected()
                         return
                     }
-                    // One decode consumes the currently-ready frame. Re-check readiness
-                    // on the next microphone buffer to keep the JNI boundary explicit.
-                    break
                 }
             }
         } catch (t: Throwable) {
