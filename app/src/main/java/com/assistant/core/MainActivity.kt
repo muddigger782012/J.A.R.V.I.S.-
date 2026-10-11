@@ -873,6 +873,7 @@ class MainActivity : ThemedActivity() {
             if (commandText.isBlank()) {
                 val reply = hybridAssistantService.handleUserInput("show status")
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
+                fetchSearchResultsIfConfigured(reply.text)
                 statusOutput.text = reply.actionResult?.output ?: reply.text
             } else {
                 runAssistantCommandFromInput()
@@ -1262,6 +1263,34 @@ class MainActivity : ThemedActivity() {
             }
         }
         commandInput.setText("")
+    }
+
+    /** Search runs off the UI thread; missing credentials retain the existing browser card. */
+    private fun fetchSearchResultsIfConfigured(replyText: String) {
+        if (!replyText.startsWith("Web search ready:")) return
+        val query = replyText.substringAfter("Web search ready:").substringBefore("\n").trim()
+        if (query.length !in 2..300) return
+        val apiKey = com.assistant.core.services.ApiKeyStore(this, "brave_search").read()
+        if (apiKey.isBlank()) return
+        Thread {
+            val result = runCatching {
+                com.assistant.core.services.BraveSearchProvider(apiKey).search(query)
+            }
+            runOnUiThread {
+                result.onSuccess { items ->
+                    if (items.isEmpty()) {
+                        appendOutput("J.A.R.V.I.S.: No structured search results found. Open the search card to continue.")
+                    } else {
+                        val rendered = items.joinToString("\n\n") { item ->
+                            item.title + "\n" + item.description + "\n" + item.url
+                        }
+                        appendOutput("J.A.R.V.I.S.: Search results for " + query + ":\n\n" + rendered)
+                    }
+                }.onFailure {
+                    appendOutput("J.A.R.V.I.S.: Search previews unavailable. Open the search card to view results.")
+                }
+            }
+        }.start()
     }
 
     private fun appendActionResult(result: ActionResult) {
