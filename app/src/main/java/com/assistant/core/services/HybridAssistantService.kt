@@ -111,6 +111,40 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
+        // Learn only allowlisted volume actions, and only after Android confirms execution.
+        // Exact phrase matches avoid fuzzy routing of unrelated or sensitive commands.
+        val volumeCapabilities = setOf("volume_up", "volume_down")
+        val volumeMemory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
+        val teachVolume = Regex("(?i)^teach (?:jarvis )?(?:that )?(.{3,160}?) (?:means|is the same as) (?:turn volume up|increase volume|turn volume down|decrease volume)[?.!]*$").matchEntire(userInput)
+        if (teachVolume != null) {
+            val phrase = teachVolume.groupValues[1].trim()
+            val target = normalize(userInput).substringAfterLast(" means ", "").ifBlank {
+                normalize(userInput).substringAfterLast(" is the same as ", "")
+            }.trimEnd('?', '.', '!')
+            val capability = if (target.endsWith("up") || target == "increase volume") "volume_up" else "volume_down"
+            val reserved = phrase.startsWith("teach ", ignoreCase = true) ||
+                normalize(phrase) in setOf("learning status", "clear local learning", "confirm learning reset", "cancel learning reset")
+            val response = if (reserved) {
+                "That phrase is reserved and cannot be learned."
+            } else {
+                val direction = if (capability == "volume_up") android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER
+                val executed = androidAssistant.adjustVolume(direction)
+                if (!executed) "Android could not adjust the volume, so the command was not learned."
+                else if (volumeMemory.recordSuccess(phrase, capability, volumeCapabilities))
+                    "Volume adjusted and verified. Learned on this device: \"$phrase\"."
+                else "Volume adjusted, but the phrase could not be learned because it conflicts with another command."
+            }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        volumeMemory.match(userInput, volumeCapabilities)?.let { learned ->
+            val direction = if (learned.capabilityId == "volume_up") android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER
+            val executed = androidAssistant.adjustVolume(direction)
+            val response = if (executed) "Volume adjusted using your learned command." else "Android could not adjust the volume."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
         // Learning diagnostics are handled locally, without an AI connection.
         if (normalized in setOf("learning status", "show learning status", "how many commands have you learned", "learned commands")) {
             val commandCount = com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).learnedPhraseCount()
