@@ -21,10 +21,10 @@
                 android:text="@string/ui_ready" android:maxLines="1" android:ellipsize="end" android:textSize="12sp" android:layout_marginTop="4dp" android:textColor="?attr/jarvis_secondary" />
         </LinearLayout>
         <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btnVoiceSettings"
-            android:layout_width="48dp" android:layout_height="48dp" android:layout_marginStart="12dp"
-            android:padding="12dp" android:background="@drawable/composer_icon_plain"
+            android:layout_width="40dp" android:layout_height="48dp" android:layout_marginStart="12dp"
+            android:padding="9dp" android:background="@drawable/composer_icon_ring"
             android:contentDescription="@string/ui_tools_and_settings"
-            app:srcCompat="@drawable/ic_tools_settings" app:tint="?attr/jarvis_primary" />
+            app:backgroundTint="@null" app:srcCompat="@drawable/ic_tools_settings" app:tint="?attr/jarvis_primary" />
     </LinearLayout>
     <LinearLayout android:id="@+id/jarvisNavigation" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginHorizontal="16dp" android:orientation="horizontal">
