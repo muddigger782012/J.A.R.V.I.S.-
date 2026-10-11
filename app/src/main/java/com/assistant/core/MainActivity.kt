@@ -1272,18 +1272,32 @@ class MainActivity : ThemedActivity() {
         if (query.length !in 2..300) return
         val apiKey = com.assistant.core.services.ApiKeyStore(this, "tavily_search").read()
         Thread {
+            val cache = getSharedPreferences("jarvis_search_cache", MODE_PRIVATE)
+            val cacheId = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(query.lowercase(java.util.Locale.ROOT).toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+            val savedAt = cache.getLong(cacheId + "_at", 0L)
+            val cached = cache.getString(cacheId, null)
+            val fresh = savedAt > 0 && System.currentTimeMillis() - savedAt in 0..600_000L
             val result = runCatching {
-                com.assistant.core.services.TavilySearchProvider(apiKey).search(query)
+                if (fresh && cached != null) cached
+                else {
+                    val items = com.assistant.core.services.TavilySearchProvider(apiKey).search(query)
+                    if (items.isEmpty()) "" else items.joinToString("\n\n") { item ->
+                        item.title + "\n" + item.description + "\n" + item.url
+                    }.also { rendered ->
+                        cache.edit().putString(cacheId, rendered)
+                            .putLong(cacheId + "_at", System.currentTimeMillis()).apply()
+                    }
+                }
             }
             runOnUiThread {
-                result.onSuccess { items ->
-                    if (items.isEmpty()) {
+                result.onSuccess { rendered ->
+                    if (rendered.isEmpty()) {
                         appendOutput("J.A.R.V.I.S.: No structured search results found. Open the search card to continue.")
                     } else {
-                        val rendered = items.joinToString("\n\n") { item ->
-                            item.title + "\n" + item.description + "\n" + item.url
-                        }
-                        appendOutput("J.A.R.V.I.S.: Search results for " + query + ":\n\n" + rendered)
+                        appendOutput("J.A.R.V.I.S.: Search results for " + query +
+                            (if (fresh) " (cached)" else "") + ":\n\n" + rendered)
                     }
                 }.onFailure {
                     appendOutput("J.A.R.V.I.S.: Search previews unavailable. Open the search card to view results.")
