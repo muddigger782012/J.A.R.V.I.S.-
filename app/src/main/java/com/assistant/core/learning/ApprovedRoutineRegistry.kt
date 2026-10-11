@@ -75,6 +75,22 @@ class ApprovedRoutineRegistry(context: Context) {
 
     fun count(): Int = synchronized(lock) { read().length() }
 
+    /** A short preview suitable for a local status response; never executes routines. */
+    fun listSummaries(limit: Int = 10): List<String> = synchronized(lock) {
+        val entries = read()
+        val summaries = mutableListOf<String>()
+        for (i in 0 until entries.length()) {
+            if (summaries.size >= limit.coerceIn(0, 50)) break
+            val entry = entries.optJSONObject(i) ?: continue
+            val phrase = entry.optString("phrase")
+            val actionsJson = entry.optJSONArray("actions") ?: continue
+            val actions = (0 until actionsJson.length()).map { actionsJson.optString(it) }
+            val valid = propose(phrase, actions) ?: continue
+            summaries.add("${valid.phrase}: ${valid.actions.joinToString(" → ")}")
+        }
+        summaries
+    }
+
     private fun read(): JSONArray = try {
         JSONArray(prefs.getString("routines", "[]") ?: "[]")
     } catch (_: Exception) { JSONArray() }
