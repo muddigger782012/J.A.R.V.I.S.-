@@ -31,7 +31,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: layout-smoke-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
   gateway:
     runs-on: ubuntu-latest
     steps:
@@ -55,6 +56,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: layout-smoke-apk
+          path: app/build/outputs/apk/debug
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
