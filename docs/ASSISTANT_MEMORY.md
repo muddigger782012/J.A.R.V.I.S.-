@@ -1,8 +1,10 @@
 # Persistent assistant preferences and recent-action context
 
 JARVIS stores a small local record: preferred browser/maps/music app targets and
-the last user-confirmed timer/app action. It does not store a new conversational
-transcript or transmit these records to the AI provider.
+the last user-confirmed timer/app action. This memory file stores no conversational
+transcript and is not separately injected into AI prompts. Preference commands and
+memory summaries can still appear in the app's existing conversation context when
+a subsequent request uses cloud AI.
 
 ## Local commands
 
