@@ -1,8 +1,6 @@
 package com.assistant.core
 
-import android.app.Activity
 import android.content.Intent
-import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.WebResourceRequest
@@ -10,9 +8,10 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.LinearLayout
 import android.widget.Button
+import android.widget.TextView
 
 /** Embedded search browser; external sites still open in the user's browser. */
-class SearchBrowserActivity : Activity() {
+class SearchBrowserActivity : ThemedActivity() {
     private lateinit var browser: WebView
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -25,9 +24,16 @@ class SearchBrowserActivity : Activity() {
         }
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(12, 20, 28))
+            setBackgroundColor(ThemePreferences.color(this@SearchBrowserActivity, R.color.jarvis_background))
         }
         val toolbar = LinearLayout(this)
+        val title = TextView(this).apply {
+            text = if (uri.getQueryParameter("tbm") == "isch") "J.A.R.V.I.S.  •  Images" else "J.A.R.V.I.S.  •  Search"
+            setTextColor(ThemePreferences.color(this@SearchBrowserActivity, R.color.jarvis_primary))
+            textSize = 17f
+            setPadding(16, 12, 16, 12)
+        }
+        container.addView(title)
         val back = Button(this).apply {
             text = "Back"
             setOnClickListener { if (browser.canGoBack()) browser.goBack() else finish() }
@@ -40,6 +46,7 @@ class SearchBrowserActivity : Activity() {
         }
         toolbar.addView(back, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         toolbar.addView(external, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        listOf(back, external).forEach { it.setTextColor(ThemePreferences.color(this, R.color.jarvis_primary)) }
         container.addView(toolbar)
         browser = WebView(this).apply {
             settings.javaScriptEnabled = true
