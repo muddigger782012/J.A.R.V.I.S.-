@@ -147,13 +147,18 @@
                     <TextView android:textColor="?attr/jarvis_on_dark" android:id="@+id/tvOutputLog" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" />
                 </LinearLayout>
             </ScrollView>
+            <HorizontalScrollView android:id="@+id/attachmentScroller" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:visibility="gone" android:scrollbars="none" android:layout_marginBottom="6dp">
+                <LinearLayout android:id="@+id/attachmentChips" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
             <LinearLayout android:id="@+id/chatComposer" android:layout_width="match_parent" android:layout_height="64dp"
                 android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="4dp"
                 android:background="@drawable/chat_composer_background">
                 <com.google.android.material.button.MaterialButton android:id="@+id/btnComposerTools"
                     style="@style/Widget.MaterialComponents.Button.TextButton" android:layout_width="40dp" android:layout_height="48dp"
                     android:layout_marginHorizontal="2dp" android:minWidth="0dp" android:minHeight="0dp" android:padding="9dp"
-                    android:insetTop="4dp" android:insetBottom="4dp" android:text="" android:contentDescription="Open tools"
+                    android:insetTop="4dp" android:insetBottom="4dp" android:text="" android:contentDescription="Add attachments and tools"
                     android:background="@drawable/composer_icon_ring" app:backgroundTint="@null"
                     app:icon="@drawable/ic_composer_tools" app:iconSize="22dp" app:iconPadding="0dp"
                     app:iconGravity="textStart" app:iconTint="?attr/jarvis_primary" />
