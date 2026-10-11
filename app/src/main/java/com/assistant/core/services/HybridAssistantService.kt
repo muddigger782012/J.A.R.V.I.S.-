@@ -126,6 +126,10 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
+        // A reset confirmation is valid only for the immediately following command.
+        // An unrelated command cancels it to avoid accidental deletion later.
+        pendingLearningReset = false
+
         if (CommandPhrases.isLastMissedCall(userInput)) {
             val response = androidAssistant.lastMissedCall()
             remember(userInput, response)
