@@ -1713,10 +1713,12 @@ class MainActivity : ThemedActivity() {
         if (currentVoiceConfig.useForegroundServiceMode && voiceEnabled) {
             voiceService.stopListening()
         }
-        voiceEnabled = if (currentVoiceConfig.useForegroundServiceMode) {
-            voicePreferences.isForegroundServiceRunning()
+        // A persisted running flag can outlive a crashed :wake process.
+        // Never use it to suppress the actual service start request.
+        if (!currentVoiceConfig.useForegroundServiceMode) {
+            voiceEnabled = voiceEnabled
         } else {
-            voiceEnabled
+            voiceEnabled = false
         }
         if (showStatus) updateVoiceInteractionState(if (voiceEnabled) VoiceInteractionState.WAKE_LISTENING else VoiceInteractionState.IDLE)
         refreshVoiceButtonLabel()
