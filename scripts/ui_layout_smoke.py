@@ -68,7 +68,7 @@ try:
         adb('shell', 'input', 'swipe', '500', '1450', '500', '550', '300')
         time.sleep(1)
     assert learning_button is not None, 'Local Learning settings button not found'
-    x1, y1, x2, y2 = map(int, re.findall(r'\\d+', learning_button.get('bounds')))
+    x1, y1, x2, y2 = map(int, re.findall(r'\d+', learning_button.get('bounds')))
     adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
     time.sleep(1)
     assert any('Learned intent examples:' in n.get('text', '') for n in hierarchy().iter('node')), 'Learning diagnostics dialog did not open'
