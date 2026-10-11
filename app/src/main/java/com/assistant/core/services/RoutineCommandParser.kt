@@ -19,6 +19,7 @@ object RoutineCommandParser {
             }
         }
         if (actions.distinct().size != actions.size) return null
+        if (LocalDeviceCommand.parse(match.groupValues[1].trim()) != null) return null
         return Proposal(match.groupValues[1].trim(), actions)
     }
 }
