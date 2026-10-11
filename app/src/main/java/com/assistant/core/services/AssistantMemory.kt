@@ -72,12 +72,19 @@ object AssistantMemoryCommands {
             .matchEntire(text.trim()) ?: return null
         return Preference(match.groupValues[1].lowercase(java.util.Locale.ROOT).removeSuffix(" app"), match.groupValues[2].trim().trimEnd('.', '!'))
     }
-    fun preferredSlot(text: String): String? = Regex("^(?:open|use) my preferred (browser|maps|music)(?: app)?$")
-        .matchEntire(normalized(text))?.groupValues?.get(1)
-    fun repeatCapability(text: String): String? = when (normalized(text)) {
-        "use the same timer again", "start the same timer again", "repeat the last timer", "same timer again" -> "timer"
-        "open the same app again", "reopen the last app", "open the last app again" -> "open_app"
-        else -> null
+    fun preferredSlot(text: String): String? {
+        val cleaned = normalized(text)
+        Regex("^(?:open|use) my preferred (browser|maps|music)(?: app)?$").matchEntire(cleaned)?.let { return it.groupValues[1] }
+        return Regex("^(?:open|use|reopen) (?:(?:the|that) )?same (browser|maps|music)(?: app)?(?: again)?$")
+            .matchEntire(cleaned)?.groupValues?.get(1)
+    }
+    fun repeatCapability(text: String): String? {
+        val cleaned = normalized(text)
+        if (Regex("^(?:(?:use|start|repeat) )?(?:(?:the|that) )?same timer(?: again)?$").matches(cleaned) ||
+            Regex("^(?:use|start|repeat) (?:the )?last (?:confirmed )?timer(?: again)?$").matches(cleaned)) return "timer"
+        if (Regex("^(?:open|reopen) (?:(?:the|that) )?same app(?: again)?$").matches(cleaned) ||
+            Regex("^(?:open|reopen) (?:the )?last (?:confirmed )?app(?: again)?$").matches(cleaned)) return "open_app"
+        return null
     }
     fun forgetKey(text: String): String? {
         val cleaned = normalized(text)

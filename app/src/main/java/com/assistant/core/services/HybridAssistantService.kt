@@ -118,16 +118,24 @@ class HybridAssistantService(
                     val contextSaved = assistantMemory.recordConfirmed(pending.action)
                     val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
                     val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
-                    val lessonReply = if (pending.learnable && prefs.getBoolean("automatic_command_learning", true) &&
+                    val lessonReply = if (!pending.learnable) {
+                        if (contextSaved) "You confirmed it worked. Remembered ${pending.action.description()} as your last confirmed action on this device."
+                        else "You confirmed the result, but I couldn't save its recent-action context."
+                    } else if (prefs.getBoolean("automatic_command_learning", true) &&
                         memory.recordSuccess(pending.phrase, pending.action.capabilityId, LearnableDeviceAction.capabilities, pending.action.parameters))
                         "You confirmed it worked. Learned \"${pending.phrase}\" on this device for offline reuse."
                     else "Your successful result was noted, but this phrase was not saved. Learning may be disabled or the phrase may conflict with another command."
-                    lessonReply + if (contextSaved) "" else " Recent-action context could not be saved."
+                    lessonReply + if (contextSaved || !pending.learnable) "" else " Recent-action context could not be saved."
                 }
                 !requestDeviceAction(pending.action) -> "Android couldn't launch the requested action. Nothing was learned."
                 !deviceLearningSession.propose(pending.copy(awaitingOutcome = true)) -> "The action was requested, but its learning outcome could not be retained. Nothing was learned."
                 else -> "Requested: ${pending.action.description()}. Check the timer or app, then say 'it worked' to save your original phrase, or 'it failed' to discard it. Nothing is learned yet."
             }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (DeviceLearningSession.isOutcome(userInput)) {
+            val response = "No timer or app request is awaiting outcome confirmation. Run the action first, then report 'it worked' or 'it failed'. Nothing was added to memory."
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -178,8 +186,7 @@ class HybridAssistantService(
             val action = assistantMemory.preferred(slot)
             val response = when {
                 action == null -> "No preferred $slot is saved. Say 'remember my preferred $slot is' followed by the installed app's name."
-                requestDeviceAction(action) -> "Requested: ${action.description()}, using your saved $slot preference."
-                else -> "I couldn't open your preferred $slot. Check that the app is installed, or save a new preference."
+                else -> requestContextAction(userInput, action, "using your saved $slot preference")
             }
             remember(userInput, response)
             return HybridAssistantReply(response)
@@ -188,17 +195,14 @@ class HybridAssistantService(
             val action = assistantMemory.lastConfirmed(kind)
             val response = when {
                 action == null -> "No confirmed ${if (kind == "timer") "timer" else "app launch"} is saved yet. Complete an action and confirm 'it worked' first."
-                requestDeviceAction(action) -> "Requested: ${action.description()}, using your last confirmed ${if (kind == "timer") "timer" else "app"}."
-                else -> "I couldn't repeat the saved action. Check that Clock or the app is installed."
+                else -> requestContextAction(userInput, action, "using your last confirmed ${if (kind == "timer") "timer" else "app"}")
             }
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
         deviceMemory.match(userInput, LearnableDeviceAction.capabilities)?.let { learned ->
             val action = LearnableDeviceAction(learned.capabilityId, learned.parameters)
-            val response = if (action.isValid() && requestDeviceAction(action))
-                "Requested: ${action.description()}, using your learned command."
-            else "I couldn't launch the action for this learned command. Check that the app or Clock is installed."
+            val response = requestContextAction(userInput, action, "using your learned command")
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -522,8 +526,9 @@ class HybridAssistantService(
         }
 
         parseTimerSeconds(normalized)?.let { seconds ->
-            val ok = androidAssistant.setTimer(seconds)
-            val response = if (ok) "Timer set for $seconds seconds." else "I couldn't open the Android timer service."
+            val action = LearnableDeviceAction("timer", mapOf("seconds" to seconds.toString()))
+            val response = if (action.isValid()) requestContextAction(userInput, action)
+                else if (androidAssistant.setTimer(seconds)) "Requested a timer for $seconds seconds." else "I couldn't open the Android timer service."
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -604,8 +609,9 @@ class HybridAssistantService(
         }
 
         parseAppName(normalized)?.let { appName ->
-            val ok = androidAssistant.launchAppByLabel(appName)
-            val response = if (ok) "Opening $appName." else "I couldn't find an installed app named $appName."
+            val target = androidAssistant.resolveLearnableApp(appName)
+            val response = if (target != null) requestContextAction(userInput, LearnableDeviceAction("open_app", mapOf("package" to target.first, "label" to target.second)))
+                else "I couldn't find one installed app with the exact launcher name $appName. Please specify its exact name."
             remember(userInput, response); return HybridAssistantReply(response)
         }
         if (normalized in setOf("play", "pause", "play music", "pause music", "play pause", "resume music")) {
@@ -831,6 +837,15 @@ class HybridAssistantService(
             else -> false
         }
     }.getOrDefault(false)
+
+    private fun requestContextAction(phrase: String, action: LearnableDeviceAction, detail: String = ""): String {
+        val description = "Requested: ${action.description()}${if (detail.isNotBlank()) ", $detail" else ""}."
+        return when (deviceLearningSession.requestAndTrack(phrase, action) { requestDeviceAction(action) }) {
+            DeviceLearningSession.RequestResult.FAILED -> "Android couldn't launch the saved timer/app action. Nothing was added to recent-action memory. Check that Clock or the app is installed."
+            DeviceLearningSession.RequestResult.REQUESTED_WITHOUT_TRACKING -> "$description I couldn't retain its outcome check, so no recent-action context was saved."
+            DeviceLearningSession.RequestResult.AWAITING_OUTCOME -> "$description After checking it, say 'it worked' to remember this as your last confirmed action, or 'it failed' to discard it."
+        }
+    }
 
     private fun executeConfirmedVolume(userText: String, lesson: FallbackIntentLesson): String {
         val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
