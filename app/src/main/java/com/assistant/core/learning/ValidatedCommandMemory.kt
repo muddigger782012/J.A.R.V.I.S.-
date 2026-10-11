@@ -10,9 +10,18 @@ import java.util.Locale
  * callers must resolve a returned capability ID through an explicit allowlist and
  * verify that the action actually succeeded before calling recordSuccess.
  */
-class ValidatedCommandMemory(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences("jarvis_validated_commands", Context.MODE_PRIVATE)
-    private val lock = Any()
+class ValidatedCommandMemory internal constructor(
+    private val read: () -> String,
+    private val write: (String?) -> Boolean
+) {
+    constructor(context: Context) : this(
+        read = { context.applicationContext.getSharedPreferences("jarvis_validated_commands", Context.MODE_PRIVATE).getString("entries", "[]") ?: "[]" },
+        write = { value ->
+            val editor = context.applicationContext.getSharedPreferences("jarvis_validated_commands", Context.MODE_PRIVATE).edit()
+            if (value == null) editor.remove("entries") else editor.putString("entries", value)
+            editor.commit()
+        }
+    )
     private val maxEntries = 500
 
     data class Match(val capabilityId: String, val confidence: Double)
@@ -50,7 +59,7 @@ class ValidatedCommandMemory(context: Context) {
             }
             output.put(JSONObject().put("phrase", phrase).put("capabilityId", capabilityId).put("successes", successes))
             while (output.length() > maxEntries) output.remove(0)
-            prefs.edit().putString("entries", output.toString()).commit()
+            write(output.toString())
         }
 
     fun forget(utterance: String): Boolean = synchronized(lock) {
@@ -63,16 +72,21 @@ class ValidatedCommandMemory(context: Context) {
             if (entry.optString("phrase") != phrase) remaining.put(entry)
         }
         if (remaining.length() == entries.length()) return@synchronized false
-        prefs.edit().putString("entries", remaining.toString()).commit()
+        write(remaining.toString())
     }
 
     fun learnedPhraseCount(): Int = synchronized(lock) { readEntries().length() }
 
-    fun clear(): Boolean = synchronized(lock) { prefs.edit().remove("entries").commit() }
+    fun clear(): Boolean = synchronized(lock) { write(null) }
 
     private fun readEntries(): JSONArray = try {
-        JSONArray(prefs.getString("entries", "[]") ?: "[]")
+        JSONArray(read())
     } catch (_: Exception) {
         JSONArray()
+    }
+
+    companion object {
+        // Foreground chat and background voice create separate memory instances.
+        private val lock = Any()
     }
 }
