@@ -117,8 +117,11 @@ class HybridAssistantService(
                 !pendingLearningReset -> "No learning reset is pending."
                 normalized == "cancel learning reset" -> "Learning reset cancelled."
                 else -> {
-                    learningStore.clear()
-                    "Learned commands on this device have been cleared. Other devices are unchanged."
+                    if (learningStore.clear()) {
+                        "Learned commands on this device have been cleared. Other devices are unchanged."
+                    } else {
+                        "Could not clear local learning. Please try again."
+                    }
                 }
             }
             pendingLearningReset = false
