@@ -462,6 +462,16 @@ class HybridAssistantService(
         )
     }
 
+    fun canAnalyzeAttachments(): Boolean = directOnlineClient.hasGeminiKey()
+
+    fun handleAttachmentsAsync(question: String, attachments: List<ChatAttachment>, callback: (HybridAssistantReply) -> Unit) {
+        Thread {
+            val response = directOnlineClient.gemini(question, getConversationSnapshot(), attachments)
+            remember(question + "\nAttachments: " + attachments.joinToString { it.name }, response)
+            callback(HybridAssistantReply(response))
+        }.start()
+    }
+
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
         AssistantConnectionProtocol.parse(rawInput)?.let { request ->
             Thread {

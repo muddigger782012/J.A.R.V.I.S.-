@@ -21,6 +21,8 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.os.UserManager
 import android.provider.Settings
+import android.provider.OpenableColumns
+import android.widget.Toast
 import android.graphics.Rect
 import android.view.MotionEvent
 import android.view.View
@@ -38,6 +40,7 @@ import android.text.InputType
 import android.widget.SeekBar
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AlertDialog
@@ -57,6 +60,8 @@ import com.assistant.core.engine.IntentClassifier
 import com.assistant.core.engine.PolicyGate
 import com.assistant.core.models.ActionResult
 import com.assistant.core.models.CapabilityState
+import com.assistant.core.services.ChatAttachment
+import com.assistant.core.services.AttachmentPolicy
 import com.assistant.core.services.AuditService
 import com.assistant.core.services.CodingService
 import com.assistant.core.services.DhizukuService
@@ -96,6 +101,26 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class MainActivity : ThemedActivity() {
+
+    private val pendingAttachments = mutableListOf<ChatAttachment>()
+    private var attachmentBusy = false
+    private var pendingCameraPath: String? = null
+    private val photoPicker = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(AttachmentPolicy.MAX_FILES)) { uris ->
+        importAttachments(uris)
+    }
+    private val filePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        importAttachments(uris)
+    }
+    private val cameraPicker = registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val file = pendingCameraPath?.let(::File)
+        pendingCameraPath = null
+        if (success && file != null && file.exists()) {
+            importAttachments(listOf(FileProvider.getUriForFile(this, "$packageName.fileprovider", file)), file)
+        } else file?.delete()
+    }
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) captureAttachmentPhoto() else attachmentNotice("Camera permission wasn't granted.")
+    }
 
     private lateinit var commandInput: EditText
     private lateinit var shizukuCommandInput: EditText
@@ -286,6 +311,9 @@ class MainActivity : ThemedActivity() {
         setContentView(R.layout.activity_main)
 
         initViews()
+        pendingCameraPath = savedInstanceState?.getString("attachment_camera_path")
+        savedInstanceState?.getString("attachment_draft")?.let { restoreAttachmentDraft(it) }
+        renderAttachmentChips()
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
             val keyboard = insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())
             voiceButton.visibility = View.VISIBLE
@@ -764,6 +792,8 @@ class MainActivity : ThemedActivity() {
 
     private fun bindUiListeners() {
         findViewById<Button>(R.id.btnNewAssistantChat).setOnClickListener {
+            if (attachmentBusy) { attachmentNotice("Wait for the attachment request to finish."); return@setOnClickListener }
+            clearAttachmentDraft()
             if (liveChatStarted) endLiveChat("Live chat ended for the new conversation.")
             archiveConversation()
             conversationSessionId = "session_" + System.currentTimeMillis()
@@ -782,7 +812,7 @@ class MainActivity : ThemedActivity() {
             if (actionId == EditorInfo.IME_ACTION_SEND) { runAssistantCommandFromInput(); true } else false
         }
         findViewById<Button>(R.id.btnComposerTools).setOnClickListener {
-            findViewById<Button>(R.id.btnOpenTools).performClick()
+            showComposerMenu()
         }
         findViewById<Button>(R.id.btnRunAssistantCommand).setOnClickListener {
             runAssistantCommandFromInput()
@@ -977,7 +1007,224 @@ class MainActivity : ThemedActivity() {
         hybridAssistantService.handleUserInputAsync(command, callback)
     }
 
+    private fun attachmentNotice(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    private fun showComposerMenu() {
+        if (attachmentBusy) { attachmentNotice("Wait for the attachment request to finish."); return }
+        if (liveChatStarted) { attachmentNotice("End live chat to attach files."); return }
+        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 20, 24, 28)
+        }
+        panel.addView(TextView(this).apply { text = "Add to your message"; textSize = 20f; setPadding(12, 8, 12, 16) })
+        fun option(label: String, action: () -> Unit) {
+            panel.addView(Button(this).apply {
+                text = label
+                contentDescription = label
+                setOnClickListener { dialog.dismiss(); runCatching(action).onFailure { attachmentNotice("This option couldn't open on your device.") } }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        option("Camera • Take a photo") {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) captureAttachmentPhoto()
+            else cameraPermission.launch(Manifest.permission.CAMERA)
+        }
+        option("Photos • Choose images") { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+        option("Files • PDF, text, CSV and code") { filePicker.launch(arrayOf("application/pdf", "text/*", "image/*", "application/json", "application/xml")) }
+        option("Search the web") {
+            val input = EditText(this).apply { hint = "Search query"; setText(commandInput.text) }
+            AlertDialog.Builder(this).setTitle("Search the web").setView(input).setPositiveButton("Search") { _, _ ->
+                val query = input.text.toString().trim()
+                if (query.isNotEmpty()) runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(query)))) }
+                    .onFailure { attachmentNotice("No browser is available.") }
+            }.setNegativeButton("Cancel", null).show()
+        }
+        option("Device tools") { findViewById<Button>(R.id.btnOpenTools).performClick() }
+        option("AI and voice settings") { openVoiceSettings() }
+        panel.addView(TextView(this).apply {
+            text = "Up to 4 files • 8 MB per file • 12 MB total\nAttachments go to Gemini when you tap Send. They stay attached for follow-up questions until you remove them."
+            textSize = 12f; setPadding(12, 16, 12, 8)
+        })
+        dialog.setContentView(panel)
+        dialog.show()
+    }
+
+    private fun captureAttachmentPhoto() {
+        if (pendingAttachments.size >= AttachmentPolicy.MAX_FILES) { attachmentNotice("Remove an attachment before adding another."); return }
+        val directory = File(cacheDir, "chat-attachments").apply { mkdirs() }
+        val file = File.createTempFile("camera-", ".jpg", directory)
+        pendingCameraPath = file.absolutePath
+        try { cameraPicker.launch(FileProvider.getUriForFile(this, "$packageName.fileprovider", file)) }
+        catch (_: Exception) { pendingCameraPath = null; file.delete(); attachmentNotice("No camera app is available.") }
+    }
+
+    private fun importAttachments(uris: List<Uri>, cameraSource: File? = null) {
+        if (uris.isEmpty()) return
+        if (attachmentBusy) { cameraSource?.delete(); return }
+        val remaining = AttachmentPolicy.MAX_FILES - pendingAttachments.size
+        if (remaining <= 0) { cameraSource?.delete(); attachmentNotice("You can attach up to 4 files."); return }
+        attachmentBusy = true
+        val initialBytes = pendingAttachments.sumOf { it.file.length() }
+        Thread {
+            val imported = mutableListOf<ChatAttachment>()
+            val errors = mutableListOf<String>()
+            var total = initialBytes
+            for (uri in uris.take(remaining)) {
+                var target: File? = null
+                try {
+                    var name = "attachment"
+                    contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) name = cursor.getString(0) ?: name
+                    }
+                    name = name.replace(Regex("[\\r\\n\\t]"), " ").take(120)
+                    var mime = AttachmentPolicy.mime(name, contentResolver.getType(uri))
+                        ?: throw IllegalArgumentException("$name: unsupported format. Choose an image, PDF, text, CSV or code file.")
+                    val limit = if (mime == "text/plain") 300_000 else AttachmentPolicy.MAX_BYTES
+                    var bytes = contentResolver.openInputStream(uri)?.use { AttachmentPolicy.readBounded(it, limit) }
+                        ?: throw IllegalArgumentException("$name couldn't be read.")
+                    if (mime.startsWith("image/")) {
+                        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "$name isn't a readable image." }
+                        val options = android.graphics.BitmapFactory.Options().apply {
+                            inSampleSize = generateSequence(1) { it * 2 }.first { sample -> maxOf(bounds.outWidth, bounds.outHeight) / sample <= 2048 }
+                        }
+                        val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                            ?: throw IllegalArgumentException("$name couldn't be decoded.")
+                        val orientation = runCatching {
+                            android.media.ExifInterface(java.io.ByteArrayInputStream(bytes)).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)
+                        }.getOrDefault(1)
+                        val matrix = android.graphics.Matrix().apply {
+                            when (orientation) {
+                                2 -> setScale(-1f, 1f)
+                                3 -> setRotate(180f)
+                                4 -> setScale(1f, -1f)
+                                5 -> { setRotate(90f); postScale(-1f, 1f) }
+                                6 -> setRotate(90f)
+                                7 -> { setRotate(270f); postScale(-1f, 1f) }
+                                8 -> setRotate(270f)
+                            }
+                        }
+                        val upright = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                        val output = java.io.ByteArrayOutputStream()
+                        require(upright.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, output)) { "Image conversion failed." }
+                        bytes = output.toByteArray()
+                        if (upright !== bitmap) upright.recycle()
+                        bitmap.recycle()
+                        mime = "image/jpeg"
+                    }
+                    require(total + bytes.size <= AttachmentPolicy.MAX_TOTAL_BYTES) { "Attachments exceed 12 MB total." }
+                    val directory = File(cacheDir, "chat-attachments").apply { mkdirs() }
+                    target = File.createTempFile("attachment-", ".bin", directory)
+                    target.writeBytes(bytes)
+                    imported += ChatAttachment(name, mime, target)
+                    total += bytes.size
+                } catch (error: Exception) { target?.delete(); errors += error.message ?: "An attachment couldn't be read." }
+            }
+            cameraSource?.delete()
+            runOnUiThread {
+                attachmentBusy = false
+                if (isDestroyed) { imported.forEach { it.file.delete() }; return@runOnUiThread }
+                pendingAttachments += imported
+                renderAttachmentChips()
+                if (uris.size > remaining) errors += "Only the first $remaining files were added."
+                if (errors.isNotEmpty()) attachmentNotice(errors.joinToString("\n"))
+            }
+        }.start()
+    }
+
+    private fun renderAttachmentChips() {
+        val row = findViewById<LinearLayout>(R.id.attachmentChips)
+        row.removeAllViews()
+        pendingAttachments.forEach { attachment ->
+            row.addView(Button(this).apply {
+                text = "${attachment.name}  ×"
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                contentDescription = "Remove attachment ${attachment.name}"
+                if (attachment.mime.startsWith("image/")) {
+                    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    android.graphics.BitmapFactory.decodeFile(attachment.file.absolutePath, bounds)
+                    val options = android.graphics.BitmapFactory.Options().apply {
+                        inSampleSize = generateSequence(1) { it * 2 }.first { sample -> maxOf(bounds.outWidth, bounds.outHeight) / sample <= 128 }
+                    }
+                    android.graphics.BitmapFactory.decodeFile(attachment.file.absolutePath, options)?.let { bitmap ->
+                        val drawable = android.graphics.drawable.BitmapDrawable(resources, bitmap)
+                        drawable.setBounds(0, 0, (36 * resources.displayMetrics.density).toInt(), (36 * resources.displayMetrics.density).toInt())
+                        setCompoundDrawables(drawable, null, null, null)
+                        compoundDrawablePadding = 8
+                    }
+                }
+                setOnClickListener {
+                    if (attachmentBusy) return@setOnClickListener
+                    pendingAttachments.remove(attachment)
+                    attachment.file.delete()
+                    renderAttachmentChips()
+                }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = 8 })
+        }
+        findViewById<View>(R.id.attachmentScroller).visibility = if (pendingAttachments.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    private fun clearAttachmentDraft() {
+        pendingAttachments.forEach { it.file.delete() }
+        pendingAttachments.clear()
+        renderAttachmentChips()
+    }
+
+    private fun restoreAttachmentDraft(raw: String) {
+        runCatching {
+            val array = JSONArray(raw)
+            val directory = File(cacheDir, "chat-attachments").canonicalFile
+            for (i in 0 until minOf(array.length(), AttachmentPolicy.MAX_FILES)) {
+                val value = array.getJSONObject(i)
+                val file = File(value.getString("path")).canonicalFile
+                val name = value.getString("name")
+                val mime = AttachmentPolicy.mime(name, value.getString("mime")) ?: continue
+                if (file.parentFile == directory && file.isFile && file.length() in 1..AttachmentPolicy.MAX_BYTES.toLong())
+                    pendingAttachments += ChatAttachment(name, mime, file)
+            }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        val array = JSONArray()
+        pendingAttachments.forEach { array.put(JSONObject().put("name", it.name).put("mime", it.mime).put("path", it.file.absolutePath)) }
+        outState.putString("attachment_draft", array.toString())
+        outState.putString("attachment_camera_path", pendingCameraPath)
+    }
+
+    private fun sendAttachments() {
+        if (liveChatStarted) { attachmentNotice("End live chat before sending attachments."); return }
+        if (!hybridAssistantService.canAnalyzeAttachments()) {
+            AlertDialog.Builder(this).setTitle("Configure attachment analysis")
+                .setMessage("Photo and file analysis uses your Gemini API key. Add it in Weather and AI settings; your attachments will stay here.")
+                .setPositiveButton("Open settings") { _, _ -> openVoiceSettings() }.setNegativeButton("Cancel", null).show()
+            return
+        }
+        val question = commandInput.text?.toString()?.trim().orEmpty().ifBlank { "Describe or summarize the attached files." }
+        val files = pendingAttachments.toList()
+        attachmentBusy = true
+        appendOutput("You: $question\nAttachments: " + files.joinToString { it.name })
+        commandInput.setText("")
+        findViewById<TextView>(R.id.tvAssistantState).text = "Reading attachments…"
+        hybridAssistantService.handleAttachmentsAsync(question, files) { reply ->
+            runOnUiThread {
+                attachmentBusy = false
+                if (isDestroyed) return@runOnUiThread
+                appendOutput("J.A.R.V.I.S.: ${reply.text}")
+                statusOutput.text = reply.text
+                findViewById<TextView>(R.id.tvAssistantState).text = getString(R.string.ui_ready)
+            }
+        }
+    }
+
     private fun runAssistantCommandFromInput() {
+        if (attachmentBusy) return
+        if (pendingAttachments.isNotEmpty()) { sendAttachments(); return }
         val commandText = commandInput.text?.toString()?.trim().orEmpty()
         if (commandText.isBlank()) return
         appendOutput("You: ${if (commandText.isBlank()) "(status request)" else commandText}")
