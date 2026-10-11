@@ -158,6 +158,51 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
+        // Teach aliases only for known, allowlisted local actions. An alias is stored
+        // only after the corresponding action succeeds on the device.
+        val teachDeviceAlias = Regex(
+            "(?i)^teach (?:jarvis )?(?:that )?(.{3,160}?) (?:means|is the same as) " +
+                "(update app|update jarvis|upgrade app|upgrade jarvis|check for jarvis update)[?.!]*$"
+        ).matchEntire(userInput)
+        if (teachDeviceAlias != null) {
+            val alias = teachDeviceAlias.groupValues[1].trim()
+            val target = teachDeviceAlias.groupValues[2]
+            val reserved = LocalDeviceCommand.parse(alias) != null ||
+                alias.startsWith("teach ", ignoreCase = true) ||
+                normalize(alias).matches(Regex(".*\\b(?:call|text|message|delete|reset|reboot|pay|purchase|send)\\b.*"))
+            val response = if (reserved) {
+                "That phrase is reserved and cannot be learned."
+            } else {
+                val context = systemService.context()
+                val launched = runCatching {
+                    val intent = android.content.Intent(context, com.assistant.core.MainActivity::class.java)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        .putExtra("jarvis_feature", "app_update")
+                    context.startActivity(intent)
+                }.isSuccess
+                if (!launched) "Could not open the updater, so the alias was not learned."
+                else if (volumeMemory.recordSuccess(alias, "app_update", volumeCapabilities + "app_update"))
+                    "Opened the updater and learned on this device: \\"$alias\\" means \\"$target\\"."
+                else "Opened the updater, but the phrase conflicts with an existing learned command."
+            }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        volumeMemory.match(userInput, volumeCapabilities + "app_update")?.let { learnedUpdater ->
+            if (learnedUpdater.capabilityId == "app_update") {
+                val launched = runCatching {
+                    val context = systemService.context()
+                    context.startActivity(android.content.Intent(context, com.assistant.core.MainActivity::class.java)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        .putExtra("jarvis_feature", "app_update"))
+                }.isSuccess
+                val response = if (launched) "Opening the J.A.R.V.I.S. updater using your learned command."
+                    else "Could not open the updater."
+                remember(userInput, response)
+                return HybridAssistantReply(response)
+            }
+        }
+
         volumeMemory.match(userInput, volumeCapabilities)?.let { learned ->
             val direction = if (learned.capabilityId == "volume_up") android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER
             val executed = androidAssistant.adjustVolume(direction)
