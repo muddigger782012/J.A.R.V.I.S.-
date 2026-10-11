@@ -873,7 +873,6 @@ class MainActivity : ThemedActivity() {
             if (commandText.isBlank()) {
                 val reply = hybridAssistantService.handleUserInput("show status")
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
-                fetchSearchResultsIfConfigured(reply.text)
                 statusOutput.text = reply.actionResult?.output ?: reply.text
             } else {
                 runAssistantCommandFromInput()
@@ -1270,7 +1269,7 @@ class MainActivity : ThemedActivity() {
         if (!replyText.startsWith("Web search ready:")) return
         val query = replyText.substringAfter("Web search ready:").substringBefore("\n").trim()
         if (query.length !in 2..300) return
-        val apiKey = com.assistant.core.services.ApiKeyStore(this, "tavily_search").read()
+        val apiKey = runCatching { com.assistant.core.services.ApiKeyStore(this, "tavily_search").read() }.getOrDefault("")
         Thread {
             val cache = getSharedPreferences("jarvis_search_cache", MODE_PRIVATE)
             val cacheId = java.security.MessageDigest.getInstance("SHA-256")
@@ -1374,6 +1373,9 @@ class MainActivity : ThemedActivity() {
         outputLog.text = outputLines.joinToString(separator = "\n\n")
         renderConversation(forceScroll = message.startsWith("You:"))
         persistActiveConversation()
+        if (message.startsWith("J.A.R.V.I.S.: Web search ready:")) {
+            fetchSearchResultsIfConfigured(message.removePrefix("J.A.R.V.I.S.: "))
+        }
     }
 
     private fun appendVoiceDiagnostic(text: String) {
