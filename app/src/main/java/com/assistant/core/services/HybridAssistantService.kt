@@ -464,6 +464,17 @@ class HybridAssistantService(
                 append(it)
             }
         }.trim()
+        // Record only actions that actually succeeded. Never learn a privileged
+        // command, and never execute an AI-supplied label directly.
+        if (result.success && result.adapterUsed != "ENGINE") {
+            val safeIntent = when {
+                isTimeRequest(normalize(userText)) -> "GENERAL_QUESTION"
+                else -> null
+            }
+            if (safeIntent != null) {
+                learningStore.learn(userText, safeIntent, source = "verified_local_action")
+            }
+        }
         remember(userText, reply)
         return HybridAssistantReply(reply, result)
     }
