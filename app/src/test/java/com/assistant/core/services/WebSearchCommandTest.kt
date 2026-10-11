@@ -19,6 +19,13 @@ class WebSearchCommandTest {
         assertNull(WebSearchCommand.imageQuery("Teach Jarvis to show me pictures"))
     }
 
+    @Test fun conversationalImageRequests() {
+        assertEquals("Ford F-550", WebSearchCommand.imageQueryNatural("Can you show me some pictures of a Ford F-550?"))
+        assertEquals("service trucks", WebSearchCommand.imageQueryNatural("Could you find images of service trucks"))
+        assertEquals("Megan Fox", WebSearchCommand.imageQueryNatural("Show me a picture of Megan Fox"))
+        assertNull(WebSearchCommand.imageQueryNatural("Can you explain how image search works?"))
+    }
+
     @Test fun ordinaryChatAndIncompleteSearchAreNotBrowserActions() {
         assertNull(WebSearchCommand.query("Teach Jarvis to search the web for content"))
         assertNull(WebSearchCommand.query("search the web for"))
