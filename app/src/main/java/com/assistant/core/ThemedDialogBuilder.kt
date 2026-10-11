@@ -8,8 +8,10 @@ class ThemedDialogBuilder(private val hostContext: Context) : AlertDialog.Builde
     override fun create(): AlertDialog {
         val dialog = super.create()
         val decor = dialog.window?.decorView
-        decor?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            FontPreferences.applyTo(decor, hostContext)
+        decor?.let { root ->
+            root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                FontPreferences.applyTo(root, hostContext)
+            }
         }
         return dialog
     }
