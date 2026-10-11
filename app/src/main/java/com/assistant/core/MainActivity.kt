@@ -869,13 +869,7 @@ class MainActivity : ThemedActivity() {
         }
 
         findViewById<Button>(R.id.btnLiveChat).setOnClickListener {
-            if (liveChatStarted) endLiveChat("Live chat ended.")
-            else if (hasMicrophonePermission()) startLiveChat()
-            else {
-                pendingLiveChatPermission = true
-                shouldStartVoiceAfterPermission = false
-                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
+            if (liveChatStarted) endLiveChat("Live chat ended.") else requestLiveChat()
         }
         settingsButton.setOnClickListener { openVoiceSettings() }
 
@@ -984,6 +978,8 @@ class MainActivity : ThemedActivity() {
         val commandText = commandInput.text?.toString()?.trim().orEmpty()
         if (commandText.isBlank()) return
         appendOutput("You: ${if (commandText.isBlank()) "(status request)" else commandText}")
+        if (handleLiveChatControl(commandText)) { commandInput.setText(""); return }
+        if (liveChatStarted) return
         handleAssistantWithLocation(commandText) { reply ->
             runOnUiThread {
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
@@ -1105,6 +1101,7 @@ class MainActivity : ThemedActivity() {
             ?: ("session_" + System.currentTimeMillis()).also {
                 conversationPrefs.edit().putString("active_session", it).apply()
             }
+        com.assistant.core.services.LiveChatStore.currentConversation(this, conversationSessionId)
         val stored = conversationPrefs.getString("messages_$conversationSessionId", null)
         if (stored == null) { renderConversation(forceScroll = true); return }
         runCatching {
@@ -1164,6 +1161,7 @@ class MainActivity : ThemedActivity() {
 
     private fun persistActiveConversation() {
         if (conversationSessionId.isBlank()) return
+        com.assistant.core.services.LiveChatStore.currentConversation(this, conversationSessionId)
         val array = JSONArray()
         outputLines.forEach { array.put(it) }
         conversationPrefs.edit().putString("messages_$conversationSessionId", array.toString()).apply()
@@ -1636,12 +1634,40 @@ class MainActivity : ThemedActivity() {
     private fun handleVoiceTranscript(command: String) {
         commandInput.setText(command)
         appendOutput("You: $command")
+        if (handleLiveChatControl(command)) return
         handleAssistantWithLocation(command) { reply ->
             runOnUiThread {
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
                 statusOutput.text = reply.actionResult?.output ?: reply.text
                 voiceService.speak(reply.text)
             }
+        }
+    }
+
+    private fun requestLiveChat() {
+        voiceSession.stop()
+        if (hasMicrophonePermission()) startLiveChat()
+        else {
+            pendingLiveChatPermission = true
+            shouldStartVoiceAfterPermission = false
+            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun handleLiveChatControl(command: String): Boolean {
+        return when (com.assistant.core.services.LiveChatCommands.parse(command)) {
+            com.assistant.core.services.LiveChatCommands.Control.START -> {
+                appendOutput("J.A.R.V.I.S.: " + if (liveChatStarted) "Live chat is already active." else "Starting live chat.")
+                if (!liveChatStarted) requestLiveChat()
+                true
+            }
+            com.assistant.core.services.LiveChatCommands.Control.STOP -> {
+                voiceSession.stop()
+                if (liveChatStarted) endLiveChat("Live chat ended.")
+                appendOutput("J.A.R.V.I.S.: Live chat ended.")
+                true
+            }
+            else -> false
         }
     }
 

@@ -17,6 +17,8 @@ object LiveChatStore {
         try { stream.write(text.toByteArray(Charsets.UTF_8)); file.finishWrite(stream) }
         catch (error: Exception) { file.failWrite(stream); throw error }
     }
+    fun currentConversation(context: Context) = read(context, "live-chat-conversation.txt").orEmpty()
+    fun currentConversation(context: Context, id: String) = write(context, "live-chat-conversation.txt", id)
     fun state(context: Context): JSONObject {
         val state = runCatching { JSONObject(read(context, "live-chat-state.json") ?: "{}") }.getOrDefault(JSONObject())
         if (System.currentTimeMillis() - state.optLong("updated") > 180000L) state.put("active", false)

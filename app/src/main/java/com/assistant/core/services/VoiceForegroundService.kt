@@ -199,8 +199,13 @@ class VoiceForegroundService : Service() {
                 onResult = { text ->
                     if (liveChatActive && liveSession.transcript(turn)) {
                         liveLine("You: $text")
-                        if (normalize(text) in setOf("end live chat", "stop live chat", "exit live chat", "stop conversation")) {
+                        if (LiveChatCommands.parse(text) == LiveChatCommands.Control.STOP) {
                             finishLiveChat("Live chat ended.")
+                        } else if (LiveChatCommands.parse(text) == LiveChatCommands.Control.START) {
+                            liveSession.response(turn)
+                            liveLine("J.A.R.V.I.S.: Live chat is already active.")
+                            liveStatus(VoiceInteractionState.SPEAKING, "Speaking…")
+                            voiceService.speak("Live chat is already active.")
                         } else {
                             liveStatus(VoiceInteractionState.PROCESSING, "Thinking…")
                             hybridAssistantService.handleUserInputAsync(text) { reply ->
@@ -354,6 +359,23 @@ class VoiceForegroundService : Service() {
     private fun processTranscript(transcript: String) {
         currentConfig = voicePreferences.load()
         publishEvent("You: $transcript")
+        when (LiveChatCommands.parse(transcript)) {
+            LiveChatCommands.Control.START -> {
+                val conversation = LiveChatStore.currentConversation(this).ifBlank {
+                    getSharedPreferences("jarvis_unified_chat", MODE_PRIVATE).getString("active_session", "session_" + System.currentTimeMillis()).orEmpty()
+                }
+                LiveChatStore.append(this, conversation, "You: $transcript")
+                LiveChatStore.append(this, conversation, "J.A.R.V.I.S.: Starting live chat.")
+                onStartCommand(Intent(this, VoiceForegroundService::class.java).setAction(ACTION_LIVE_START)
+                    .putExtra("conversation", conversation).putExtra("resume_wake", true), 0, 0)
+                return
+            }
+            LiveChatCommands.Control.STOP -> {
+                speakResponse("Live chat is already stopped.")
+                return
+            }
+            else -> Unit
+        }
 
         val awaiting = pendingClarification
         if (awaiting != null) {
