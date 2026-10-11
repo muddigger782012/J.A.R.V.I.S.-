@@ -26,7 +26,7 @@ object WebSearchCommand {
         val direct = imageQuery(input)
         if (direct != null) return direct
         val pattern = Regex(
-            """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:show|find|get)\s+(?:me\s+)?(?:some\s+|a\s+|an\s+)?(?:pictures|photos|images|picture|photo|image)\s+(?:of|for)\s+(.+)$""",
+            """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:show|find|get)\s+(?:me\s+)?(?:some\s+|a\s+|an\s+)?(?:pictures|photos|images|picture|photo|image)\s+(?:of|for)\s+(?:a\s+|an\s+|the\s+)?(.+)$""",
             RegexOption.IGNORE_CASE
         )
         return pattern.matchEntire(input.trim())?.groupValues?.get(1)
