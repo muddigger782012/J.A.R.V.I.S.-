@@ -1,7 +1,8 @@
 import os
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
 from fastapi.testclient import TestClient
 from main import app
 from weather import summarize
@@ -38,6 +39,32 @@ class GatewayTests(unittest.TestCase):
     def test_invalid_coordinates(self):
         self.body['latitude'] = 100
         self.assertEqual(self.client.post('/chat', json=self.body, headers={'Authorization': 'Bearer test-token'}).status_code, 422)
+
+    def test_context_is_supplied_as_data_and_contextual_lesson_round_trips(self):
+        self.body['messages'][0]['content'] = 'launch my usual browser'
+        self.body['learn_intent'] = True
+        self.body['capability_context'] = {'preferred_apps': {'browser': 'Chrome'}}
+        create = AsyncMock(return_value=SimpleNamespace(output_text='{"reply":"Please confirm", "lesson":{"intent":"OPEN_PREFERRED_APP", "confidence":0.95,"entities":{"slot":"browser"},"learnable":true}}'))
+        manager = MagicMock()
+        manager.__aenter__ = AsyncMock(return_value=SimpleNamespace(responses=SimpleNamespace(create=create)))
+        manager.__aexit__ = AsyncMock(return_value=False)
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'}), patch('main.AsyncOpenAI', return_value=manager):
+            response = self.client.post('/chat', json=self.body, headers={'Authorization': 'Bearer test-token'})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()['lesson']['intent'], 'OPEN_PREFERRED_APP')
+            instructions = create.call_args.kwargs['instructions']
+            self.assertIn('untrusted data', instructions)
+            self.assertIn('Chrome', instructions)
+            self.assertIn('REPEAT_ACTION', instructions)
+
+    def test_oversized_context_is_rejected_before_provider_request(self):
+        self.body['messages'][0]['content'] = 'launch my usual browser'
+        self.body['learn_intent'] = True
+        self.body['capability_context'] = {'label': 'x' * 4097}
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'}), patch('main.AsyncOpenAI') as provider:
+            response = self.client.post('/chat', json=self.body, headers={'Authorization': 'Bearer test-token'})
+            self.assertEqual(response.status_code, 400)
+            provider.assert_not_called()
 
     def test_rain_ignores_expired_forecast(self):
         periods = [
