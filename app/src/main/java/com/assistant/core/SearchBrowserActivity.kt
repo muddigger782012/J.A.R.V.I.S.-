@@ -24,7 +24,7 @@ class SearchBrowserActivity : ThemedActivity() {
         }
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(ThemePreferences.color(this@SearchBrowserActivity, R.color.jarvis_background))
+            setBackgroundColor(ThemePreferences.color(this@SearchBrowserActivity, R.color.jarvis_on_dark))
         }
         val toolbar = LinearLayout(this)
         val title = TextView(this).apply {
