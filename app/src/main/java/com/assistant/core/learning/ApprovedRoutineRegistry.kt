@@ -27,6 +27,10 @@ class ApprovedRoutineRegistry(context: Context) {
             key.startsWith("teach ") || key.startsWith("confirm ") ||
             key.startsWith("delete ") || key.startsWith("reset ") ||
             key.startsWith("forget ") || key.startsWith("cancel ") ||
+            key.startsWith("list ") || key.startsWith("show ") ||
+            key.startsWith("call ") || key.startsWith("text ") ||
+            key.startsWith("send ") || key.startsWith("pay ") ||
+            key.startsWith("purchase ") || key.startsWith("reboot ") ||
             key in setOf("routine status", "update app", "update jarvis", "upgrade app",
                 "upgrade jarvis", "check for jarvis update", "volume up", "volume down",
                 "learning status", "clear local learning")) return null
