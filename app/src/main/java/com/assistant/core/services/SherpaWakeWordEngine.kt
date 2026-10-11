@@ -11,7 +11,8 @@ import com.k2fsa.sherpa.onnx.KeywordSpotter
 import com.k2fsa.sherpa.onnx.KeywordSpotterConfig
 import com.k2fsa.sherpa.onnx.OnlineStream
 import com.k2fsa.sherpa.onnx.getFeatureConfig
-import com.k2fsa.sherpa.onnx.getKwsModelConfig
+import com.k2fsa.sherpa.onnx.OnlineModelConfig
+import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import kotlin.concurrent.thread
 import kotlin.math.abs
 
@@ -40,10 +41,31 @@ class SherpaWakeWordEngine(
             return false
         }
         return try {
+            onStatus("Sherpa: verifying model and wake tokens...")
+            val modelFiles = context.assets.list(MODEL_DIR)?.toSet().orEmpty()
+            fun modelFile(prefix: String): String {
+                val name = modelFiles.firstOrNull { it.startsWith(prefix) && it.endsWith(".int8.onnx") }
+                    ?: modelFiles.firstOrNull { it.startsWith(prefix) && it.endsWith(".onnx") }
+                    ?: error("Missing $prefix model in $MODEL_DIR")
+                return "$MODEL_DIR/$name"
+            }
+            val keywordsPath = "$MODEL_DIR/jarvis-keywords.txt"
+            val keywords = context.assets.open(keywordsPath).bufferedReader().use { it.readText().trim() }
+            require(keywords.isNotBlank() && keywords.contains("@HEY_JARVIS")) { "Missing generated HEY_JARVIS BPE tokens" }
+            onStatus("Sherpa: loading English KWS model...")
             val config = KeywordSpotterConfig(
                 featConfig = getFeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
-                modelConfig = getKwsModelConfig(type = 1)!!,
-                keywordsFile = "",
+                modelConfig = OnlineModelConfig(
+                    transducer = OnlineTransducerModelConfig(
+                        encoder = modelFile("encoder-"),
+                        decoder = modelFile("decoder-"),
+                        joiner = modelFile("joiner-")
+                    ),
+                    tokens = "$MODEL_DIR/tokens.txt",
+                    modelType = "zipformer2",
+                    numThreads = 1
+                ),
+                keywordsFile = keywordsPath,
                 // Sherpa's own KWS examples use a stronger keyword boost and
                 // low acoustic threshold. The previous 1.5/0.27 defaults were
                 // too conservative for an always-on wake phrase.
@@ -56,13 +78,15 @@ class SherpaWakeWordEngine(
             // Do not load the model's bundled generic keyword list in addition
             // to the configured wake phrase. This stream should react only to
             // the user's JARVIS wake phrase.
-            val onlineStream = kws.createStream(phrase)
+            // The generated keywords file contains BPE pieces; plain English is invalid here.
+            val onlineStream = kws.createStream()
             if (onlineStream.ptr == 0L) {
                 kws.release()
                 onStatus("Sherpa could not create a stream for '$phrase'.")
                 return false
             }
 
+            onStatus("Sherpa: keyword stream created; opening microphone...")
             val minBytes = AudioRecord.getMinBufferSize(
                 SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
             )
