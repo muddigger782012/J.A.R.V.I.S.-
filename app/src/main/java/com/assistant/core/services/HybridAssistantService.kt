@@ -536,37 +536,22 @@ class HybridAssistantService(
             return replyFromResult(userInput, "Reading the current screen.", assistantEngine.executeAction(actionRegistry.readScreenRequest()))
         }
 
-        // Image requests should open real image results rather than receive a
-        // misleading text-only fallback claiming that pictures are impossible.
+        // Return a search card in the conversation instead of interrupting chat
+        // by opening another activity. The user opens the embedded browser by
+        // tapping the card; the same response works for voice and text input.
         WebSearchCommand.imageQueryNatural(userInput)?.let { query ->
-            val launched = runCatching {
-                val url = android.net.Uri.parse("https://www.google.com/search")
-                    .buildUpon()
-                    .appendQueryParameter("tbm", "isch")
-                    .appendQueryParameter("q", query)
-                    .build()
-                systemService.context().startActivity(
-                    android.content.Intent(systemService.context(), com.assistant.core.SearchBrowserActivity::class.java).putExtra(com.assistant.core.SearchBrowserActivity.EXTRA_URL, url.toString())
-                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-            }.isSuccess
-            val response = if (launched) "Opening image search for: $query\nhttps://www.google.com/search?tbm=isch&q=${android.net.Uri.encode(query)}"
-                else "Could not open image search. Check that a browser is installed and enabled."
+            val url = android.net.Uri.parse("https://www.google.com/search")
+                .buildUpon().appendQueryParameter("tbm", "isch")
+                .appendQueryParameter("q", query).build()
+            val response = "Image search ready: $query\\n$url".replace("\\n", "\n")
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
 
-        // Explicit web search is a real Android browser action, not an AI claim.
         WebSearchCommand.query(userInput)?.let { query ->
-            val launched = runCatching {
-                val url = android.net.Uri.parse("https://www.google.com/search")
-                    .buildUpon().appendQueryParameter("q", query).build()
-                val intent = android.content.Intent(systemService.context(), com.assistant.core.SearchBrowserActivity::class.java).putExtra(com.assistant.core.SearchBrowserActivity.EXTRA_URL, url.toString())
-                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                systemService.context().startActivity(intent)
-            }.isSuccess
-            val response = if (launched) "Opening web search for: $query\nhttps://www.google.com/search?q=${android.net.Uri.encode(query)}"
-                else "Could not open a browser for the search. Check that a browser is installed and enabled."
+            val url = android.net.Uri.parse("https://www.google.com/search")
+                .buildUpon().appendQueryParameter("q", query).build()
+            val response = "Web search ready: $query\\n$url".replace("\\n", "\n")
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
