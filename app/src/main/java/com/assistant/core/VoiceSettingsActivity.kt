@@ -62,6 +62,33 @@ class VoiceSettingsActivity : ThemedActivity() {
         }
         (saveButton.parent as android.view.ViewGroup).addView(appearanceButton, 3)
 
+        val learningButton = com.google.android.material.button.MaterialButton(this).apply {
+            text = "Intelligence • Local Learning"
+            isAllCaps = false
+            setOnClickListener {
+                val store = com.assistant.core.services.IntentLearningStore(this@VoiceSettingsActivity)
+                val summary = "Learned examples on this device: ${store.count()}\\n\\n" +
+                    "Clear this device removes only locally saved examples. It does not delete learning on another device."
+                androidx.appcompat.app.AlertDialog.Builder(this@VoiceSettingsActivity)
+                    .setTitle("Intelligence • Local Learning")
+                    .setMessage(summary)
+                    .setNegativeButton("Close", null)
+                    .setNeutralButton("Clear this device") { _, _ ->
+                        androidx.appcompat.app.AlertDialog.Builder(this@VoiceSettingsActivity)
+                            .setTitle("Clear learning on this device?")
+                            .setMessage("This permanently clears the learned examples on this installation only. Other devices are unchanged.")
+                            .setNegativeButton("Cancel", null)
+                            .setPositiveButton("Clear this device") { _, _ ->
+                                store.clear()
+                                android.widget.Toast.makeText(this@VoiceSettingsActivity, "Local learning cleared on this device", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                            .show()
+                    }
+                    .show()
+            }
+        }
+        (saveButton.parent as android.view.ViewGroup).addView(learningButton, 4)
+
         val gatewayPrefs = getSharedPreferences("jarvis_cloud_ai", MODE_PRIVATE)
         val gatewayButton = com.google.android.material.button.MaterialButton(this).apply {
             text = "Weather and AI"
