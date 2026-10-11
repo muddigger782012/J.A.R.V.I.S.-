@@ -10,6 +10,9 @@ class WebSearchCommandTest {
         assertEquals("diesel wiring diagram", WebSearchCommand.query("please search web for diesel wiring diagram"))
         assertEquals("truck parts", WebSearchCommand.query("Google truck parts"))
         assertEquals("weather forecast", WebSearchCommand.query("look up weather forecast"))
+        assertEquals("Caterpillar C7 injectors", WebSearchCommand.query("Find information about Caterpillar C7 injectors."))
+        assertEquals("Ford 6.0 Power Stroke", WebSearchCommand.query("Find me info on Ford 6.0 Power Stroke."))
+        assertEquals("Volvo D11 fault codes", WebSearchCommand.query("Look up Volvo D11 fault codes."))
     }
 
     @Test fun imageRequests() {
