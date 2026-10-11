@@ -42,4 +42,8 @@
         <item name="android:paddingLeft">12dp</item>
         <item name="android:paddingRight">12dp</item>
     </style>
+    <style name="Widget.AssistantPlatform.GradientButton" parent="Widget.AssistantPlatform.Button">
+        <item name="android:background">@drawable/gradient_button_bg</item>
+        <item name="backgroundTint">@null</item>
+    </style>
 </resources>

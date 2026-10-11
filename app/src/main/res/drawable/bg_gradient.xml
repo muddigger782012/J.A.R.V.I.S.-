@@ -1,0 +1,4 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><shape><gradient android:angle="135" android:startColor="?attr/jarvis_bg_start" android:centerColor="?attr/jarvis_gradient_center" android:endColor="?attr/jarvis_bg_end" /></shape></item>
+    <item android:drawable="@drawable/gradient_geometry" />
+</layer-list>

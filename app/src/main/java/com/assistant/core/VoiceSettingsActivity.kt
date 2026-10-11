@@ -56,7 +56,7 @@ class VoiceSettingsActivity : ThemedActivity() {
 
         val themeButton = com.google.android.material.button.MaterialButton(this).apply {
             id = R.id.btnThemes
-            text = "Themes • " + ThemePreferences.selected(this@VoiceSettingsActivity).replaceFirstChar { it.uppercase() }
+            text = "Themes • " + ThemePreferences.label(ThemePreferences.selected(this@VoiceSettingsActivity))
             isAllCaps = false
             setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, ThemeSettingsActivity::class.java)) }
         }

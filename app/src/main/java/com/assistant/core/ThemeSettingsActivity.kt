@@ -13,7 +13,12 @@ class ThemeSettingsActivity : ThemedActivity() {
             R.id.btnThemeDefault to "default", R.id.btnThemeStark to "stark", R.id.btnThemeCybertron to "cybertron",
             R.id.btnThemeDefaultAlternative to "default_alternative",
             R.id.btnThemeStarkAlternative to "stark_alternative",
-            R.id.btnThemeCybertronAlternative to "cybertron_alternative"
+            R.id.btnThemeCybertronAlternative to "cybertron_alternative",
+            R.id.btnThemeAurora to "aurora",
+            R.id.btnThemeSunset to "sunset",
+            R.id.btnThemeGlacier to "glacier",
+            R.id.btnThemeEmerald to "emerald",
+            R.id.btnThemeRoyal to "royal"
         )
         options.forEach { (id, name) ->
             findViewById<Button>(id).apply {
