@@ -20,15 +20,16 @@
             <TextView android:id="@+id/tvAssistantState" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="@string/ui_ready" android:maxLines="1" android:ellipsize="end" android:textSize="12sp" android:layout_marginTop="4dp" android:textColor="?attr/jarvis_secondary" />
         </LinearLayout>
-        <Button android:id="@+id/btnVoiceSettings" style="@style/Widget.AssistantPlatform.QuietButton"
-            android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/ui_settings" />
+        <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btnVoiceSettings"
+            android:layout_width="48dp" android:layout_height="48dp" android:layout_marginStart="12dp"
+            android:padding="12dp" android:background="@drawable/composer_icon_plain"
+            android:contentDescription="@string/ui_tools_and_settings"
+            app:srcCompat="@drawable/ic_tools_settings" app:tint="?attr/jarvis_primary" />
     </LinearLayout>
     <LinearLayout android:id="@+id/jarvisNavigation" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginHorizontal="16dp" android:orientation="horizontal">
         <Button android:id="@+id/btnOpenJarvisChat" style="@style/Widget.AssistantPlatform.QuietButton"
             android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/ui_chat" />
-        <Button android:id="@+id/btnOpenTools" style="@style/Widget.AssistantPlatform.QuietButton"
-            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp" android:text="@string/ui_tools" />
     </LinearLayout>
     <TextView android:textColor="?attr/jarvis_on_dark" android:id="@+id/tvScreenTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginHorizontal="20dp" android:layout_marginTop="8dp" android:textSize="18sp" android:textStyle="bold" android:visibility="gone" />
