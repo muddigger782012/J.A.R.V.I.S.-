@@ -396,9 +396,12 @@ class VoiceForegroundService : Service() {
         // Voice 2.0 deliberately sends recognized speech through the same
         // central assistant pipeline as typed input. Legacy parser routing is
         // retained below only until the remaining migration is complete.
-        val reply = hybridAssistantService.handleUserInput(transcript)
-        publishEvent("J.A.R.V.I.S.: ${reply.text}")
-        speakResponse(reply.text)
+        hybridAssistantService.handleUserInputAsync(transcript) { reply ->
+            liveHandler.post {
+                publishEvent("J.A.R.V.I.S.: ${reply.text}")
+                speakResponse(reply.text)
+            }
+        }
     }
 
     private fun speakResponse(text: String) {
