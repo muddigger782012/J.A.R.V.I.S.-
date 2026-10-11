@@ -168,7 +168,10 @@ class VoiceForegroundService : Service() {
                 voiceSession.transcriptReady(recognition.transcript)
             },
             onSpeechStarted = { voiceSession.speaking() },
-            onSpeechFinished = { voiceSession.responseFinished(keepArmed = true) }
+            onSpeechFinished = {
+                voiceSession.responseFinished(keepArmed = true)
+                voiceService.rearmAfterResponse()
+            }
         )
     }
 
