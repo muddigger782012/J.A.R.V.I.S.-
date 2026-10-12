@@ -52,8 +52,8 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
                     android.widget.Toast.makeText(this, "Couldn't save this voice. Try again.", android.widget.Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
-                android.widget.Toast.makeText(this, "Assistant voice saved", android.widget.Toast.LENGTH_SHORT).show()
-                finish()
+                android.widget.Toast.makeText(this, "Assistant voice saved. Preview it here.", android.widget.Toast.LENGTH_SHORT).show()
+                updateVoice()
             }
         }
         findViewById<Button>(R.id.btnAndroidSpeechSettings).setOnClickListener {
@@ -244,8 +244,8 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
             val voices = com.assistant.core.services.NeuralVoiceCatalog.voices
             ThemedDialogBuilder(this).setTitle("Choose offline male voice")
                 .setSingleChoiceItems(voices.map { it.label }.toTypedArray(), voices.indexOfFirst { it.id == selectedName }) { dialog, index ->
-                    selectedName = voices[index].id; dialog.dismiss(); updateVoice()
-                }.setNegativeButton("Cancel", null).show()
+                    selectedName = voices[index].id; updateVoice()
+                }.setPositiveButton("Done", null).show()
             return
         }
         val voices = AssistantSpeechVoice.available(speech)
@@ -254,9 +254,8 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
         ThemedDialogBuilder(this).setTitle("Choose a voice to preview")
             .setSingleChoiceItems(labels, checked) { dialog, index ->
                 selectedName = if (index == 0) "" else voices[index - 1].name
-                dialog.dismiss()
                 updateVoice()
-            }.setNegativeButton("Cancel", null).show()
+            }.setPositiveButton("Done", null).show()
     }
 
     private fun preview() {
@@ -276,7 +275,7 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
         runOnUiThread {
             if (!closed && id == "voice-preview-$previewId") {
                 stopPreview()
-                if (error) findViewById<TextView>(R.id.tvAssistantVoiceStatus).text = "This voice could not speak. Choose another installed voice."
+                if (error) findViewById<TextView>(R.id.tvAssistantVoiceStatus).text = "The selected voice could not play. Open Voice diagnostics and copy the report. Default (Female) remains available."
             }
         }
     }

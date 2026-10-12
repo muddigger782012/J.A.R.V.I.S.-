@@ -37,6 +37,9 @@ object NeuralVoiceDiagnostics {
         appendLine("Verified Kokoro pack installed: ${pack.installed()}")
         appendLine("Configured response engine: ${if (saved.profile == AssistantVoiceProfile.ORIGINAL && pack.installed()) "Kokoro offline" else "Android TTS (female; availability depends on engine)"}")
         appendLine("Kokoro configuration: v0.19 FP32 · 2 threads · speed 1.0")
+        appendLine("Native playback: PCM16 · media-volume route · transient audio focus")
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        appendLine("Media volume: ${audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)}/${audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)}, muted=${audio.isStreamMute(android.media.AudioManager.STREAM_MUSIC)}")
         appendLine("Phrase audio cache bytes: ${NeuralSpeechCache(File(context.cacheDir, "neural-phrases")).bytes()}")
         val options = VoiceResponsePreferences.load(context)
         appendLine("Speech enabled: regular=${options.regularSpeech}, live=${options.liveSpeech}")

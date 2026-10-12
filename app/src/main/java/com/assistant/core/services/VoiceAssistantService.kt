@@ -201,22 +201,33 @@ class VoiceAssistantService(
             val engine = neuralSpeech ?: NeuralAssistantSpeech(context).also { neuralSpeech = it }
             engine.speak(text, voice, cachePhrase = after != null, done = { if (activeSpeechPrefix == prefix) finishSpeech() }, error = { failure ->
                 if (activeSpeechPrefix == prefix) {
-                    onStatus("Offline voice could not speak ($failure). Select Default (Female) if needed.")
-                    finishSpeech()
+                    onStatus("Offline male voice failed ($failure). Trying the saved female voice for this reply.")
+                    speakAndroidResponse(text, forceFemale = true)
                 }
             })
             return
         }
+        speakAndroidResponse(text)
+    }
+
+    private fun speakAndroidResponse(text: String, forceFemale: Boolean = false) {
+        if (!VoiceResponsePreferences.load(context).allowsSpeech(activeSpeechChannel)) { finishSpeech(); return }
         if (!ttsReady || text.isBlank()) {
+            if (forceFemale) onStatus("Android speech fallback is not ready. Open Voice diagnostics to inspect the failure.")
             finishSpeech()
             return
         }
-        applyAssistantVoiceProfile()
+        if (forceFemale) {
+            val saved = speechPreferences.load()
+            val result = AssistantSpeechVoice.apply(tts, AssistantVoiceProfile.FEMALE, saved.femaleVoice, saved.femaleVoice)
+            speechVoiceUsable = result.usable
+            onStatus("Temporary female fallback: ${result.description}")
+        } else applyAssistantVoiceProfile()
         if (!speechVoiceUsable) {
             finishSpeech()
             return
         }
-        if (after == null) onSpeechStarted()
+        if (afterSpeech == null) onSpeechStarted()
         val chunks = SpeechChunks.split(text, minOf(3000, TextToSpeech.getMaxSpeechInputLength() - 1))
         val prefix = "jarvis-response-${++speechSequence}-"
         activeSpeechPrefix = prefix
