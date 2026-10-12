@@ -33,6 +33,7 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
         worker.execute {
             var firstAudioMs = -1L
             var cacheHits = 0
+            var terminalRecorded = false
             try {
                 val pack = NeuralVoicePack(app)
                 check(pack.installed()) { "Offline voices are not installed" }
@@ -85,13 +86,18 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                         output.release()
                     }
                 }
+                if (generation.get() != token || closed) return@execute
                 NeuralVoiceDiagnostics.record(app, source, voice.id, "completed", firstAudioMs, cacheHits)
+                terminalRecorded = true
                 main.post { if (generation.get() == token && !closed) done() }
             } catch (failure: Throwable) {
-                NeuralVoiceDiagnostics.record(app, source, voice.id, "error", firstAudioMs, cacheHits, failure.javaClass.simpleName)
-                main.post { if (generation.get() == token && !closed) error(failure.javaClass.simpleName) }
+                if (generation.get() == token && !closed) {
+                    NeuralVoiceDiagnostics.record(app, source, voice.id, "error", firstAudioMs, cacheHits, failure.javaClass.simpleName)
+                    terminalRecorded = true
+                    main.post { if (generation.get() == token && !closed) error(failure.javaClass.simpleName) }
+                }
             } finally {
-                if (generation.get() != token || closed)
+                if (!terminalRecorded && (generation.get() != token || closed))
                     NeuralVoiceDiagnostics.record(app, source, voice.id, "cancelled", firstAudioMs, cacheHits)
             }
         }
