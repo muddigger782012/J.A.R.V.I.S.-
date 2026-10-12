@@ -31,21 +31,28 @@ class ValidatedCommandMemory internal constructor(
     private fun normalize(value: String): String =
         value.lowercase(Locale.ROOT).trim().trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
 
+    // Word hyphens are transcription/typing variants. Preserve signs and other punctuation.
+    private fun matchingKey(value: String): String = normalize(value)
+        .replace(Regex("(?<=\\p{L})[-\\u2010\\u2011](?=\\p{L})"), " ")
+
     fun match(utterance: String, allowedCapabilityIds: Set<String>): Match? = synchronized(lock) {
-        val key = normalize(utterance)
+        val key = matchingKey(utterance)
         // Older builds could incorrectly retain the approval instead of its request.
         if (key.isBlank() || ConfirmationWords.isConfirmation(utterance) || DeviceLearningSession.isOutcome(utterance)) return@synchronized null
         val entries = readEntries()
-        val found = (0 until entries.length()).mapNotNull { i ->
-            entries.optJSONObject(i)?.takeIf {
-                normalize(it.optString("phrase")) == key &&
-                    it.optString("capabilityId") in allowedCapabilityIds
-            }
-        }.maxByOrNull { it.optInt("successes", 0) }
-        found?.let {
-            val params = it.optJSONObject("parameters")
-            Match(it.getString("capabilityId"), 1.0, params?.keys()?.asSequence()?.associateWith { key -> params.getString(key) } ?: emptyMap())
+        val meanings = mutableSetOf<Match>()
+        for (i in 0 until entries.length()) {
+            val entry = entries.optJSONObject(i) ?: continue
+            if (matchingKey(entry.optString("phrase")) != key) continue
+            val meaning = runCatching {
+                val params = entry.optJSONObject("parameters")
+                Match(entry.getString("capabilityId"), 1.0, params?.keys()?.asSequence()?.associateWith { params.getString(it) } ?: emptyMap())
+            }.getOrNull() ?: return@synchronized null
+            meanings.add(meaning)
         }
+        // Legacy entries can collide after normalization. Never choose by frequency,
+        // even if only one meaning is in this caller's capability allowlist.
+        meanings.singleOrNull()?.takeIf { it.capabilityId in allowedCapabilityIds }
     }
 
     /** Call only after the action succeeds and learning consent is enabled. */
@@ -59,7 +66,7 @@ class ValidatedCommandMemory internal constructor(
             var successes = 1
             for (i in 0 until existing.length()) {
                 val item = existing.optJSONObject(i) ?: continue
-                if (normalize(item.optString("phrase")) == phrase) {
+                if (matchingKey(item.optString("phrase")) == matchingKey(phrase)) {
                     if (item.optString("capabilityId") != capabilityId) return@synchronized false
                     val previous = item.optJSONObject("parameters")
                     val previousMap = previous?.keys()?.asSequence()?.associateWith { previous.getString(it) } ?: emptyMap()
@@ -73,13 +80,13 @@ class ValidatedCommandMemory internal constructor(
         }
 
     fun forget(utterance: String): Boolean = synchronized(lock) {
-        val phrase = normalize(utterance)
+        val phrase = matchingKey(utterance)
         if (phrase.isBlank()) return@synchronized false
         val entries = readEntries()
         val remaining = JSONArray()
         for (i in 0 until entries.length()) {
             val entry = entries.optJSONObject(i) ?: continue
-            if (normalize(entry.optString("phrase")) != phrase) remaining.put(entry)
+            if (matchingKey(entry.optString("phrase")) != phrase) remaining.put(entry)
         }
         if (remaining.length() == entries.length()) return@synchronized false
         write(remaining.toString())
