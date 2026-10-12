@@ -34,6 +34,7 @@ object RoutineProposal {
         "volume_up" -> "raise media volume one step"
         "volume_down" -> "lower media volume one step"
         "app_update" -> "open the J.A.R.V.I.S. updater (Android installation approval still required)"
-        else -> RoutineSteps.timerAction(action)?.description() ?: "unsupported step"
+        else -> RoutineSteps.preferredSlot(action)?.let { "open the current saved preferred $it app" }
+            ?: RoutineSteps.timerAction(action)?.description() ?: "unsupported step"
     }
 }
