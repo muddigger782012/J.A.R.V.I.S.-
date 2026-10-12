@@ -27,12 +27,13 @@ class VolumeConfirmationStore internal constructor(
         }
     )
 
-    data class Pending(val phrase: String, val lesson: FallbackIntentLesson)
+    data class Pending(val phrase: String, val lesson: FallbackIntentLesson, val explicitTeaching: Boolean = false)
     data class Resolution(val pending: Pending, val approved: Boolean)
 
-    fun propose(phrase: String, lesson: FallbackIntentLesson): Boolean = synchronized(lock) {
+    fun propose(phrase: String, lesson: FallbackIntentLesson, explicitTeaching: Boolean = false): Boolean = synchronized(lock) {
+        if (explicitTeaching && (ExactVolumeLearning.fromLesson(lesson) == null || !lesson.canTeachLocally())) return@synchronized false
         if (phrase.isBlank() || phrase.length > 240 || ConfirmationWords.isConfirmation(phrase) || (VerifiedVolumeLearning.capability(lesson) == null && ExactVolumeLearning.fromLesson(lesson) == null)) return@synchronized false
-        write(JSONObject().put("phrase", phrase).put("created", now()).put("lesson", JSONObject()
+        write(JSONObject().put("phrase", phrase).put("explicitTeaching", explicitTeaching).put("created", now()).put("lesson", JSONObject()
             .put("intent", lesson.intent).put("confidence", lesson.confidence)
             .put("entities", JSONObject(lesson.entities)).put("learnable", lesson.learnable)).toString())
     }
@@ -47,7 +48,9 @@ class VolumeConfirmationStore internal constructor(
             if (age !in 0..120_000) return@runCatching null
             val lesson = FallbackIntentLesson.fromJson(json.getJSONObject("lesson").toString()) ?: return@runCatching null
             if ((VerifiedVolumeLearning.capability(lesson) == null && ExactVolumeLearning.fromLesson(lesson) == null)) return@runCatching null
-            Pending(json.getString("phrase"), lesson)
+            val explicit = json.optBoolean("explicitTeaching")
+            if (explicit && (ExactVolumeLearning.fromLesson(lesson) == null || !lesson.canTeachLocally())) return@runCatching null
+            Pending(json.getString("phrase"), lesson, explicit)
         }.getOrNull() ?: return@synchronized null
         if (!ConfirmationWords.isConfirmation(input)) return@synchronized null
         Resolution(pending, ConfirmationWords.approves(input))
