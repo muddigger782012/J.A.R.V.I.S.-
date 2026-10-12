@@ -55,7 +55,27 @@ object WebSearchCommand {
 
     fun query(input: String): String? {
         val candidate = search.matchEntire(input.trim())?.groupValues?.get(1)
-            ?.trim()?.trimEnd('.', '?', '!')?.trim() ?: return null
+            ?.trim()?.trimEnd('.', '?', '!')?.trim() ?: downloadQuery(input) ?: return null
         return candidate.takeIf { it.length in 2..300 }
+    }
+
+    /** Finding a public download page is retrieval, not permission to install anything. */
+    fun downloadQuery(input: String): String? {
+        val match = Regex(
+            """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:find|show|get|locate)\s+(?:me\s+)?(?:(?:a|an|some|the)\s+)?(downloadable\s+.+|downloads?\s+(?:for|of)\s+.+|download\s+(?:links?|pages?)\s+(?:for|to)\s+.+|links?\s+(?:to|for)\s+download\s+.+)$""",
+            RegexOption.IGNORE_CASE
+        ).matchEntire(input.trim()) ?: return null
+        return match.groupValues[1].trim().trimEnd('.', '?', '!').trim().takeIf { it.length in 2..300 }
+    }
+
+    /** A bounded next-turn retry uses only the immediately preceding explicit search request. */
+    fun isDownloadSearchFollowup(input: String): Boolean = Regex(
+        """^(?:(?:can(?:not|'t)?|could)\s+you|you\s+(?:can(?:not|'t)?))\s+(?:search\s+for|find|look\s+up)\s+(?:downloadable\s+links?|download\s+links?)(?:\s+(?:available\s+)?online)?[?!\.]*$""",
+        RegexOption.IGNORE_CASE
+    ).matches(input.trim())
+
+    fun downloadFollowupQuery(input: String, previousInput: String?): String? {
+        if (!isDownloadSearchFollowup(input)) return null
+        return previousInput?.let(::query)
     }
 }

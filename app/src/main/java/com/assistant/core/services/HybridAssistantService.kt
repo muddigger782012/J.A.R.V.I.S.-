@@ -765,10 +765,17 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        (WebSearchCommand.query(userInput) ?: WebSearchCommand.currentInfoQuery(userInput))?.let { query ->
+        (WebSearchCommand.query(userInput) ?: WebSearchCommand.currentInfoQuery(userInput)
+            ?: WebSearchCommand.downloadFollowupQuery(userInput, history.lastOrNull()?.first))?.let { query ->
             val url = android.net.Uri.parse("https://www.google.com/search")
                 .buildUpon().appendQueryParameter("q", query).build()
             val response = "Web search ready: $query\\n$url".replace("\\n", "\n")
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
+        if (WebSearchCommand.isDownloadSearchFollowup(userInput)) {
+            val response = "I can search online for public download pages and links. Tell me what you want to find, for example 'find me downloadable offline voice models'. Finding a link does not download or install it."
             remember(userInput, response)
             return HybridAssistantReply(response)
         }

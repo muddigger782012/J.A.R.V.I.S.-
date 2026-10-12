@@ -34,4 +34,27 @@ class WebSearchCommandTest {
         assertNull(WebSearchCommand.query("search the web for"))
         assertNull(WebSearchCommand.query("What's the weather today?"))
     }
+
+    @Test fun downloadLinkRequestsUseRetrievalWithoutClaimingAnInstallation() {
+        assertEquals("downloadable voice models replicating jarvis from iron man",
+            WebSearchCommand.query("Find me a downloadable voice models replicating jarvis from iron man"))
+        assertEquals("download links for offline British male voices",
+            WebSearchCommand.query("Could you find me download links for offline British male voices?"))
+        assertEquals("downloads for Piper voices", WebSearchCommand.query("Show me downloads for Piper voices."))
+        assertEquals("links to download an offline voice", WebSearchCommand.query("Please get me links to download an offline voice"))
+        for (text in listOf("Download and install this voice model", "Find my downloads folder", "Don't find downloadable models",
+            "Explain how to find downloadable voices", "Find me a downloadable", "Find me download links for", "find me a downloadable " + "x".repeat(301)))
+            assertNull(WebSearchCommand.query(text))
+    }
+
+    @Test fun downloadFollowupUsesOnlyAnExplicitImmediatelyPreviousTopic() {
+        val previous = "Find me a downloadable voice models replicating jarvis from iron man"
+        assertEquals(WebSearchCommand.query(previous), WebSearchCommand.downloadFollowupQuery(
+            "You can't search for downloadable links available online?", previous))
+        assertEquals("Piper voice downloads", WebSearchCommand.downloadFollowupQuery("Can you find download links?", "Look up Piper voice downloads"))
+        assertNull(WebSearchCommand.downloadFollowupQuery("Can you find download links?", null))
+        assertNull(WebSearchCommand.downloadFollowupQuery("Can you find download links?", "Open Chrome"))
+        assertNull(WebSearchCommand.downloadFollowupQuery("Don't search for downloadable links", previous))
+        assertNull(WebSearchCommand.downloadFollowupQuery("Can you install it?", previous))
+    }
 }
