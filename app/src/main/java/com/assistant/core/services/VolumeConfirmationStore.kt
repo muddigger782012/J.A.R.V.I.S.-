@@ -31,7 +31,7 @@ class VolumeConfirmationStore internal constructor(
     data class Resolution(val pending: Pending, val approved: Boolean)
 
     fun propose(phrase: String, lesson: FallbackIntentLesson): Boolean = synchronized(lock) {
-        if (phrase.isBlank() || phrase.length > 240 || ConfirmationWords.isConfirmation(phrase) || VerifiedVolumeLearning.capability(lesson) == null) return@synchronized false
+        if (phrase.isBlank() || phrase.length > 240 || ConfirmationWords.isConfirmation(phrase) || (VerifiedVolumeLearning.capability(lesson) == null && ExactVolumeLearning.fromLesson(lesson) == null)) return@synchronized false
         write(JSONObject().put("phrase", phrase).put("created", now()).put("lesson", JSONObject()
             .put("intent", lesson.intent).put("confidence", lesson.confidence)
             .put("entities", JSONObject(lesson.entities)).put("learnable", lesson.learnable)).toString())
@@ -46,7 +46,7 @@ class VolumeConfirmationStore internal constructor(
             val age = now() - json.getLong("created")
             if (age !in 0..120_000) return@runCatching null
             val lesson = FallbackIntentLesson.fromJson(json.getJSONObject("lesson").toString()) ?: return@runCatching null
-            if (VerifiedVolumeLearning.capability(lesson) == null) return@runCatching null
+            if ((VerifiedVolumeLearning.capability(lesson) == null && ExactVolumeLearning.fromLesson(lesson) == null)) return@runCatching null
             Pending(json.getString("phrase"), lesson)
         }.getOrNull() ?: return@synchronized null
         if (!ConfirmationWords.isConfirmation(input)) return@synchronized null

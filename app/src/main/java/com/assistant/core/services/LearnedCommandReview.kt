@@ -25,7 +25,7 @@ object LearnedCommandReviewCommands {
 object LearnedCommandReview {
     const val PAGE_SIZE = 12
     private val capabilities = LearnableDeviceAction.capabilities + ContextualAction.capabilities + LearnablePreference.capabilities +
-        setOf("volume_up", "volume_down", "app_update")
+        setOf("volume_up", "volume_down", "app_update") + ExactVolumeLearning.capabilities
 
     fun render(page: Int, commands: ValidatedCommandMemory, memory: AssistantMemory, examples: List<IntentLearningStore.SavedExample>): String {
         if (page < 1) return "Choose a learned-command page starting at 1. Say 'show learned commands'."
@@ -62,6 +62,8 @@ object LearnedCommandReview {
     private fun describe(entry: ValidatedCommandMemory.SavedPhrase, memory: AssistantMemory): String = when (entry.capabilityId) {
         "volume_up" -> if (entry.parameters.isEmpty()) "raise media volume one step" else "unavailable: invalid volume parameters"
         "volume_down" -> if (entry.parameters.isEmpty()) "lower media volume one step" else "unavailable: invalid volume parameters"
+        ExactVolumeLearning.CAPABILITY -> ExactVolumeLearning.fromParameters(entry.parameters)?.let { "set media volume to $it% (nearest supported level)" }
+            ?: "unavailable: invalid volume level"
         "app_update" -> if (entry.parameters.isEmpty()) "open the J.A.R.V.I.S. updater" else "unavailable: invalid updater parameters"
         "timer", "open_app" -> LearnableDeviceAction(entry.capabilityId, entry.parameters).takeIf { it.isValid() }?.description()
             ?: "unavailable: invalid saved action"
