@@ -23,7 +23,12 @@ object GroundedSearchSuggestionsView {
         webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url.toString()
-                if (ChatSearchResults.safeUrl(url)) runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                if (ChatSearchResults.safeUrl(url)) runCatching {
+                    val intent = if (com.assistant.core.services.SearchBrowserNavigation.canStart(url))
+                        Intent(activity, SearchBrowserActivity::class.java).putExtra(SearchBrowserActivity.EXTRA_URL, url)
+                    else Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    activity.startActivity(intent)
+                }
                 return true
             }
             override fun onPageFinished(view: WebView, url: String) {
