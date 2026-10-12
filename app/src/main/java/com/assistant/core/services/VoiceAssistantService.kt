@@ -199,7 +199,7 @@ class VoiceAssistantService(
             val voice = NeuralVoiceCatalog.resolve(selection.originalVoice)
             onStatus("${voice.label} · offline Kokoro")
             val engine = neuralSpeech ?: NeuralAssistantSpeech(context).also { neuralSpeech = it }
-            engine.speak(text, voice, done = { if (activeSpeechPrefix == prefix) finishSpeech() }, error = { failure ->
+            engine.speak(text, voice, cachePhrase = after != null, done = { if (activeSpeechPrefix == prefix) finishSpeech() }, error = { failure ->
                 if (activeSpeechPrefix == prefix) {
                     onStatus("Offline voice could not speak ($failure). Select Default (Female) if needed.")
                     finishSpeech()

@@ -14,3 +14,11 @@ References:
 - https://huggingface.co/hexgrad/Kokoro-82M
 
 Validation: CI model synthesis smoke checks, Android compilation and unit tests, UI theme contract. Device download, AudioTrack playback, perceived quality, background replies, cancellation and wake/listening timing still require a phone audition. Linux synthesis does not establish Android audio behavior or gender perception on a particular device.
+
+## Repeated phrases and voice diagnostics
+
+Wake acknowledgments, introductions and the fixed settings audition may reuse a bounded private PCM cache. General conversational replies are not cached. Keys include the exact model archive fingerprint, preset ID, fixed speech speed and phrase, so editing a phrase or choosing another voice cannot replay the old variant. Cache hits skip model initialization and synthesis. Corrupt or truncated entries are rejected and regenerated; storage failure only disables caching, not speech. The cache is limited to 8 MiB and Android may evict it normally.
+
+Settings → Assistant voice → Voice diagnostics shows the configured engine, saved preset, verified pack state, speech switches and the latest recorded native preview/assistant audio events. Copy for debug copies that report locally. It excludes phrase contents, conversation text and credentials. Timing is time from the request to the first successfully queued audio frames, not a measurement of sound reaching the speaker. Events are historical snapshots, not a current microphone/playback indicator. Clear phrase audio cache preserves the downloaded voice pack and settings.
+
+Device check: audition the same preset twice, then inspect cache hits and first queued audio timing. Change the preset or wake phrase and verify a fresh variant. Test the background wake response, muting and cancellation. Automated cache tests cover exact-key isolation, corrupt/truncated data, finite samples, bounded eviction and clearing.
