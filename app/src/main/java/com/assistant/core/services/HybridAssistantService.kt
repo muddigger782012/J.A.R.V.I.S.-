@@ -517,6 +517,19 @@ class HybridAssistantService(
             }
         }
 
+        ExactVolumeLearning.parse(userInput)?.let { percent ->
+            val response = executeExactVolume(userInput, percent, learn = false)
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        volumeMemory.match(userInput, ExactVolumeLearning.capabilities)?.let { learned ->
+            val percent = ExactVolumeLearning.fromParameters(learned.parameters)
+            val response = if (percent == null) "This saved volume level is invalid. Forget the phrase before teaching it again."
+                else executeExactVolume(userInput, percent, learn = false, replayed = true)
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+
         volumeMemory.match(userInput, volumeCapabilities)?.let { learned ->
             val direction = if (learned.capabilityId == "volume_up") android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER
             val executed = androidAssistant.adjustVolume(direction)
@@ -943,6 +956,10 @@ class HybridAssistantService(
 
     private fun proposeFallbackVolume(userText: String, lessonJson: String?): String? {
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson) ?: return null
+        ExactVolumeLearning.fromLesson(lesson)?.let { percent ->
+            if (!volumeConfirmations.propose(userText, lesson)) return "I couldn't retain this volume-level request for approval. Nothing was changed or learned."
+            return "Would you like me to set media volume to $percent%, using the nearest supported level? Say yes to confirm or no to cancel."
+        }
         val capability = VerifiedVolumeLearning.capability(lesson) ?: return null
         if (!volumeConfirmations.propose(userText, lesson)) return "I couldn't retain this volume request for confirmation. Nothing was changed or learned. Please repeat it."
         return "Would you like me to ${if (capability == "volume_up") "raise" else "lower"} the media volume? Say yes to confirm or no to cancel."
@@ -1034,7 +1051,29 @@ class HybridAssistantService(
         }
     }
 
+    private fun executeExactVolume(phrase: String, percent: Int, learn: Boolean, replayed: Boolean = false): String {
+        val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
+        val outcome = ExactVolumeLearning.execute(phrase, percent, learn, androidAssistant::setMediaVolumePercent,
+            record = { original, parameters -> memory.recordSuccess(original, ExactVolumeLearning.CAPABILITY, ExactVolumeLearning.capabilities, parameters) })
+        val paused = !outcome.executed && replayed && memory.recordFailure(phrase, ExactVolumeLearning.CAPABILITY, mapOf("percent" to percent.toString()))
+        resultHistory.record(phrase, "set media volume to $percent% (nearest supported level)",
+            if (outcome.executed) IntelligenceResultHistory.Outcome.DEVICE_VERIFIED else IntelligenceResultHistory.Outcome.NOT_VERIFIED,
+            if (outcome.learned) "Original phrase saved for offline reuse." else if (paused) "Learned phrase paused after failed verification." else "No new phrase saved.")
+        return when {
+            !outcome.executed -> "Could not verify the requested media-volume level. Nothing was learned." +
+                if (paused) " Paused this learned phrase; review 'show learned commands'." else ""
+            outcome.learned -> "Media volume set to the nearest supported level for $percent% and verified. Learned your original phrase for offline reuse."
+            learn -> "Media volume level verified for $percent%, but the phrase could not be saved. It may conflict with another command or storage may have failed."
+            else -> "Media volume level verified for $percent%, using the nearest supported level."
+        }
+    }
+
     private fun executeConfirmedVolume(userText: String, lesson: FallbackIntentLesson): String {
+        ExactVolumeLearning.fromLesson(lesson)?.let { percent ->
+            val enabled = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
+                .getBoolean("automatic_command_learning", true)
+            return executeExactVolume(userText, percent, learn = enabled && lesson.canTeachLocally())
+        }
         val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
         val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
         val outcome = VerifiedVolumeLearning.execute(

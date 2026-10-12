@@ -199,6 +199,9 @@ class DirectOnlineClient(private val context: Context) {
             {"intent":"DEVICE_SETTING","confidence":0.95,"entities":{"setting":"media_volume","direction":"up"},"learnable":true}
             Use direction "down" for lowering. If you propose raising/lowering media volume,
             ALWAYS include the matching lesson even when reply asks for confirmation.
+            For an explicit media-volume percentage use entities exactly {"setting":"media_volume","percent":"25"}
+            with the requested integer from 0 to 100, no leading zeros. Do not add direction or stream IDs. Do not infer percentages from vague quiet/loud requests.
+            The host asks approval, verifies the nearest supported level, then may learn the original phrase. Never claim it was changed or learned before the host result.
             Also interpret unambiguous requests to start a timer or open an installed app.
             For timers return {"intent":"SET_TIMER","confidence":0.95,"entities":{"seconds":"300"},"learnable":true}
             with the actual requested duration in seconds (1 through 86400). For example,
