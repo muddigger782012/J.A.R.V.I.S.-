@@ -17,25 +17,26 @@ class DeviceLearningSession internal constructor(
             editor.commit()
         }
     )
-    data class Pending(val phrase: String, val action: LearnableDeviceAction, val learnable: Boolean, val awaitingOutcome: Boolean = false, val contextual: ContextualAction? = null)
+    data class Pending(val phrase: String, val action: LearnableDeviceAction, val learnable: Boolean, val awaitingOutcome: Boolean = false, val contextual: ContextualAction? = null, val replayed: Boolean = false)
     data class Resolution(val pending: Pending, val accepted: Boolean)
     enum class RequestResult { FAILED, REQUESTED_WITHOUT_TRACKING, AWAITING_OUTCOME }
 
     /** Used for local/preferred/learned actions as well as AI-interpreted ones. */
-    fun requestAndTrack(phrase: String, action: LearnableDeviceAction, request: () -> Boolean): RequestResult {
-        if (!action.isValid() || !runCatching(request).getOrDefault(false)) return RequestResult.FAILED
-        return if (propose(Pending(phrase, action, learnable = false, awaitingOutcome = true))) RequestResult.AWAITING_OUTCOME
+    fun requestAndTrack(phrase: String, action: LearnableDeviceAction, replayed: Boolean = false, contextual: ContextualAction? = null, request: () -> Boolean): RequestResult {
+        if (contextual?.isValid() == false || !action.isValid() || !runCatching(request).getOrDefault(false)) return RequestResult.FAILED
+        return if (propose(Pending(phrase, action, learnable = false, awaitingOutcome = true, contextual = contextual, replayed = replayed))) RequestResult.AWAITING_OUTCOME
             else RequestResult.REQUESTED_WITHOUT_TRACKING
     }
 
     fun propose(pending: Pending): Boolean = synchronized(lock) {
+        if (pending.replayed && (pending.learnable || !pending.awaitingOutcome)) return@synchronized false
         if (pending.contextual?.isValid() == false || !pending.action.isValid() || pending.phrase.isBlank() || pending.phrase.length > 240 ||
             ConfirmationWords.isConfirmation(pending.phrase) || isOutcome(pending.phrase)) return@synchronized false
         write(JSONObject().put("phrase", pending.phrase).put("capability", pending.action.capabilityId)
             .put("parameters", JSONObject(pending.action.parameters)).put("learnable", pending.learnable)
             .put("contextCapability", pending.contextual?.capabilityId)
             .put("contextParameters", pending.contextual?.let { JSONObject(it.parameters) })
-            .put("awaitingOutcome", pending.awaitingOutcome).put("created", now()).toString())
+            .put("replayed", pending.replayed).put("awaitingOutcome", pending.awaitingOutcome).put("created", now()).toString())
     }
 
     fun consume(input: String): Resolution? = synchronized(lock) {
@@ -52,7 +53,9 @@ class DeviceLearningSession internal constructor(
                 ContextualAction(json.getString("contextCapability"), params.keys().asSequence().associateWith { params.getString(it) })
                     .takeIf { it.isValid() } ?: return@runCatching null
             } else null
-            Pending(json.getString("phrase"), action, json.optBoolean("learnable"), json.optBoolean("awaitingOutcome"), contextual)
+            val replayed = json.optBoolean("replayed")
+            if (replayed && (json.optBoolean("learnable") || !json.optBoolean("awaitingOutcome"))) return@runCatching null
+            Pending(json.getString("phrase"), action, json.optBoolean("learnable"), json.optBoolean("awaitingOutcome"), contextual, replayed)
         }.getOrNull() ?: return@synchronized null
         if (pending.awaitingOutcome) {
             if (!isOutcome(input)) return@synchronized null

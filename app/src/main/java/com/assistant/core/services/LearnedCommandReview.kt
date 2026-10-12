@@ -40,7 +40,8 @@ object LearnedCommandReview {
             if (index < saved.size) {
                 val entry = saved[index]
                 val available = commands.match(entry.phrase, capabilities)
-                val description = if (LearnedCommandReviewCommands.isReserved(entry.phrase)) "unavailable: reserved learning control"
+                val description = if (entry.failures > 0) "paused after ${entry.failures} reported failure(s); requires a verified successful lesson"
+                else if (LearnedCommandReviewCommands.isReserved(entry.phrase)) "unavailable: reserved learning control"
                 else if (available == null || available.capabilityId != entry.capabilityId || available.parameters != entry.parameters)
                     "unavailable: conflicting or unsupported saved meaning"
                 else describe(entry, memory)

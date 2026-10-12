@@ -113,7 +113,14 @@ class HybridAssistantService(
         deviceLearningSession.consume(userInput)?.let { resolution ->
             val pending = resolution.pending
             val response = when {
-                !resolution.accepted -> "Request cancelled or reported unsuccessful. Nothing was learned."
+                !resolution.accepted -> {
+                    if (pending.replayed && pending.awaitingOutcome) {
+                        val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
+                        if (VerifiedFailureFeedback.pause(resolution, memory))
+                            "You reported it failed. Paused this learned phrase on this device. Review it with 'show learned commands'. Go online and verify a new successful lesson to restore the same meaning, or forget the phrase before teaching a different meaning."
+                        else "You reported it failed, but the matching learned phrase could not be paused. Its storage may have changed or failed. Check 'show learned commands'; nothing was learned."
+                    } else "Request cancelled or reported unsuccessful. Nothing was learned."
+                }
                 pending.awaitingOutcome -> {
                     val contextSaved = assistantMemory.recordConfirmed(pending.action)
                     val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
@@ -220,6 +227,11 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
+        if (deviceMemory.isPaused(userInput)) {
+            val response = "I don't understand that locally yet. This learned phrase is paused after an unsuccessful result. A verified successful lesson is needed before it can be reused."
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
         deviceMemory.match(userInput, LearnablePreference.capabilities)?.let { learned ->
             val preference = LearnablePreference.fromParameters(learned.parameters)
             val response = if (preference == null) "That learned preference command is invalid. Nothing was changed."
@@ -228,15 +240,16 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
         deviceMemory.match(userInput, ContextualAction.capabilities)?.let { learned ->
-            val action = ContextualAction(learned.capabilityId, learned.parameters).resolve(assistantMemory)
+            val reference = ContextualAction(learned.capabilityId, learned.parameters)
+            val action = reference.resolve(assistantMemory)
             val response = if (action == null) "That learned phrase needs a saved preference or confirmed action. Restore its assistant memory first; nothing was requested."
-                else requestContextAction(userInput, action, "using your learned reference and current assistant memory")
+                else requestContextAction(userInput, action, "using your learned reference and current assistant memory", replayed = true, contextual = reference)
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
         deviceMemory.match(userInput, LearnableDeviceAction.capabilities)?.let { learned ->
             val action = LearnableDeviceAction(learned.capabilityId, learned.parameters)
-            val response = requestContextAction(userInput, action, "using your learned command")
+            val response = requestContextAction(userInput, action, "using your learned command", replayed = true)
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -800,7 +813,9 @@ class HybridAssistantService(
         val network = systemService.context().getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
         val capabilities = network.getNetworkCapabilities(network.activeNetwork)
         if (capabilities?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) != true) {
-            val response = "You're offline, and this phrase isn't saved as a local command yet. Go online, repeat the original request, and confirm it. It must execute successfully before it can be learned for offline use."
+            val response = if (com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).isPaused(rawInput))
+                "You're offline. This learned phrase is paused after an unsuccessful result. Go online and complete a verified successful lesson, or use 'forget learned command' followed by the phrase before teaching a different meaning."
+            else "You're offline, and this phrase isn't saved as a local command yet. Go online, repeat the original request, and confirm it. It must execute successfully before it can be learned for offline use."
             remember(rawInput, response)
             callback(HybridAssistantReply(response, local.actionResult))
             return
@@ -886,12 +901,13 @@ class HybridAssistantService(
         }
     }.getOrDefault(false)
 
-    private fun requestContextAction(phrase: String, action: LearnableDeviceAction, detail: String = ""): String {
+    private fun requestContextAction(phrase: String, action: LearnableDeviceAction, detail: String = "", replayed: Boolean = false, contextual: ContextualAction? = null): String {
         val description = "Requested: ${action.description()}${if (detail.isNotBlank()) ", $detail" else ""}."
-        return when (deviceLearningSession.requestAndTrack(phrase, action) { requestDeviceAction(action) }) {
+        return when (deviceLearningSession.requestAndTrack(phrase, action, replayed, contextual) { requestDeviceAction(action) }) {
             DeviceLearningSession.RequestResult.FAILED -> "Android couldn't launch the saved timer/app action. Nothing was added to recent-action memory. Check that Clock or the app is installed."
             DeviceLearningSession.RequestResult.REQUESTED_WITHOUT_TRACKING -> "$description I couldn't retain its outcome check, so no recent-action context was saved."
-            DeviceLearningSession.RequestResult.AWAITING_OUTCOME -> "$description After checking it, say 'it worked' to remember this as your last confirmed action, or 'it failed' to discard it."
+            DeviceLearningSession.RequestResult.AWAITING_OUTCOME -> "$description After checking it, say 'it worked' to remember this as your last confirmed action, or 'it failed' to " +
+                if (replayed) "pause this learned phrase." else "discard the result."
         }
     }
 
