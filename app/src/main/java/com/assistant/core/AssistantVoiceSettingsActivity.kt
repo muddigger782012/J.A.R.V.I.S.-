@@ -25,6 +25,7 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_assistant_voice)
         bindResponseOptions()
+        bindPersonality()
         preferences = AssistantVoicePreferences(this)
         selected = AssistantVoiceProfile.fromId(savedInstanceState?.getString("profile") ?: preferences.selected().id)
         selectedName = savedInstanceState?.getString("voice") ?: preferences.voiceName(selected)
@@ -79,6 +80,36 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private fun bindPersonality() {
+        val saved = com.assistant.core.services.AssistantPersonalityPreferences.load(this)
+        val phrases = com.assistant.core.services.AssistantPhrasePreferences.load(this)
+        val enabled = findViewById<com.google.android.material.switchmaterial.SwitchMaterial>(R.id.switchPersonality)
+        val humor = findViewById<com.google.android.material.switchmaterial.SwitchMaterial>(R.id.switchPersonalityHumor)
+        val initiative = findViewById<com.google.android.material.switchmaterial.SwitchMaterial>(R.id.switchPersonalityInitiative)
+        val address = findViewById<android.widget.EditText>(R.id.editPersonalityAddress)
+        val intro = findViewById<android.widget.EditText>(R.id.editAssistantIntroduction)
+        val wake = findViewById<android.widget.EditText>(R.id.editWakeReplies)
+        val detail = findViewById<RadioGroup>(R.id.personalityDetail)
+        enabled.isChecked = saved.enabled; humor.isChecked = saved.humor; initiative.isChecked = saved.initiative
+        address.setText(saved.address); intro.setText(phrases.introduction); wake.setText(phrases.wakeReplies)
+        detail.check(when (saved.detail) { "brief" -> R.id.detailBrief; "detailed" -> R.id.detailDetailed; else -> R.id.detailBalanced })
+        findViewById<Button>(R.id.btnSavePersonality).setOnClickListener {
+            val value = com.assistant.core.services.AssistantPersonality(
+                enabled.isChecked, address.text.toString(),
+                when (detail.checkedRadioButtonId) { R.id.detailBrief -> "brief"; R.id.detailDetailed -> "detailed"; else -> "balanced" },
+                humor.isChecked, initiative.isChecked)
+            runCatching {
+                com.assistant.core.services.AssistantPersonalityPreferences.save(this, value)
+                com.assistant.core.services.AssistantPhrasePreferences.save(this,
+                    com.assistant.core.services.AssistantPhrases(intro.text.toString(), wake.text.toString()))
+            }.onSuccess {
+                android.widget.Toast.makeText(this, "Personality and phrases saved", android.widget.Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                android.widget.Toast.makeText(this, "Some settings could not be saved. Try again.", android.widget.Toast.LENGTH_LONG).show()
             }
         }
     }

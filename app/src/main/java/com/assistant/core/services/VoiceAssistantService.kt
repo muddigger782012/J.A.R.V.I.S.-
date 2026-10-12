@@ -59,8 +59,9 @@ class VoiceAssistantService(
                 applyAssistantVoiceProfile()
             }
             if (activeSpeechPrefix != null && !VoiceResponsePreferences.load(context).allowsSpeech(activeSpeechChannel)) {
+                val next = afterSpeech
                 stopSpeaking()
-                onSpeechFinished()
+                next?.invoke() ?: onSpeechFinished()
             }
         }
     }
@@ -137,6 +138,7 @@ class VoiceAssistantService(
 
     fun stopListening() {
         voiceActive = false
+        if (afterSpeech != null) stopSpeaking()
         listeningWithSpeechRecognizer = false
         mainHandler.removeCallbacksAndMessages(null)
         speechRecognizer?.stopListening()
@@ -156,34 +158,46 @@ class VoiceAssistantService(
         tts.shutdown()
     }
 
+    private var afterSpeech: (() -> Unit)? = null
+    private var wakeReplyIndex = 0
     private var speechSequence = 0L
     private var activeSpeechPrefix: String? = null
     private var finalSpeechId: String? = null
 
     fun stopSpeaking() {
+        afterSpeech = null
         activeSpeechPrefix = null
         finalSpeechId = null
         tts.stop()
     }
 
-    fun speak(text: String, channel: SpeechChannel = SpeechChannel.REGULAR) {
+    private fun finishSpeech() {
+        activeSpeechPrefix = null
+        finalSpeechId = null
+        val next = afterSpeech
+        afterSpeech = null
+        next?.invoke() ?: onSpeechFinished()
+    }
+
+    fun speak(text: String, channel: SpeechChannel = SpeechChannel.REGULAR, after: (() -> Unit)? = null) {
+        stopSpeaking()
+        afterSpeech = after
         activeSpeechChannel = channel
         if (!VoiceResponsePreferences.load(context).allowsSpeech(channel)) {
-            stopSpeaking()
             // Completion still advances silent live turns and rearms wake capture.
-            onSpeechFinished()
+            finishSpeech()
             return
         }
         if (!ttsReady || text.isBlank()) {
-            onSpeechFinished()
+            finishSpeech()
             return
         }
         applyAssistantVoiceProfile()
         if (!speechVoiceUsable) {
-            onSpeechFinished()
+            finishSpeech()
             return
         }
-        onSpeechStarted()
+        if (after == null) onSpeechStarted()
         val chunks = SpeechChunks.split(text, minOf(3000, TextToSpeech.getMaxSpeechInputLength() - 1))
         val prefix = "jarvis-response-${++speechSequence}-"
         activeSpeechPrefix = prefix
@@ -194,7 +208,7 @@ class VoiceAssistantService(
                 activeSpeechPrefix = null
                 finalSpeechId = null
                 tts.stop()
-                onSpeechFinished()
+                finishSpeech()
                 return
             }
         }
@@ -211,7 +225,7 @@ class VoiceAssistantService(
                         if (utteranceId == finalSpeechId && finalSpeechId != null) {
                             activeSpeechPrefix = null
                             finalSpeechId = null
-                            onSpeechFinished()
+                            finishSpeech()
                         }
                     }
                 }
@@ -222,7 +236,7 @@ class VoiceAssistantService(
                             activeSpeechPrefix = null
                             finalSpeechId = null
                             tts.stop()
-                            onSpeechFinished()
+                            finishSpeech()
                         }
                     }
                 }
@@ -351,7 +365,18 @@ class VoiceAssistantService(
         if (currentHotwordEngine == HotwordEngine.DEDICATED_OFFLINE) {
             stopDedicatedWakeWordEngine()
         }
-        startCommandListening()
+        val token = wakeGeneration
+        val reply = AssistantPhrasePreferences.load(context).reply(wakeReplyIndex++)
+        speak(reply, after = { if (voiceActive && commandFromWake && wakeGeneration == token) startCommandListening() })
+    }
+
+    fun startWithIntroduction() {
+        stopListening()
+        stopSpeaking()
+        voiceActive = true
+        val token = wakeGeneration
+        speak(AssistantPhrasePreferences.load(context).introduction,
+            after = { if (voiceActive && wakeGeneration == token) startHotwordLoop() })
     }
 
     private fun startCommandListening() {

@@ -139,7 +139,7 @@ class VoiceForegroundService : Service() {
                         persistStage("after-engine")
                         initializeVoice()
                         persistStage("after-voice")
-                        startVoicePipeline()
+                        startVoicePipeline(announce = intent?.getBooleanExtra("announce", false) == true)
                         persistStage("pipeline-started")
                     } catch (t: Throwable) {
                         pipelineStarted = false
@@ -369,12 +369,12 @@ class VoiceForegroundService : Service() {
         )
     }
 
-    private fun startVoicePipeline() {
+    private fun startVoicePipeline(announce: Boolean = false) {
         currentConfig = voicePreferences.load()
         appliedVoiceConfig = currentConfig
         voiceService.updateConfig(currentConfig)
         voiceSession.arm()
-        voiceService.startHotwordLoop()
+        if (announce) voiceService.startWithIntroduction() else voiceService.startHotwordLoop()
         pipelineStarted = true
         voicePreferences.setForegroundServiceRunning(true)
         publishEvent("Foreground voice service started.")
@@ -618,8 +618,8 @@ class VoiceForegroundService : Service() {
         fun stopLiveChat(context: Context) {
             context.startService(Intent(context, VoiceForegroundService::class.java).setAction(ACTION_LIVE_STOP))
         }
-        fun start(context: Context) {
-            val intent = Intent(context, VoiceForegroundService::class.java).setAction(ACTION_START)
+        fun start(context: Context, announce: Boolean = false) {
+            val intent = Intent(context, VoiceForegroundService::class.java).setAction(ACTION_START).putExtra("announce", announce)
             ContextCompat.startForegroundService(context, intent)
         }
 

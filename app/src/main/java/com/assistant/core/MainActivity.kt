@@ -2282,7 +2282,7 @@ class MainActivity : ThemedActivity() {
         pendingClarification = null
         if (currentVoiceConfig.useForegroundServiceMode) {
             try {
-                VoiceForegroundService.start(this)
+                VoiceForegroundService.start(this, announce = true)
                 voiceEnabled = true
                 updateVoiceInteractionState(VoiceInteractionState.WAKE_LISTENING)
                 appendOutput("[VOICE] Foreground wake service start requested.")
@@ -2294,7 +2294,7 @@ class MainActivity : ThemedActivity() {
         } else {
             voiceEnabled = true
             updateVoiceInteractionState(VoiceInteractionState.WAKE_LISTENING)
-            voiceService.startHotwordLoop()
+            voiceService.startWithIntroduction()
         }
         refreshVoiceButtonLabel()
     }

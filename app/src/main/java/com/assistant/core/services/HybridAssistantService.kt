@@ -37,6 +37,7 @@ class HybridAssistantService(
     private val routineRegistry = com.assistant.core.learning.ApprovedRoutineRegistry(systemService.context())
     private var pendingShellCommand: String? = null
     private var lastContactTarget: String? = null
+    private var personalityTurn = 0
     private val history = ArrayDeque<Pair<String, String>>()
     private val androidAssistant = AndroidAssistantService(systemService.context())
     private val learningStore = IntentLearningStore(systemService.context())
@@ -560,8 +561,8 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        if (containsAny(normalized, "hello", "hi jarvis", "hey jarvis", "good morning", "good evening")) {
-            val response = "Hello. I can help with calls, messages, maps, weather, music, and questions."
+        AssistantPersonalityPreferences.load(systemService.context()).localReply(userInput, personalityTurn)?.let { response ->
+            personalityTurn++
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -905,7 +906,7 @@ class HybridAssistantService(
             return
         }
         Thread {
-            val cloud = fallbackAiClient.ask(rawInput, capabilityContext = ContextualAction.aiContext(assistantMemory))
+            val cloud = fallbackAiClient.ask(rawInput, capabilityContext = ContextualAction.aiContext(assistantMemory), conversation = conversationTurns())
             if (cloud == null) {
                 val response = "I don't understand that locally yet. Cloud fallback failed or returned no usable reply. Check your connection and AI settings."
                 remember(rawInput, response)
@@ -1073,6 +1074,11 @@ class HybridAssistantService(
             "You: $user\nJ.A.R.V.I.S.: $assistant"
         }
     }
+
+    @Synchronized
+    private fun conversationTurns(): List<Pair<String, String>> = history.filterNot {
+        it.second.startsWith("I don't understand that locally yet.") || it.second.startsWith("I don’t understand that locally yet.")
+    }.takeLast(8)
 
     private fun replyFromResult(userText: String, preface: String, result: ActionResult): HybridAssistantReply {
         val reply = buildString {

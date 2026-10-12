@@ -54,5 +54,46 @@
         <Button android:id="@+id/btnUseAssistantVoice" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Use this voice" />
         <Button android:id="@+id/btnAndroidSpeechSettings" style="@style/Widget.AssistantPlatform.QuietButton"
             android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Android speech settings" />
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp"
+            android:text="Personality and phrases" android:textColor="?attr/jarvis_primary" android:textSize="20sp" android:textStyle="bold" />
+        <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switchPersonality"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+            android:text="JARVIS personality" android:textColor="?attr/jarvis_on_dark" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Form of address (blank for none)"
+            android:labelFor="@id/editPersonalityAddress" android:textColor="?attr/jarvis_on_dark" />
+        <EditText android:id="@+id/editPersonalityAddress" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="48dp" android:inputType="textCapWords" android:maxLength="40" android:singleLine="true"
+            android:textColor="?attr/jarvis_on_dark" android:textColorHint="?attr/jarvis_on_dark_muted" android:hint="Sir or Brandon" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Reply detail" android:textColor="?attr/jarvis_on_dark" />
+        <RadioGroup android:id="@+id/personalityDetail" android:layout_width="match_parent" android:layout_height="wrap_content">
+            <com.google.android.material.radiobutton.MaterialRadioButton android:id="@+id/detailBrief" android:text="Brief"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:textColor="?attr/jarvis_on_dark" />
+            <com.google.android.material.radiobutton.MaterialRadioButton android:id="@+id/detailBalanced" android:text="Balanced"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:textColor="?attr/jarvis_on_dark" />
+            <com.google.android.material.radiobutton.MaterialRadioButton android:id="@+id/detailDetailed" android:text="Detailed"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:textColor="?attr/jarvis_on_dark" />
+        </RadioGroup>
+        <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switchPersonalityHumor"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+            android:text="Occasional dry wit" android:textColor="?attr/jarvis_on_dark" />
+        <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switchPersonalityInitiative"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+            android:text="Suggest a useful next step" android:textColor="?attr/jarvis_on_dark" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Introduction phrase"
+            android:labelFor="@id/editAssistantIntroduction" android:textColor="?attr/jarvis_on_dark" />
+        <EditText android:id="@+id/editAssistantIntroduction" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="80dp" android:inputType="textCapSentences|textMultiLine" android:maxLength="500" android:gravity="top"
+            android:textColor="?attr/jarvis_on_dark" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Wake responses (one per line; blank for silent)"
+            android:labelFor="@id/editWakeReplies" android:textColor="?attr/jarvis_on_dark" />
+        <EditText android:id="@+id/editWakeReplies" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="96dp" android:inputType="textCapSentences|textMultiLine" android:maxLength="1000" android:gravity="top"
+            android:textColor="?attr/jarvis_on_dark" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="14sp"
+            android:text="Save these controls separately from the voice selection. AI replies follow the profile; local action results remain factual. The introduction plays when you enable voice. Wake responses rotate before command listening. Speech switches still apply."
+            android:textColor="?attr/jarvis_on_dark_muted" />
+        <Button android:id="@+id/btnSavePersonality" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="48dp" android:text="Save personality and phrases" />
     </LinearLayout>
 </ScrollView>
