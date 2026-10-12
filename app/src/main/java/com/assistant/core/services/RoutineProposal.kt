@@ -5,6 +5,21 @@ import java.util.Locale
 
 /** AI can compose existing handlers, never supply code, permissions or arbitrary arguments. */
 object RoutineProposal {
+    /** Resolve exact user-requested labels locally. Never accept an AI-supplied binding. */
+    fun fromAiLesson(lesson: FallbackIntentLesson, resolveApp: (String) -> Pair<String, String>?): ApprovedRoutineRegistry.Routine? {
+        if (!lesson.canTeachLocally() || lesson.intent != "CREATE_ROUTINE" || lesson.entities.keys != setOf("phrase", "steps")) return null
+        val drafts = lesson.entities.getValue("steps").split(',').map { it.trim() }
+        if (drafts.size !in 1..3 || drafts.any { it.startsWith("app:") }) return null
+        val steps = drafts.map { step ->
+            if (!step.startsWith("open:")) step else {
+                val label = step.removePrefix("open:").trim().takeIf { it.isNotBlank() && it.length <= 100 } ?: return null
+                val resolved = runCatching { resolveApp(label) }.getOrNull() ?: return null
+                if (!resolved.second.equals(label, ignoreCase = true)) return null
+                RoutineSteps.appStep(LearnableDeviceAction("open_app", mapOf("package" to resolved.first, "label" to resolved.second))) ?: return null
+            }
+        }
+        return fromLesson(lesson.copy(entities = lesson.entities + ("steps" to steps.joinToString(","))))
+    }
     fun isCreationRequest(text: String): Boolean = Regex(
         "(?i)^(?:(?:please|can you|could you) )?(?:create|make|build|design|add) (?:a |an )?(?:new )?(?:routine|shortcut|capability)\\b.*$"
     ).matches(text.trim())
@@ -35,6 +50,6 @@ object RoutineProposal {
         "volume_down" -> "lower media volume one step"
         "app_update" -> "open the J.A.R.V.I.S. updater (Android installation approval still required)"
         else -> RoutineSteps.preferredSlot(action)?.let { "open the current saved preferred $it app" }
-            ?: RoutineSteps.timerAction(action)?.description() ?: "unsupported step"
+            ?: RoutineSteps.appAction(action)?.description() ?: RoutineSteps.timerAction(action)?.description() ?: "unsupported step"
     }
 }

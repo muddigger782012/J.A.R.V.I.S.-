@@ -63,7 +63,7 @@ class HybridAssistantService(
             val commands = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
             val response = when {
                 !resolution.approved -> "Routine proposal cancelled. Nothing was saved or run."
-                routinePreferredUnavailable(proposal.actions) -> "The routine's preferred app is no longer saved or launchable. Restore the preference and review the routine again. Nothing was saved or run."
+                routineAppUnavailable(proposal.actions) -> "The routine's app is no longer available or launchable. Restore the app or preference and review the routine again. Nothing was saved or run."
                 routineNameIsLearned(proposal.phrase, commands) -> "That routine name now conflicts with a learned phrase. Choose a different name. Nothing was saved or run."
                 routineRegistry.saveApproved(proposal) -> "Saved approved routine '${proposal.phrase}'. Say '${proposal.phrase}' to run it, including offline. Nothing has run yet."
                 else -> "Could not save this routine. Its name may already have different steps, storage may be full, or saving may have failed. Review 'list routines'; nothing has run."
@@ -370,6 +370,8 @@ class HybridAssistantService(
                     else -> RoutineExecution.Status.FAILED
                 }
             }
+            if (outcome.unavailableApp)
+                return HybridAssistantReply("The routine's approved app is no longer launchable. No routine steps were run. Restore the app, or forget and recreate the routine for a different target.")
             if (outcome.unavailablePreferred)
                 return HybridAssistantReply("The routine's preferred app is missing or cannot be launched. Restore the saved preference first. No routine steps were run.")
             val results = outcome.steps.joinToString("; ") { (step, status) ->
@@ -935,8 +937,8 @@ class HybridAssistantService(
     private fun proposeFallbackDeviceAction(userText: String, lessonJson: String?): String? {
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson) ?: return null
         if (lesson.intent == "CREATE_ROUTINE") {
-            val routine = RoutineProposal.fromLesson(lesson)
-                ?: return "I couldn't approve that routine definition. Supported steps are media volume up/down one step, opening the updater, a final timer from 1 second to 24 hours, or a final saved preferred browser/maps/music app. Choose a short routine name and explicit steps. Nothing was saved or run."
+            val routine = RoutineProposal.fromAiLesson(lesson, androidAssistant::resolveLearnableApp)
+                ?: return "I couldn't approve that routine definition. Supported steps are media volume up/down one step, opening the updater, a final timer from 1 second to 24 hours, or a final installed app by its exact launcher name or saved preferred browser/maps/music app. Choose a short routine name and explicit steps. Nothing was saved or run."
             return proposeRoutine(routine.phrase, routine.actions)
         }
         if (lesson.intent == "SET_APP_PREFERENCE") {
@@ -961,8 +963,9 @@ class HybridAssistantService(
         return "Would you like me to ${action.description()}? Say yes to confirm or no to cancel."
     }
 
-    private fun routinePreferredUnavailable(steps: List<String>): Boolean = steps.any { step ->
-        RoutineSteps.preferredSlot(step) != null && RoutineSteps.preferredAction(step, assistantMemory, androidAssistant::canLaunchApp) == null
+    private fun routineAppUnavailable(steps: List<String>): Boolean = steps.any { step ->
+        (RoutineSteps.preferredSlot(step) != null && RoutineSteps.preferredAction(step, assistantMemory, androidAssistant::canLaunchApp) == null) ||
+            (RoutineSteps.appAction(step)?.let { !androidAssistant.canLaunchApp(it.parameters.getValue("package")) } == true)
     }
 
     private fun describeRoutineStep(step: String): String {
@@ -976,9 +979,9 @@ class HybridAssistantService(
 
     private fun proposeRoutine(phrase: String, actions: List<String>): String {
         val proposal = routineRegistry.propose(phrase, actions)
-            ?: return "That routine uses an unsupported step or reserved name. Supported steps are volume up, volume down, opening the updater, a final timer from 1 second to 24 hours, and opening a saved preferred browser/maps/music app. Nothing was saved or run."
-        if (routinePreferredUnavailable(proposal.actions))
-            return "The routine needs a saved, launchable preferred browser, maps or music app. Set the preference first, then create the routine again. Nothing was saved or run."
+            ?: return "That routine uses an unsupported step or reserved name. Supported steps are volume up, volume down, opening the updater, a final timer from 1 second to 24 hours, and a final installed app or saved preferred browser/maps/music app. Nothing was saved or run."
+        if (routineAppUnavailable(proposal.actions))
+            return "The routine needs its installed app or saved preferred app to be launchable. Restore it first, then create the routine again. Nothing was saved or run."
         val commands = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
         if (routineNameIsLearned(proposal.phrase, commands))
             return "That name is already a learned phrase. Choose a different routine name. Nothing was saved or run."

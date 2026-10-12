@@ -104,7 +104,7 @@ class ApprovedRoutineRegistry internal constructor(private val readValue: () -> 
             val actionsJson = entry.optJSONArray("actions") ?: continue
             val actions = (0 until actionsJson.length()).map { actionsJson.optString(it) }
             val valid = propose(phrase, actions) ?: continue
-            summaries.add("${valid.phrase}: ${valid.actions.joinToString(" → ")}")
+            summaries.add("${valid.phrase}: ${valid.actions.joinToString(" → ", transform = com.assistant.core.services.RoutineProposal::describe)}")
         }
         summaries
     }
