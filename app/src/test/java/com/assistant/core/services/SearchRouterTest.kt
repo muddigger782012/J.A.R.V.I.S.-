@@ -30,7 +30,7 @@ class SearchRouterTest {
 
     @Test fun exhaustedProvidersReturnBrowserFallbackWithoutInventingResults() {
         val router = SearchRouter(listOf(SearchRouter.Provider("offline") { throw IllegalStateException() }))
-        assertEquals(SearchRouter.Response(null, emptyList()), router.search("repair"))
+        assertEquals(SearchRouter.Response(null, emptyList(), listOf(SearchProviderFailure.Kind.UNAVAILABLE)), router.search("repair"))
         assertEquals(SearchRouter.Response(null, emptyList()), SearchRouter(emptyList()).search("repair"))
     }
 

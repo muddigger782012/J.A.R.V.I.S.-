@@ -89,6 +89,16 @@ class DirectOnlineClient(context: Context) {
     private val location = WeatherLocation(context)
     private val keys = ApiKeyStore(context)
     fun hasGeminiKey(): Boolean = keys.read().isNotBlank()
+    fun groundedSearch(query: String, kind: String): ChatSearchResults.Message? {
+        val apiKey = keys.read()
+        if (apiKey.isBlank()) return null
+        val model = prefs.getString("gemini_model", "gemini-3.5-flash-lite").orEmpty()
+        if (!Regex("[a-zA-Z0-9._-]+").matches(model)) return null
+        val (code, response) = request("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent", GeminiGroundedSearch.body(query, kind), apiKey)
+        if (code !in 200..299) throw SearchProviderFailure.fromHttp(code)
+        return response?.let { GeminiGroundedSearch.parse(query, it) }
+    }
+
     fun searchAnswer(evidence: String): String? = runCatching {
         val apiKey = keys.read()
         val model = prefs.getString("gemini_model", "gemini-3.5-flash-lite").orEmpty()
