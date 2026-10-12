@@ -88,4 +88,16 @@ class OutcomeFeedbackTest {
         assertNull(reader.consume("it works"))
         assertEquals(original, raw)
     }
+    @Test fun boundedCorrectionsStillRequireOneExplicitOutcome() {
+        assertEquals(OutcomeFeedback.Result.SUCCESS, OutcomeFeedback.parse("Actually, it worked!"))
+        assertEquals(OutcomeFeedback.Result.FAILURE, OutcomeFeedback.parse("Correction: it failed"))
+        assertEquals(OutcomeFeedback.Result.UNCLEAR, OutcomeFeedback.parse("Actually the action did not fail"))
+        for (text in listOf("Actually it worked but open Maps", "Correction: don't say it worked", "Actually it worked yesterday", "Actually actually it worked"))
+            assertNull(OutcomeFeedback.parse(text))
+        var raw: String? = null
+        val session = DeviceLearningSession({ raw }, { raw = it; true })
+        assertNull(session.consume("actually it worked"))
+        assertFalse(session.propose(DeviceLearningSession.Pending("actually it worked", chrome, true)))
+    }
+
 }
