@@ -98,7 +98,6 @@ jobs:
           path: ui-review/
 
   voice-playback:
-    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
