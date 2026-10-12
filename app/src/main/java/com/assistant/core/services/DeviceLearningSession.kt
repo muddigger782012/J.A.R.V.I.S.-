@@ -16,7 +16,9 @@ class DeviceLearningSession internal constructor(
             editor.commit()
         }
     )
-    data class Pending(val phrase: String, val action: LearnableDeviceAction, val learnable: Boolean, val awaitingOutcome: Boolean = false, val contextual: ContextualAction? = null, val replayed: Boolean = false)
+    data class Pending(val phrase: String, val action: LearnableDeviceAction, val learnable: Boolean, val awaitingOutcome: Boolean = false, val contextual: ContextualAction? = null, val replayed: Boolean = false, val explicitTeaching: Boolean = false) {
+        fun shouldLearn(automaticEnabled: Boolean) = learnable && (explicitTeaching || automaticEnabled)
+    }
     data class Resolution(val pending: Pending, val accepted: Boolean, val needsClarification: Boolean = false)
     enum class RequestResult { FAILED, REQUESTED_WITHOUT_TRACKING, AWAITING_OUTCOME }
 
@@ -28,6 +30,7 @@ class DeviceLearningSession internal constructor(
     }
 
     fun propose(pending: Pending): Boolean = synchronized(lock) {
+        if (pending.explicitTeaching && (!pending.learnable || pending.replayed || pending.contextual != null)) return@synchronized false
         if (pending.replayed && (pending.learnable || !pending.awaitingOutcome)) return@synchronized false
         if (pending.contextual?.isValid() == false || !pending.action.isValid() || pending.phrase.isBlank() || pending.phrase.length > 240 ||
             ConfirmationWords.isConfirmation(pending.phrase) || isOutcome(pending.phrase)) return@synchronized false
@@ -35,7 +38,7 @@ class DeviceLearningSession internal constructor(
             .put("parameters", JSONObject(pending.action.parameters)).put("learnable", pending.learnable)
             .put("contextCapability", pending.contextual?.capabilityId)
             .put("contextParameters", pending.contextual?.let { JSONObject(it.parameters) })
-            .put("replayed", pending.replayed).put("awaitingOutcome", pending.awaitingOutcome).put("created", now()).toString())
+            .put("explicitTeaching", pending.explicitTeaching).put("replayed", pending.replayed).put("awaitingOutcome", pending.awaitingOutcome).put("created", now()).toString())
     }
 
     fun consume(input: String): Resolution? = synchronized(lock) {
@@ -53,7 +56,9 @@ class DeviceLearningSession internal constructor(
             } else null
             val replayed = json.optBoolean("replayed")
             if (replayed && (json.optBoolean("learnable") || !json.optBoolean("awaitingOutcome"))) return@runCatching null
-            Pending(json.getString("phrase"), action, json.optBoolean("learnable"), json.optBoolean("awaitingOutcome"), contextual, replayed)
+            val explicit = json.optBoolean("explicitTeaching")
+            if (explicit && (!json.optBoolean("learnable") || replayed || contextual != null)) return@runCatching null
+            Pending(json.getString("phrase"), action, json.optBoolean("learnable"), json.optBoolean("awaitingOutcome"), contextual, replayed, explicit)
         }.getOrNull()
         // An unclear outcome retains the same pending target and original expiry.
         // It must not become either success or failure, including for learned replays.

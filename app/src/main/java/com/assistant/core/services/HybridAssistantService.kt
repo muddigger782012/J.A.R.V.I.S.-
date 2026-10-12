@@ -136,7 +136,7 @@ class HybridAssistantService(
         }
 
         volumeConfirmations.consume(userInput)?.let { resolution ->
-            val response = if (resolution.approved) executeConfirmedVolume(resolution.pending.phrase, resolution.pending.lesson)
+            val response = if (resolution.approved) executeConfirmedVolume(resolution.pending.phrase, resolution.pending.lesson, resolution.pending.explicitTeaching)
                 else "Media volume request cancelled. Nothing was changed or learned."
             remember(userInput, response)
             return HybridAssistantReply(response)
@@ -167,7 +167,7 @@ class HybridAssistantService(
                     val contextSaved = assistantMemory.recordConfirmed(pending.action)
                     val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
                     val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
-                    val learned = pending.learnable && prefs.getBoolean("automatic_command_learning", true) &&
+                    val learned = pending.shouldLearn(prefs.getBoolean("automatic_command_learning", true)) &&
                         memory.recordSuccess(pending.phrase, pending.contextual?.capabilityId ?: pending.action.capabilityId, LearnableDeviceAction.capabilities + ContextualAction.capabilities, pending.contextual?.parameters ?: pending.action.parameters)
                     resultHistory.record(pending.phrase, pending.action.description(), IntelligenceResultHistory.Outcome.USER_CONFIRMED,
                         (if (learned) "Original phrase saved for offline reuse." else "No new phrase saved.") +
@@ -515,6 +515,33 @@ class HybridAssistantService(
                 remember(userInput, response)
                 return HybridAssistantReply(response)
             }
+        }
+
+        if (ExplicitCommandTeaching.isRequest(userInput)) {
+            val teaching = ExplicitCommandTeaching.parse(userInput)
+            val response = when {
+                teaching == null -> "Choose a short non-reserved phrase and one supported target: a timer, installed app, or media-volume percentage. Nothing was changed or learned."
+                routineNameIsLearned(teaching.phrase, volumeMemory) || routineRegistry.find(teaching.phrase) != null ->
+                    "That phrase is already saved. Review and forget its existing command or routine before teaching another meaning. Nothing was changed or learned."
+                else -> {
+                    val percent = ExactVolumeLearning.parse(teaching.target)
+                    if (percent != null) {
+                        val lesson = FallbackIntentLesson("DEVICE_SETTING", .95, mapOf("setting" to "media_volume", "percent" to percent.toString()), learnable = true)
+                        if (volumeConfirmations.propose(teaching.phrase, lesson, explicitTeaching = true))
+                            "Review: '${teaching.phrase}' will set media volume to $percent%, using the nearest supported level. Say yes to execute and verify before saving, or no to cancel."
+                        else "Could not retain the teaching proposal. Nothing was changed or learned."
+                    } else {
+                        val action = ExplicitCommandTeaching.resolveDevice(teaching.target, androidAssistant::resolveLearnableApp)
+                        if (action == null || (action.capabilityId == "open_app" && !androidAssistant.canLaunchApp(action.parameters.getValue("package"))))
+                            "I couldn't match one supported timer or uniquely named installed app. Specify a timer duration from 1 second to 24 hours or an exact app launcher name. Nothing was changed or learned."
+                        else if (deviceLearningSession.propose(DeviceLearningSession.Pending(teaching.phrase, action, learnable = true, explicitTeaching = true)))
+                            "Review: '${teaching.phrase}' will ${action.description()}. Say yes to request it or no to cancel. After checking the result, say 'it worked' to save the phrase. Nothing is learned yet."
+                        else "Could not retain the teaching proposal. Nothing was changed or learned."
+                    }
+                }
+            }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
         }
 
         ExactVolumeLearning.parse(userInput)?.let { percent ->
@@ -1068,11 +1095,11 @@ class HybridAssistantService(
         }
     }
 
-    private fun executeConfirmedVolume(userText: String, lesson: FallbackIntentLesson): String {
+    private fun executeConfirmedVolume(userText: String, lesson: FallbackIntentLesson, explicitTeaching: Boolean = false): String {
         ExactVolumeLearning.fromLesson(lesson)?.let { percent ->
             val enabled = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
                 .getBoolean("automatic_command_learning", true)
-            return executeExactVolume(userText, percent, learn = enabled && lesson.canTeachLocally())
+            return executeExactVolume(userText, percent, learn = (explicitTeaching || enabled) && lesson.canTeachLocally())
         }
         val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
         val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
