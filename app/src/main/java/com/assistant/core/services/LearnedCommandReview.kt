@@ -5,10 +5,10 @@ import java.util.Locale
 
 /** Explicit local inspection/deletion commands take priority over learned aliases. */
 object LearnedCommandReviewCommands {
-    private val listPattern = Regex("(?i)^(?:show|list|review) (?:my )?learned commands(?: page ([0-9]+))?$")
+    private val listPattern = Regex("(?i)^(?:please )?(?:show|list|review) (?:my )?(?:learned|saved) commands(?: page ([0-9]+))?$")
     fun page(text: String): Int? {
         val cleaned = text.trim().trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
-        if (cleaned.lowercase(Locale.ROOT) in setOf("learned commands", "what commands have you learned")) return 1
+        if (cleaned.lowercase(Locale.ROOT) in setOf("learned commands", "saved commands", "what commands have you learned", "what commands have you saved")) return 1
         val match = listPattern.matchEntire(cleaned) ?: return null
         return if (match.groupValues[1].isEmpty()) 1 else match.groupValues[1].toIntOrNull() ?: 0
     }
@@ -40,7 +40,9 @@ object LearnedCommandReview {
             if (index < saved.size) {
                 val entry = saved[index]
                 val available = commands.match(entry.phrase, capabilities)
-                val description = if (entry.failures > 0) "paused after ${entry.failures} reported failure(s); requires a verified successful lesson"
+                val description = if (ExactVolumeLearning.conflictsWithRelative(entry.phrase, entry.capabilityId))
+                    "local command sets media volume to ${ExactVolumeLearning.parse(entry.phrase)}%; older one-step meaning is ignored (forget this entry to remove it)"
+                else if (entry.failures > 0) "paused after ${entry.failures} reported failure(s); requires a verified successful lesson"
                 else if (LearnedCommandReviewCommands.isReserved(entry.phrase)) "unavailable: reserved learning control"
                 else if (available == null || available.capabilityId != entry.capabilityId || available.parameters != entry.parameters)
                     "unavailable: conflicting or unsupported saved meaning"

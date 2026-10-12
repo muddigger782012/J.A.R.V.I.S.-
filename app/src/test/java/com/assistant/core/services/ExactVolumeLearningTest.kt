@@ -62,4 +62,30 @@ class ExactVolumeLearningTest {
         assertEquals("25", memory.match("quiet level", ExactVolumeLearning.capabilities)!!.parameters["percent"])
         assertFalse(ExactVolumeLearning.execute("quiet", 101, true, { error("Invalid must not execute") }, { _, _ -> error("Must not record") }).executed)
     }
+    @Test fun maximumAndExplicitLevelsCannotReplayAsLegacyRelativeCommands() {
+        val maxPhrases = listOf("raise media volume 100%", "raise media volume to 100%", "turn volume to max", "turn volume all the way up")
+        for (phrase in maxPhrases) {
+            assertEquals(100, ExactVolumeLearning.parse(phrase))
+            val legacy = """[{"phrase":"$phrase","capabilityId":"volume_up","parameters":{},"successes":1}]"""
+            val memory = ValidatedCommandMemory({ legacy }, { fail("legacy review must not rewrite memory"); false })
+            assertNull(memory.match(phrase, VerifiedVolumeLearning.capabilities))
+            var requested: Int? = null
+            val result = ExactVolumeLearning.execute(phrase, ExactVolumeLearning.parse(phrase)!!, false,
+                { requested = it; true }, { _, _ -> fail("local command must not rewrite a legacy meaning"); false })
+            assertTrue(result.executed); assertFalse(result.learned); assertEquals(100, requested)
+            val review = LearnedCommandReview.render(1, memory, AssistantMemory({ "{}" }, { false }), emptyList())
+            assertTrue(review.contains("local command sets media volume to 100%"))
+            assertTrue(review.contains("older one-step meaning is ignored"))
+        }
+        val empty = ValidatedCommandMemory({ "[]" }, { fail("conflicting relative lesson must not save"); false })
+        assertFalse(empty.recordSuccess("turn volume to max", "volume_up", VerifiedVolumeLearning.capabilities))
+        assertFalse(empty.recordSuccess("lower media volume to 25%", "volume_down", VerifiedVolumeLearning.capabilities))
+        assertEquals(25, ExactVolumeLearning.parse("lower media volume to 25%"))
+        assertEquals(0, ExactVolumeLearning.parse("Please turn the media volume all the way down!"))
+        assertEquals(0, ExactVolumeLearning.parse("set volume to minimum"))
+        for (phrase in listOf("raise volume", "turn volume up", "don't turn volume to max", "explain turn volume to max",
+            "turn alarm volume to max", "turn volume to max and open Chrome", "set volume to 101%", "raise volume 100"))
+            assertNull(ExactVolumeLearning.parse(phrase))
+    }
+
 }

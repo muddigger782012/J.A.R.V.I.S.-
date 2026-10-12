@@ -4,6 +4,7 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+import com.assistant.core.services.ExactVolumeLearning
 import com.assistant.core.services.ConfirmationWords
 import com.assistant.core.services.DeviceLearningSession
 import com.assistant.core.services.LearnedCommandReviewCommands
@@ -61,7 +62,7 @@ class ValidatedCommandMemory internal constructor(
         }
         // Legacy entries can collide after normalization. Never choose by frequency,
         // even if only one meaning is in this caller's capability allowlist.
-        meanings.singleOrNull()?.takeIf { it.capabilityId in allowedCapabilityIds }
+        meanings.singleOrNull()?.takeIf { it.capabilityId in allowedCapabilityIds && !ExactVolumeLearning.conflictsWithRelative(utterance, it.capabilityId) }
     }
 
     /** Call only after the action succeeds and learning consent is enabled. */
@@ -69,6 +70,7 @@ class ValidatedCommandMemory internal constructor(
         synchronized(lock) {
             val phrase = normalize(utterance)
             if (phrase.isBlank() || phrase.length > 240 || ConfirmationWords.isConfirmation(utterance) || DeviceLearningSession.isOutcome(utterance) || LearnedCommandReviewCommands.isReserved(utterance) || capabilityId !in allowedCapabilityIds) return@synchronized false
+            if (ExactVolumeLearning.conflictsWithRelative(utterance, capabilityId)) return@synchronized false
             if (parameters.size > 12 || parameters.any { it.key.length > 64 || it.value.length > 256 }) return@synchronized false
             val existing = readEntries()
             val output = JSONArray()
