@@ -26,6 +26,7 @@ class IntelligenceActivity : ThemedActivity() {
     private val commands by lazy { ValidatedCommandMemory(this) }
     private val examples by lazy { IntentLearningStore(this) }
     private val memory by lazy { AssistantMemory(this) }
+    private val results by lazy { IntelligenceResultHistory(this) }
     private val routines by lazy { ApprovedRoutineRegistry(this) }
     private val prefs by lazy { getSharedPreferences("jarvis_cloud_ai", MODE_PRIVATE) }
     private lateinit var content: LinearLayout
@@ -110,6 +111,22 @@ class IntelligenceActivity : ThemedActivity() {
             }
         }
 
+        val resultPanel = section("Action and learning results")
+        val entries = results.snapshot()
+        text(resultPanel, "Recorded outcomes: ${entries.size} / ${IntelligenceResultHistory.LIMIT}")
+        text(resultPanel, entries.firstOrNull()?.let { "Latest: ${it.outcome.label}\n${it.action}\n${it.detail}" }
+            ?: "No outcomes recorded since this feature was installed.")
+        text(resultPanel, "New tracked app/timer outcome feedback and confirmed AI volume lessons appear here. A routine's tracked final target is not proof of every step. This is a local journal, not chat history or a complete action log.")
+        button(resultPanel, "Review result history") { reviewResults(0) }
+        button(resultPanel, "Clear result history") {
+            ThemedDialogBuilder(this).setTitle("Clear result history?")
+                .setMessage("Remove this device's outcome journal? Saved commands, preferences, routines and pending confirmations remain available.")
+                .setNegativeButton("Cancel", null).setPositiveButton("Clear") { _, _ ->
+                    toast(if (results.clear()) "Result history cleared." else "Could not clear result history.")
+                    render()
+                }.show()
+        }
+
         val context = section("Approved memory")
         text(context, memory.summary())
         text(context, "App launches and timers enter recent memory after your outcome confirmation. These preferences belong to J.A.R.V.I.S.")
@@ -146,6 +163,28 @@ class IntelligenceActivity : ThemedActivity() {
         text(content, "App version: $version\nUpdated ${DateFormat.getTimeFormat(this).format(Date())}. Inventory stays on this device.")
         FontPreferences.applyTo(content, this)
         scroll.post { scroll.scrollTo(0, oldScroll) }
+    }
+
+    private fun reviewResults(page: Int) {
+        val entries = results.snapshot()
+        val pageSize = 10
+        val pages = ((entries.size + pageSize - 1) / pageSize).coerceAtLeast(1)
+        val current = page.coerceIn(0, pages - 1)
+        val formatter = DateFormat.getMediumDateFormat(this)
+        val time = DateFormat.getTimeFormat(this)
+        val log = TextView(this).apply {
+            text = entries.drop(current * pageSize).take(pageSize).joinToString("\n\n") {
+                "${formatter.format(Date(it.time))} ${time.format(Date(it.time))} • ${it.outcome.label}\nPhrase: ${it.phrase}\nAction: ${it.action}\n${it.detail}"
+            }.ifEmpty { "No recorded outcomes yet. Previous actions are not reconstructed from saved memory." }
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            setTextColor(ThemePreferences.color(this@IntelligenceActivity, R.color.jarvis_on_dark))
+            setTextIsSelectable(true)
+        }
+        val dialog = ThemedDialogBuilder(this).setTitle("Result history • Page ${current + 1} of $pages")
+            .setView(ScrollView(this).apply { addView(log) }).setNegativeButton("Close", null)
+        if (current + 1 < pages) dialog.setPositiveButton("Older") { _, _ -> reviewResults(current + 1) }
+        if (current > 0) dialog.setNeutralButton("Newer") { _, _ -> reviewResults(current - 1) }
+        dialog.show()
     }
 
     private fun describeStep(step: String): String = RoutineProposal.describe(step) +

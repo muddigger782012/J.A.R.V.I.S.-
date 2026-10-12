@@ -46,6 +46,7 @@ class HybridAssistantService(
     private val volumeConfirmations = VolumeConfirmationStore(systemService.context())
     private val deviceLearningSession = DeviceLearningSession(systemService.context())
     private val assistantMemory = AssistantMemory(systemService.context())
+    private val resultHistory = IntelligenceResultHistory(systemService.context())
     private val preferenceConfirmations = PreferenceConfirmationStore(systemService.context())
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
@@ -142,24 +143,38 @@ class HybridAssistantService(
         deviceLearningSession.consume(userInput)?.let { resolution ->
             val pending = resolution.pending
             val response = when {
-                resolution.needsClarification -> "Did it work? The pending action is to ${pending.action.description()}. Say 'it worked' or 'it failed'. I'm keeping this outcome check pending; nothing was learned or marked failed."
+                resolution.needsClarification -> {
+                    resultHistory.record(pending.phrase, pending.action.description(), IntelligenceResultHistory.Outcome.UNCLEAR,
+                        "Nothing learned or marked failed. The same outcome check remains pending.")
+                    "Did it work? The pending action is to ${pending.action.description()}. Say 'it worked' or 'it failed'. I'm keeping this outcome check pending; nothing was learned or marked failed."
+                }
                 !resolution.accepted -> {
                     if (pending.replayed && pending.awaitingOutcome) {
                         val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
-                        if (VerifiedFailureFeedback.pause(resolution, memory))
+                        val paused = VerifiedFailureFeedback.pause(resolution, memory)
+                        resultHistory.record(pending.phrase, pending.action.description(), IntelligenceResultHistory.Outcome.USER_FAILED,
+                            if (paused) "Learned phrase paused. Nothing learned." else "Could not pause matching phrase. Nothing learned.")
+                        if (paused)
                             "You reported it failed. Paused this learned phrase on this device. Review it with 'show learned commands'. Go online and verify a new successful lesson to restore the same meaning, or forget the phrase before teaching a different meaning."
                         else "You reported it failed, but the matching learned phrase could not be paused. Its storage may have changed or failed. Check 'show learned commands'; nothing was learned."
-                    } else "Request cancelled or reported unsuccessful. Nothing was learned."
+                    } else {
+                        if (pending.awaitingOutcome) resultHistory.record(pending.phrase, pending.action.description(), IntelligenceResultHistory.Outcome.USER_FAILED, "Nothing learned; recent confirmed action unchanged.")
+                        "Request cancelled or reported unsuccessful. Nothing was learned."
+                    }
                 }
                 pending.awaitingOutcome -> {
                     val contextSaved = assistantMemory.recordConfirmed(pending.action)
                     val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
                     val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
+                    val learned = pending.learnable && prefs.getBoolean("automatic_command_learning", true) &&
+                        memory.recordSuccess(pending.phrase, pending.contextual?.capabilityId ?: pending.action.capabilityId, LearnableDeviceAction.capabilities + ContextualAction.capabilities, pending.contextual?.parameters ?: pending.action.parameters)
+                    resultHistory.record(pending.phrase, pending.action.description(), IntelligenceResultHistory.Outcome.USER_CONFIRMED,
+                        (if (learned) "Original phrase saved for offline reuse." else "No new phrase saved.") +
+                            (if (contextSaved) " Recent-action context saved." else " Recent-action context could not be saved."))
                     val lessonReply = if (!pending.learnable) {
                         if (contextSaved) "You confirmed it worked. Remembered ${pending.action.description()} as your last confirmed action on this device."
                         else "You confirmed the result, but I couldn't save its recent-action context."
-                    } else if (prefs.getBoolean("automatic_command_learning", true) &&
-                        memory.recordSuccess(pending.phrase, pending.contextual?.capabilityId ?: pending.action.capabilityId, LearnableDeviceAction.capabilities + ContextualAction.capabilities, pending.contextual?.parameters ?: pending.action.parameters))
+                    } else if (learned)
                         "You confirmed it worked. Learned \"${pending.phrase}\" on this device for offline reuse."
                     else "Your successful result was noted, but this phrase was not saved. Learning may be disabled or the phrase may conflict with another command."
                     lessonReply + if (contextSaved || !pending.learnable) "" else " Recent-action context could not be saved."
@@ -1012,6 +1027,9 @@ class HybridAssistantService(
             },
             record = { phrase, capability -> memory.recordSuccess(phrase, capability, VerifiedVolumeLearning.capabilities) }
         ) ?: return "This volume interpretation is unsupported. Nothing was changed or learned."
+        resultHistory.record(userText, "change media volume ${lesson.entities["direction"]}",
+            if (outcome.executed) IntelligenceResultHistory.Outcome.DEVICE_VERIFIED else IntelligenceResultHistory.Outcome.NOT_VERIFIED,
+            if (outcome.learned) "Original phrase saved for offline reuse." else "No new phrase saved.")
         return when {
             !outcome.executed -> "I couldn't verify a media volume change. It may already be at its limit or Android may have blocked it. This request was not learned."
             outcome.learned -> "Media volume changed and verified. Learned this phrase on this device for offline reuse."
