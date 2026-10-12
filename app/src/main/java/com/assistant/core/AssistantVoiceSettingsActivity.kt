@@ -67,6 +67,20 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
                 .setMessage("Kokoro v0.19 by hexgrad, Apache License 2.0; ONNX package provided by the sherpa-onnx project. George and Lewis are British male presets; Michael is an American male preset. These are independent voices, not a Paul Bettany clone. The downloaded pack retains its upstream license files and espeak-ng data. No spoken text is sent to a speech server.")
                 .setPositiveButton("OK", null).show()
         }
+        findViewById<Button>(R.id.btnVoiceDiagnostics).setOnClickListener {
+            val report = com.assistant.core.services.NeuralVoiceDiagnostics.report(this)
+            ThemedDialogBuilder(this).setTitle("Voice diagnostics").setMessage(report)
+                .setPositiveButton("Copy for debug") { _, _ ->
+                    val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("JARVIS voice debug", report))
+                    android.widget.Toast.makeText(this, "Voice diagnostics copied", android.widget.Toast.LENGTH_SHORT).show()
+                }.setNegativeButton("Close", null).show()
+        }
+        findViewById<Button>(R.id.btnClearVoiceCache).setOnClickListener {
+            stopPreview()
+            com.assistant.core.services.NeuralSpeechCache(java.io.File(cacheDir, "neural-phrases")).clear()
+            android.widget.Toast.makeText(this, "Phrase audio cache cleared. Voice pack preserved.", android.widget.Toast.LENGTH_SHORT).show()
+        }
         setButtonsEnabled(false)
         speech = TextToSpeech(this) { status ->
             // Post even if the engine completes synchronously during construction.
@@ -252,9 +266,9 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
         val id = "voice-preview-${++previewId}"
         val text = "Good morning. Systems are ready. Shall we get to work? I suspect the trucks won't repair themselves."
         if (selected == AssistantVoiceProfile.ORIGINAL) {
-            val engine = neuralSpeech ?: com.assistant.core.services.NeuralAssistantSpeech(this).also { neuralSpeech = it }
+            val engine = neuralSpeech ?: com.assistant.core.services.NeuralAssistantSpeech(this, "preview").also { neuralSpeech = it }
             engine.speak(text, com.assistant.core.services.NeuralVoiceCatalog.resolve(selectedName),
-                done = { finishPreview(id, false) }, error = { finishPreview(id, true) })
+                done = { finishPreview(id, false) }, error = { finishPreview(id, true) }, cachePhrase = true)
         } else if (speech.speak(text, TextToSpeech.QUEUE_FLUSH, null, id) == TextToSpeech.ERROR) finishPreview(id, true)
     }
 

@@ -56,6 +56,10 @@
         <Button android:id="@+id/btnPreviewAssistantVoice" style="@style/Widget.AssistantPlatform.QuietButton"
             android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Preview voice" />
         <Button android:id="@+id/btnUseAssistantVoice" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Use this voice" />
+        <Button android:id="@+id/btnVoiceDiagnostics" style="@style/Widget.AssistantPlatform.QuietButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Voice diagnostics" />
+        <Button android:id="@+id/btnClearVoiceCache" style="@style/Widget.AssistantPlatform.QuietButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Clear phrase audio cache" />
         <Button android:id="@+id/btnAndroidSpeechSettings" style="@style/Widget.AssistantPlatform.QuietButton"
             android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Android speech settings" />
 

@@ -15,7 +15,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
 /** Exact Kokoro male speaker IDs; no pitch shifting or Android gender guessing. */
-class NeuralAssistantSpeech(context: Context) {
+class NeuralAssistantSpeech(context: Context, private val source: String = "assistant") {
     private val app = context.applicationContext
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -23,22 +23,38 @@ class NeuralAssistantSpeech(context: Context) {
     @Volatile private var track: AudioTrack? = null
     @Volatile private var closed = false
     private var engine: OfflineTts? = null
+    private val cache = NeuralSpeechCache(File(app.cacheDir, "neural-phrases"))
 
-    fun speak(text: String, voice: NeuralVoiceCatalog.Voice, done: () -> Unit, error: (String) -> Unit) {
+    fun speak(text: String, voice: NeuralVoiceCatalog.Voice, done: () -> Unit, error: (String) -> Unit, cachePhrase: Boolean = false) {
         stop()
         if (closed) return
         val token = generation.get()
+        val started = android.os.SystemClock.elapsedRealtime()
         worker.execute {
+            var firstAudioMs = -1L
+            var cacheHits = 0
             try {
-                val synthesizer = engine ?: OfflineTts(config = configuration(NeuralVoicePack(app).also { check(it.installed()) { "Offline voices are not installed" } }.root)).also { engine = it }
+                val pack = NeuralVoicePack(app)
+                check(pack.installed()) { "Offline voices are not installed" }
+                val fingerprint = File(pack.root, ".ready").readText()
+                NeuralVoiceDiagnostics.record(app, source, voice.id, "preparing")
                 if (generation.get() != token || closed) return@execute
                 for (chunk in SpeechChunks.split(text, 180)) {
                     if (generation.get() != token || closed) return@execute
-                    val audio = synthesizer.generateWithCallback(chunk, sid = voice.speaker, speed = 1.0f) {
-                        if (generation.get() == token && !closed) 1 else 0
+                    val key = if (cachePhrase) cache.key(fingerprint, voice.id, chunk) else null
+                    val cached = key?.let(cache::read)
+                    val audio = cached ?: run {
+                        val synthesizer = engine ?: OfflineTts(config = configuration(pack.root)).also { engine = it }
+                        if (generation.get() != token || closed) return@execute
+                        val generated = synthesizer.generateWithCallback(chunk, sid = voice.speaker, speed = 1.0f) {
+                            if (generation.get() == token && !closed) 1 else 0
+                        }
+                        NeuralSpeechCache.Clip(generated.sampleRate, generated.samples)
                     }
+                    if (cached != null) cacheHits++
                     if (generation.get() != token || closed) return@execute
                     check(audio.samples.isNotEmpty() && audio.samples.all { it.isFinite() }) { "No valid audio was generated" }
+                    if (key != null && cached == null) runCatching { cache.write(key, audio) }
                     val buffer = maxOf(4096, AudioTrack.getMinBufferSize(audio.sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_FLOAT))
                     val output = AudioTrack.Builder()
                         .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
@@ -53,6 +69,10 @@ class NeuralAssistantSpeech(context: Context) {
                             val written = output.write(audio.samples, offset, minOf(2048, audio.samples.size - offset), AudioTrack.WRITE_BLOCKING)
                             check(written > 0) { "Audio playback failed" }
                             offset += written
+                            if (firstAudioMs < 0) {
+                                firstAudioMs = android.os.SystemClock.elapsedRealtime() - started
+                                NeuralVoiceDiagnostics.record(app, source, voice.id, "audio_queued", firstAudioMs, cacheHits)
+                            }
                         }
                         // A blocking write only queues frames; wait for the final audio to play
                         // before letting live chat reopen the microphone.
@@ -65,9 +85,14 @@ class NeuralAssistantSpeech(context: Context) {
                         output.release()
                     }
                 }
+                NeuralVoiceDiagnostics.record(app, source, voice.id, "completed", firstAudioMs, cacheHits)
                 main.post { if (generation.get() == token && !closed) done() }
             } catch (failure: Throwable) {
+                NeuralVoiceDiagnostics.record(app, source, voice.id, "error", firstAudioMs, cacheHits, failure.javaClass.simpleName)
                 main.post { if (generation.get() == token && !closed) error(failure.javaClass.simpleName) }
+            } finally {
+                if (generation.get() != token || closed)
+                    NeuralVoiceDiagnostics.record(app, source, voice.id, "cancelled", firstAudioMs, cacheHits)
             }
         }
     }
