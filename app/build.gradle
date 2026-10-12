@@ -59,6 +59,8 @@ android {
             signingConfig signingConfigs.debug
             debuggable true
             matchingFallbacks = ["release"]
+            // Instrumentation's Kotlin references are not visible to the host R8 pass.
+            proguardFiles "voice-test-host.pro"
         }
     }
 
