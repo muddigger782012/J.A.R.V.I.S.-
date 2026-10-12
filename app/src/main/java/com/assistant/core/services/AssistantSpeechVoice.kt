@@ -31,20 +31,26 @@ object AssistantSpeechVoice {
 
     data class Result(val usable: Boolean, val description: String)
 
-    fun apply(tts: TextToSpeech, profile: AssistantVoiceProfile, preferred: String): Result {
+    fun apply(tts: TextToSpeech, profile: AssistantVoiceProfile, preferred: String, femaleVoice: String = ""): Result {
         val voices = available(tts)
-        val chosen = AssistantVoicePolicy.select(voices.map(::candidate), profile, preferred)
+        val candidates = voices.map(::candidate)
+        val female = AssistantVoicePolicy.select(candidates, AssistantVoiceProfile.FEMALE, femaleVoice)
+        val chosen = AssistantVoicePolicy.select(candidates, profile, preferred,
+            if (profile == AssistantVoiceProfile.ORIGINAL) female?.name.orEmpty() else "")
         val voice = voices.firstOrNull { it.name == chosen?.name }
-            ?: return Result(false, "No installed offline English voice. Open Android speech settings to install one.")
+            ?: return Result(false, if (voices.isNotEmpty())
+                "No distinct voice is installed for Original. Install another offline English voice in Android speech settings, or use Default (Female)."
+                else "No installed offline English voice. Open Android speech settings to install one.")
         // setVoice supplies its locale. Calling setLanguage afterwards would undo it.
         if (tts.setVoice(voice) != TextToSpeech.SUCCESS) {
             return Result(false, "This speech engine could not activate the selected voice. Try another voice.")
         }
+        if (tts.voice?.name != voice.name) return Result(false, "The speech engine did not confirm the selected voice. Choose another installed voice.")
         tts.setPitch(profile.pitch)
         tts.setSpeechRate(profile.rate)
         val fallback = if (preferred.isNotBlank() && preferred != voice.name) "Saved voice unavailable; using " else "Using "
         val accent = if (profile == AssistantVoiceProfile.ORIGINAL && voice.locale.country != "GB")
-            " No British voice is installed; this is a fallback." else ""
-        return Result(true, "$fallback${voice.name} (${voice.locale.displayName}).$accent")
+            " No distinct British voice is available; this uses another English accent." else ""
+        return Result(true, "$fallback${voice.name} (${voice.locale.displayName}).$accent\nInstalled offline voices: ${voices.map { AssistantVoicePolicy.identity(it.name) }.distinct().size}")
     }
 }

@@ -1,20 +1,30 @@
 package com.assistant.core.services
 
 import android.content.Context
-import android.content.SharedPreferences
+import android.content.Intent
 
 class AssistantVoicePreferences(context: Context) {
-    private val prefs = context.getSharedPreferences("assistant_speech_voice", Context.MODE_PRIVATE)
-    fun selected() = AssistantVoiceProfile.fromId(prefs.getString("profile", null))
-    fun voiceName(profile: AssistantVoiceProfile) = prefs.getString("voice_${profile.id}", "").orEmpty()
+    private val appContext = context.applicationContext
+    private val legacy = appContext.getSharedPreferences("assistant_speech_voice", Context.MODE_PRIVATE)
+    private val store = AssistantVoiceSelectionStore(appContext.filesDir)
+    private fun legacySelection() = AssistantVoiceSelection(AssistantVoiceProfile.fromId(legacy.getString("profile", null)),
+        legacy.getString("voice_original", "").orEmpty(), legacy.getString("voice_female", "").orEmpty())
+    fun load() = store.load(::legacySelection)
+    fun selected() = load().profile
+    fun voiceName(profile: AssistantVoiceProfile) = load().voiceName(profile)
     fun save(profile: AssistantVoiceProfile, voiceName: String) {
-        prefs.edit().putString("profile", profile.id).putString("voice_${profile.id}", voiceName).apply()
+        store.update(::legacySelection) { current ->
+            if (profile == AssistantVoiceProfile.FEMALE) current.copy(profile = profile, femaleVoice = voiceName)
+            else current.copy(profile = profile, originalVoice = voiceName)
+        }
+        notifyChanged()
     }
     fun rememberFemaleVoice(name: String) {
         if (voiceName(AssistantVoiceProfile.FEMALE).isBlank()) {
-            prefs.edit().putString("voice_female", name).apply()
+            store.update(::legacySelection) { current -> if (current.femaleVoice.isBlank()) current.copy(femaleVoice = name) else current }
+            notifyChanged()
         }
     }
-    fun register(listener: SharedPreferences.OnSharedPreferenceChangeListener) = prefs.registerOnSharedPreferenceChangeListener(listener)
-    fun unregister(listener: SharedPreferences.OnSharedPreferenceChangeListener) = prefs.unregisterOnSharedPreferenceChangeListener(listener)
+    private fun notifyChanged() = appContext.sendBroadcast(Intent(ACTION_CHANGED).setPackage(appContext.packageName))
+    companion object { const val ACTION_CHANGED = "com.assistant.core.action.ASSISTANT_VOICE_CHANGED" }
 }

@@ -43,7 +43,11 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
         findViewById<Button>(R.id.btnChooseAssistantVoice).setOnClickListener { chooseVoice() }
         findViewById<Button>(R.id.btnUseAssistantVoice).setOnClickListener {
             if (updateVoice()) {
-                preferences.save(selected, selectedName)
+                // Persist the actual auditioned voice, not an unresolved Automatic placeholder.
+                runCatching { preferences.save(selected, speech.voice?.name ?: selectedName) }.onFailure {
+                    android.widget.Toast.makeText(this, "Couldn't save this voice. Try again.", android.widget.Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
                 android.widget.Toast.makeText(this, "Assistant voice saved", android.widget.Toast.LENGTH_SHORT).show()
                 finish()
             }
@@ -124,9 +128,10 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
 
     private fun updateVoice(): Boolean {
         if (!ready) return false
-        val result = AssistantSpeechVoice.apply(speech, selected, selectedName)
+        val result = AssistantSpeechVoice.apply(speech, selected, selectedName, preferences.voiceName(AssistantVoiceProfile.FEMALE))
         findViewById<TextView>(R.id.tvAssistantVoiceStatus).text = "${selected.label}\n${result.description}"
         setButtonsEnabled(result.usable)
+        findViewById<Button>(R.id.btnChooseAssistantVoice).isEnabled = AssistantSpeechVoice.available(speech).isNotEmpty()
         return result.usable
     }
 

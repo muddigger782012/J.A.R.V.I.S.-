@@ -38,4 +38,24 @@ class AssistantVoicePolicyTest {
         assertEquals("a-opaque", AssistantVoicePolicy.select(voices, AssistantVoiceProfile.ORIGINAL)?.name)
         assertEquals("a-opaque", AssistantVoicePolicy.select(voices.reversed(), AssistantVoiceProfile.ORIGINAL)?.name)
     }
+
+    @Test fun originalCannotReuseFemaleWhenEngineNamesDoNotIdentifyGender() {
+        val voices = listOf(voice("en-gb-x-gba-local"), voice("en-gb-x-gbb-local"))
+        val female = AssistantVoicePolicy.select(voices, AssistantVoiceProfile.FEMALE, "en-gb-x-gba-network")!!
+        val original = AssistantVoicePolicy.select(voices, AssistantVoiceProfile.ORIGINAL, "en-gb-x-gba-local", female.name)!!
+        assertEquals("en-gb-x-gba-local", female.name)
+        assertEquals("en-gb-x-gbb-local", original.name)
+        assertNotEquals(AssistantVoicePolicy.identity(female.name), AssistantVoicePolicy.identity(original.name))
+    }
+
+    @Test fun singleBaseVoiceDoesNotPretendToProvideTwoProfiles() {
+        val voices = listOf(voice("en-gb-x-gba-local"), voice("en-gb-x-gba-network", network = true))
+        assertNull(AssistantVoicePolicy.select(voices, AssistantVoiceProfile.ORIGINAL, distinctFrom = "en-gb-x-gba-network"))
+    }
+
+    @Test fun distinctEnglishFallbackIsPreferredOverIdenticalBritishVoice() {
+        val voices = listOf(voice("en-gb-x-gba-local"), voice("en-us-x-alt-local", "US"))
+        assertEquals("en-us-x-alt-local", AssistantVoicePolicy.select(voices, AssistantVoiceProfile.ORIGINAL,
+            distinctFrom = "en-gb-x-gba-local")?.name)
+    }
 }
