@@ -15,6 +15,22 @@ class GatewayTests(unittest.TestCase):
         self.client = TestClient(app)
         self.body = {'session_id': 'test', 'messages': [{'role': 'user', 'content': 'When is rain next?'}], 'latitude': 36.7, 'longitude': -76.2}
 
+    def test_personality_controls_reach_provider_without_changing_lesson_schema(self):
+        self.body['messages'][0]['content'] = 'Explain diesel injection'
+        self.body['behavior_profile'] = {'address': 'Brandon', 'detail': 'brief', 'humor': False, 'initiative': False}
+        create = AsyncMock(return_value=SimpleNamespace(output_text='An explanation.'))
+        manager = MagicMock()
+        manager.__aenter__ = AsyncMock(return_value=SimpleNamespace(responses=SimpleNamespace(create=create)))
+        manager.__aexit__ = AsyncMock(return_value=False)
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'}), patch('main.AsyncOpenAI', return_value=manager):
+            response = self.client.post('/chat', json=self.body, headers={'Authorization': 'Bearer test-token'})
+            self.assertEqual(response.status_code, 200)
+            instructions = create.call_args.kwargs['instructions']
+            self.assertIn('Brandon', instructions)
+            self.assertIn('Do not add jokes', instructions)
+            self.assertIn('Never claim to have executed', instructions)
+            self.assertEqual(create.call_args.kwargs['input'][-1]['content'], 'Explain diesel injection')
+
     def test_authentication_required(self):
         self.assertEqual(self.client.post('/chat', json=self.body).status_code, 401)
 

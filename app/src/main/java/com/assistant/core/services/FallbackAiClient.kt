@@ -36,7 +36,7 @@ class FallbackAiClient(private val context: Context) {
         prefs.getString("endpoint", "").orEmpty().startsWith("https://") &&
             prefs.getString("gateway_token", "").orEmpty().isNotBlank()
 
-    fun ask(userText: String, learnIntent: Boolean = true, capabilityContext: String = "{}", includeLocation: Boolean = true): FallbackAiResult? {
+    fun ask(userText: String, learnIntent: Boolean = true, capabilityContext: String = "{}", includeLocation: Boolean = true, conversation: List<Pair<String, String>> = emptyList()): FallbackAiResult? {
         val endpoint = prefs.getString("endpoint", "").orEmpty()
         val token = prefs.getString("gateway_token", "").orEmpty()
         if (!endpoint.startsWith("https://") || token.isBlank()) return null
@@ -44,6 +44,14 @@ class FallbackAiClient(private val context: Context) {
         val request = FallbackAiRequest.build(userText, learnIntent, capabilityContext,
             prefs.getString("weather_latitude", "").orEmpty().toDoubleOrNull(),
             prefs.getString("weather_longitude", "").orEmpty().toDoubleOrNull(), includeLocation)
+        request.put("behavior_profile", AssistantPersonalityPreferences.load(context).toJson())
+        val messages = JSONArray()
+        conversation.takeLast(8).forEach { (user, assistant) ->
+            messages.put(JSONObject().put("role", "user").put("content", user.take(12000)))
+            messages.put(JSONObject().put("role", "assistant").put("content", assistant.take(12000)))
+        }
+        messages.put(JSONObject().put("role", "user").put("content", userText))
+        request.put("messages", messages)
         val body = request.toString()
 
         var connection: HttpURLConnection? = null
