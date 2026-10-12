@@ -19,3 +19,9 @@ A preference proposal may retain the original phrase. On yes, the host rechecks 
 A preference-setting alias stores the explicit target slot/package/label. Offline reuse rechecks the app and asks yes/no again before changing the preference. It does not open the app or change Android defaults. Opening contextual aliases continue to resolve the current preference dynamically. Bare confirmations and result reports cannot become aliases.
 
 Phone verification of these new preference proposals is pending separately from source/build checks.
+
+## Word-hyphen variants in learned commands
+
+Learned phrase matching treats word-internal ASCII hyphens, Unicode hyphens and nonbreaking hyphens between letters as spaces. Thus a saved `go to browser` phrase matches `go-to browser` offline without relearning. Existing stored phrases are compared with the same key; reads do not migrate or rewrite entries.
+
+Numeric signs, standalone dashes, negations and changed words/targets remain distinct. Save and deletion use the same equivalence rule. If older entries collapse to different capabilities or parameters, lookup declines all ambiguous meanings, including across per-handler allowlists, rather than selecting the most frequent one. Conflict checks block replacing an existing meaning through a hyphen variation. Preference-setting reuse still asks approval.
