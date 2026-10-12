@@ -101,6 +101,11 @@ class LearnedCommandReviewTest {
 
     @Test fun controlsHaveExplicitGrammarAndCannotBecomeLearnedActions() {
         assertEquals(1, LearnedCommandReviewCommands.page("Show learned commands!"))
+        assertEquals(1, LearnedCommandReviewCommands.page("Show saved commands"))
+        assertEquals(2, LearnedCommandReviewCommands.page("Please list my saved commands page 2!"))
+        assertEquals(1, LearnedCommandReviewCommands.page("saved commands"))
+        assertNull(LearnedCommandReviewCommands.page("don't show saved commands"))
+        assertNull(LearnedCommandReviewCommands.page("show saved commands and open Chrome"))
         assertEquals(2, LearnedCommandReviewCommands.page("show my learned commands page 2"))
         assertEquals(0, LearnedCommandReviewCommands.page("show learned commands page 999999999999999999"))
         assertNull(LearnedCommandReviewCommands.page("don't show learned commands"))
@@ -109,6 +114,7 @@ class LearnedCommandReviewTest {
         assertEquals("my command", LearnedCommandReviewCommands.forgetPhrase("Forget learned command “my command”."))
         assertNull(LearnedCommandReviewCommands.forgetPhrase("don't forget learned command my command"))
         val commands = ValidatedCommandMemory({ "[]" }, { fail("reserved control must not be saved"); false })
+        assertFalse(commands.recordSuccess("show saved commands", "volume_up", VerifiedVolumeLearning.capabilities))
         assertFalse(commands.recordSuccess("show learned commands", "volume_up", VerifiedVolumeLearning.capabilities))
         assertFalse(commands.recordSuccess("forget learned command my command", "volume_up", VerifiedVolumeLearning.capabilities))
     }
