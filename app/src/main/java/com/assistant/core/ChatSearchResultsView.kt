@@ -16,6 +16,7 @@ import android.text.style.ClickableSpan
 import android.text.style.StyleSpan
 import android.view.View
 import android.view.Gravity
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -43,8 +44,22 @@ object ChatSearchResultsView {
             ellipsize = TextUtils.TruncateAt.END
             setPadding(dp(4), dp(4), dp(4), dp(4))
             setTextColor(ThemePreferences.color(activity, R.color.jarvis_on_dark_muted))
-            layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+            layoutParams = LinearLayout.LayoutParams(-2, -2)
             isClickable = true; isFocusable = true; contentDescription = description
+            foreground = android.util.TypedValue().let { value ->
+                if (activity.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, value, true))
+                    androidx.core.content.ContextCompat.getDrawable(activity, value.resourceId) else null
+            }
+            setOnClickListener { block() }
+        }
+        fun icon(resource: Int, description: String, block: () -> Unit) = ImageButton(activity).apply {
+            setImageResource(resource)
+            imageTintList = android.content.res.ColorStateList.valueOf(ThemePreferences.color(activity, R.color.jarvis_on_dark_muted))
+            background = null
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+            contentDescription = description
+            androidx.appcompat.widget.TooltipCompat.setTooltipText(this, description)
             foreground = android.util.TypedValue().let { value ->
                 if (activity.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, value, true))
                     androidx.core.content.ContextCompat.getDrawable(activity, value.resourceId) else null
@@ -78,7 +93,7 @@ object ChatSearchResultsView {
                 movementMethod = LinkMovementMethod.getInstance()
                 setPadding(0, 0, 0, dp(10))
             })
-            actions.addView(action("Copy", "Copy search answer") {
+            actions.addView(icon(R.drawable.ic_search_copy, "Copy search answer") {
                 (activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
                     .setPrimaryClip(ClipData.newPlainText("J.A.R.V.I.S. search answer", formatted.text))
                 Toast.makeText(activity, "Answer copied", Toast.LENGTH_SHORT).show()
@@ -88,7 +103,6 @@ object ChatSearchResultsView {
             val images = message.items.filter { it.kind == "image" }
             if (images.isNotEmpty()) root.addView(SearchMediaViews.images(activity, images))
         }
-        root.addView(actions)
         if (sources.isNotEmpty()) {
             var expanded = message.kind == "video" || formatted == null
             val rows = LinearLayout(activity).apply {
@@ -114,7 +128,6 @@ object ChatSearchResultsView {
                     setOnClickListener { open(item) }
                 })
             }
-            root.addView(rows)
             val toggle = action("Sources · ${sources.size} ${if (expanded) "▴" else "▾"}", "Show or hide ${sources.size} search sources") { }
             toggle.setOnClickListener {
                 expanded = !expanded
@@ -122,14 +135,16 @@ object ChatSearchResultsView {
                 toggle.text = "Sources · ${sources.size} ${if (expanded) "▴" else "▾"}"
                 toggle.contentDescription = (if (expanded) "Hide" else "Show") + " ${sources.size} search sources"
             }
-            actions.addView(toggle)
+            root.addView(toggle)
+            root.addView(rows)
         }
-        actions.addView(action("Web ↗", "Open search in the embedded browser") {
+        actions.addView(icon(R.drawable.ic_search_open, "Open search in the embedded browser") {
             val url = Uri.parse("https://www.google.com/search").buildUpon().appendQueryParameter("q", message.query)
             if (message.kind == "image") url.appendQueryParameter("tbm", "isch")
             if (message.kind == "video") url.appendQueryParameter("tbm", "vid")
             activity.startActivity(Intent(activity, SearchBrowserActivity::class.java).putExtra(SearchBrowserActivity.EXTRA_URL, url.build().toString()))
         })
+        root.addView(actions)
         message.searchSuggestions?.let { root.addView(GroundedSearchSuggestionsView.create(activity, it)) }
         FontPreferences.applyTo(root, activity)
         return root
