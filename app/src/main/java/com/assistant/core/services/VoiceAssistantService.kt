@@ -2,7 +2,6 @@ package com.assistant.core.services
 
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import androidx.core.content.ContextCompat
@@ -56,6 +55,9 @@ class VoiceAssistantService(
     private var activeSpeechChannel = SpeechChannel.REGULAR
     private val responseReceiver = object : BroadcastReceiver() {
         override fun onReceive(receivedContext: Context?, intent: Intent?) {
+            if (intent?.action == AssistantVoicePreferences.ACTION_CHANGED && ttsReady && activeSpeechPrefix == null) {
+                applyAssistantVoiceProfile()
+            }
             if (activeSpeechPrefix != null && !VoiceResponsePreferences.load(context).allowsSpeech(activeSpeechChannel)) {
                 stopSpeaking()
                 onSpeechFinished()
@@ -63,14 +65,9 @@ class VoiceAssistantService(
         }
     }
     private val speechPreferences = AssistantVoicePreferences(context)
-    private val speechPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-        mainHandler.post {
-            if (ttsReady && activeSpeechPrefix == null) applyAssistantVoiceProfile()
-        }
-    }
     init {
-        speechPreferences.register(speechPreferenceListener)
-        ContextCompat.registerReceiver(context, responseReceiver, IntentFilter(VoiceResponsePreferences.ACTION_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
+        val changes = IntentFilter(VoiceResponsePreferences.ACTION_CHANGED).apply { addAction(AssistantVoicePreferences.ACTION_CHANGED) }
+        ContextCompat.registerReceiver(context, responseReceiver, changes, ContextCompat.RECEIVER_NOT_EXPORTED)
     }
     private var wakeGeneration = 0L
     private var sherpaWakeWordEngine: SherpaWakeWordEngine? = null
@@ -151,7 +148,6 @@ class VoiceAssistantService(
     fun shutdown() {
         speechShutdown = true
         ttsReady = false
-        speechPreferences.unregister(speechPreferenceListener)
         runCatching { context.unregisterReceiver(responseReceiver) }
         stopListening()
         speechRecognizer?.destroy()
@@ -489,8 +485,15 @@ class VoiceAssistantService(
     }
 
     private fun applyAssistantVoiceProfile() {
-        val profile = speechPreferences.selected()
-        val result = AssistantSpeechVoice.apply(tts, profile, speechPreferences.voiceName(profile))
+        val saved = speechPreferences.load()
+        val profile = saved.profile
+        val requested = AssistantSpeechVoice.apply(tts, profile, saved.voiceName(profile), saved.femaleVoice)
+        // Preserve audible replies if the phone only has one suitable voice, but
+        // report the actual fallback rather than calling it an Original voice.
+        val result = if (!requested.usable && profile == AssistantVoiceProfile.ORIGINAL) {
+            val fallback = AssistantSpeechVoice.apply(tts, AssistantVoiceProfile.FEMALE, saved.femaleVoice, saved.femaleVoice)
+            fallback.copy(description = requested.description + "\nFallback: Default (Female). " + fallback.description)
+        } else requested
         speechVoiceUsable = result.usable
         val message = "${profile.label}: ${result.description}"
         if (message != lastSpeechVoiceStatus) {

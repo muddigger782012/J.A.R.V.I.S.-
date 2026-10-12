@@ -21,9 +21,12 @@ object AssistantVoicePolicy {
 
     fun eligible(voice: Candidate) = voice.language == "en" && !voice.networkRequired && voice.installed
 
-    fun select(voices: List<Candidate>, profile: AssistantVoiceProfile, preferred: String = ""): Candidate? {
-        val available = voices.filter(::eligible)
+    fun identity(name: String) = name.lowercase(Locale.US).replace(Regex("[-_](local|network)$"), "")
+
+    fun select(voices: List<Candidate>, profile: AssistantVoiceProfile, preferred: String = "", distinctFrom: String = ""): Candidate? {
+        val available = voices.filter(::eligible).filter { distinctFrom.isBlank() || identity(it.name) != identity(distinctFrom) }
         available.firstOrNull { it.name == preferred }?.let { return it }
+        if (preferred.isNotBlank()) available.sortedBy { it.name }.firstOrNull { identity(it.name) == identity(preferred) }?.let { return it }
         return available.sortedBy { it.name }.maxByOrNull { voice ->
             val name = voice.name.lowercase(Locale.US)
             val country = when (voice.country.uppercase(Locale.US)) { "GB" -> 10000; "US" -> 1000; else -> 0 }
