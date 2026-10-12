@@ -147,7 +147,15 @@ class HybridAssistantService(
                 resolution.needsClarification -> {
                     if (!resolution.reminder) resultHistory.record(pending.phrase, pending.action.description(), IntelligenceResultHistory.Outcome.UNCLEAR,
                         "Nothing learned or marked failed. The same outcome check remains pending.")
-                    if (!pending.awaitingOutcome)
+                    if (resolution.correction != DeviceLearningSession.Correction.NONE) when (resolution.correction) {
+                        DeviceLearningSession.Correction.UPDATED -> "Revised the proposal to ${pending.action.description()}. Say yes to request it or no to cancel. Nothing has run or been learned yet." +
+                            if (pending.explicitTeaching) " Your chosen alias will be saved only after you check the result and say 'it worked'." else " The original duration phrase won't be learned from this edited proposal."
+                        DeviceLearningSession.Correction.ALREADY_REQUESTED -> "That action has already been requested. This follow-up cannot change or cancel a running timer. No second timer was started. Check the existing result and say 'it worked' or 'it failed', or state a new timer request."
+                        DeviceLearningSession.Correction.TARGET_LOCKED -> "This check isn't an editable timer proposal. State a new timer request to choose a duration. Nothing was changed; the original check remains pending."
+                        DeviceLearningSession.Correction.INVALID_DURATION -> "Use a duration from 1 second to 24 hours, with digits—for example, 'make that 10 minutes'. The original proposal remains pending; nothing was changed."
+                        DeviceLearningSession.Correction.SAVE_FAILED -> "I couldn't retain the revised duration. The original proposal remains pending; nothing was changed or run."
+                        DeviceLearningSession.Correction.NONE -> ""
+                    } else if (!pending.awaitingOutcome)
                         "The pending request is to ${pending.action.description()}, from '${pending.phrase}'. Say yes to request it or no to cancel. Nothing has run or been learned yet."
                     else "The pending outcome check is for ${pending.action.description()}, from '${pending.phrase}'. Check the result, then say 'it worked' or 'it failed'. I'm keeping this check pending; nothing was learned or marked failed."
                 }
@@ -216,6 +224,9 @@ class HybridAssistantService(
             }
             remember(userInput, response)
             return HybridAssistantReply(response)
+        }
+        if (PendingTimerCorrection.isRequest(userInput)) {
+            return HybridAssistantReply("No timer proposal is awaiting a duration edit. State a new timer request first. Nothing was changed or run.")
         }
         if (DeviceLearningSession.isOutcome(userInput)) {
             val response = "No timer or app request is awaiting outcome confirmation. Run the action first, then report 'it worked' or 'it failed'. Nothing was added to memory."
