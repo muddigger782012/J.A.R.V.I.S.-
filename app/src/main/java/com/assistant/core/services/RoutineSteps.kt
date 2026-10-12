@@ -5,6 +5,8 @@ import java.net.URLEncoder
 
 /** Bounded stored step IDs. Timer parameters are data, never shell or executable code. */
 object RoutineSteps {
+    fun volumePercent(step: String): Int? = Regex("^volume:(0|[1-9][0-9]?|100)$")
+        .matchEntire(step)?.groupValues?.get(1)?.toIntOrNull()
     /** Host-generated binding. AI draft steps use open:LABEL instead. */
     fun appStep(action: LearnableDeviceAction): String? {
         if (!action.isValid() || action.capabilityId != "open_app") return null
@@ -33,7 +35,8 @@ object RoutineSteps {
 
     fun isValid(steps: List<String>): Boolean {
         if (steps.size !in 1..3 || steps.distinct().size != steps.size) return false
-        if (steps.any { it !in setOf("volume_up", "volume_down", "app_update") && timerAction(it) == null && preferredSlot(it) == null && appAction(it) == null }) return false
+        if (steps.any { it !in setOf("volume_up", "volume_down", "app_update") && volumePercent(it) == null && timerAction(it) == null && preferredSlot(it) == null && appAction(it) == null }) return false
+        if (steps.any { volumePercent(it) != null } && steps.count { volumePercent(it) != null || it in setOf("volume_up", "volume_down") } != 1) return false
         val targets = steps.filter { timerAction(it) != null || preferredSlot(it) != null || appAction(it) != null }
         return targets.isEmpty() || (targets.size == 1 && steps.last() == targets.single() && "app_update" !in steps)
     }

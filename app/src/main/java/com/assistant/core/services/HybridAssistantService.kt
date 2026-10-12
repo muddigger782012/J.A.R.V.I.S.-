@@ -358,6 +358,12 @@ class HybridAssistantService(
                         DeviceLearningSession.RequestResult.AWAITING_OUTCOME -> RoutineExecution.Status.AWAITING_OUTCOME
                         DeviceLearningSession.RequestResult.REQUESTED_WITHOUT_TRACKING -> RoutineExecution.Status.REQUESTED_WITHOUT_TRACKING
                     }
+                } else if (RoutineSteps.volumePercent(step) != null) {
+                    val verified = androidAssistant.setMediaVolumePercent(RoutineSteps.volumePercent(step)!!)
+                    resultHistory.record(routine.phrase, RoutineProposal.describe(step),
+                        if (verified) IntelligenceResultHistory.Outcome.DEVICE_VERIFIED else IntelligenceResultHistory.Outcome.NOT_VERIFIED,
+                        "Approved routine volume step. " + (if (verified) "Nearest supported target level verified." else "Target level could not be verified; remaining steps stopped.") + " No single-action phrase learned.")
+                    if (verified) RoutineExecution.Status.VERIFIED else RoutineExecution.Status.FAILED
                 } else when (step) {
                     "volume_up", "volume_down" -> if (androidAssistant.adjustVolume(
                         if (step == "volume_up") android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER))
@@ -377,7 +383,7 @@ class HybridAssistantService(
                 return HybridAssistantReply("The routine's preferred app is missing or cannot be launched. Restore the saved preference first. No routine steps were run.")
             val results = outcome.steps.joinToString("; ") { (step, status) ->
                 (if (RoutineSteps.preferredSlot(step) != null) requestedTarget?.description() ?: RoutineProposal.describe(step) else RoutineProposal.describe(step)) + ": " + when (status) {
-                    RoutineExecution.Status.VERIFIED -> "changed and verified"
+                    RoutineExecution.Status.VERIFIED -> if (RoutineSteps.volumePercent(step) != null) "target level verified" else "changed and verified"
                     RoutineExecution.Status.REQUESTED -> "requested"
                     RoutineExecution.Status.AWAITING_OUTCOME -> "requested; awaiting your outcome check"
                     RoutineExecution.Status.REQUESTED_WITHOUT_TRACKING -> "requested; outcome tracking unavailable"
@@ -927,7 +933,7 @@ class HybridAssistantService(
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson)
         if (RoutineProposal.isCreationRequest(userText)) {
             if (lesson?.intent != "CREATE_ROUTINE")
-                return "I couldn't produce a supported routine definition. Give a name and explicit steps: volume up/down one step, opening the updater, a timer with an explicit duration, or opening a saved preferred browser/maps/music app. Nothing was saved or run."
+                return "I couldn't produce a supported routine definition. Give a name and explicit steps: volume up/down one step or a media-volume percentage, opening the updater, a timer with an explicit duration, or opening a saved preferred browser/maps/music app. Nothing was saved or run."
             return proposeFallbackDeviceAction(userText, lessonJson)
         }
         if (lesson?.intent == "CREATE_ROUTINE")
@@ -946,7 +952,7 @@ class HybridAssistantService(
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson) ?: return null
         if (lesson.intent == "CREATE_ROUTINE") {
             val routine = RoutineProposal.fromAiLesson(lesson, androidAssistant::resolveLearnableApp)
-                ?: return "I couldn't approve that routine definition. Supported steps are media volume up/down one step, opening the updater, a final timer from 1 second to 24 hours, or a final installed app by its exact launcher name or saved preferred browser/maps/music app. Choose a short routine name and explicit steps. Nothing was saved or run."
+                ?: return "I couldn't approve that routine definition. Supported steps are media volume up/down one step or a media-volume percentage from 0 to 100, opening the updater, a final timer from 1 second to 24 hours, or a final installed app by its exact launcher name or saved preferred browser/maps/music app. Choose a short routine name and explicit steps. Nothing was saved or run."
             return proposeRoutine(routine.phrase, routine.actions)
         }
         if (lesson.intent == "SET_APP_PREFERENCE") {
@@ -987,7 +993,7 @@ class HybridAssistantService(
 
     private fun proposeRoutine(phrase: String, actions: List<String>): String {
         val proposal = routineRegistry.propose(phrase, actions)
-            ?: return "That routine uses an unsupported step or reserved name. Supported steps are volume up, volume down, opening the updater, a final timer from 1 second to 24 hours, and a final installed app or saved preferred browser/maps/music app. Nothing was saved or run."
+            ?: return "That routine uses an unsupported step or reserved name. Supported steps are volume up, volume down, a media-volume percentage from 0 to 100, opening the updater, a final timer from 1 second to 24 hours, and a final installed app or saved preferred browser/maps/music app. Nothing was saved or run."
         if (routineAppUnavailable(proposal.actions))
             return "The routine needs its installed app or saved preferred app to be launchable. Restore it first, then create the routine again. Nothing was saved or run."
         val commands = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
