@@ -72,6 +72,7 @@ object LearnedCommandReview {
             if (!reference.isValid()) "unavailable: invalid saved reference"
             else {
                 val label = if (entry.capabilityId == "open_preferred") "use current preferred ${entry.parameters["slot"]}"
+                    else if (entry.parameters["kind"] == "most_recent") "repeat most recent confirmed timer/app action"
                     else "repeat last confirmed ${entry.parameters["kind"]}"
                 val action = reference.resolve(memory)
                 if (action == null) "$label; unavailable until its assistant memory is saved"

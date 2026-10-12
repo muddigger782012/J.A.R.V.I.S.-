@@ -2,7 +2,7 @@
 
 Unresolved online requests now supply the configured Gemini provider or updated gateway with a bounded capability list, approved browser/maps/music labels, and the last user-confirmed timer duration/app label. These saved values are sent deliberately to interpret references. Package IDs are resolved locally and not included in this structured context. Existing conversation context may contain earlier memory summaries.
 
-The AI can propose OPEN_PREFERRED_APP (slot browser/maps/music) or REPEAT_ACTION (kind timer/open_app). Strict schemas and confidence of at least 0.90 are required. Missing context never triggers an invented target. Generic references with several possible action kinds should prompt clarification.
+The AI can propose OPEN_PREFERRED_APP (slot browser/maps/music) or REPEAT_ACTION (kind timer/open_app/most_recent). Strict schemas and confidence of at least 0.90 are required. Missing context never triggers an invented target. Generic references use most_recent only when the host supplies ordered verified context; legacy per-kind slots alone require clarification.
 
 The host binds a proposal to an actual saved action. Yes requests that action; only `it worked` enables alias storage. Cancellation, unsuccessful outcomes and failed writes do not create aliases. Android launch success remains a request, not proof of the visible result.
 
@@ -41,3 +41,12 @@ A replay of a learned timer/app phrase retains the saved meaning alongside its r
 Paused phrases stay visible in `show learned commands` with their failure count, but are excluded from alias matching and recent-action migration. Offline retry explains that the phrase is paused. Online retry can obtain a fresh AI proposal with approval and outcome verification. A verified successful lesson for the same saved meaning clears the pause, subject to automatic learning being enabled and a successful write. A different meaning retains conflict protection: explicitly forget the old phrase before teaching a replacement.
 
 Cancelling a new proposal, reporting failure for an unlearned/local built-in action, unrelated or expired outcomes, failed action requests and bare result reports do not pause aliases. A failure does not overwrite previous confirmed context or app preferences. This release covers learned timer/app replays; volume changes and preference saves retain their existing direct verification paths. Phone verification is separate from unit/build checks.
+
+
+## Most recent confirmed action
+
+A successful user outcome for a timer/app writes its per-kind slot and `last_action_kind` in one durable commit. New requests, approvals, failures and preferred-app edits do not advance this pointer. Imported older slots have no known order. Forgetting the pointed-to slot clears the pointer; it never falls back to an older action.
+
+`Do that again`, `repeat that` and `repeat the last confirmed action` resolve locally, online or offline. JARVIS previews the saved timer/app and requires yes before requesting it. The result still requires `it worked` before refreshing recent memory. This context covers timers and app launches only.
+
+AI can propose `REPEAT_ACTION` with `kind: most_recent` for other wording when the host supplies that ordered context. Verified learned aliases retain a reference to current memory rather than a frozen app/duration. Clearing memory leaves such aliases unresolved. Test on phone: confirm a timer, repeat it offline; confirm an app, repeat again; clear context and verify JARVIS asks for a new confirmed action.

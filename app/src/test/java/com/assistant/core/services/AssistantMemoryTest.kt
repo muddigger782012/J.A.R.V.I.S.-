@@ -62,7 +62,7 @@ class AssistantMemoryTest {
         assertEquals("open_app", AssistantMemoryCommands.repeatCapability("Open the same app again"))
         assertEquals("preferred_music", AssistantMemoryCommands.forgetKey("forget my preferred music app"))
         assertEquals("last_timer", AssistantMemoryCommands.forgetKey("forget the last timer"))
-        assertNull(AssistantMemoryCommands.repeatCapability("do that again"))
+        assertEquals("most_recent", AssistantMemoryCommands.repeatCapability("do that again"))
         assertNull(AssistantMemoryCommands.preferredSlot("don't open my preferred browser"))
     }
 

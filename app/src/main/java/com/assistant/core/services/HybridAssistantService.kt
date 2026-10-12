@@ -219,8 +219,13 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
         AssistantMemoryCommands.repeatCapability(userInput)?.let { kind ->
-            val action = assistantMemory.lastConfirmed(kind)
+            val reference = ContextualAction("repeat_action", mapOf("kind" to kind))
+            val action = reference.resolve(assistantMemory)
             val response = when {
+                kind == "most_recent" && action == null -> "No ordered, confirmed timer or app launch is saved yet. Complete a timer or app action and say 'it worked' first. You can still ask for the last confirmed timer or app separately."
+                kind == "most_recent" && action != null -> if (deviceLearningSession.propose(DeviceLearningSession.Pending(userInput, action, false, contextual = reference)))
+                    "Your most recent confirmed action is to ${action.description()}. Would you like me to repeat it? Say yes to confirm or no to cancel."
+                    else "I couldn't retain this repeat request for confirmation. Nothing was changed."
                 action == null -> "No confirmed ${if (kind == "timer") "timer" else "app launch"} is saved yet. Complete an action and confirm 'it worked' first."
                 else -> requestContextAction(userInput, action, "using your last confirmed ${if (kind == "timer") "timer" else "app"}")
             }

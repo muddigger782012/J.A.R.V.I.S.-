@@ -13,6 +13,14 @@ class AssistantMemory internal constructor(private val read: () -> String, priva
     fun preferred(slot: String): LearnableDeviceAction? = synchronized(lock) { decode(load().optJSONObject("preferred_$slot")) }
     fun lastConfirmed(capability: String): LearnableDeviceAction? = synchronized(lock) { decode(load().optJSONObject("last_$capability")) }
 
+    /** Ordering is recorded only by a new verified outcome, never guessed from legacy slots. */
+    fun mostRecentConfirmed(): LearnableDeviceAction? = synchronized(lock) {
+        val json = load()
+        val kind = json.optString("last_action_kind")
+        if (kind !in LearnableDeviceAction.capabilities) return@synchronized null
+        decode(json.optJSONObject("last_$kind"))?.takeIf { it.capabilityId == kind }
+    }
+
     fun savePreference(slot: String, action: LearnableDeviceAction): Boolean = synchronized(lock) {
         if (slot !in slots || action.capabilityId != "open_app" || !action.isValid()) return@synchronized false
         save(load().put("preferred_$slot", encode(action)))
@@ -20,7 +28,7 @@ class AssistantMemory internal constructor(private val read: () -> String, priva
 
     fun recordConfirmed(action: LearnableDeviceAction): Boolean = synchronized(lock) {
         if (!action.isValid()) return@synchronized false
-        save(load().put("last_${action.capabilityId}", encode(action)))
+        save(load().put("last_${action.capabilityId}", encode(action)).put("last_action_kind", action.capabilityId))
     }
 
     /** Import earlier user-verified lessons once; clearing memory must not resurrect them. */
@@ -34,10 +42,11 @@ class AssistantMemory internal constructor(private val read: () -> String, priva
     }
 
     fun forget(key: String): Boolean = synchronized(lock) {
-        if (key !in slots.map { "preferred_$it" } + listOf("last_timer", "last_open_app")) return@synchronized false
+        if (key !in slots.map { "preferred_$it" } + listOf("last_timer", "last_open_app", "last_action_kind")) return@synchronized false
         val json = load()
         if (!json.has(key)) return@synchronized false
         json.remove(key)
+        if (key == "last_${json.optString("last_action_kind")}") json.remove("last_action_kind")
         save(json)
     }
 
@@ -46,6 +55,8 @@ class AssistantMemory internal constructor(private val read: () -> String, priva
     fun summary(): String = synchronized(lock) {
         val lines = slots.mapNotNull { slot -> preferred(slot)?.let { "Preferred $slot: ${it.parameters["label"]}" } } +
             listOf("timer", "open_app").mapNotNull { kind -> lastConfirmed(kind)?.let { "Last confirmed $kind: ${it.description()}" } }
+        val ordered = mostRecentConfirmed()?.let { "Most recent confirmed action: ${it.description()}" }
+        if (ordered != null) return@synchronized (lines + ordered).joinToString("\n")
         if (lines.isEmpty()) "No assistant preferences or confirmed action context are saved on this device." else lines.joinToString("\n")
     }
 
@@ -86,6 +97,8 @@ object AssistantMemoryCommands {
     }
     fun repeatCapability(text: String): String? {
         val cleaned = normalized(text)
+        if (cleaned in setOf("do that again", "repeat that", "repeat that again", "do the same thing again",
+                "repeat the last confirmed action", "repeat my last confirmed action", "do that again please", "please do that again")) return "most_recent"
         if (Regex("^(?:(?:use|start|repeat) )?(?:(?:the|that) )?same timer(?: again)?$").matches(cleaned) ||
             Regex("^(?:use|start|repeat) (?:the )?last (?:confirmed )?timer(?: again)?$").matches(cleaned)) return "timer"
         if (Regex("^(?:open|reopen) (?:(?:the|that) )?same app(?: again)?$").matches(cleaned) ||
@@ -95,6 +108,6 @@ object AssistantMemoryCommands {
     fun forgetKey(text: String): String? {
         val cleaned = normalized(text)
         Regex("^(?:forget|remove) (?:(?:my|the) )?preferred ($SLOT_WORDS)$").matchEntire(cleaned)?.let { return "preferred_${slotName(it.groupValues[1])}" }
-        return when (cleaned) { "forget the last timer" -> "last_timer"; "forget the last app" -> "last_open_app"; else -> null }
+        return when (cleaned) { "forget the last timer" -> "last_timer"; "forget the last app" -> "last_open_app"; "forget the last action" -> "last_action_kind"; else -> null }
     }
 }
