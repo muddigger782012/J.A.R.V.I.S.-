@@ -88,7 +88,7 @@ class VerifiedFailureFeedbackTest {
         assertEquals(DeviceLearningSession.RequestResult.FAILED, session.requestAndTrack("timer shortcut", timer, replayed = true) { false })
         assertNull(session.consume("it failed"))
         session.requestAndTrack("timer shortcut", timer, replayed = true) { true }
-        assertNull(session.consume("show assistant memory"))
+        assertNull(session.consume("what is the weather"))
         assertNull(session.consume("it failed"))
         session.requestAndTrack("timer shortcut", timer, replayed = true) { true }
         now += 300001L
