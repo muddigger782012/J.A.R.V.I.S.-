@@ -22,6 +22,7 @@ object SearchThumbnailLoader {
     fun load(view: ImageView, url: String) {
         if (!ChatSearchResults.safeUrl(url)) return
         view.tag = url
+        view.visibility = android.view.View.VISIBLE
         synchronized(cache) { cache.get(url) }?.let { view.setImageBitmap(it); return }
         val reference = WeakReference(view)
         try { workers.execute {
@@ -29,7 +30,7 @@ object SearchThumbnailLoader {
             if (bitmap != null) synchronized(cache) { cache.put(url, bitmap) }
             reference.get()?.post {
                 reference.get()?.takeIf { it.tag == url }?.let {
-                    if (bitmap == null) it.visibility = android.view.View.GONE else it.setImageBitmap(bitmap)
+                    if (bitmap == null) it.visibility = android.view.View.GONE else { it.visibility = android.view.View.VISIBLE; it.setImageBitmap(bitmap) }
                 }
             }
         } } catch (_: java.util.concurrent.RejectedExecutionException) { view.visibility = android.view.View.GONE }
@@ -41,6 +42,8 @@ object SearchThumbnailLoader {
             require(ChatSearchResults.safeUrl(target))
             val connection = URL(target).openConnection() as HttpURLConnection
             connection.instanceFollowRedirects = false
+            connection.setRequestProperty("User-Agent", "JARVIS/1.0 (https://github.com/muddigger782012/J.A.R.V.I.S.-)")
+            connection.setRequestProperty("Accept", "image/*")
             connection.connectTimeout = 5000
             connection.readTimeout = 5000
             try {

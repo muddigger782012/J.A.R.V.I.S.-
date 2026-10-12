@@ -707,7 +707,7 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        WebSearchCommand.query(userInput)?.let { query ->
+        (WebSearchCommand.query(userInput) ?: WebSearchCommand.currentInfoQuery(userInput))?.let { query ->
             val url = android.net.Uri.parse("https://www.google.com/search")
                 .buildUpon().appendQueryParameter("q", query).build()
             val response = "Web search ready: $query\\n$url".replace("\\n", "\n")

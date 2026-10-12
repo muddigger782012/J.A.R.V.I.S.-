@@ -27,7 +27,7 @@ class TavilySearchProvider(private val apiKey: String = "") {
                 .put("include_images", kind != "video").put("include_image_descriptions", kind != "video").toString()
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             if (connection.responseCode != 200)
-                throw IllegalStateException("Search unavailable (HTTP ${connection.responseCode})")
+                throw SearchProviderFailure.fromHttp(connection.responseCode)
             parseRich(connection.inputStream.bufferedReader().use { it.readText() })
         } finally {
             connection.disconnect()
@@ -36,6 +36,8 @@ class TavilySearchProvider(private val apiKey: String = "") {
 
     companion object {
         fun parseRich(json: String): List<SearchRouter.Result> {
+            val root = JSONObject(json)
+            root.optJSONObject("error")?.let { throw SearchProviderFailure.fromEnvelope(it.optString("code")) }
             val web = parse(json).map { SearchMedia.webResult(it.title, it.description, it.url) }
             val images = JSONObject(json).optJSONArray("images")
             val media = if (images == null) emptyList() else (0 until minOf(images.length(), 6)).mapNotNull { index ->

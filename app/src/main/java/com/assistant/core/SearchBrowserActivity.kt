@@ -22,7 +22,7 @@ class SearchBrowserActivity : ThemedActivity() {
         super.onCreate(savedInstanceState)
         val url = intent.getStringExtra(EXTRA_URL) ?: run { finish(); return }
         val uri = Uri.parse(url)
-        if (uri.scheme != "https" || uri.host != "www.google.com" || uri.path != "/search") {
+        if (!com.assistant.core.services.SearchBrowserNavigation.canStart(url)) {
             finish()
             return
         }
@@ -73,9 +73,13 @@ class SearchBrowserActivity : ThemedActivity() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             webViewClient = object : WebViewClient() {
+                override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
+                    if (request.isForMainFrame) android.widget.Toast.makeText(this@SearchBrowserActivity,
+                        "Search page couldn't connect. Try again or use Open in browser.", android.widget.Toast.LENGTH_LONG).show()
+                }
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val target = request.url
-                    if (target.scheme == "https" && target.host in setOf("www.google.com", "google.com")) return false
+                    if (com.assistant.core.services.SearchBrowserNavigation.staysEmbedded(target.toString())) return false
                     if (target.scheme == "https") {
                         openExternal(target)
                     }

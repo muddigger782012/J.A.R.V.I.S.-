@@ -1068,8 +1068,11 @@ class MainActivity : ThemedActivity() {
             val input = EditText(this).apply { hint = "Search query"; setText(commandInput.text) }
             ThemedDialogBuilder(this).setTitle("Search the web").setView(input).setPositiveButton("Search") { _, _ ->
                 val query = input.text.toString().trim()
-                if (query.isNotEmpty()) runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(query)))) }
-                    .onFailure { attachmentNotice("No browser is available.") }
+                if (query.length in 2..300) {
+                    val command = "Search the web for $query"
+                    appendOutput("You: $command")
+                    handleAssistantWithLocation(command) { reply -> runOnUiThread { appendOutput("J.A.R.V.I.S.: ${reply.text}") } }
+                } else attachmentNotice("Enter a search query from 2 to 300 characters.")
             }.setNegativeButton("Cancel", null).show()
         }
         panel.measure(View.MeasureSpec.makeMeasureSpec(menuWidth, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
@@ -1278,7 +1281,7 @@ class MainActivity : ThemedActivity() {
         val braveKey = runCatching { com.assistant.core.services.ApiKeyStore(this, "brave_search").read() }.getOrDefault("")
         val searchSession = conversationSessionId
         Thread {
-            val cache = getSharedPreferences("jarvis_search_cache_v3", MODE_PRIVATE)
+            val cache = getSharedPreferences("jarvis_search_cache_v4", MODE_PRIVATE)
             val cacheId = java.security.MessageDigest.getInstance("SHA-256")
                 .digest((kind + ":" + query.lowercase(java.util.Locale.ROOT)).toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }
@@ -1288,8 +1291,13 @@ class MainActivity : ThemedActivity() {
             val result = runCatching {
                 if (fresh && cached != null) cached
                 else {
-                    val items = com.assistant.core.services.SearchRouter.configured(apiKey, braveKey, kind).search(query).items
-                    if (items.isEmpty()) "" else com.assistant.core.services.ChatSearchResults.encode(query, items).also { rendered ->
+                    val router = com.assistant.core.services.SearchRouter.configured(apiKey, braveKey, kind)
+                    val coordinator = com.assistant.core.services.SearchCoordinator(
+                        { q, type -> com.assistant.core.services.DirectOnlineClient(this).groundedSearch(q, type) }, router)
+                    val search = coordinator.search(query, kind)
+                    val items = search.items
+                    if (items.isEmpty()) "J.A.R.V.I.S.: " + router.failureMessage(com.assistant.core.services.SearchRouter.Response(null, emptyList(), search.failures), kind)
+                    else com.assistant.core.services.ChatSearchResults.encode(query, items, search.answer, search.searchSuggestions).also { rendered ->
                         cache.edit().putString(cacheId, rendered)
                             .putLong(cacheId + "_at", System.currentTimeMillis()).apply()
                     }
@@ -1539,6 +1547,7 @@ class MainActivity : ThemedActivity() {
                     FontPreferences.applyTo(this, this@MainActivity)
                 })
             }
+            searchResults?.searchSuggestions?.let { html -> card.addView(GroundedSearchSuggestionsView.create(this, html)) }
             val images = searchResults?.items?.filter { it.kind == "image" }.orEmpty()
             if (images.isNotEmpty()) card.addView(SearchMediaViews.images(this, images))
             searchResults?.items?.filter { it.kind != "image" }?.forEachIndexed { index, item ->

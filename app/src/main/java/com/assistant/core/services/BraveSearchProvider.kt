@@ -22,7 +22,7 @@ class BraveSearchProvider(private val apiKey: String) {
             connection.connectTimeout = 7000
             connection.readTimeout = 7000
             if (connection.responseCode != 200) {
-                throw IllegalStateException("Search provider returned HTTP ${connection.responseCode}")
+                throw SearchProviderFailure.fromHttp(connection.responseCode)
             }
             parse(connection.inputStream.bufferedReader().use { it.readText() })
         } finally {

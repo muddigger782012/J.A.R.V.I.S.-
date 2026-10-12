@@ -44,6 +44,15 @@ object WebSearchCommand {
             ?.takeIf { it.length in 2..300 }
     }
 
+    /** Public catalogue availability questions need retrieved sources, not a static AI answer. */
+    fun currentInfoQuery(input: String): String? {
+        val text = input.trim().trimEnd('.', '?', '!').trim()
+        if (text.length !in 2..300 || !Regex("(?i)^(?:is|are|has|when)\\b").containsMatchIn(text)) return null
+        if (!Regex("(?i)\\b(?:season|episode|movie|series|streaming)\\b").containsMatchIn(text)) return null
+        return text.takeIf { Regex("(?i)\\b(?:available|released|premiere|streaming)\\b").containsMatchIn(it) &&
+            Regex("(?i)\\b(?:yet|now|currently|today|amazon|prime|netflix|hulu|disney|peacock|paramount)\\b").containsMatchIn(it) }
+    }
+
     fun query(input: String): String? {
         val candidate = search.matchEntire(input.trim())?.groupValues?.get(1)
             ?.trim()?.trimEnd('.', '?', '!')?.trim() ?: return null

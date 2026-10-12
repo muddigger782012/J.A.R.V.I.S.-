@@ -37,7 +37,8 @@ object SearchMediaViews {
                 setTextColor(ThemePreferences.color(activity, R.color.jarvis_on_dark))
             })
             tile.addView(TextView(activity).apply {
-                text = Uri.parse(item.url).host + "  ↗"
+                text = Uri.parse(item.url).host +
+                    if (Uri.parse(item.url).host == "commons.wikimedia.org" && item.description.isNotBlank()) "\n${item.description}  ↗" else "  ↗"
                 textSize = 12f
                 setTextColor(ThemePreferences.color(activity, R.color.jarvis_on_dark_muted))
             })
