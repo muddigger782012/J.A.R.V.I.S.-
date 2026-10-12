@@ -28,3 +28,11 @@ Device check: audition the same preset twice, then inspect cache hits and first 
 Voice picking stays open until Done, and Use this voice saves without leaving Assistant voice settings. Native speech uses PCM16 on the media route, with audio focus and a bounded playback completion wait. Media volume and mute state are included in Voice diagnostics. If the native engine fails, regular/background speech tries the saved female voice for that response, while retaining the selected male preset and honoring the response channel's mute switch and completion callback. Preview errors remain visible in settings.
 
 Regression coverage includes an Android emulator test that chooses Lewis without closing settings and a focused PCM16 AudioTrack test using synthetic audio. These tests check Android frame queuing and completion, not sound at the user's speaker or the downloaded model's operation on Samsung hardware. The cause of the reported silence has not yet been confirmed by a phone diagnostic report.
+
+## Follow-up for phone selection and native synthesis failures
+
+Male presets are now inline radio choices on the settings screen; tapping a name has no popup dismissal or navigation action. Female Android voices retain their picker. Saving leaves settings open.
+
+Kokoro uses `generate()` without a native-to-JVM sample callback. Cancellation discards any in-flight chunk after generation and before playback; it cannot interrupt the native generation itself. This avoids a callback boundary reported in upstream issue https://github.com/k2-fsa/sherpa-onnx/issues/3492, but that report does not establish the cause of this user's failure. Diagnostics persist initialization/generation stages and recent Android process exit reasons, so a native abort can be distinguished from ordinary navigation.
+
+The voice regression job tests a `voiceCheck` build with the release R8/resource shrinking rules and a CI-only debug signing key. It installs the verified archive using the actual Android installer, selects and saves every male preset, and synthesizes/plays George, Lewis and Michael through the app's native speech class. This replaces the earlier incomplete confidence from a debug picker test plus synthetic PCM tone. The test uses an x86_64 Android emulator; physical ARM64 phone audio still requires confirmation.
