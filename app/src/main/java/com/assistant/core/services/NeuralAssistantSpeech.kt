@@ -1,9 +1,6 @@
 package com.assistant.core.services
 
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
 import android.os.Handler
 import android.os.Looper
 import com.k2fsa.sherpa.onnx.OfflineTts
@@ -20,7 +17,7 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private val generation = AtomicLong()
-    @Volatile private var track: AudioTrack? = null
+    private val player = NeuralPcmPlayer(app)
     @Volatile private var closed = false
     private var engine: OfflineTts? = null
     private val cache = NeuralSpeechCache(File(app.cacheDir, "neural-phrases"))
@@ -56,35 +53,12 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                     if (generation.get() != token || closed) return@execute
                     check(audio.samples.isNotEmpty() && audio.samples.all { it.isFinite() }) { "No valid audio was generated" }
                     if (key != null && cached == null) runCatching { cache.write(key, audio) }
-                    val buffer = maxOf(4096, AudioTrack.getMinBufferSize(audio.sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_FLOAT))
-                    val output = AudioTrack.Builder()
-                        .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-                        .setAudioFormat(AudioFormat.Builder().setSampleRate(audio.sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_FLOAT).build())
-                        .setBufferSizeInBytes(buffer).setTransferMode(AudioTrack.MODE_STREAM).build()
-                    try {
-                        track = output
-                        if (generation.get() != token || closed) return@execute
-                        output.play()
-                        var offset = 0
-                        while (offset < audio.samples.size && generation.get() == token && !closed) {
-                            val written = output.write(audio.samples, offset, minOf(2048, audio.samples.size - offset), AudioTrack.WRITE_BLOCKING)
-                            check(written > 0) { "Audio playback failed" }
-                            offset += written
-                            if (firstAudioMs < 0) {
-                                firstAudioMs = android.os.SystemClock.elapsedRealtime() - started
-                                NeuralVoiceDiagnostics.record(app, source, voice.id, "audio_queued", firstAudioMs, cacheHits)
-                            }
+                    player.play(audio, active = { generation.get() == token && !closed }, firstQueued = {
+                        if (firstAudioMs < 0) {
+                            firstAudioMs = android.os.SystemClock.elapsedRealtime() - started
+                            NeuralVoiceDiagnostics.record(app, source, voice.id, "audio_queued", firstAudioMs, cacheHits)
                         }
-                        // A blocking write only queues frames; wait for the final audio to play
-                        // before letting live chat reopen the microphone.
-                        while (generation.get() == token && !closed && output.playbackHeadPosition.toLong() < audio.samples.size) {
-                            Thread.sleep(15)
-                        }
-                    } finally {
-                        if (track === output) track = null
-                        runCatching { output.stop() }
-                        output.release()
-                    }
+                    })
                 }
                 if (generation.get() != token || closed) return@execute
                 NeuralVoiceDiagnostics.record(app, source, voice.id, "completed", firstAudioMs, cacheHits)
@@ -105,7 +79,7 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
 
     fun stop() {
         generation.incrementAndGet()
-        track?.let { runCatching { it.pause(); it.flush() } }
+        player.stop()
     }
     fun shutdown() {
         closed = true

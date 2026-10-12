@@ -22,3 +22,9 @@ Wake acknowledgments, introductions and the fixed settings audition may reuse a 
 Settings → Assistant voice → Voice diagnostics shows the configured engine, saved preset, verified pack state, speech switches and the latest recorded native preview/assistant audio events. Copy for debug copies that report locally. It excludes phrase contents, conversation text and credentials. Timing is time from the request to the first successfully queued audio frames, not a measurement of sound reaching the speaker. Events are historical snapshots, not a current microphone/playback indicator. Clear phrase audio cache preserves the downloaded voice pack and settings.
 
 Device check: audition the same preset twice, then inspect cache hits and first queued audio timing. Change the preset or wake phrase and verify a fresh variant. Test the background wake response, muting and cancellation. Automated cache tests cover exact-key isolation, corrupt/truncated data, finite samples, bounded eviction and clearing.
+
+## Selection and playback repair
+
+Voice picking stays open until Done, and Use this voice saves without leaving Assistant voice settings. Native speech uses PCM16 on the media route, with audio focus and a bounded playback completion wait. Media volume and mute state are included in Voice diagnostics. If the native engine fails, regular/background speech tries the saved female voice for that response, while retaining the selected male preset and honoring the response channel's mute switch and completion callback. Preview errors remain visible in settings.
+
+Regression coverage includes an Android emulator test that chooses Lewis without closing settings and a focused PCM16 AudioTrack test using synthetic audio. These tests check Android frame queuing and completion, not sound at the user's speaker or the downloaded model's operation on Samsung hardware. The cause of the reported silence has not yet been confirmed by a phone diagnostic report.
