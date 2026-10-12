@@ -9,3 +9,11 @@ Explicit image searches retain their image gallery, and explicit video searches 
 All colors, panels, corners, buttons and font preferences follow the current theme. No new palette or fixed corner shape is introduced. Regression tests cover readable text/citation preservation, excerpt limits, search-ready collapse boundaries, media-kind persistence and legacy image decoding. Theme checker and Android CI validate source/build behavior; emulator layout CI remains disabled. Actual phone appearance and interaction checks are pending.
 
 Phone check: repeat the downloadable voice-model search. Expect one completed chat card, bold names without raw asterisks, concise source previews and no unrelated image gallery. Tap citations/source cards, expand/collapse sources, copy the answer and open browser search. Check the active theme, large font and portrait/landscape scrolling; then repeat an explicit image/video search and confirm media remains available. The previous 3.5.362 search retrieval was user-confirmed working.
+
+## Compact action refinement
+
+Following the 3.5.363 phone screenshots, the full-width filled Material buttons were replaced with one quiet, transparent text-action row: Copy, Sources · count, and Web. Each action keeps a 48dp touch area, active-theme text/ripple feedback, screen-reader description and font preferences, without a filled panel or border. Weighted columns and two-line labels accommodate narrow screens and large text.
+
+Web answers initially collapse all sources behind the count/disclosure control. Expanding reveals all concise source rows inside the same chat card; the excerpts now use two lines. Searches without an answer and explicit video searches start with sources visible so results/media remain discoverable. Citations still open their original source, and copy/browser actions preserve their behavior. Explicit image galleries remain available.
+
+Local theme/whitespace checks and Android build checks validate implementation; actual phone presentation requires checking the same voice-model query, Sources disclosure, Copy/Web taps, the selected theme and large-font layout. Earlier presentation tests remain relevant; this change adds no new parsing or routing logic.
