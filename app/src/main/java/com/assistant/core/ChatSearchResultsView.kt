@@ -15,27 +15,55 @@ import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
 import android.text.style.StyleSpan
 import android.view.View
-import android.view.ViewGroup
+import android.view.Gravity
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.assistant.core.services.ChatSearchResults
 import com.assistant.core.services.SearchReadableText
 import com.assistant.core.services.SearchRouter
-import com.google.android.material.button.MaterialButton
 
 /** Answer-first search presentation. Source numbering follows the stored evidence order. */
 object ChatSearchResultsView {
     fun create(activity: Activity, message: ChatSearchResults.Message): View {
         fun dp(value: Int) = (value * activity.resources.displayMetrics.density).toInt()
         val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val actions = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(-1, -2)
+        }
         fun label(value: CharSequence, size: Float = 14f, muted: Boolean = false) = TextView(activity).apply {
             text = value; textSize = size
             setTextColor(ThemePreferences.color(activity, if (muted) R.color.jarvis_on_dark_muted else R.color.jarvis_on_dark))
             setLineSpacing(dp(3).toFloat(), 1f)
         }
-        fun action(title: String, block: () -> Unit) = MaterialButton(activity).apply {
-            text = title; isAllCaps = false; minHeight = dp(48); setSingleLine(false); maxLines = 3
+        fun action(title: String, description: String = title, block: () -> Unit) = TextView(activity).apply {
+            text = title; textSize = 12f; minHeight = dp(48); maxLines = 2
+            gravity = Gravity.CENTER
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            setTextColor(ThemePreferences.color(activity, R.color.jarvis_on_dark_muted))
+            layoutParams = LinearLayout.LayoutParams(-2, -2)
+            isClickable = true; isFocusable = true; contentDescription = description
+            foreground = android.util.TypedValue().let { value ->
+                if (activity.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, value, true))
+                    androidx.core.content.ContextCompat.getDrawable(activity, value.resourceId) else null
+            }
+            setOnClickListener { block() }
+        }
+        fun icon(resource: Int, description: String, block: () -> Unit) = ImageButton(activity).apply {
+            setImageResource(resource)
+            imageTintList = android.content.res.ColorStateList.valueOf(ThemePreferences.color(activity, R.color.jarvis_on_dark_muted))
+            background = null
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+            contentDescription = description
+            androidx.appcompat.widget.TooltipCompat.setTooltipText(this, description)
+            foreground = android.util.TypedValue().let { value ->
+                if (activity.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, value, true))
+                    androidx.core.content.ContextCompat.getDrawable(activity, value.resourceId) else null
+            }
             setOnClickListener { block() }
         }
         fun open(item: SearchRouter.Result) {
@@ -65,7 +93,7 @@ object ChatSearchResultsView {
                 movementMethod = LinkMovementMethod.getInstance()
                 setPadding(0, 0, 0, dp(10))
             })
-            root.addView(action("Copy answer") {
+            actions.addView(icon(R.drawable.ic_search_copy, "Copy search answer") {
                 (activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
                     .setPrimaryClip(ClipData.newPlainText("J.A.R.V.I.S. search answer", formatted.text))
                 Toast.makeText(activity, "Answer copied", Toast.LENGTH_SHORT).show()
@@ -76,13 +104,16 @@ object ChatSearchResultsView {
             if (images.isNotEmpty()) root.addView(SearchMediaViews.images(activity, images))
         }
         if (sources.isNotEmpty()) {
-            root.addView(label("Sources • ${sources.size}", 13f, true).apply { setPadding(0, dp(12), 0, dp(6)) })
-            val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            var expanded = message.kind == "video" || formatted == null
+            val rows = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = if (expanded) View.VISIBLE else View.GONE
+            }
             sources.forEachIndexed { index, item ->
                 rows.addView(LinearLayout(activity).apply {
                     orientation = LinearLayout.VERTICAL
                     background = androidx.appcompat.content.res.AppCompatResources.getDrawable(activity, R.drawable.intelligence_panel)
-                    setPadding(dp(12), dp(10), dp(12), dp(10)); minimumHeight = dp(48)
+                    setPadding(dp(10), dp(8), dp(10), dp(8)); minimumHeight = dp(48)
                     layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }
                     addView(label("${index + 1}  •  ${Uri.parse(item.url).host?.removePrefix("www.")}  ↗", 12f, true))
                     if (message.kind == "video" && item.thumbnail != null) addView(SearchMediaViews.thumbnail(activity, item, 140))
@@ -91,31 +122,29 @@ object ChatSearchResultsView {
                         setPadding(0, dp(4), 0, dp(4))
                     })
                     val excerpt = SearchReadableText.excerpt(item.description)
-                    if (excerpt.isNotBlank()) addView(label(excerpt, 13f, true).apply { maxLines = 3; ellipsize = TextUtils.TruncateAt.END })
+                    if (excerpt.isNotBlank()) addView(label(excerpt, 13f, true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
                     isFocusable = true; isClickable = true
                     contentDescription = "Open source ${index + 1}: ${item.title}"
                     setOnClickListener { open(item) }
-                    visibility = if (index < 3) View.VISIBLE else View.GONE
                 })
             }
-            root.addView(rows)
-            if (sources.size > 3) {
-                var expanded = false
-                val toggle = action("Show all ${sources.size} sources") { }
-                toggle.setOnClickListener {
-                    expanded = !expanded
-                    for (index in 3 until rows.childCount) rows.getChildAt(index).visibility = if (expanded) View.VISIBLE else View.GONE
-                    toggle.text = if (expanded) "Show fewer sources" else "Show all ${sources.size} sources"
-                }
-                root.addView(toggle)
+            val toggle = action("Sources · ${sources.size} ${if (expanded) "▴" else "▾"}", "Show or hide ${sources.size} search sources") { }
+            toggle.setOnClickListener {
+                expanded = !expanded
+                rows.visibility = if (expanded) View.VISIBLE else View.GONE
+                toggle.text = "Sources · ${sources.size} ${if (expanded) "▴" else "▾"}"
+                toggle.contentDescription = (if (expanded) "Hide" else "Show") + " ${sources.size} search sources"
             }
+            root.addView(toggle)
+            root.addView(rows)
         }
-        root.addView(action("Search in browser") {
+        actions.addView(icon(R.drawable.ic_search_open, "Open search in the embedded browser") {
             val url = Uri.parse("https://www.google.com/search").buildUpon().appendQueryParameter("q", message.query)
             if (message.kind == "image") url.appendQueryParameter("tbm", "isch")
             if (message.kind == "video") url.appendQueryParameter("tbm", "vid")
             activity.startActivity(Intent(activity, SearchBrowserActivity::class.java).putExtra(SearchBrowserActivity.EXTRA_URL, url.build().toString()))
         })
+        root.addView(actions)
         message.searchSuggestions?.let { root.addView(GroundedSearchSuggestionsView.create(activity, it)) }
         FontPreferences.applyTo(root, activity)
         return root
