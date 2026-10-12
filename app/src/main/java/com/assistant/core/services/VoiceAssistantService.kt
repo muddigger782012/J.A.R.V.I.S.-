@@ -2,6 +2,7 @@ package com.assistant.core.services
 
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -10,7 +11,6 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import android.speech.tts.Voice
 import java.util.Locale
 
 data class VoiceRecognitionResult(
@@ -47,6 +47,18 @@ class VoiceAssistantService(
     private var speechRecognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech = TextToSpeech(context, this)
     private var ttsReady = false
+    private var speechVoiceUsable = false
+    private var speechShutdown = false
+    private var lastSpeechVoiceStatus = ""
+    private val speechPreferences = AssistantVoicePreferences(context)
+    private val speechPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        mainHandler.post {
+            if (ttsReady && activeSpeechPrefix == null) applyAssistantVoiceProfile()
+        }
+    }
+    init {
+        speechPreferences.register(speechPreferenceListener)
+    }
     private var wakeGeneration = 0L
     private var sherpaWakeWordEngine: SherpaWakeWordEngine? = null
     private var lastWakeEngineUsed = HotwordEngine.SPEECH_FALLBACK
@@ -124,6 +136,9 @@ class VoiceAssistantService(
     }
 
     fun shutdown() {
+        speechShutdown = true
+        ttsReady = false
+        speechPreferences.unregister(speechPreferenceListener)
         stopListening()
         speechRecognizer?.destroy()
         speechRecognizer = null
@@ -146,6 +161,11 @@ class VoiceAssistantService(
             onSpeechFinished()
             return
         }
+        applyAssistantVoiceProfile()
+        if (!speechVoiceUsable) {
+            onSpeechFinished()
+            return
+        }
         onSpeechStarted()
         val chunks = SpeechChunks.split(text, minOf(3000, TextToSpeech.getMaxSpeechInputLength() - 1))
         val prefix = "jarvis-response-${++speechSequence}-"
@@ -164,6 +184,7 @@ class VoiceAssistantService(
     }
 
     override fun onInit(status: Int) {
+        if (speechShutdown) return
         ttsReady = status == TextToSpeech.SUCCESS
         if (ttsReady) {
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -189,7 +210,8 @@ class VoiceAssistantService(
                     }
                 }
             })
-            applyJarvisStyleVoiceProfile()
+            AssistantSpeechVoice.rememberPreviousVoice(tts, speechPreferences)
+            applyAssistantVoiceProfile()
         }
     }
 
@@ -445,49 +467,15 @@ class VoiceAssistantService(
         scheduleFallbackHotwordListening(delay)
     }
 
-    private fun applyJarvisStyleVoiceProfile() {
-        val selectedVoice = chooseBestJarvisLikeVoice(tts.voices)
-        if (selectedVoice != null) {
-            tts.voice = selectedVoice
-            tts.language = selectedVoice.locale
-            onStatus("Voice profile active: ${selectedVoice.name}")
-        } else {
-            // Fall back to a broadly available English voice profile.
-            val fallback = Locale.UK
-            tts.language = fallback
-            onStatus("Voice profile active: ${fallback.displayName}")
+    private fun applyAssistantVoiceProfile() {
+        val profile = speechPreferences.selected()
+        val result = AssistantSpeechVoice.apply(tts, profile, speechPreferences.voiceName(profile))
+        speechVoiceUsable = result.usable
+        val message = "${profile.label}: ${result.description}"
+        if (message != lastSpeechVoiceStatus) {
+            lastSpeechVoiceStatus = message
+            onStatus(message)
         }
-        tts.setPitch(0.92f)
-        tts.setSpeechRate(0.95f)
-    }
-
-    private fun chooseBestJarvisLikeVoice(voices: Set<Voice>?): Voice? {
-        if (voices.isNullOrEmpty()) return null
-        val candidates = voices
-            .filter { !it.isNetworkConnectionRequired }
-            .filter { it.locale.language == Locale.ENGLISH.language }
-            .filter { voice -> !(voice.features?.contains("notInstalled") == true) }
-
-        if (candidates.isEmpty()) return null
-
-        fun Voice.score(): Int {
-            val nameLower = name.lowercase(Locale.US)
-            val localeScore = when (locale.country.uppercase(Locale.US)) {
-                "GB" -> 300
-                "US" -> 180
-                else -> 100
-            }
-            val qualityScore = quality * 2
-            val latencyScore = (600 - latency).coerceAtLeast(0)
-            val toneHintScore = when {
-                nameLower.contains("male") -> 120
-                nameLower.contains("m") -> 30
-                else -> 0
-            }
-            return localeScore + qualityScore + latencyScore + toneHintScore
-        }
-
-        return candidates.maxByOrNull { it.score() }
     }
 
     private fun normalizeConfidence(raw: Float?): Float {

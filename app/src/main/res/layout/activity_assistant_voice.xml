@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="?attr/jarvis_background" android:padding="16dp" android:fillViewport="true">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="16dp" android:background="@drawable/glass_panel_surface">
+        <Button android:id="@+id/btnCloseAssistantVoice" style="@style/Widget.AssistantPlatform.QuietButton"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Back" android:minHeight="48dp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Assistant voice" android:textColor="?attr/jarvis_on_dark" android:textSize="24sp" android:textStyle="bold" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
+            android:text="Choose a profile, listen to a sample, then tap Use this voice."
+            android:textColor="?attr/jarvis_on_dark_muted" android:textSize="16sp" />
+        <RadioGroup android:id="@+id/assistantVoiceProfiles" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp">
+            <com.google.android.material.radiobutton.MaterialRadioButton android:id="@+id/voiceOriginal"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+                android:text="JARVIS — Original" android:textColor="?attr/jarvis_on_dark" />
+            <com.google.android.material.radiobutton.MaterialRadioButton android:id="@+id/voiceFemale"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+                android:text="Default (Female)" android:textColor="?attr/jarvis_on_dark" />
+        </RadioGroup>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
+            android:text="Original uses measured British delivery with a slightly lower pitch. Default (Female) preserves the previous voice when available. Sound and gender depend on your installed voices; preview and choose the one you prefer."
+            android:textColor="?attr/jarvis_on_dark_muted" android:textSize="15sp" />
+        <TextView android:id="@+id/tvAssistantVoiceStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="16dp" android:text="Starting speech engine…" android:textColor="?attr/jarvis_on_dark"
+            android:textSize="16sp" android:accessibilityLiveRegion="polite" />
+        <Button android:id="@+id/btnChooseAssistantVoice" style="@style/Widget.AssistantPlatform.QuietButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:layout_marginTop="12dp" android:text="Choose installed voice" />
+        <Button android:id="@+id/btnPreviewAssistantVoice" style="@style/Widget.AssistantPlatform.QuietButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Preview voice" />
+        <Button android:id="@+id/btnUseAssistantVoice" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Use this voice" />
+        <Button android:id="@+id/btnAndroidSpeechSettings" style="@style/Widget.AssistantPlatform.QuietButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Android speech settings" />
+    </LinearLayout>
+</ScrollView>
