@@ -119,6 +119,8 @@ jobs:
         run: |
           python3 -m pip install --quiet sherpa-onnx==1.13.8 numpy
           timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json
+      - name: Compile optimized voice target before launching emulator
+        run: timeout 480s bash gradlew --no-daemon assembleVoiceCheck assembleVoiceCheckAndroidTest
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -131,9 +133,17 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: bash gradlew --no-daemon connectedVoiceCheckAndroidTest
+          script: |
+            set +e
+            timeout 600s bash gradlew --no-daemon connectedVoiceCheckAndroidTest
+            voice_test_status=$?
+            adb logcat -d -v brief > voice-regression-logcat.txt
+            tail -n 250 voice-regression-logcat.txt
+            exit "$voice_test_status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: voice-playback-test-report
-          path: app/build/reports/androidTests/connected/**
+          path: |
+            app/build/reports/androidTests/connected/**
+            voice-regression-logcat.txt
