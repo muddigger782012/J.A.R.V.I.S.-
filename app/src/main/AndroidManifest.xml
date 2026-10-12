@@ -101,6 +101,7 @@
         </service>
         <activity android:name=".IntelligenceActivity" android:exported="false" />
         <activity android:name=".AssistantVoiceSettingsActivity" android:exported="false" />
+        <activity android:name=".LiveChatHistoryActivity" android:exported="false" />
         <activity android:name=".AppearanceSettingsActivity" android:exported="false" />
         <activity android:name=".ThemeSettingsActivity" android:exported="false" />
         <activity android:name=".AssistantConnectionsActivity" android:exported="false" />

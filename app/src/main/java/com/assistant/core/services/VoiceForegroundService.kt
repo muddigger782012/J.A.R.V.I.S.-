@@ -50,6 +50,11 @@ class VoiceForegroundService : Service() {
     private var liveChatActive = false
     private var resumeWakeAfterLive = false
     private var liveConversation = ""
+    private var liveRecordSession = ""
+    private val dialogueOverlay by lazy { LiveChatDialogueOverlay(this) { finishLiveChat("Live chat ended.") } }
+    private val responseOptionsReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) { dialogueOverlay.refresh(liveChatActive) }
+    }
     private val liveSession = LiveChatSession()
     private val liveHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val liveCapture by lazy { LiveSpeechCapture(this) }
@@ -59,6 +64,7 @@ class VoiceForegroundService : Service() {
         override fun run() {
             if (!liveChatActive) return
             LiveChatStore.state(this@VoiceForegroundService, true, livePhase, liveMessage)
+            dialogueOverlay.refresh(true)
             liveHandler.postDelayed(this, 30000L)
         }
     }
@@ -69,6 +75,7 @@ class VoiceForegroundService : Service() {
         // construction here occurs before onStartCommand and bypasses its
         // crash containment entirely.
         voicePreferences = VoicePreferences(this)
+        ContextCompat.registerReceiver(this, responseOptionsReceiver, android.content.IntentFilter(VoiceResponsePreferences.ACTION_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
         createNotificationChannel()
     }
 
@@ -80,6 +87,8 @@ class VoiceForegroundService : Service() {
                     try {
                         resumeWakeAfterLive = pipelineStarted || intent.getBooleanExtra("resume_wake", false)
                         liveConversation = intent.getStringExtra("conversation").orEmpty()
+                        liveRecordSession = java.util.UUID.randomUUID().toString()
+                        LiveChatStore.lastReply(this, org.json.JSONObject())
                         if (!::voiceService.isInitialized) { initializeEngine(); initializeVoice() }
                         voiceService.stopListening()
                         voiceService.stopSpeaking()
@@ -155,6 +164,8 @@ class VoiceForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(responseOptionsReceiver) }
+        dialogueOverlay.hide()
         liveHandler.removeCallbacksAndMessages(null)
         liveCapture.stop()
         if (liveChatActive) {
@@ -179,13 +190,25 @@ class VoiceForegroundService : Service() {
         livePhase = phase
         liveMessage = message
         LiveChatStore.state(this, liveChatActive, phase, message)
+        dialogueOverlay.refresh(liveChatActive)
         updateNotification(message)
         sendBroadcast(Intent(ACTION_EVENT).setPackage(packageName).putExtra(EXTRA_LIVE_CHAT, true))
     }
 
     private fun liveLine(text: String) {
-        LiveChatStore.append(this, liveConversation, text)
+        val entry = LiveChatStore.append(this, liveConversation, text, liveRecordSession)
+        if (text.startsWith("J.A.R.V.I.S.: ")) {
+            LiveChatStore.lastReply(this, entry)
+            dialogueOverlay.refresh(liveChatActive)
+        }
         sendBroadcast(Intent(ACTION_EVENT).setPackage(packageName).putExtra(EXTRA_LIVE_CHAT, true))
+    }
+
+    private fun speakLiveReply(text: String) {
+        val audible = VoiceResponsePreferences.load(this).liveSpeech
+        liveStatus(if (audible) VoiceInteractionState.SPEAKING else VoiceInteractionState.IDLE,
+            if (audible) "Speaking…" else "Reply ready. Listening again…")
+        voiceService.speak(text, SpeechChannel.LIVE_CHAT)
     }
 
     private fun nextLiveTurn(delay: Long) {
@@ -204,16 +227,14 @@ class VoiceForegroundService : Service() {
                         } else if (LiveChatCommands.parse(text) == LiveChatCommands.Control.START) {
                             liveSession.response(turn)
                             liveLine("J.A.R.V.I.S.: Live chat is already active.")
-                            liveStatus(VoiceInteractionState.SPEAKING, "Speaking…")
-                            voiceService.speak("Live chat is already active.")
+                            speakLiveReply("Live chat is already active.")
                         } else {
                             liveStatus(VoiceInteractionState.PROCESSING, "Thinking…")
                             hybridAssistantService.handleUserInputAsync(text) { reply ->
                                 liveHandler.post {
                                     if (liveChatActive && liveSession.response(turn)) {
                                         liveLine("J.A.R.V.I.S.: ${reply.text}")
-                                        liveStatus(VoiceInteractionState.SPEAKING, "Speaking…")
-                                        voiceService.speak(reply.text)
+                                        speakLiveReply(reply.text)
                                     }
                                 }
                             }
@@ -253,6 +274,7 @@ class VoiceForegroundService : Service() {
     }
 
     private fun finishLiveChat(message: String) {
+        dialogueOverlay.hide()
         liveChatActive = false
         liveSession.stop()
         liveHandler.removeCallbacksAndMessages(null)

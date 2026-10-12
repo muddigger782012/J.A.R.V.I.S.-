@@ -24,6 +24,7 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_assistant_voice)
+        bindResponseOptions()
         preferences = AssistantVoicePreferences(this)
         selected = AssistantVoiceProfile.fromId(savedInstanceState?.getString("profile") ?: preferences.selected().id)
         selectedName = savedInstanceState?.getString("voice") ?: preferences.voiceName(selected)
@@ -83,6 +84,44 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
             .forEach { findViewById<Button>(it).isEnabled = enabled }
     }
 
+    private fun bindResponseOptions() {
+        val options = com.assistant.core.services.VoiceResponsePreferences.load(this)
+        val regular = findViewById<com.google.android.material.switchmaterial.SwitchMaterial>(R.id.switchRegularSpeech)
+        val live = findViewById<com.google.android.material.switchmaterial.SwitchMaterial>(R.id.switchLiveSpeech)
+        val dialogue = findViewById<com.google.android.material.switchmaterial.SwitchMaterial>(R.id.switchLiveDialogue)
+        regular.isChecked = options.regularSpeech
+        live.isChecked = options.liveSpeech
+        dialogue.isChecked = options.liveDialogue
+        var reverting = false
+        fun change(button: android.widget.CompoundButton, checked: Boolean, update: (com.assistant.core.services.VoiceResponseOptions) -> com.assistant.core.services.VoiceResponseOptions) {
+            if (reverting) return
+            runCatching { com.assistant.core.services.VoiceResponsePreferences.save(this, update(com.assistant.core.services.VoiceResponsePreferences.load(this))) }
+                .onFailure {
+                    reverting = true; button.isChecked = !checked; reverting = false
+                    android.widget.Toast.makeText(this, "Couldn't save response settings. Try again.", android.widget.Toast.LENGTH_LONG).show()
+                }
+            refreshDialoguePermission()
+        }
+        regular.setOnCheckedChangeListener { button, checked -> change(button, checked) { it.copy(regularSpeech = checked) } }
+        live.setOnCheckedChangeListener { button, checked -> change(button, checked) { it.copy(liveSpeech = checked) } }
+        dialogue.setOnCheckedChangeListener { button, checked -> change(button, checked) { it.copy(liveDialogue = checked) } }
+        findViewById<Button>(R.id.btnLiveChatHistory).setOnClickListener { startActivity(Intent(this, LiveChatHistoryActivity::class.java)) }
+        findViewById<Button>(R.id.btnLiveDialoguePermission).setOnClickListener {
+            runCatching { startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:$packageName"))) }
+                .onFailure { android.widget.Toast.makeText(this, "Overlay settings are unavailable on this phone", android.widget.Toast.LENGTH_LONG).show() }
+        }
+    }
+
+    private fun refreshDialoguePermission() {
+        val enabled = com.assistant.core.services.VoiceResponsePreferences.load(this).liveDialogue
+        val allowed = android.provider.Settings.canDrawOverlays(this)
+        findViewById<Button>(R.id.btnLiveDialoguePermission).visibility = if (enabled && !allowed) android.view.View.VISIBLE else android.view.View.GONE
+        findViewById<TextView>(R.id.tvLiveDialoguePermission).apply {
+            visibility = if (enabled) android.view.View.VISIBLE else android.view.View.GONE
+            text = if (allowed) "Dialogue can appear inside and outside J.A.R.V.I.S." else "Dialogue works inside J.A.R.V.I.S. Allow display over other apps to see it outside the app."
+        }
+    }
+
     private fun updateVoice(): Boolean {
         if (!ready) return false
         val result = AssistantSpeechVoice.apply(speech, selected, selectedName)
@@ -137,6 +176,8 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
 
     override fun onResume() {
         super.onResume()
+        refreshDialoguePermission()
+        com.assistant.core.services.VoiceResponsePreferences.notifyChanged(this)
         if (ready) updateVoice()
     }
 

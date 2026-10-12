@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="?attr/jarvis_background" android:padding="16dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
+        android:background="@drawable/live_dialogue_panel" android:padding="16dp">
+        <Button android:id="@+id/btnCloseLiveHistory" style="@style/Widget.AssistantPlatform.QuietButton"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Back" android:minHeight="48dp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Live chat history"
+            android:textColor="?attr/jarvis_on_dark" android:textSize="24sp" android:textStyle="bold" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
+            android:text="Saved on this device. Up to 2,000 dialogue entries are retained. Copy for debug includes dialogue, timestamps, app and device versions, and current response settings."
+            android:textColor="?attr/jarvis_on_dark_muted" android:textSize="14sp" />
+        <Button android:id="@+id/btnRefreshLiveHistory" style="@style/Widget.AssistantPlatform.QuietButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Refresh" android:minHeight="48dp" />
+        <Button android:id="@+id/btnCopyAllLiveHistory" style="@style/Widget.AssistantPlatform.QuietButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Copy all history for debug" android:minHeight="48dp" />
+        <LinearLayout android:id="@+id/liveChatHistoryContent" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
+    </LinearLayout>
+</ScrollView>

@@ -8,6 +8,28 @@
             android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Back" android:minHeight="48dp" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="Assistant voice" android:textColor="?attr/jarvis_on_dark" android:textSize="24sp" android:textStyle="bold" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp"
+            android:text="Voice responses" android:textColor="?attr/jarvis_primary" android:textSize="18sp" android:textStyle="bold" />
+        <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switchRegularSpeech"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+            android:text="Speak responses outside live chat" android:textColor="?attr/jarvis_on_dark" />
+        <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switchLiveSpeech"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+            android:text="Speak live chat responses" android:textColor="?attr/jarvis_on_dark" />
+        <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/switchLiveDialogue"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+            android:text="Show live chat dialogue popup" android:textColor="?attr/jarvis_on_dark" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="14sp"
+            android:text="These switches save immediately. Muting speech keeps replies in chat and history. The popup shows the latest reply."
+            android:textColor="?attr/jarvis_on_dark_muted" />
+        <Button android:id="@+id/btnLiveDialoguePermission" style="@style/Widget.AssistantPlatform.QuietButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+            android:text="Allow dialogue over other apps" />
+        <TextView android:id="@+id/tvLiveDialoguePermission" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textSize="14sp" android:textColor="?attr/jarvis_on_dark_muted" />
+        <Button android:id="@+id/btnLiveChatHistory" style="@style/Widget.AssistantPlatform.QuietButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+            android:text="Live chat history" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
             android:text="Choose a profile, listen to a sample, then tap Use this voice."
             android:textColor="?attr/jarvis_on_dark_muted" android:textSize="16sp" />

@@ -3,6 +3,9 @@ package com.assistant.core.services
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -50,6 +53,15 @@ class VoiceAssistantService(
     private var speechVoiceUsable = false
     private var speechShutdown = false
     private var lastSpeechVoiceStatus = ""
+    private var activeSpeechChannel = SpeechChannel.REGULAR
+    private val responseReceiver = object : BroadcastReceiver() {
+        override fun onReceive(receivedContext: Context?, intent: Intent?) {
+            if (activeSpeechPrefix != null && !VoiceResponsePreferences.load(context).allowsSpeech(activeSpeechChannel)) {
+                stopSpeaking()
+                onSpeechFinished()
+            }
+        }
+    }
     private val speechPreferences = AssistantVoicePreferences(context)
     private val speechPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         mainHandler.post {
@@ -58,6 +70,7 @@ class VoiceAssistantService(
     }
     init {
         speechPreferences.register(speechPreferenceListener)
+        ContextCompat.registerReceiver(context, responseReceiver, IntentFilter(VoiceResponsePreferences.ACTION_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
     }
     private var wakeGeneration = 0L
     private var sherpaWakeWordEngine: SherpaWakeWordEngine? = null
@@ -139,6 +152,7 @@ class VoiceAssistantService(
         speechShutdown = true
         ttsReady = false
         speechPreferences.unregister(speechPreferenceListener)
+        runCatching { context.unregisterReceiver(responseReceiver) }
         stopListening()
         speechRecognizer?.destroy()
         speechRecognizer = null
@@ -156,7 +170,14 @@ class VoiceAssistantService(
         tts.stop()
     }
 
-    fun speak(text: String) {
+    fun speak(text: String, channel: SpeechChannel = SpeechChannel.REGULAR) {
+        activeSpeechChannel = channel
+        if (!VoiceResponsePreferences.load(context).allowsSpeech(channel)) {
+            stopSpeaking()
+            // Completion still advances silent live turns and rearms wake capture.
+            onSpeechFinished()
+            return
+        }
         if (!ttsReady || text.isBlank()) {
             onSpeechFinished()
             return

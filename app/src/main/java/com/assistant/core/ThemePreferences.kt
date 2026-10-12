@@ -19,8 +19,10 @@ object ThemePreferences {
     fun save(context: Context, theme: String) {
         require(theme in ids)
         context.getSharedPreferences("jarvis_appearance", Context.MODE_PRIVATE).edit().putString("theme", theme).apply()
+        com.assistant.core.services.VoiceResponsePreferences.captureAppearance(context)
     }
-    fun style(context: Context) = when (selected(context)) {
+    fun style(context: Context) = style(selected(context))
+    fun style(theme: String) = when (theme) {
         "default_alternative" -> R.style.Theme_AssistantPlatform_DefaultAlternative
         "stark_alternative" -> R.style.Theme_AssistantPlatform_StarkAlternative
         "cybertron_alternative" -> R.style.Theme_AssistantPlatform_CybertronAlternative
@@ -64,6 +66,7 @@ open class ThemedActivity : AppCompatActivity() {
     }
     override fun onResume() {
         super.onResume()
+        com.assistant.core.services.VoiceResponsePreferences.captureAppearance(this)
         if (displayedTheme != ThemePreferences.selected(this) || displayedFonts != FontPreferences.signature(this) || displayedChatDarkness != ChatAppearancePreferences.darkness(this)) recreate()
     }
 }
