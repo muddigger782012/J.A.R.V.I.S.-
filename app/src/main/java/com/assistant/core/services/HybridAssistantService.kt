@@ -113,6 +113,7 @@ class HybridAssistantService(
         deviceLearningSession.consume(userInput)?.let { resolution ->
             val pending = resolution.pending
             val response = when {
+                resolution.needsClarification -> "Did it work? The pending action is to ${pending.action.description()}. Say 'it worked' or 'it failed'. I'm keeping this outcome check pending; nothing was learned or marked failed."
                 !resolution.accepted -> {
                     if (pending.replayed && pending.awaitingOutcome) {
                         val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
@@ -136,7 +137,9 @@ class HybridAssistantService(
                 }
                 !requestDeviceAction(pending.action) -> "Android couldn't launch the requested action. Nothing was learned."
                 !deviceLearningSession.propose(pending.copy(awaitingOutcome = true)) -> "The action was requested, but its learning outcome could not be retained. Nothing was learned."
-                else -> "Requested: ${pending.action.description()}. Check the timer or app, then say 'it worked' to save your original phrase, or 'it failed' to discard it. Nothing is learned yet."
+                else -> "Requested: ${pending.action.description()}. Check the timer or app, then say 'it worked' to " +
+                    if (pending.learnable) "save your original phrase, or 'it failed' to discard it. Nothing is learned yet."
+                    else "remember this as your last confirmed action, or 'it failed' to discard the result."
             }
             remember(userInput, response)
             return HybridAssistantReply(response)
@@ -171,6 +174,11 @@ class HybridAssistantService(
             val response = "No timer or app request is awaiting outcome confirmation. Run the action first, then report 'it worked' or 'it failed'. Nothing was added to memory."
             remember(userInput, response)
             return HybridAssistantReply(response)
+        }
+        if (ConfirmationWords.isConfirmation(userInput)) {
+            pendingLearningReset = false
+            pendingRoutine = null
+            return HybridAssistantReply("No action is awaiting yes/no approval. State the action you want, such as 'open Chrome'. Nothing was changed.")
         }
         LearnedCommandReviewCommands.page(userInput)?.let { page ->
             pendingLearningReset = false
