@@ -45,6 +45,7 @@ class ValidatedCommandMemory internal constructor(
         for (i in 0 until entries.length()) {
             val entry = entries.optJSONObject(i) ?: continue
             if (matchingKey(entry.optString("phrase")) != key) continue
+            if (entry.optInt("failures", 0) > 0) return@synchronized null
             val meaning = runCatching {
                 val params = entry.optJSONObject("parameters")
                 Match(entry.getString("capabilityId"), 1.0, params?.keys()?.asSequence()?.associateWith { params.getString(it) } ?: emptyMap())
@@ -75,10 +76,38 @@ class ValidatedCommandMemory internal constructor(
                     successes = item.optInt("successes", 1) + 1
                 } else output.put(item)
             }
-            output.put(JSONObject().put("phrase", phrase).put("capabilityId", capabilityId).put("parameters", JSONObject(parameters)).put("successes", successes))
+            output.put(JSONObject().put("phrase", phrase).put("capabilityId", capabilityId).put("parameters", JSONObject(parameters)).put("successes", successes).put("failures", 0))
             while (output.length() > maxEntries) output.remove(0)
             write(output.toString())
         }
+
+    /** Pauses only the exact saved meaning that produced the reported result. */
+    fun recordFailure(utterance: String, capabilityId: String, parameters: Map<String, String>): Boolean = synchronized(lock) {
+        val key = matchingKey(utterance)
+        if (key.isBlank() || ConfirmationWords.isConfirmation(utterance) || DeviceLearningSession.isOutcome(utterance)) return@synchronized false
+        val entries = readEntries()
+        var found = false
+        for (i in 0 until entries.length()) {
+            val entry = entries.optJSONObject(i) ?: continue
+            if (matchingKey(entry.optString("phrase")) != key) continue
+            val stored = runCatching {
+                val params = entry.optJSONObject("parameters")
+                params?.keys()?.asSequence()?.associateWith { params.getString(it) } ?: emptyMap()
+            }.getOrNull() ?: return@synchronized false
+            if (entry.optString("capabilityId") != capabilityId || stored != parameters) return@synchronized false
+            found = true
+            entry.put("failures", entry.optInt("failures", 0).coerceIn(0, Int.MAX_VALUE - 1) + 1)
+        }
+        found && write(entries.toString())
+    }
+
+    fun isPaused(utterance: String): Boolean = synchronized(lock) {
+        val key = matchingKey(utterance)
+        val entries = readEntries()
+        (0 until entries.length()).any { index -> entries.optJSONObject(index)?.let {
+            matchingKey(it.optString("phrase")) == key && it.optInt("failures", 0) > 0
+        } == true }
+    }
 
     fun forget(utterance: String): Boolean = synchronized(lock) {
         val phrase = matchingKey(utterance)
@@ -93,7 +122,7 @@ class ValidatedCommandMemory internal constructor(
         write(remaining.toString())
     }
 
-    data class SavedPhrase(val phrase: String, val capabilityId: String, val parameters: Map<String, String>, val successes: Int)
+    data class SavedPhrase(val phrase: String, val capabilityId: String, val parameters: Map<String, String>, val successes: Int, val failures: Int = 0)
 
     /** Read-only copies for local inspection; no targets are executed or storage rewritten. */
     fun snapshot(): List<SavedPhrase> = synchronized(lock) {
@@ -103,7 +132,7 @@ class ValidatedCommandMemory internal constructor(
                 val entry = entries.getJSONObject(index)
                 val params = entry.optJSONObject("parameters")
                 SavedPhrase(entry.getString("phrase"), entry.getString("capabilityId"),
-                    params?.keys()?.asSequence()?.associateWith { params.getString(it) } ?: emptyMap(), entry.optInt("successes", 1))
+                    params?.keys()?.asSequence()?.associateWith { params.getString(it) } ?: emptyMap(), entry.optInt("successes", 1), entry.optInt("failures", 0))
             }.getOrNull()
         }
     }
@@ -114,7 +143,7 @@ class ValidatedCommandMemory internal constructor(
         val entries = readEntries()
         (entries.length() - 1 downTo 0).firstNotNullOfOrNull { index ->
             val item = entries.optJSONObject(index) ?: return@firstNotNullOfOrNull null
-            if (item.optString("capabilityId") != capabilityId) return@firstNotNullOfOrNull null
+            if (item.optString("capabilityId") != capabilityId || item.optInt("failures", 0) > 0) return@firstNotNullOfOrNull null
             runCatching {
                 val params = item.getJSONObject("parameters")
                 Match(capabilityId, 1.0, params.keys().asSequence().associateWith { params.getString(it) })
