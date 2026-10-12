@@ -93,6 +93,9 @@ jobs:
               if not any(p.name.startswith(prefix) and p.name.endswith(".onnx") for p in d.iterdir()):
                   raise SystemExit("Missing " + prefix + " ONNX model")
           PY
+      - name: Verify dedicated male models and embed download metadata
+        run: |
+          timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke
       - name: Verify native keyword decoder and run unit tests
         run: |
           timeout 60s python3 scripts/wake_decoder_smoke.py app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01

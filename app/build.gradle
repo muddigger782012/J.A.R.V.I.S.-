@@ -70,6 +70,7 @@ android {
 
 dependencies {
     implementation files('libs/sherpa-onnx-1.13.8.aar')
+    implementation 'org.apache.commons:commons-compress:1.28.0'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'
     implementation 'androidx.core:core-ktx:1.13.1'

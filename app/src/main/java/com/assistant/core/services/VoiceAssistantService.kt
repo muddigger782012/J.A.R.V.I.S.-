@@ -156,8 +156,10 @@ class VoiceAssistantService(
         speechRecognizer = null
         tts.stop()
         tts.shutdown()
+        neuralSpeech?.shutdown()
     }
 
+    private var neuralSpeech: NeuralAssistantSpeech? = null
     private var afterSpeech: (() -> Unit)? = null
     private var wakeReplyIndex = 0
     private var speechSequence = 0L
@@ -165,6 +167,7 @@ class VoiceAssistantService(
     private var finalSpeechId: String? = null
 
     fun stopSpeaking() {
+        neuralSpeech?.stop()
         afterSpeech = null
         activeSpeechPrefix = null
         finalSpeechId = null
@@ -186,6 +189,22 @@ class VoiceAssistantService(
         if (!VoiceResponsePreferences.load(context).allowsSpeech(channel)) {
             // Completion still advances silent live turns and rearms wake capture.
             finishSpeech()
+            return
+        }
+        val selection = speechPreferences.load()
+        if (text.isNotBlank() && selection.profile == AssistantVoiceProfile.ORIGINAL && NeuralVoicePack(context).installed()) {
+            val prefix = "jarvis-response-${++speechSequence}-"
+            activeSpeechPrefix = prefix
+            if (after == null) onSpeechStarted()
+            val voice = NeuralVoiceCatalog.resolve(selection.originalVoice)
+            onStatus("${voice.label} · offline Kokoro")
+            val engine = neuralSpeech ?: NeuralAssistantSpeech(context).also { neuralSpeech = it }
+            engine.speak(text, voice, done = { if (activeSpeechPrefix == prefix) finishSpeech() }, error = { failure ->
+                if (activeSpeechPrefix == prefix) {
+                    onStatus("Offline voice could not speak ($failure). Select Default (Female) if needed.")
+                    finishSpeech()
+                }
+            })
             return
         }
         if (!ttsReady || text.isBlank()) {
@@ -512,13 +531,12 @@ class VoiceAssistantService(
     private fun applyAssistantVoiceProfile() {
         val saved = speechPreferences.load()
         val profile = saved.profile
-        val requested = AssistantSpeechVoice.apply(tts, profile, saved.voiceName(profile), saved.femaleVoice)
-        // Preserve audible replies if the phone only has one suitable voice, but
-        // report the actual fallback rather than calling it an Original voice.
-        val result = if (!requested.usable && profile == AssistantVoiceProfile.ORIGINAL) {
-            val fallback = AssistantSpeechVoice.apply(tts, AssistantVoiceProfile.FEMALE, saved.femaleVoice, saved.femaleVoice)
-            fallback.copy(description = requested.description + "\nFallback: Default (Female). " + fallback.description)
-        } else requested
+        val result = if (profile == AssistantVoiceProfile.ORIGINAL) {
+            if (NeuralVoicePack(context).installed()) AssistantSpeechVoice.Result(true, "Offline Kokoro male voices ready.")
+            else AssistantSpeechVoice.apply(tts, AssistantVoiceProfile.FEMALE, saved.femaleVoice, saved.femaleVoice).let {
+                it.copy(description = "Offline male voices need downloading in Assistant voice. Using Default (Female) temporarily. " + it.description)
+            }
+        } else AssistantSpeechVoice.apply(tts, profile, saved.voiceName(profile), saved.femaleVoice)
         speechVoiceUsable = result.usable
         val message = "${profile.label}: ${result.description}"
         if (message != lastSpeechVoiceStatus) {

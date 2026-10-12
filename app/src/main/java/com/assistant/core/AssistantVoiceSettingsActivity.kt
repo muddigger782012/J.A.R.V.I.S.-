@@ -20,6 +20,9 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
     private var previewId = 0L
     private var selected = AssistantVoiceProfile.ORIGINAL
     private var selectedName = ""
+    private var neuralSpeech: com.assistant.core.services.NeuralAssistantSpeech? = null
+    private val downloadCancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+    private var installing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,7 +48,7 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
         findViewById<Button>(R.id.btnUseAssistantVoice).setOnClickListener {
             if (updateVoice()) {
                 // Persist the actual auditioned voice, not an unresolved Automatic placeholder.
-                runCatching { preferences.save(selected, speech.voice?.name ?: selectedName) }.onFailure {
+                runCatching { preferences.save(selected, if (selected == AssistantVoiceProfile.ORIGINAL) selectedName else speech.voice?.name ?: selectedName) }.onFailure {
                     android.widget.Toast.makeText(this, "Couldn't save this voice. Try again.", android.widget.Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
@@ -57,6 +60,12 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
             stopPreview()
             runCatching { startActivity(Intent("com.android.settings.TTS_SETTINGS")) }
                 .onFailure { android.widget.Toast.makeText(this, "Speech settings are unavailable on this phone", android.widget.Toast.LENGTH_LONG).show() }
+        }
+        findViewById<Button>(R.id.btnDownloadNeuralVoice).setOnClickListener { downloadVoices() }
+        findViewById<Button>(R.id.btnNeuralVoiceCredits).setOnClickListener {
+            ThemedDialogBuilder(this).setTitle("Offline voice credits")
+                .setMessage("Kokoro v0.19 by hexgrad, Apache License 2.0; ONNX package provided by the sherpa-onnx project. George and Lewis are British male presets; Michael is an American male preset. These are independent voices, not a Paul Bettany clone. The downloaded pack retains its upstream license files and espeak-ng data. No spoken text is sent to a speech server.")
+                .setPositiveButton("OK", null).show()
         }
         setButtonsEnabled(false)
         speech = TextToSpeech(this) { status ->
@@ -76,12 +85,38 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
                             if (selectedName.isBlank() && selected == AssistantVoiceProfile.FEMALE) selectedName = preferences.voiceName(selected)
                             updateVoice()
                         } else {
-                            findViewById<TextView>(R.id.tvAssistantVoiceStatus).text = "Speech engine could not start. Check Android speech settings."
+                            updateVoice()
                         }
                     }
                 }
             }
         }
+        updateVoice()
+    }
+
+    private fun downloadVoices() {
+        if (installing) { downloadCancelled.set(true); return }
+        val pack = com.assistant.core.services.NeuralVoicePack(this)
+        if (!pack.available()) return
+        ThemedDialogBuilder(this).setTitle("Download offline male voices?")
+            .setMessage("One download of about ${pack.downloadSizeMb()} MB installs George, Lewis and Michael. Allow roughly 800 MB of free storage during installation. Once installed, speech works offline inside JARVIS. No other app is required.")
+            .setNegativeButton("Cancel", null).setPositiveButton("Download") { _, _ ->
+                stopPreview(); installing = true; downloadCancelled.set(false)
+                findViewById<Button>(R.id.btnDownloadNeuralVoice).text = "Cancel download"
+                setButtonsEnabled(false)
+                Thread {
+                    val result = runCatching { pack.install(downloadCancelled) { status -> runOnUiThread {
+                        if (!closed) findViewById<TextView>(R.id.tvAssistantVoiceStatus).text = status
+                    } } }
+                    runOnUiThread {
+                        installing = false
+                        if (!closed) {
+                            updateVoice()
+                            result.onFailure { findViewById<TextView>(R.id.tvAssistantVoiceStatus).text = it.message ?: "Voice download failed. Try again." }
+                        }
+                    }
+                }.start()
+            }.show()
     }
 
     private fun bindPersonality() {
@@ -158,7 +193,30 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
     }
 
     private fun updateVoice(): Boolean {
-        if (!ready) return false
+        if (installing) return false
+        val pack = com.assistant.core.services.NeuralVoicePack(this)
+        val original = selected == AssistantVoiceProfile.ORIGINAL
+        val download = findViewById<Button>(R.id.btnDownloadNeuralVoice)
+        download.visibility = if (original && !pack.installed()) android.view.View.VISIBLE else android.view.View.GONE
+        download.isEnabled = pack.available()
+        download.text = "Download male voices (${pack.downloadSizeMb()} MB)"
+        if (original) {
+            val voice = com.assistant.core.services.NeuralVoiceCatalog.resolve(selectedName)
+            selectedName = voice.id
+            val installed = pack.installed()
+            findViewById<TextView>(R.id.tvAssistantVoiceStatus).text = if (installed)
+                "${voice.label} · offline Kokoro. Preview, then save this exact voice."
+            else if (pack.available()) "Download the voice pack to preview ${voice.label}. The current speech selection stays unchanged until you save."
+            else "This build does not include verified voice download metadata. Install the signed release build."
+            setButtonsEnabled(installed)
+            findViewById<Button>(R.id.btnChooseAssistantVoice).isEnabled = true
+            return installed
+        }
+        if (!ready) {
+            setButtonsEnabled(false)
+            findViewById<TextView>(R.id.tvAssistantVoiceStatus).text = "Android speech is starting or unavailable. Offline male voices use their own engine."
+            return false
+        }
         val result = AssistantSpeechVoice.apply(speech, selected, selectedName, preferences.voiceName(AssistantVoiceProfile.FEMALE))
         findViewById<TextView>(R.id.tvAssistantVoiceStatus).text = "${selected.label}\n${result.description}"
         setButtonsEnabled(result.usable)
@@ -168,6 +226,14 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
 
     private fun chooseVoice() {
         stopPreview()
+        if (selected == AssistantVoiceProfile.ORIGINAL) {
+            val voices = com.assistant.core.services.NeuralVoiceCatalog.voices
+            ThemedDialogBuilder(this).setTitle("Choose offline male voice")
+                .setSingleChoiceItems(voices.map { it.label }.toTypedArray(), voices.indexOfFirst { it.id == selectedName }) { dialog, index ->
+                    selectedName = voices[index].id; dialog.dismiss(); updateVoice()
+                }.setNegativeButton("Cancel", null).show()
+            return
+        }
         val voices = AssistantSpeechVoice.available(speech)
         val labels = arrayOf("Automatic • prefer British English") + voices.map { "${it.name} • ${it.locale.displayName}" }
         val checked = voices.indexOfFirst { it.name == selectedName } + 1
@@ -185,7 +251,11 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
         findViewById<Button>(R.id.btnPreviewAssistantVoice).text = "Stop preview"
         val id = "voice-preview-${++previewId}"
         val text = "Good morning. Systems are ready. Shall we get to work? I suspect the trucks won't repair themselves."
-        if (speech.speak(text, TextToSpeech.QUEUE_FLUSH, null, id) == TextToSpeech.ERROR) finishPreview(id, true)
+        if (selected == AssistantVoiceProfile.ORIGINAL) {
+            val engine = neuralSpeech ?: com.assistant.core.services.NeuralAssistantSpeech(this).also { neuralSpeech = it }
+            engine.speak(text, com.assistant.core.services.NeuralVoiceCatalog.resolve(selectedName),
+                done = { finishPreview(id, false) }, error = { finishPreview(id, true) })
+        } else if (speech.speak(text, TextToSpeech.QUEUE_FLUSH, null, id) == TextToSpeech.ERROR) finishPreview(id, true)
     }
 
     private fun finishPreview(id: String?, error: Boolean) {
@@ -200,6 +270,7 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
     private fun stopPreview() {
         previewId++
         previewing = false
+        neuralSpeech?.stop()
         if (::speech.isInitialized) speech.stop()
         findViewById<Button>(R.id.btnPreviewAssistantVoice).text = "Preview voice"
     }
@@ -224,6 +295,8 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
 
     override fun onDestroy() {
         closed = true
+        downloadCancelled.set(true)
+        neuralSpeech?.shutdown()
         if (::speech.isInitialized) speech.shutdown()
         super.onDestroy()
     }
