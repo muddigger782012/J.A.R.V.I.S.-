@@ -96,6 +96,10 @@ class AndroidAssistantService(private val context: Context) {
             putExtra("sms_body", body)
         })
 
+    fun canLaunchApp(packageName: String): Boolean = runCatching {
+        context.packageManager.getLaunchIntentForPackage(packageName) != null
+    }.getOrDefault(false)
+
     fun launchApp(packageName: String): Boolean {
         val intent = context.packageManager.getLaunchIntentForPackage(packageName) ?: return false
         return launch(intent)

@@ -62,6 +62,7 @@ class HybridAssistantService(
             val commands = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
             val response = when {
                 !resolution.approved -> "Routine proposal cancelled. Nothing was saved or run."
+                routinePreferredUnavailable(proposal.actions) -> "The routine's preferred app is no longer saved or launchable. Restore the preference and review the routine again. Nothing was saved or run."
                 routineNameIsLearned(proposal.phrase, commands) -> "That routine name now conflicts with a learned phrase. Choose a different name. Nothing was saved or run."
                 routineRegistry.saveApproved(proposal) -> "Saved approved routine '${proposal.phrase}'. Say '${proposal.phrase}' to run it, including offline. Nothing has run yet."
                 else -> "Could not save this routine. Its name may already have different steps, storage may be full, or saving may have failed. Review 'list routines'; nothing has run."
@@ -331,10 +332,12 @@ class HybridAssistantService(
             }
         }
         routineRegistry.find(userInput)?.let { routine ->
-            val outcome = RoutineExecution.run(routine.actions) { step ->
-                val timer = RoutineSteps.timerAction(step)
-                if (timer != null) {
-                    when (deviceLearningSession.requestAndTrack(routine.phrase, timer) { requestDeviceAction(timer) }) {
+            var requestedTarget: LearnableDeviceAction? = null
+            val outcome = RoutineExecution.runWithPreferred(routine.actions, assistantMemory, androidAssistant::canLaunchApp) { step, preferred ->
+                val target = preferred ?: RoutineSteps.timerAction(step)
+                if (target != null) {
+                    requestedTarget = target
+                    when (deviceLearningSession.requestAndTrack(routine.phrase, target) { requestDeviceAction(target) }) {
                         DeviceLearningSession.RequestResult.FAILED -> RoutineExecution.Status.FAILED
                         DeviceLearningSession.RequestResult.AWAITING_OUTCOME -> RoutineExecution.Status.AWAITING_OUTCOME
                         DeviceLearningSession.RequestResult.REQUESTED_WITHOUT_TRACKING -> RoutineExecution.Status.REQUESTED_WITHOUT_TRACKING
@@ -352,8 +355,10 @@ class HybridAssistantService(
                     else -> RoutineExecution.Status.FAILED
                 }
             }
+            if (outcome.unavailablePreferred)
+                return HybridAssistantReply("The routine's preferred app is missing or cannot be launched. Restore the saved preference first. No routine steps were run.")
             val results = outcome.steps.joinToString("; ") { (step, status) ->
-                RoutineProposal.describe(step) + ": " + when (status) {
+                (if (RoutineSteps.preferredSlot(step) != null) requestedTarget?.description() ?: RoutineProposal.describe(step) else RoutineProposal.describe(step)) + ": " + when (status) {
                     RoutineExecution.Status.VERIFIED -> "changed and verified"
                     RoutineExecution.Status.REQUESTED -> "requested"
                     RoutineExecution.Status.AWAITING_OUTCOME -> "requested; awaiting your outcome check"
@@ -362,8 +367,8 @@ class HybridAssistantService(
                 }
             }
             val response = "Routine '${routine.phrase}': $results." + when {
-                outcome.awaitingOutcome -> " Check the timer, then say 'it worked' to remember its duration as your last confirmed action, or 'it failed' to discard the result. The routine's approved steps remain saved."
-                outcome.missingOutcomeTracking -> " The timer was requested, but its outcome could not be retained. No recent-action memory was saved."
+                outcome.awaitingOutcome -> " Check the requested timer or app, then say 'it worked' to remember it as your last confirmed action, or 'it failed' to discard the result. The routine's approved steps remain saved."
+                outcome.missingOutcomeTracking -> " The timer/app was requested, but its outcome could not be retained. No recent-action memory was saved."
                 "app_update" in routine.actions -> " Android may still require approval for installation."
                 else -> ""
             }
@@ -897,7 +902,7 @@ class HybridAssistantService(
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson)
         if (RoutineProposal.isCreationRequest(userText)) {
             if (lesson?.intent != "CREATE_ROUTINE")
-                return "I couldn't produce a supported routine definition. Give a name and explicit steps: volume up/down one step, opening the updater, or a timer with an explicit duration. Nothing was saved or run."
+                return "I couldn't produce a supported routine definition. Give a name and explicit steps: volume up/down one step, opening the updater, a timer with an explicit duration, or opening a saved preferred browser/maps/music app. Nothing was saved or run."
             return proposeFallbackDeviceAction(userText, lessonJson)
         }
         if (lesson?.intent == "CREATE_ROUTINE")
@@ -916,7 +921,7 @@ class HybridAssistantService(
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson) ?: return null
         if (lesson.intent == "CREATE_ROUTINE") {
             val routine = RoutineProposal.fromLesson(lesson)
-                ?: return "I couldn't approve that routine definition. Supported steps are media volume up/down one step, opening the updater, or a final timer from 1 second to 24 hours. Choose a short routine name and explicit steps. Nothing was saved or run."
+                ?: return "I couldn't approve that routine definition. Supported steps are media volume up/down one step, opening the updater, a final timer from 1 second to 24 hours, or a final saved preferred browser/maps/music app. Choose a short routine name and explicit steps. Nothing was saved or run."
             return proposeRoutine(routine.phrase, routine.actions)
         }
         if (lesson.intent == "SET_APP_PREFERENCE") {
@@ -941,12 +946,24 @@ class HybridAssistantService(
         return "Would you like me to ${action.description()}? Say yes to confirm or no to cancel."
     }
 
+    private fun routinePreferredUnavailable(steps: List<String>): Boolean = steps.any { step ->
+        RoutineSteps.preferredSlot(step) != null && RoutineSteps.preferredAction(step, assistantMemory, androidAssistant::canLaunchApp) == null
+    }
+
+    private fun describeRoutineStep(step: String): String {
+        val slot = RoutineSteps.preferredSlot(step) ?: return RoutineProposal.describe(step)
+        val action = assistantMemory.preferred(slot)
+        return "open your current saved preferred $slot app" + (action?.let { " (${it.parameters["label"]})" } ?: " (not saved)")
+    }
+
     private fun routineNameIsLearned(phrase: String, commands: com.assistant.core.learning.ValidatedCommandMemory): Boolean =
         commands.hasSavedPhrase(phrase) || learningStore.snapshot().any { normalize(it.phrase) == normalize(phrase) }
 
     private fun proposeRoutine(phrase: String, actions: List<String>): String {
         val proposal = routineRegistry.propose(phrase, actions)
-            ?: return "That routine uses an unsupported step or reserved name. Supported steps are volume up, volume down, opening the updater, and a final timer from 1 second to 24 hours. Nothing was saved or run."
+            ?: return "That routine uses an unsupported step or reserved name. Supported steps are volume up, volume down, opening the updater, a final timer from 1 second to 24 hours, and opening a saved preferred browser/maps/music app. Nothing was saved or run."
+        if (routinePreferredUnavailable(proposal.actions))
+            return "The routine needs a saved, launchable preferred browser, maps or music app. Set the preference first, then create the routine again. Nothing was saved or run."
         val commands = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
         if (routineNameIsLearned(proposal.phrase, commands))
             return "That name is already a learned phrase. Choose a different routine name. Nothing was saved or run."
@@ -954,7 +971,7 @@ class HybridAssistantService(
         if (existing != null && existing != proposal)
             return "That routine already has different steps. Review 'list routines' and forget the old routine before replacing it. Nothing was saved or run."
         if (!routineConfirmations.propose(proposal)) return "I couldn't retain this routine for approval. Nothing was saved or run."
-        return "Review routine '${proposal.phrase}': " + proposal.actions.joinToString(" then ", transform = RoutineProposal::describe) +
+        return "Review routine '${proposal.phrase}': " + proposal.actions.joinToString(" then ", transform = ::describeRoutineStep) +
             ". Say 'confirm routine' to save or 'cancel routine' to discard. Saving does not run the steps."
     }
 
