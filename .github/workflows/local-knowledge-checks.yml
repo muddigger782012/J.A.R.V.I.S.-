@@ -39,6 +39,10 @@ jobs:
           unzip -Z1 app/libs/sherpa-onnx-1.13.8.aar | grep '^jni/.*[.]so' | cut -d/ -f2 | sort -u
           echo "Supported APK splits:"
           grep -A6 'splits {' app/build.gradle
+      - name: Verify Kokoro male speaker synthesis
+        run: |
+          python3 -m pip install --quiet sherpa-onnx==1.13.8 numpy
+          timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke
       - run: bash gradlew --no-daemon testDebugUnitTest assembleDebug
       - uses: actions/upload-artifact@v4
         with:
