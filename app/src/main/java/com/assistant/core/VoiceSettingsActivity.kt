@@ -72,6 +72,7 @@ class VoiceSettingsActivity : ThemedActivity() {
                     "Clear this device removes only locally saved examples. It does not delete learning on another device."
                 ThemedDialogBuilder(this@VoiceSettingsActivity)
                     .setTitle("Intelligence • Local Learning")
+                    .setPositiveButton("Dashboard") { _, _ -> startActivity(android.content.Intent(this@VoiceSettingsActivity, IntelligenceActivity::class.java)) }
                     .setMessage(summary)
                     .setNegativeButton("Close", null)
                     .setNeutralButton("Clear this device") { _, _ ->

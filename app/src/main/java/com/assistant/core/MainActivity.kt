@@ -2355,7 +2355,7 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun showToolsAndSettingsMenu() {
-        val labels = arrayOf("Settings", "Projects", "Device tools", "System status and updates",
+        val labels = arrayOf("Settings", "Intelligence", "Projects", "Device tools", "System status and updates",
             "Terminal", "Activity log", "Permissions", "Device administration", "Diagnostics")
         fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
         fun themeColor(attr: Int): Int {
@@ -2393,6 +2393,7 @@ class MainActivity : ThemedActivity() {
                 text = label
                 textSize = 15f
                 gravity = android.view.Gravity.CENTER_VERTICAL
+                minHeight = dp(48)
                 setPadding(dp(14), 0, dp(14), 0)
                 setTextColor(themeColor(if (index == 0) R.attr.jarvis_primary else R.attr.jarvis_on_dark))
                 isFocusable = true
@@ -2403,12 +2404,14 @@ class MainActivity : ThemedActivity() {
                     popup.dismiss()
                     when (index) {
                         0 -> openVoiceSettings()
+                        1 -> startActivity(Intent(this@MainActivity, IntelligenceActivity::class.java))
                         labels.lastIndex -> showVoiceDiagnostics()
-                        else -> showTab(index, animate = true, direction = 1)
+                        else -> showTab(index - 1, animate = true, direction = 1)
                     }
                 }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
+        FontPreferences.applyTo(surface, this)
         popup.showAsDropDown(settingsButton, 0, dp(8), android.view.Gravity.END)
     }
 
