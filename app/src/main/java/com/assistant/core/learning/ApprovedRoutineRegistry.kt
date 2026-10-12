@@ -84,6 +84,13 @@ class ApprovedRoutineRegistry internal constructor(private val readValue: () -> 
         runCatching { write(output.toString()) }.getOrDefault(false)
     }
 
+    /** Only valid, unambiguous definitions are available for management and execution. */
+    fun snapshot(): List<Routine> = synchronized(lock) {
+        val entries = read()
+        (0 until entries.length()).mapNotNull { entries.optJSONObject(it)?.optString("phrase") }
+            .distinct().mapNotNull { find(it) }.distinct()
+    }
+
     fun count(): Int = synchronized(lock) { read().length() }
 
     /** A short preview suitable for a local status response; never executes routines. */

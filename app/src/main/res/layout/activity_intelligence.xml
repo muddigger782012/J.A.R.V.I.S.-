@@ -1,0 +1,14 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="16dp" android:background="?attr/jarvis_background">
+    <Button android:id="@+id/btnCloseIntelligence" style="@style/Widget.AssistantPlatform.QuietButton"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Back" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="J.A.R.V.I.S. Intelligence" android:textSize="24sp" android:textStyle="bold"
+        android:textColor="?attr/jarvis_on_dark" android:layout_marginBottom="12dp" />
+    <ScrollView android:id="@+id/intelligenceScroll" android:layout_width="match_parent"
+        android:layout_height="0dp" android:layout_weight="1" android:fillViewport="true">
+        <LinearLayout android:id="@+id/intelligenceContent" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:orientation="vertical" android:paddingBottom="16dp" />
+    </ScrollView>
+</LinearLayout>
