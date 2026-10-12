@@ -19,7 +19,7 @@ object LearnedCommandReviewCommands {
         return pairs.firstOrNull { phrase.length >= 2 && phrase.first() == it.first && phrase.last() == it.second }
             ?.let { phrase.substring(1, phrase.length - 1).trim() } ?: phrase
     }
-    fun isReserved(text: String): Boolean = page(text) != null || forgetPhrase(text) != null || DeviceLearningSession.isReminder(text)
+    fun isReserved(text: String): Boolean = page(text) != null || forgetPhrase(text) != null || DeviceLearningSession.isReminder(text) || PendingTimerCorrection.isRequest(text)
 }
 
 object LearnedCommandReview {
