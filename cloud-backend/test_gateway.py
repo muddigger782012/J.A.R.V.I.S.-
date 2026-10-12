@@ -73,6 +73,20 @@ class GatewayTests(unittest.TestCase):
             self.assertIn('durable save/readback', instructions)
             self.assertIn('Android system defaults', instructions)
 
+    def test_routine_proposal_is_structured_for_host_review(self):
+        self.body['messages'][0]['content'] = 'Create a routine called quiet time that lowers media volume'
+        self.body['learn_intent'] = True
+        create = AsyncMock(return_value=SimpleNamespace(output_text='{"reply":"Review first", "lesson":{"intent":"CREATE_ROUTINE","confidence":0.95,"entities":{"phrase":"quiet time","steps":"volume_down"},"learnable":true}}'))
+        manager = MagicMock()
+        manager.__aenter__ = AsyncMock(return_value=SimpleNamespace(responses=SimpleNamespace(create=create)))
+        manager.__aexit__ = AsyncMock(return_value=False)
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'}), patch('main.AsyncOpenAI', return_value=manager):
+            response = self.client.post('/chat', json=self.body, headers={'Authorization': 'Bearer test-token'})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()['lesson']['entities'], {'phrase': 'quiet time', 'steps': 'volume_down'})
+            self.assertIn('confirm routine', create.call_args.kwargs['instructions'])
+            self.assertIn('saving does not run', create.call_args.kwargs['instructions'])
+
     def test_oversized_context_is_rejected_before_provider_request(self):
         self.body['messages'][0]['content'] = 'launch my usual browser'
         self.body['learn_intent'] = True

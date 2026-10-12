@@ -33,7 +33,7 @@ class HybridAssistantService(
 
     private var pendingPrompt: PendingPrompt = PendingPrompt.NONE
     private var pendingLearningReset: Boolean = false
-    private var pendingRoutine: com.assistant.core.learning.ApprovedRoutineRegistry.Routine? = null
+    private val routineConfirmations = RoutineConfirmationStore(systemService.context())
     private val routineRegistry = com.assistant.core.learning.ApprovedRoutineRegistry(systemService.context())
     private var pendingShellCommand: String? = null
     private var lastContactTarget: String? = null
@@ -51,6 +51,34 @@ class HybridAssistantService(
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
         val normalized = normalize(userInput)
+        routineConfirmations.consume(userInput)?.let { resolution ->
+            pendingPrompt = PendingPrompt.NONE
+            pendingShellCommand = null
+            pendingLearningReset = false
+            volumeConfirmations.consume("")
+            deviceLearningSession.consume("")
+            preferenceConfirmations.consume("")
+            val proposal = resolution.routine
+            val commands = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
+            val response = when {
+                !resolution.approved -> "Routine proposal cancelled. Nothing was saved or run."
+                routineNameIsLearned(proposal.phrase, commands) -> "That routine name now conflicts with a learned phrase. Choose a different name. Nothing was saved or run."
+                routineRegistry.saveApproved(proposal) -> "Saved approved routine '${proposal.phrase}'. Say '${proposal.phrase}' to run it, including offline. Nothing has run yet."
+                else -> "Could not save this routine. Its name may already have different steps, storage may be full, or saving may have failed. Review 'list routines'; nothing has run."
+            }
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
+        if (RoutineProposal.isCreationRequest(userInput)) {
+            pendingPrompt = PendingPrompt.NONE
+            pendingShellCommand = null
+            pendingLearningReset = false
+            volumeConfirmations.consume("")
+            deviceLearningSession.consume("")
+            preferenceConfirmations.consume("")
+            // Names and requested steps are data, never an immediate device command.
+            return HybridAssistantReply("I don't understand that locally yet. This routine creation request needs a supported AI proposal and explicit review. Nothing was saved or run.")
+        }
         if (userInput.isBlank()) {
             val result = assistantEngine.executeAction(actionRegistry.showStatusRequest())
             return replyFromResult(
@@ -177,7 +205,6 @@ class HybridAssistantService(
         }
         if (ConfirmationWords.isConfirmation(userInput)) {
             pendingLearningReset = false
-            pendingRoutine = null
             return HybridAssistantReply("No action is awaiting yes/no approval. State the action you want, such as 'open Chrome'. Nothing was changed.")
         }
         LearnedCommandReviewCommands.page(userInput)?.let { page ->
@@ -266,25 +293,10 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
-        // Explicit review/approval boundary for persistent, local multi-action routines.
-        // Only the three existing, allowlisted device actions can be used.
-        // A routine proposal is only valid for the immediately following turn.
-        // Handle cancellation and approval before any cloud fallback or device action.
-        if (normalized == "cancel routine") {
-            pendingRoutine = null
-            return HybridAssistantReply("Routine proposal cancelled.")
-        }
-        if (normalized == "confirm routine") {
-            val proposal = pendingRoutine
-            pendingRoutine = null
-            val response = if (proposal == null) "No routine is awaiting approval."
-                else if (routineRegistry.saveApproved(proposal)) "Saved approved routine: ${proposal.phrase}."
-                else "Could not save the routine."
-            remember(userInput, response)
-            return HybridAssistantReply(response)
-        }
+        // Routine approval is consumed above, before any local handler or cloud fallback.
+        if (normalized == "cancel routine") return HybridAssistantReply("No routine is awaiting approval. Nothing was saved or run.")
+        if (normalized == "confirm routine") return HybridAssistantReply("No routine is awaiting approval. Ask J.A.R.V.I.S. to create it again, then confirm the review.")
         if (normalized.startsWith("forget routine ")) {
-            pendingRoutine = null
             val phrase = userInput.substringAfter(" ", "").substringAfter(" ", "").trim()
             val response = if (routineRegistry.forget(phrase)) "Forgot routine: $phrase."
                 else "No matching approved routine was found."
@@ -303,17 +315,9 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
-        // Confirmation is valid only as the immediately following input.
-        if (pendingRoutine != null) pendingRoutine = null
         val routineProposal = RoutineCommandParser.parse(userInput)
         if (routineProposal != null) {
-            val proposal = routineRegistry.propose(routineProposal.phrase, routineProposal.actions)
-            val response = if (proposal == null || LocalDeviceCommand.parse(routineProposal.phrase) != null)
-                "That routine is unsupported or uses a reserved phrase. Supported steps are update app, volume up, and volume down."
-            else {
-                pendingRoutine = proposal
-                "Review routine '${proposal.phrase}': ${proposal.actions.joinToString(" then ")}. Say 'confirm routine' to save or 'cancel routine' to discard. Nothing has run yet."
-            }
+            val response = proposeRoutine(routineProposal.phrase, routineProposal.actions)
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -340,10 +344,11 @@ class HybridAssistantService(
                     }.isSuccess
                     else -> false
                 }
-                results.add("$action: ${if (ok) "requested" else "failed"}")
+                results.add("$action: ${if (!ok) "failed" else if (action == "app_update") "requested" else "changed and verified"}")
                 if (!ok) break
             }
-            val response = "Routine '${routine.phrase}': ${results.joinToString("; ")}. Android may still require approval for installation."
+            val response = "Routine '${routine.phrase}': ${results.joinToString("; ")}." +
+                if ("app_update" in routine.actions) " Android may still require approval for installation." else ""
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -811,7 +816,7 @@ class HybridAssistantService(
         }
         val local = handleUserInput(rawInput)
         val unresolved = local.text.startsWith("I don't understand that locally yet.")
-        if (unresolved && OnlineAnswers.isWeather(rawInput)) {
+        if (unresolved && !RoutineProposal.isCreationRequest(rawInput) && OnlineAnswers.isWeather(rawInput)) {
             Thread {
                 val response = directOnlineClient.weather(rawInput)
                 remember(rawInput, response)
@@ -826,7 +831,9 @@ class HybridAssistantService(
         val network = systemService.context().getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
         val capabilities = network.getNetworkCapabilities(network.activeNetwork)
         if (capabilities?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) != true) {
-            val response = if (com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).isPaused(rawInput))
+            val response = if (RoutineProposal.isCreationRequest(rawInput))
+                "AI routine proposals require an online connection and configured AI provider. Existing approved routines still run offline. Nothing was saved or run."
+            else if (com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).isPaused(rawInput))
                 "You're offline. This learned phrase is paused after an unsuccessful result. Go online and complete a verified successful lesson, or use 'forget learned command' followed by the phrase before teaching a different meaning."
             else "You're offline, and this phrase isn't saved as a local command yet. Go online, repeat the original request, and confirm it. It must execute successfully before it can be learned for offline use."
             remember(rawInput, response)
@@ -836,7 +843,7 @@ class HybridAssistantService(
         if (directOnlineClient.hasGeminiKey()) {
             Thread {
                 val cloud = directOnlineClient.assistant(rawInput, getConversationSnapshot(), ContextualAction.aiContext(assistantMemory))
-                val response = proposeFallbackVolume(rawInput, cloud.lessonJson) ?: proposeFallbackDeviceAction(rawInput, cloud.lessonJson) ?: cloud.reply
+                val response = proposeCloudAction(rawInput, cloud.lessonJson) ?: cloud.reply
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
             }.start()
@@ -858,12 +865,24 @@ class HybridAssistantService(
             }
             // A plausible cloud interpretation is not proof of a successful action.
             // Do not train device-action intents from unverified cloud replies.
-            val actionResponse = proposeFallbackVolume(rawInput, cloud.lessonJson) ?: proposeFallbackDeviceAction(rawInput, cloud.lessonJson)
+            val actionResponse = proposeCloudAction(rawInput, cloud.lessonJson)
             if (actionResponse == null) cloud.lessonJson?.let { acceptFallbackLesson(rawInput, it) }
             val response = actionResponse ?: cloud.reply
             remember(rawInput, response)
             callback(HybridAssistantReply(response))
         }.start()
+    }
+
+    private fun proposeCloudAction(userText: String, lessonJson: String?): String? {
+        val lesson = lessonJson?.let(FallbackIntentLesson::fromJson)
+        if (RoutineProposal.isCreationRequest(userText)) {
+            if (lesson?.intent != "CREATE_ROUTINE")
+                return "I couldn't produce a supported routine definition. Give a name and explicit steps: volume up/down one step or opening the updater. Nothing was saved or run."
+            return proposeFallbackDeviceAction(userText, lessonJson)
+        }
+        if (lesson?.intent == "CREATE_ROUTINE")
+            return "Creating a routine needs an explicit request to create a named routine and its steps. Nothing was saved or run."
+        return proposeFallbackVolume(userText, lessonJson) ?: proposeFallbackDeviceAction(userText, lessonJson)
     }
 
     private fun proposeFallbackVolume(userText: String, lessonJson: String?): String? {
@@ -875,6 +894,11 @@ class HybridAssistantService(
 
     private fun proposeFallbackDeviceAction(userText: String, lessonJson: String?): String? {
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson) ?: return null
+        if (lesson.intent == "CREATE_ROUTINE") {
+            val routine = RoutineProposal.fromLesson(lesson)
+                ?: return "I couldn't approve that routine definition. Supported steps are media volume up/down one step and opening the updater. Choose a short routine name and explicit steps. Nothing was saved or run."
+            return proposeRoutine(routine.phrase, routine.actions)
+        }
         if (lesson.intent == "SET_APP_PREFERENCE") {
             val preference = LearnablePreference.fromLesson(lesson, androidAssistant::resolveLearnableApp)
                 ?: return "I couldn't safely match that preference to one installed app. Specify browser, maps or music and the app's exact launcher name. No preference was saved."
@@ -895,6 +919,23 @@ class HybridAssistantService(
         if (!deviceLearningSession.propose(DeviceLearningSession.Pending(userText, action, lesson.canTeachLocally())))
             return "I couldn't retain this action for confirmation. Nothing was changed or learned."
         return "Would you like me to ${action.description()}? Say yes to confirm or no to cancel."
+    }
+
+    private fun routineNameIsLearned(phrase: String, commands: com.assistant.core.learning.ValidatedCommandMemory): Boolean =
+        commands.hasSavedPhrase(phrase) || learningStore.snapshot().any { normalize(it.phrase) == normalize(phrase) }
+
+    private fun proposeRoutine(phrase: String, actions: List<String>): String {
+        val proposal = routineRegistry.propose(phrase, actions)
+            ?: return "That routine uses an unsupported step or reserved name. Supported steps are volume up, volume down and opening the updater. Nothing was saved or run."
+        val commands = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
+        if (routineNameIsLearned(proposal.phrase, commands))
+            return "That name is already a learned phrase. Choose a different routine name. Nothing was saved or run."
+        val existing = routineRegistry.find(proposal.phrase)
+        if (existing != null && existing != proposal)
+            return "That routine already has different steps. Review 'list routines' and forget the old routine before replacing it. Nothing was saved or run."
+        if (!routineConfirmations.propose(proposal)) return "I couldn't retain this routine for approval. Nothing was saved or run."
+        return "Review routine '${proposal.phrase}': " + proposal.actions.joinToString(" then ", transform = RoutineProposal::describe) +
+            ". Say 'confirm routine' to save or 'cancel routine' to discard. Saving does not run the steps."
     }
 
     private fun proposePreference(preference: LearnablePreference, learningPhrase: String? = null): String {

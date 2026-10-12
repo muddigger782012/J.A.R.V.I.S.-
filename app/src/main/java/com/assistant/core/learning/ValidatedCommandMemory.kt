@@ -36,6 +36,13 @@ class ValidatedCommandMemory internal constructor(
     private fun matchingKey(value: String): String = normalize(value)
         .replace(Regex("(?<=\\p{L})[-\\u2010\\u2011](?=\\p{L})"), " ")
 
+    /** Includes paused and conflicting entries so another command cannot steal their phrase. */
+    fun hasSavedPhrase(utterance: String): Boolean = synchronized(lock) {
+        val key = matchingKey(utterance)
+        val entries = readEntries()
+        (0 until entries.length()).any { matchingKey(entries.optJSONObject(it)?.optString("phrase") ?: "") == key }
+    }
+
     fun match(utterance: String, allowedCapabilityIds: Set<String>): Match? = synchronized(lock) {
         val key = matchingKey(utterance)
         // Older builds could incorrectly retain the approval instead of its request.

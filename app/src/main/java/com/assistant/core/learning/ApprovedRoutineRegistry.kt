@@ -9,10 +9,12 @@ import java.util.Locale
  * Local storage for user-approved routines. This registry never executes actions.
  * Callers must confirm each proposal and dispatch only allowlisted capabilities.
  */
-class ApprovedRoutineRegistry(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences("jarvis_approved_routines", Context.MODE_PRIVATE)
-    private val lock = Any()
-    private val allowed = setOf("volume_up", "volume_down", "app_update")
+class ApprovedRoutineRegistry internal constructor(private val readValue: () -> String, private val write: (String) -> Boolean) {
+    constructor(context: Context) : this(
+        { context.applicationContext.getSharedPreferences("jarvis_approved_routines", Context.MODE_PRIVATE).getString("routines", "[]") ?: "[]" },
+        { value -> context.applicationContext.getSharedPreferences("jarvis_approved_routines", Context.MODE_PRIVATE).edit().putString("routines", value).commit() }
+    )
+    private val allowed = capabilities
     private val maxRoutines = 50
 
     data class Routine(val phrase: String, val actions: List<String>)
@@ -22,7 +24,7 @@ class ApprovedRoutineRegistry(context: Context) {
 
     fun propose(phrase: String, actions: List<String>): Routine? {
         val key = normalize(phrase)
-        if (key.length !in 3..120 || actions.size !in 1..5 ||
+        if (!com.assistant.core.services.RoutineProposal.isUsableName(key) || key.length !in 3..120 || actions.size !in 1..5 ||
             actions.any { it !in allowed } || actions.distinct().size != actions.size ||
             key.startsWith("teach ") || key.startsWith("confirm ") ||
             key.startsWith("delete ") || key.startsWith("reset ") ||
@@ -41,6 +43,13 @@ class ApprovedRoutineRegistry(context: Context) {
     fun saveApproved(routine: Routine): Boolean = synchronized(lock) {
         if (propose(routine.phrase, routine.actions) != routine) return@synchronized false
         val entries = read()
+        val existing = (0 until entries.length()).mapNotNull { entries.optJSONObject(it) }
+            .filter { normalize(it.optString("phrase")) == routine.phrase }
+        if (existing.isNotEmpty()) return@synchronized existing.all { entry ->
+            val steps = entry.optJSONArray("actions") ?: return@all false
+            (0 until steps.length()).map { steps.optString(it) } == routine.actions
+        }
+        if (entries.length() >= maxRoutines) return@synchronized false
         val output = JSONArray()
         for (i in 0 until entries.length()) {
             val entry = entries.optJSONObject(i) ?: continue
@@ -48,21 +57,21 @@ class ApprovedRoutineRegistry(context: Context) {
         }
         output.put(JSONObject().put("phrase", routine.phrase)
             .put("actions", JSONArray(routine.actions)))
-        while (output.length() > maxRoutines) output.remove(0)
-        prefs.edit().putString("routines", output.toString()).commit()
+        runCatching { write(output.toString()) }.getOrDefault(false)
     }
 
     fun find(phrase: String): Routine? = synchronized(lock) {
         val key = normalize(phrase)
         val entries = read()
+        val matches = mutableListOf<Routine>()
         for (i in 0 until entries.length()) {
             val entry = entries.optJSONObject(i) ?: continue
-            if (entry.optString("phrase") != key) continue
-            val values = entry.optJSONArray("actions") ?: continue
+            if (normalize(entry.optString("phrase")) != key) continue
+            val values = entry.optJSONArray("actions") ?: return@synchronized null
             val actions = (0 until values.length()).map { values.optString(it) }
-            return@synchronized propose(key, actions)
+            matches.add(propose(key, actions) ?: return@synchronized null)
         }
-        null
+        matches.distinct().singleOrNull()
     }
 
     fun forget(phrase: String): Boolean = synchronized(lock) {
@@ -71,10 +80,10 @@ class ApprovedRoutineRegistry(context: Context) {
         val output = JSONArray()
         for (i in 0 until entries.length()) {
             val entry = entries.optJSONObject(i) ?: continue
-            if (entry.optString("phrase") != key) output.put(entry)
+            if (normalize(entry.optString("phrase")) != key) output.put(entry)
         }
         if (output.length() == entries.length()) return@synchronized false
-        prefs.edit().putString("routines", output.toString()).commit()
+        runCatching { write(output.toString()) }.getOrDefault(false)
     }
 
     fun count(): Int = synchronized(lock) { read().length() }
@@ -95,7 +104,12 @@ class ApprovedRoutineRegistry(context: Context) {
         summaries
     }
 
+    companion object {
+        val capabilities = setOf("volume_up", "volume_down", "app_update")
+        private val lock = Any()
+    }
+
     private fun read(): JSONArray = try {
-        JSONArray(prefs.getString("routines", "[]") ?: "[]")
+        JSONArray(readValue())
     } catch (_: Exception) { JSONArray() }
 }
