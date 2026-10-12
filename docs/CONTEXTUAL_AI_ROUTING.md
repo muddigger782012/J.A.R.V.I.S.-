@@ -50,3 +50,9 @@ A successful user outcome for a timer/app writes its per-kind slot and `last_act
 `Do that again`, `repeat that` and `repeat the last confirmed action` resolve locally, online or offline. JARVIS previews the saved timer/app and requires yes before requesting it. The result still requires `it worked` before refreshing recent memory. This context covers timers and app launches only.
 
 AI can propose `REPEAT_ACTION` with `kind: most_recent` for other wording when the host supplies that ordered context. Verified learned aliases retain a reference to current memory rather than a frozen app/duration. Clearing memory leaves such aliases unresolved. Test on phone: confirm a timer, repeat it offline; confirm an app, repeat again; clear context and verify JARVIS asks for a new confirmed action.
+
+## Local outcome wording
+
+Outcome checks accept bounded positive wording such as `it worked`, `it works`, `it work` (a speech transcription variant), `that worked` and `it succeeded`. Negative wording such as `it doesn't work` is failure. These reports are consumed locally and cannot become learned action phrases. A report without a pending action cannot verify a past action.
+
+Uncertain feedback (`not sure`, `maybe it worked`, `the action did not fail`) asks for explicit success/failure and retains the same pending target with its original five-minute expiry. It neither confirms success nor pauses a learned replay. Unrelated inputs still cancel the check. Orphan yes/no replies stay local and do not generate AI-only approval prompts. Non-learning repeat approvals describe updating recent memory rather than promising a new learned phrase.

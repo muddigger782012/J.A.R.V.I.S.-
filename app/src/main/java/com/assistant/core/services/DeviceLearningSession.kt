@@ -2,7 +2,6 @@ package com.assistant.core.services
 
 import android.content.Context
 import org.json.JSONObject
-import java.util.Locale
 
 /** Approval and outcome are separate. A launched intent is not a verified result. */
 class DeviceLearningSession internal constructor(
@@ -18,7 +17,7 @@ class DeviceLearningSession internal constructor(
         }
     )
     data class Pending(val phrase: String, val action: LearnableDeviceAction, val learnable: Boolean, val awaitingOutcome: Boolean = false, val contextual: ContextualAction? = null, val replayed: Boolean = false)
-    data class Resolution(val pending: Pending, val accepted: Boolean)
+    data class Resolution(val pending: Pending, val accepted: Boolean, val needsClarification: Boolean = false)
     enum class RequestResult { FAILED, REQUESTED_WITHOUT_TRACKING, AWAITING_OUTCOME }
 
     /** Used for local/preferred/learned actions as well as AI-interpreted ones. */
@@ -41,7 +40,6 @@ class DeviceLearningSession internal constructor(
 
     fun consume(input: String): Resolution? = synchronized(lock) {
         val raw = read() ?: return@synchronized null
-        if (!write(null)) return@synchronized null
         val pending = runCatching {
             val json = JSONObject(raw)
             if (now() - json.getLong("created") !in 0..300_000) return@runCatching null
@@ -56,16 +54,20 @@ class DeviceLearningSession internal constructor(
             val replayed = json.optBoolean("replayed")
             if (replayed && (json.optBoolean("learnable") || !json.optBoolean("awaitingOutcome"))) return@runCatching null
             Pending(json.getString("phrase"), action, json.optBoolean("learnable"), json.optBoolean("awaitingOutcome"), contextual, replayed)
-        }.getOrNull() ?: return@synchronized null
+        }.getOrNull()
+        // An unclear outcome retains the same pending target and original expiry.
+        // It must not become either success or failure, including for learned replays.
+        if (pending?.awaitingOutcome == true && OutcomeFeedback.parse(input) == OutcomeFeedback.Result.UNCLEAR)
+            return@synchronized Resolution(pending, false, needsClarification = true)
+        if (!write(null) || pending == null) return@synchronized null
         if (pending.awaitingOutcome) {
-            if (!isOutcome(input)) return@synchronized null
-            Resolution(pending, normalized(input) == "it worked")
+            val result = OutcomeFeedback.parse(input) ?: return@synchronized null
+            Resolution(pending, result == OutcomeFeedback.Result.SUCCESS)
         } else if (ConfirmationWords.isConfirmation(input)) Resolution(pending, ConfirmationWords.approves(input)) else null
     }
 
     companion object {
         private val lock = Any()
-        private fun normalized(text: String) = text.lowercase(Locale.ROOT).replace("’", "'").trim().trimEnd('.', '?', '!')
-        fun isOutcome(text: String): Boolean = normalized(text) in setOf("it worked", "it failed", "it didn't work", "it did not work")
+        fun isOutcome(text: String): Boolean = OutcomeFeedback.parse(text) != null
     }
 }
