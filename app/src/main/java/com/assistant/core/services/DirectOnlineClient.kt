@@ -232,7 +232,7 @@ class DirectOnlineClient(private val context: Context) {
             For an explicit request to CREATE a named routine or shortcut from supported steps, return
             {"intent":"CREATE_ROUTINE","confidence":0.95,"entities":{"phrase":"quiet time","steps":"volume_down"},"learnable":true}.
             Example: "create a routine called quiet time that lowers media volume" proposes the name quiet time and step volume_down.
-            Steps is a comma-separated string of 1..3 distinct existing handlers: volume_up, volume_down, app_update, timer:SECONDS, preferred:SLOT, open:APP_NAME.
+            Steps is a comma-separated string of 1..3 distinct existing handlers: volume_up, volume_down, volume:PERCENT, app_update, timer:SECONDS, preferred:SLOT, open:APP_NAME.
             A timer needs an explicit duration of 1..86400 seconds, without leading zeros. At most ONE timer is allowed,
             and it must be the LAST step. A timer and app_update cannot appear in the same routine.
             Preferred-app steps use preferred:browser, preferred:maps or preferred:music, ONLY if that approved slot
@@ -250,7 +250,10 @@ class DirectOnlineClient(private val context: Context) {
             proposes phrase "focus time", steps "volume_down,timer:300". Never invent a duration or reorder requested steps.
             Missing durations or unsupported order requires clarification, lesson:null.
             Timer execution is only requested, and its outcome requires user verification before recent-action memory is updated.
-            Volume means ONE step, not mute or a percentage. app_update only opens the updater, never installs silently.
+            volume_up/down each mean ONE adjustment step. For an explicit integer media-volume percentage use volume:PERCENT from 0 to 100, no leading zeros. Do not infer a percentage from vague quiet/loud requests.
+            At most one percentage step, and do not combine it with volume_up/down or another percentage. Android uses the nearest supported level and verifies readback before proceeding.
+            Example: "create a routine called low browse that sets media volume to 25 percent then opens Chrome" proposes "volume:25,open:Chrome". Saving never runs these steps.
+            app_update only opens the updater, never installs silently.
             Preserve requested step order and the actual name; missing name or unsupported steps requires clarification, lesson:null.
             Creating a routine is NOT a request to run its actions. Never emit DEVICE_SETTING instead or claim a routine was saved.
             The host reviews the exact steps and requires the explicit phrase 'confirm routine' before saving. It runs only when invoked later.

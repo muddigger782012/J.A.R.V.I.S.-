@@ -50,6 +50,7 @@ object RoutineProposal {
         "volume_down" -> "lower media volume one step"
         "app_update" -> "open the J.A.R.V.I.S. updater (Android installation approval still required)"
         else -> RoutineSteps.preferredSlot(action)?.let { "open the current saved preferred $it app" }
+            ?: RoutineSteps.volumePercent(action)?.let { "set media volume to $it% (nearest supported level)" }
             ?: RoutineSteps.appAction(action)?.description() ?: RoutineSteps.timerAction(action)?.description() ?: "unsupported step"
     }
 }

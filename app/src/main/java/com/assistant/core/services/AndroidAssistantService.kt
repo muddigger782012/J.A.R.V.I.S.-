@@ -213,6 +213,13 @@ class AndroidAssistantService(private val context: Context) {
         VolumeChangeVerification.changed(before, after, direction == AudioManager.ADJUST_RAISE)
     }.getOrDefault(false) }
 
+    fun setMediaVolumePercent(percent: Int): Boolean = synchronized(volumeLock) { runCatching {
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        VerifiedMediaVolumeLevel.execute(percent, audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+            read = { audio.getStreamVolume(AudioManager.STREAM_MUSIC) },
+            set = { target -> audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, AudioManager.FLAG_SHOW_UI) })
+    }.getOrDefault(false) }
+
     companion object {
         private val volumeLock = Any()
     }
