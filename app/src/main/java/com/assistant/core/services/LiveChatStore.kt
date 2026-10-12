@@ -29,10 +29,17 @@ object LiveChatStore {
             .put("message", message).put("updated", System.currentTimeMillis()).toString())
     }
     fun messages(context: Context) = runCatching { JSONArray(read(context, "live-chat-messages.json") ?: "[]") }.getOrDefault(JSONArray())
-    fun append(context: Context, conversation: String, text: String) {
+    fun lastReply(context: Context) = runCatching { JSONObject(read(context, "live-chat-reply.json") ?: "{}") }.getOrDefault(JSONObject())
+    fun lastReply(context: Context, reply: JSONObject) = write(context, "live-chat-reply.json", reply.toString())
+    fun dismissedReply(context: Context) = read(context, "live-chat-dismissed.txt").orEmpty()
+    fun dismissReply(context: Context, id: String) = write(context, "live-chat-dismissed.txt", id)
+    fun append(context: Context, conversation: String, text: String, session: String = ""): JSONObject {
         val entries = messages(context)
-        entries.put(JSONObject().put("id", java.util.UUID.randomUUID().toString()).put("conversation", conversation).put("text", text))
+        val entry = JSONObject().put("id", java.util.UUID.randomUUID().toString()).put("conversation", conversation)
+            .put("text", text).put("session", session).put("createdAt", System.currentTimeMillis())
+        entries.put(entry)
         while (entries.length() > 2000) entries.remove(0)
         write(context, "live-chat-messages.json", entries.toString())
+        return entry
     }
 }

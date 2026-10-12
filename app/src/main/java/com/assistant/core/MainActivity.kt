@@ -218,6 +218,8 @@ class MainActivity : ThemedActivity() {
         startLiveChat()
     }
     private var liveChatStarted = false
+    private var liveDialogueDialog: androidx.appcompat.app.AlertDialog? = null
+    private var liveDialogueId = ""
     private var restoreLocalWake = false
     private var receiverRegistered = false
     private var shizukuListenersRegistered = false
@@ -2193,6 +2195,7 @@ class MainActivity : ThemedActivity() {
         val phase = runCatching { VoiceInteractionState.valueOf(state.optString("phase", "IDLE")) }.getOrDefault(VoiceInteractionState.IDLE)
         updateVoiceInteractionState(if (liveChatStarted) phase else VoiceInteractionState.IDLE)
         importLiveChatMessages()
+        syncLiveDialogue()
         if (wasActive && !liveChatStarted && restoreLocalWake && hasMicrophonePermission()) voiceService.startHotwordLoop()
         if (!liveChatStarted) restoreLocalWake = false
     }
@@ -2216,6 +2219,28 @@ class MainActivity : ThemedActivity() {
         }
         val retained = (0 until entries.length()).map { entries.getJSONObject(it).getString("id") }.toSet()
         conversationPrefs.edit().putStringSet("live_imported_ids", imported.intersect(retained)).apply()
+    }
+
+    private fun syncLiveDialogue() {
+        val reply = com.assistant.core.services.LiveChatStore.lastReply(this)
+        val id = reply.optString("id")
+        val options = com.assistant.core.services.VoiceResponsePreferences.load(this)
+        if (!hasWindowFocus() || !liveChatStarted || !options.liveDialogue || Settings.canDrawOverlays(this) || id.isBlank() ||
+            id == com.assistant.core.services.LiveChatStore.dismissedReply(this)) {
+            liveDialogueDialog?.dismiss(); liveDialogueDialog = null
+            return
+        }
+        liveDialogueId = id
+        val text = reply.optString("text").removePrefix("J.A.R.V.I.S.: ")
+        liveDialogueDialog?.let { it.setMessage(text); return }
+        val dialog = ThemedDialogBuilder(this).setTitle("Live chat reply").setMessage(text)
+            .setPositiveButton("Close reply") { _, _ -> com.assistant.core.services.LiveChatStore.dismissReply(this, liveDialogueId) }
+            .setNeutralButton("End live chat") { _, _ -> endLiveChat("Live chat ended.") }.create()
+        dialog.setOnCancelListener { com.assistant.core.services.LiveChatStore.dismissReply(this, liveDialogueId) }
+        dialog.setOnDismissListener { liveDialogueDialog = null }
+        liveDialogueDialog = dialog
+        dialog.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+        dialog.show()
     }
 
     private fun ensureMicPermissionAndPushToTalk() {
@@ -2356,7 +2381,7 @@ class MainActivity : ThemedActivity() {
 
     private fun showToolsAndSettingsMenu() {
         val labels = arrayOf("Settings", "Intelligence", "Projects", "Device tools", "System status and updates",
-            "Terminal", "Activity log", "Permissions", "Device administration", "Diagnostics")
+            "Terminal", "Activity log", "Permissions", "Device administration", "Live chat history", "Diagnostics")
         fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
         fun themeColor(attr: Int): Int {
             val value = android.util.TypedValue()
@@ -2405,6 +2430,7 @@ class MainActivity : ThemedActivity() {
                     when (index) {
                         0 -> openVoiceSettings()
                         1 -> startActivity(Intent(this@MainActivity, IntelligenceActivity::class.java))
+                        labels.lastIndex - 1 -> startActivity(Intent(this@MainActivity, LiveChatHistoryActivity::class.java))
                         labels.lastIndex -> showVoiceDiagnostics()
                         else -> showTab(index - 1, animate = true, direction = 1)
                     }
@@ -2903,6 +2929,8 @@ class MainActivity : ThemedActivity() {
     }
 
     override fun onStop() {
+        liveDialogueDialog?.dismiss()
+        liveDialogueDialog = null
         findViewById<ArcReactorView>(R.id.arcReactorHeader).setMotionEnabled(false)
         findViewById<ArcReactorView>(R.id.arcReactorConversation).setMotionEnabled(false)
         stopHudAnimations()
@@ -2939,6 +2967,7 @@ class MainActivity : ThemedActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
+            syncLiveDialogue()
             tabContainer.post { updateSystemGestureExclusionRects() }
         }
     }

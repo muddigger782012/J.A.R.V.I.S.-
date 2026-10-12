@@ -18,11 +18,12 @@ object FontPreferences {
         require(hex.isEmpty() || parseColor(hex) != null)
         prefs(context).edit().putInt("font_percent", percent.coerceIn(75, 150))
             .putString("font_color", hex.uppercase()).apply()
+        com.assistant.core.services.VoiceResponsePreferences.captureAppearance(context)
     }
 
-    fun applyTo(root: View, context: Context) {
-        val scale = percent(context) / 100f
-        val color = parseColor(colorHex(context))
+    fun applyTo(root: View, context: Context, fontPercent: Int = percent(context), fontColorHex: String = colorHex(context)) {
+        val scale = fontPercent.coerceIn(75, 150) / 100f
+        val color = parseColor(fontColorHex)
         fun visit(view: View) {
             if (view.getTag(R.id.font_preview_exempt) == true) return
             if (view is TextView) {
