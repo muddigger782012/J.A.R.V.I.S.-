@@ -67,6 +67,7 @@ class NeuralVoicePack(context: Context) {
                     check(hash == meta.getString("sha256")) { "Voice download integrity check failed" }
                     status("Installing verified voice pack…")
                     var unpacked = 0L
+                    var lastInstallPercent = -1
                     archive.inputStream().buffered().use { source ->
                         TarArchiveInputStream(BZip2CompressorInputStream(source)).use { tar ->
                             while (true) {
@@ -86,6 +87,8 @@ class NeuralVoicePack(context: Context) {
                                         val count = tar.read(buffer)
                                         if (count < 0) break
                                         output.write(buffer, 0, count); written += count
+                                        val percent = ((unpacked - entry.size + written) * 100 / meta.getLong("unpacked_bytes")).toInt()
+                                        if (percent != lastInstallPercent) { status("Installing voices: $percent%"); lastInstallPercent = percent }
                                     }
                                     check(written == entry.size) { "Voice archive is incomplete" }
                                 }
@@ -116,7 +119,7 @@ class NeuralVoicePack(context: Context) {
                 val next = connection.getHeaderField("Location") ?: error("Voice download redirect is missing")
                 connection.disconnect(); url = URL(url, next)
             } else {
-                check(code == 200) { "Voice download failed (HTTP $code)" }
+                if (code != 200) { connection.disconnect(); error("Voice download failed (HTTP $code)") }
                 return object : java.io.FilterInputStream(connection.inputStream) {
                     override fun close() { try { super.close() } finally { connection.disconnect() } }
                 }

@@ -206,7 +206,7 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
             val installed = pack.installed()
             findViewById<TextView>(R.id.tvAssistantVoiceStatus).text = if (installed)
                 "${voice.label} · offline Kokoro. Preview, then save this exact voice."
-            else if (pack.available()) "Download the voice pack to preview ${voice.label}. The current speech selection stays unchanged until you save."
+            else if (pack.available()) "Download the voice pack to preview ${voice.label}. Choose a preset, preview it, then save your choice."
             else "This build does not include verified voice download metadata. Install the signed release build."
             setButtonsEnabled(installed)
             findViewById<Button>(R.id.btnChooseAssistantVoice).isEnabled = true
