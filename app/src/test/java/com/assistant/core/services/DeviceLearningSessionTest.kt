@@ -45,8 +45,8 @@ class DeviceLearningSessionTest {
         assertTrue(session.propose(proposal.copy(awaitingOutcome = true)))
         assertFalse(session.consume("it didn't work")!!.accepted)
         assertTrue(session.propose(proposal.copy(awaitingOutcome = true)))
-        assertNull(session.consume("yes"))
-        assertNull(session.consume("it worked"))
+        assertTrue(session.consume("yes")!!.reminder)
+        assertTrue(session.consume("it worked")!!.accepted)
         assertTrue(session.propose(proposal))
         assertNull(session.consume("what time is it"))
         assertNull(session.consume("yes"))
@@ -85,4 +85,46 @@ class DeviceLearningSessionTest {
         assertFalse(normal.propose(DeviceLearningSession.Pending("it worked", timer, true)))
         assertFalse(normal.propose(DeviceLearningSession.Pending("my phrase", timer.copy(parameters = emptyMap()), true)))
     }
+    @Test fun remindersAndInspectionRetainExactTargetAndOriginalExpiryAcrossRestart() {
+        var raw: String? = null
+        var now = 1_000L
+        fun session() = DeviceLearningSession({ raw }, { raw = it; true }, { now })
+        assertTrue(session().propose(DeviceLearningSession.Pending("coffee break", timer, true, awaitingOutcome = true, explicitTeaching = true)))
+        val original = raw
+        for (text in listOf("show saved commands", "show assistant memory", "show learning status")) {
+            assertNull(session().consume(text))
+            assertEquals(original, raw)
+        }
+        for (text in listOf("What am I confirming?", "which action", "what should I check", "yes")) {
+            val reminder = session().consume(text)!!
+            assertTrue(reminder.reminder); assertTrue(reminder.needsClarification); assertFalse(reminder.accepted)
+            assertEquals(timer, reminder.pending.action); assertEquals("coffee break", reminder.pending.phrase)
+            assertEquals(original, raw)
+        }
+        val outcome = session().consume("Actually, it worked!")!!
+        assertTrue(outcome.accepted); assertTrue(outcome.pending.shouldLearn(false))
+        assertEquals("coffee break", outcome.pending.phrase)
+        assertNull(session().consume("actually it worked"))
+        assertTrue(session().propose(outcome.pending))
+        now += 300_001
+        assertNull(session().consume("which action")); assertNull(raw)
+    }
+
+    @Test fun approvalRemindersNeverExecuteAndUnrelatedTurnsStillInvalidateContext() {
+        var raw: String? = null
+        val session = DeviceLearningSession({ raw }, { raw = it; true })
+        val proposal = DeviceLearningSession.Pending("my app", app, true)
+        assertTrue(session.propose(proposal))
+        val reminder = session.consume("what am I approving")!!
+        assertFalse(reminder.accepted); assertFalse(reminder.pending.awaitingOutcome)
+        assertTrue(session.consume("yes")!!.accepted)
+        assertTrue(session.propose(proposal.copy(awaitingOutcome = true)))
+        assertNull(session.consume("open Maps")); assertNull(session.consume("actually it worked"))
+        assertTrue(session.propose(proposal))
+        assertNull(session.consume("show saved commands")); assertNull(session.consume("yes"))
+        assertFalse(session.propose(proposal.copy(phrase = "which action")))
+        val memory = ValidatedCommandMemory({ "[]" }, { fail("reminder cannot become an alias"); false })
+        assertFalse(memory.recordSuccess("which action", "open_app", LearnableDeviceAction.capabilities, app.parameters))
+    }
+
 }

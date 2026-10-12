@@ -145,9 +145,11 @@ class HybridAssistantService(
             val pending = resolution.pending
             val response = when {
                 resolution.needsClarification -> {
-                    resultHistory.record(pending.phrase, pending.action.description(), IntelligenceResultHistory.Outcome.UNCLEAR,
+                    if (!resolution.reminder) resultHistory.record(pending.phrase, pending.action.description(), IntelligenceResultHistory.Outcome.UNCLEAR,
                         "Nothing learned or marked failed. The same outcome check remains pending.")
-                    "Did it work? The pending action is to ${pending.action.description()}. Say 'it worked' or 'it failed'. I'm keeping this outcome check pending; nothing was learned or marked failed."
+                    if (!pending.awaitingOutcome)
+                        "The pending request is to ${pending.action.description()}, from '${pending.phrase}'. Say yes to request it or no to cancel. Nothing has run or been learned yet."
+                    else "The pending outcome check is for ${pending.action.description()}, from '${pending.phrase}'. Check the result, then say 'it worked' or 'it failed'. I'm keeping this check pending; nothing was learned or marked failed."
                 }
                 !resolution.accepted -> {
                     if (pending.replayed && pending.awaitingOutcome) {

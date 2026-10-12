@@ -21,6 +21,7 @@ object OutcomeFeedback {
     fun parse(text: String): Result? {
         val cleaned = text.lowercase(Locale.ROOT).replace('’', '\'').trim()
             .trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
+            .replace(Regex("^(?:actually|correction)[,:]? "), "")
         return when (cleaned) {
             in success -> Result.SUCCESS
             in failure -> Result.FAILURE

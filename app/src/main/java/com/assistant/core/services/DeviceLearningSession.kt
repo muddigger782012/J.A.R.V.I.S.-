@@ -19,7 +19,7 @@ class DeviceLearningSession internal constructor(
     data class Pending(val phrase: String, val action: LearnableDeviceAction, val learnable: Boolean, val awaitingOutcome: Boolean = false, val contextual: ContextualAction? = null, val replayed: Boolean = false, val explicitTeaching: Boolean = false) {
         fun shouldLearn(automaticEnabled: Boolean) = learnable && (explicitTeaching || automaticEnabled)
     }
-    data class Resolution(val pending: Pending, val accepted: Boolean, val needsClarification: Boolean = false)
+    data class Resolution(val pending: Pending, val accepted: Boolean, val needsClarification: Boolean = false, val reminder: Boolean = false)
     enum class RequestResult { FAILED, REQUESTED_WITHOUT_TRACKING, AWAITING_OUTCOME }
 
     /** Used for local/preferred/learned actions as well as AI-interpreted ones. */
@@ -33,7 +33,7 @@ class DeviceLearningSession internal constructor(
         if (pending.explicitTeaching && (!pending.learnable || pending.replayed || pending.contextual != null)) return@synchronized false
         if (pending.replayed && (pending.learnable || !pending.awaitingOutcome)) return@synchronized false
         if (pending.contextual?.isValid() == false || !pending.action.isValid() || pending.phrase.isBlank() || pending.phrase.length > 240 ||
-            ConfirmationWords.isConfirmation(pending.phrase) || isOutcome(pending.phrase)) return@synchronized false
+            ConfirmationWords.isConfirmation(pending.phrase) || isOutcome(pending.phrase) || isReminder(pending.phrase)) return@synchronized false
         write(JSONObject().put("phrase", pending.phrase).put("capability", pending.action.capabilityId)
             .put("parameters", JSONObject(pending.action.parameters)).put("learnable", pending.learnable)
             .put("contextCapability", pending.contextual?.capabilityId)
@@ -60,6 +60,13 @@ class DeviceLearningSession internal constructor(
             if (explicit && (!json.optBoolean("learnable") || replayed || contextual != null)) return@runCatching null
             Pending(json.getString("phrase"), action, json.optBoolean("learnable"), json.optBoolean("awaitingOutcome"), contextual, replayed, explicit)
         }.getOrNull()
+        // Narrow follow-ups retain the original expiry and never authorize an action.
+        if (pending != null && isReminder(input))
+            return@synchronized Resolution(pending, false, needsClarification = true, reminder = true)
+        if (pending?.awaitingOutcome == true && isInspection(input)) return@synchronized null
+        // A bare approval cannot verify an already-requested app or timer.
+        if (pending?.awaitingOutcome == true && ConfirmationWords.approves(input))
+            return@synchronized Resolution(pending, false, needsClarification = true, reminder = true)
         // An unclear outcome retains the same pending target and original expiry.
         // It must not become either success or failure, including for learned replays.
         if (pending?.awaitingOutcome == true && OutcomeFeedback.parse(input) == OutcomeFeedback.Result.UNCLEAR)
@@ -74,5 +81,13 @@ class DeviceLearningSession internal constructor(
     companion object {
         private val lock = Any()
         fun isOutcome(text: String): Boolean = OutcomeFeedback.parse(text) != null
+        private fun followupKey(text: String) = text.lowercase(java.util.Locale.ROOT).trim()
+            .trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
+        fun isReminder(text: String): Boolean = followupKey(text) in setOf(
+            "what am i confirming", "what am i approving", "which action am i confirming",
+            "which action", "what should i check", "what was the last request"
+        )
+        private fun isInspection(text: String): Boolean = LearnedCommandReviewCommands.page(text) != null ||
+            followupKey(text) in setOf("show assistant memory", "assistant memory", "what do you remember about my apps and timers", "learning status", "show learning status", "how many commands have you learned")
     }
 }
