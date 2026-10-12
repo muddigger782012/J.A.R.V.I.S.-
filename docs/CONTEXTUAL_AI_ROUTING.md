@@ -25,3 +25,11 @@ Phone verification of these new preference proposals is pending separately from 
 Learned phrase matching treats word-internal ASCII hyphens, Unicode hyphens and nonbreaking hyphens between letters as spaces. Thus a saved `go to browser` phrase matches `go-to browser` offline without relearning. Existing stored phrases are compared with the same key; reads do not migrate or rewrite entries.
 
 Numeric signs, standalone dashes, negations and changed words/targets remain distinct. Save and deletion use the same equivalence rule. If older entries collapse to different capabilities or parameters, lookup declines all ambiguous meanings, including across per-handler allowlists, rather than selecting the most frequent one. Conflict checks block replacing an existing meaning through a hyphen variation. Preference-setting reuse still asks approval.
+
+## Local learning review and correction
+
+`Show learned commands` lists saved command phrases and intent examples in pages of 12. Use `show learned commands page 2` for another page. The list reads actual stored parameters and current assistant memory; it does not execute actions or rewrite entries. Contextual references show their current resolved app/timer, or explain missing memory. Invalid, unsupported and ambiguous saved commands are marked unavailable. Intent examples are identified separately; storage alone is not presented as proof of a physical result.
+
+The review is handled before learned aliases and is excluded from the fallback conversation history. It is not sent to the AI provider as a batch. Its controls are reserved from new learning. Existing per-request context and ordinary conversational messages retain their prior behavior.
+
+`Forget learned command <exact phrase>` removes matching local aliases/examples. Straight or curly double quotes around the phrase are accepted, as is `remove learned command`. Word-hyphen matching applies to command aliases. Forgetting a phrase does not clear approved assistant preferences or last confirmed actions, and does not disable built-in commands. Previously cached cloud conversation context is separate; this is local learned-command deletion, not a request to erase all chat history.

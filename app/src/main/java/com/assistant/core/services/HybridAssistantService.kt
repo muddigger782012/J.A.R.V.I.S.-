@@ -165,6 +165,18 @@ class HybridAssistantService(
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
+        LearnedCommandReviewCommands.page(userInput)?.let { page ->
+            pendingLearningReset = false
+            // Full local review lists must not enter the fallback conversation history.
+            return HybridAssistantReply(LearnedCommandReview.render(page, deviceMemory, assistantMemory, learningStore.snapshot()))
+        }
+        LearnedCommandReviewCommands.forgetPhrase(userInput)?.let { phrase ->
+            pendingLearningReset = false
+            val removedIntent = phrase.isNotBlank() && learningStore.forget(phrase)
+            val removedCommand = phrase.isNotBlank() && deviceMemory.forget(phrase)
+            return HybridAssistantReply(if (removedIntent || removedCommand) "Removed matching local learning for that phrase. Saved assistant preferences and recent actions remain available."
+                else "No matching learned command was removed. Check its exact phrase with 'show learned commands'.")
+        }
         if (normalized in setOf("show assistant memory", "assistant memory", "what do you remember about my apps and timers")) {
             val response = assistantMemory.summary()
             remember(userInput, response)
@@ -334,7 +346,7 @@ class HybridAssistantService(
         val teachTime = Regex("(?i)^teach (?:jarvis )?(?:that )?(.{1,200}?) (?:means|is the same as) (?:what time is it|tell me the time)[?.!]*$").matchEntire(userInput)
         if (teachTime != null) {
             val phrase = teachTime.groupValues[1].trim()
-            val reserved = normalize(phrase) in setOf("learning status", "clear local learning", "confirm learning reset")
+            val reserved = LearnedCommandReviewCommands.isReserved(phrase) || normalize(phrase) in setOf("learning status", "clear local learning", "confirm learning reset")
             val response = if (reserved || phrase.length < 3) {
                 "That phrase is reserved or too short to learn."
             } else {
@@ -358,7 +370,7 @@ class HybridAssistantService(
                 normalize(userInput).substringAfterLast(" is the same as ", "")
             }.trimEnd('?', '.', '!')
             val capability = if (target.endsWith("up") || target.startsWith("increase ")) "volume_up" else "volume_down"
-            val reserved = phrase.startsWith("teach ", ignoreCase = true) ||
+            val reserved = LearnedCommandReviewCommands.isReserved(phrase) || phrase.startsWith("teach ", ignoreCase = true) ||
                 normalize(phrase).matches(Regex(".*\\b(?:call|text|message|delete|reset|reboot|pay|purchase|send)\\b.*")) ||
                 normalize(phrase) in setOf("learning status", "clear local learning", "confirm learning reset", "cancel learning reset")
             val response = if (reserved) {
@@ -383,7 +395,7 @@ class HybridAssistantService(
         if (teachDeviceAlias != null) {
             val alias = teachDeviceAlias.groupValues[1].trim()
             val target = teachDeviceAlias.groupValues[2]
-            val reserved = LocalDeviceCommand.parse(alias) != null ||
+            val reserved = LearnedCommandReviewCommands.isReserved(alias) || LocalDeviceCommand.parse(alias) != null ||
                 alias.startsWith("teach ", ignoreCase = true) ||
                 normalize(alias).matches(Regex(".*\\b(?:call|text|message|delete|reset|reboot|pay|purchase|send)\\b.*"))
             val response = if (reserved) {
@@ -436,17 +448,9 @@ class HybridAssistantService(
         }
 
         // Learning diagnostics are handled locally, without an AI connection.
-        if (normalized in setOf("learning status", "show learning status", "how many commands have you learned", "learned commands")) {
+        if (normalized in setOf("learning status", "show learning status", "how many commands have you learned")) {
             val commandCount = com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).learnedPhraseCount()
             val response = "Local learned intent examples: ${learningStore.count()}; validated command phrases: $commandCount. Say 'forget learned command' followed by the exact phrase, or 'clear learned database on this device' to erase both local stores."
-            remember(userInput, response)
-            return HybridAssistantReply(response)
-        }
-        if (normalized.startsWith("forget learned command ")) {
-            val phrase = userInput.replace(Regex("(?i)^forget learned command\\s+"), "").trim()
-            val removedIntent = phrase.isNotBlank() && learningStore.forget(phrase)
-            val removedCommand = phrase.isNotBlank() && com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).forget(phrase)
-            val response = if (removedIntent || removedCommand) "Removed matching local learning for that phrase." else "No matching learned command was found."
             remember(userInput, response)
             return HybridAssistantReply(response)
         }

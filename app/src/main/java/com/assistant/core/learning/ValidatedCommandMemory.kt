@@ -6,6 +6,7 @@ import org.json.JSONObject
 import java.util.Locale
 import com.assistant.core.services.ConfirmationWords
 import com.assistant.core.services.DeviceLearningSession
+import com.assistant.core.services.LearnedCommandReviewCommands
 
 /**
  * Persistent, opt-in command phrase learning. This class never executes a command:
@@ -59,7 +60,7 @@ class ValidatedCommandMemory internal constructor(
     fun recordSuccess(utterance: String, capabilityId: String, allowedCapabilityIds: Set<String>, parameters: Map<String, String> = emptyMap()): Boolean =
         synchronized(lock) {
             val phrase = normalize(utterance)
-            if (phrase.isBlank() || phrase.length > 240 || ConfirmationWords.isConfirmation(utterance) || DeviceLearningSession.isOutcome(utterance) || capabilityId !in allowedCapabilityIds) return@synchronized false
+            if (phrase.isBlank() || phrase.length > 240 || ConfirmationWords.isConfirmation(utterance) || DeviceLearningSession.isOutcome(utterance) || LearnedCommandReviewCommands.isReserved(utterance) || capabilityId !in allowedCapabilityIds) return@synchronized false
             if (parameters.size > 12 || parameters.any { it.key.length > 64 || it.value.length > 256 }) return@synchronized false
             val existing = readEntries()
             val output = JSONArray()
@@ -90,6 +91,21 @@ class ValidatedCommandMemory internal constructor(
         }
         if (remaining.length() == entries.length()) return@synchronized false
         write(remaining.toString())
+    }
+
+    data class SavedPhrase(val phrase: String, val capabilityId: String, val parameters: Map<String, String>, val successes: Int)
+
+    /** Read-only copies for local inspection; no targets are executed or storage rewritten. */
+    fun snapshot(): List<SavedPhrase> = synchronized(lock) {
+        val entries = readEntries()
+        (0 until entries.length()).mapNotNull { index ->
+            runCatching {
+                val entry = entries.getJSONObject(index)
+                val params = entry.optJSONObject("parameters")
+                SavedPhrase(entry.getString("phrase"), entry.getString("capabilityId"),
+                    params?.keys()?.asSequence()?.associateWith { params.getString(it) } ?: emptyMap(), entry.optInt("successes", 1))
+            }.getOrNull()
+        }
     }
 
     fun learnedPhraseCount(): Int = synchronized(lock) { readEntries().length() }

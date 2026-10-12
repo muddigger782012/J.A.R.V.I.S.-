@@ -40,7 +40,7 @@ class IntentLearningStore(context: Context) {
         source: String = "validated_fallback"
     ) {
         val normalized = normalize(utterance)
-        if (normalized.isBlank() || normalized.length > 240 || intent.isBlank() || !FallbackLessonProtocol.supportedIntents.contains(intent)) return
+        if (LearnedCommandReviewCommands.isReserved(utterance) || normalized.isBlank() || normalized.length > 240 || intent.isBlank() || !FallbackLessonProtocol.supportedIntents.contains(intent)) return
         val all = load().toMutableList()
         // Never allow conflicting labels for the same phrase to train the router.
         if (all.any { it.utterance == normalized && it.intent != intent }) return
@@ -91,6 +91,9 @@ class IntentLearningStore(context: Context) {
             Match(winner.intent, bestScore, winner.entities, winner.source)
         } else null
     }
+
+    data class SavedExample(val phrase: String, val intent: String, val source: String, val successes: Int, val failures: Int)
+    fun snapshot(): List<SavedExample> = load().map { SavedExample(it.utterance, it.intent, it.source, it.successes, it.failures) }
 
     fun count(): Int = load().size
 
