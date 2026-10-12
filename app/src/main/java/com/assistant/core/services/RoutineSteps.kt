@@ -1,7 +1,23 @@
 package com.assistant.core.services
 
+import java.net.URLDecoder
+import java.net.URLEncoder
+
 /** Bounded stored step IDs. Timer parameters are data, never shell or executable code. */
 object RoutineSteps {
+    /** Host-generated binding. AI draft steps use open:LABEL instead. */
+    fun appStep(action: LearnableDeviceAction): String? {
+        if (!action.isValid() || action.capabilityId != "open_app") return null
+        return "app:${action.parameters.getValue("package")}:${URLEncoder.encode(action.parameters.getValue("label"), "UTF-8")}"
+    }
+
+    fun appAction(step: String): LearnableDeviceAction? = runCatching {
+        if (!step.startsWith("app:") || step.length > 1100) return@runCatching null
+        val fields = step.split(':', limit = 3)
+        if (fields.size != 3) return@runCatching null
+        val action = LearnableDeviceAction("open_app", mapOf("package" to fields[1], "label" to URLDecoder.decode(fields[2], "UTF-8")))
+        action.takeIf { it.isValid() && appStep(it) == step }
+    }.getOrNull()
     fun timerAction(step: String): LearnableDeviceAction? {
         val seconds = Regex("^timer:([1-9][0-9]{0,4})$").matchEntire(step)?.groupValues?.get(1) ?: return null
         return LearnableDeviceAction("timer", mapOf("seconds" to seconds)).takeIf { it.isValid() }
@@ -17,8 +33,8 @@ object RoutineSteps {
 
     fun isValid(steps: List<String>): Boolean {
         if (steps.size !in 1..3 || steps.distinct().size != steps.size) return false
-        if (steps.any { it !in setOf("volume_up", "volume_down", "app_update") && timerAction(it) == null && preferredSlot(it) == null }) return false
-        val targets = steps.filter { timerAction(it) != null || preferredSlot(it) != null }
+        if (steps.any { it !in setOf("volume_up", "volume_down", "app_update") && timerAction(it) == null && preferredSlot(it) == null && appAction(it) == null }) return false
+        val targets = steps.filter { timerAction(it) != null || preferredSlot(it) != null || appAction(it) != null }
         return targets.isEmpty() || (targets.size == 1 && steps.last() == targets.single() && "app_update" !in steps)
     }
 }
@@ -26,7 +42,7 @@ object RoutineSteps {
 /** Executes approved steps in order; a failed step stops the remaining actions. */
 object RoutineExecution {
     enum class Status { VERIFIED, REQUESTED, AWAITING_OUTCOME, REQUESTED_WITHOUT_TRACKING, FAILED }
-    data class Result(val steps: List<Pair<String, Status>>, val unavailablePreferred: Boolean = false) {
+    data class Result(val steps: List<Pair<String, Status>>, val unavailablePreferred: Boolean = false, val unavailableApp: Boolean = false) {
         val awaitingOutcome get() = steps.any { it.second == Status.AWAITING_OUTCOME }
         val missingOutcomeTracking get() = steps.any { it.second == Status.REQUESTED_WITHOUT_TRACKING }
     }
@@ -37,7 +53,11 @@ object RoutineExecution {
         val preferredStep = steps.firstOrNull { RoutineSteps.preferredSlot(it) != null }
         val target = preferredStep?.let { RoutineSteps.preferredAction(it, memory, canLaunch) }
         if (preferredStep != null && target == null) return Result(emptyList(), unavailablePreferred = true)
-        return run(steps) { step -> execute(step, target.takeIf { step == preferredStep }) }
+        val appStep = steps.firstOrNull { RoutineSteps.appAction(it) != null }
+        val app = appStep?.let(RoutineSteps::appAction)
+        if (app != null && !runCatching { canLaunch(app.parameters.getValue("package")) }.getOrDefault(false))
+            return Result(emptyList(), unavailableApp = true)
+        return run(steps) { step -> execute(step, if (step == appStep) app else target.takeIf { step == preferredStep }) }
     }
 
     fun run(steps: List<String>, execute: (String) -> Status): Result {

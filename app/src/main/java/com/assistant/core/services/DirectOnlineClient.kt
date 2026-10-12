@@ -232,14 +232,18 @@ class DirectOnlineClient(context: Context) {
             For an explicit request to CREATE a named routine or shortcut from supported steps, return
             {"intent":"CREATE_ROUTINE","confidence":0.95,"entities":{"phrase":"quiet time","steps":"volume_down"},"learnable":true}.
             Example: "create a routine called quiet time that lowers media volume" proposes the name quiet time and step volume_down.
-            Steps is a comma-separated string of 1..3 distinct existing handlers: volume_up, volume_down, app_update, timer:SECONDS, preferred:SLOT.
+            Steps is a comma-separated string of 1..3 distinct existing handlers: volume_up, volume_down, app_update, timer:SECONDS, preferred:SLOT, open:APP_NAME.
             A timer needs an explicit duration of 1..86400 seconds, without leading zeros. At most ONE timer is allowed,
             and it must be the LAST step. A timer and app_update cannot appear in the same routine.
             Preferred-app steps use preferred:browser, preferred:maps or preferred:music, ONLY if that approved slot
             exists in supplied preferred_apps context. This is a reference to the current saved preference, not a literal app name.
-            At most ONE timer OR preferred-app step is allowed, LAST, and neither can share a routine with app_update.
+            At most ONE timer OR app step (preferred or named) is allowed, LAST, and none can share a routine with app_update.
             Example: "create a routine called browse mode that lowers volume then opens my preferred browser"
             proposes phrase "browse mode", steps "volume_down,preferred:browser". Missing preferences require clarification, lesson:null.
+            For a specifically named installed app use open:APP_NAME with the actual requested launcher name, e.g. open:Chrome.
+            Example: "create a routine called chrome time that lowers volume then opens Chrome" proposes "volume_down,open:Chrome".
+            Do not invent an app name or substitute a preferred slot. Names containing commas require clarification, lesson:null.
+            The host resolves a unique installed app locally and binds it before review. Never emit app:PACKAGE bindings.
             The host checks launchability before approval and before any step runs. App launches require user outcome verification.
             Do not choose arbitrary packages, invent preferences or translate a named app into an unrelated preferred slot.
             Example: "create a routine called focus time that lowers volume then starts a five-minute timer"

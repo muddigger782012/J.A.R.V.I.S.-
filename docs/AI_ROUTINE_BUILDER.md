@@ -33,3 +33,13 @@ An app-launch request is not a verified result. Its local pending outcome contai
 Phone check: create “browse mode” to lower volume then open the preferred browser, review, confirm. Offline invoke it with volume above minimum, check the launched app, and report `it works`. Change the browser preference through its separate approval flow and repeat: the routine should use the newly approved app. Clearing preferences should prevent all routine steps.
 
 User reported success for timer composition in 3.5.354. Preferred-app composition requires its own phone verification.
+
+## Named installed-app composition
+
+AI drafts may now propose a final `open:APP_NAME` using the exact user-requested launcher label. For example: “Create a routine called chrome time that lowers media volume then opens Chrome.” The host resolves one uniquely named launcher app, converts it to a package/label binding before review, and accepts only the same strict routine approval flow. AI-supplied package bindings are rejected; unsupported/ambiguous/uninstalled labels, multiple target steps, non-final targets and updater combinations fail without executing or saving. App names containing commas cannot be represented by this draft schema and require clarification. Stored labels are canonically URL-encoded to preserve separators and Unicode safely.
+
+Unlike preferred-app routines, named-app routines keep the approved package. Changing the browser preference does not redirect them. Creation and approval check launchability; execution preflights the bound package before any side effect. Unavailable apps block all steps and are not silently replaced with another app. Saving never launches anything. Offline invocation requests the bound app through the existing outcome tracking; only user-confirmed success records recent context. The routine name remains a routine, not a single-app learned alias. Dashboard and chat routine previews show human-readable app labels.
+
+Regression tests cover local binding, approval/restart persistence, rejection of AI packages and ambiguous labels, strict target order, encoded label validation, missing-app preflight and independence from changing preferences. Existing timer/preferred-app tests retain their behavior. Phone check: online create the chrome time routine, review and `confirm routine`; verify saving did not launch Chrome. Offline say `chrome time` with media volume above minimum. Check Chrome opened, return and say `it worked`; confirm result history and recent-action memory show Chrome.
+
+Phone evidence through 3.5.358: volume, timer and preferred-app routine stages were user-reported successful; Gemini diagnostic and new result-history check also succeeded. Named installed-app composition needs its own phone test.
