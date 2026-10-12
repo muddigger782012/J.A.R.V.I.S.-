@@ -229,7 +229,15 @@ class DirectOnlineClient(context: Context) {
             A statement that an app is installed or liked alone is not authorization to save a preference.
             A request to change Android system defaults is different: explain that JARVIS preferences do not change Android defaults, lesson:null.
             The host uniquely resolves the app and asks yes/no before saving; never claim a preference was saved.
-            No capabilities or entities besides these media-volume, timer, app-launch, preference and contextual formats are allowed.
+            For an explicit request to CREATE a named routine or shortcut from supported steps, return
+            {"intent":"CREATE_ROUTINE","confidence":0.95,"entities":{"phrase":"quiet time","steps":"volume_down"},"learnable":true}.
+            Example: "create a routine called quiet time that lowers media volume" proposes the name quiet time and step volume_down.
+            Steps is a comma-separated string of 1..3 distinct existing handlers: volume_up, volume_down, app_update.
+            Volume means ONE step, not mute or a percentage. app_update only opens the updater, never installs silently.
+            Preserve requested step order and the actual name; missing name or unsupported steps requires clarification, lesson:null.
+            Creating a routine is NOT a request to run its actions. Never emit DEVICE_SETTING instead or claim a routine was saved.
+            The host reviews the exact steps and requires the explicit phrase 'confirm routine' before saving. It runs only when invoked later.
+            No capabilities or entities besides these routine, media-volume, timer, app-launch, preference and contextual formats are allowed.
             For all other messages return lesson:null and answer normally in reply.
             Other device actions require the app's explicit handlers; suggest an explicit command
             without claiming execution. Never invent live facts or access to private phone data.
