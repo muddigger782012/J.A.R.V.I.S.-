@@ -14,7 +14,6 @@ class ApprovedRoutineRegistry internal constructor(private val readValue: () -> 
         { context.applicationContext.getSharedPreferences("jarvis_approved_routines", Context.MODE_PRIVATE).getString("routines", "[]") ?: "[]" },
         { value -> context.applicationContext.getSharedPreferences("jarvis_approved_routines", Context.MODE_PRIVATE).edit().putString("routines", value).commit() }
     )
-    private val allowed = capabilities
     private val maxRoutines = 50
 
     data class Routine(val phrase: String, val actions: List<String>)
@@ -24,8 +23,7 @@ class ApprovedRoutineRegistry internal constructor(private val readValue: () -> 
 
     fun propose(phrase: String, actions: List<String>): Routine? {
         val key = normalize(phrase)
-        if (!com.assistant.core.services.RoutineProposal.isUsableName(key) || key.length !in 3..120 || actions.size !in 1..5 ||
-            actions.any { it !in allowed } || actions.distinct().size != actions.size ||
+        if (!com.assistant.core.services.RoutineProposal.isUsableName(key) || key.length !in 3..120 || !com.assistant.core.services.RoutineSteps.isValid(actions) ||
             key.startsWith("teach ") || key.startsWith("confirm ") ||
             key.startsWith("delete ") || key.startsWith("reset ") ||
             key.startsWith("forget ") || key.startsWith("cancel ") ||

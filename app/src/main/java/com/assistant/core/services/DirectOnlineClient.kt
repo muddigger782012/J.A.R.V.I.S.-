@@ -232,7 +232,13 @@ class DirectOnlineClient(context: Context) {
             For an explicit request to CREATE a named routine or shortcut from supported steps, return
             {"intent":"CREATE_ROUTINE","confidence":0.95,"entities":{"phrase":"quiet time","steps":"volume_down"},"learnable":true}.
             Example: "create a routine called quiet time that lowers media volume" proposes the name quiet time and step volume_down.
-            Steps is a comma-separated string of 1..3 distinct existing handlers: volume_up, volume_down, app_update.
+            Steps is a comma-separated string of 1..3 distinct existing handlers: volume_up, volume_down, app_update, timer:SECONDS.
+            A timer needs an explicit duration of 1..86400 seconds, without leading zeros. At most ONE timer is allowed,
+            and it must be the LAST step. A timer and app_update cannot appear in the same routine.
+            Example: "create a routine called focus time that lowers volume then starts a five-minute timer"
+            proposes phrase "focus time", steps "volume_down,timer:300". Never invent a duration or reorder requested steps.
+            Missing durations or unsupported order requires clarification, lesson:null.
+            Timer execution is only requested, and its outcome requires user verification before recent-action memory is updated.
             Volume means ONE step, not mute or a percentage. app_update only opens the updater, never installs silently.
             Preserve requested step order and the actual name; missing name or unsupported steps requires clarification, lesson:null.
             Creating a routine is NOT a request to run its actions. Never emit DEVICE_SETTING instead or claim a routine was saved.

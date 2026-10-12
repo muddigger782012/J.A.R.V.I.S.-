@@ -331,24 +331,42 @@ class HybridAssistantService(
             }
         }
         routineRegistry.find(userInput)?.let { routine ->
-            val results = mutableListOf<String>()
-            for (action in routine.actions) {
-                val ok = when (action) {
-                    "volume_up" -> androidAssistant.adjustVolume(android.media.AudioManager.ADJUST_RAISE)
-                    "volume_down" -> androidAssistant.adjustVolume(android.media.AudioManager.ADJUST_LOWER)
-                    "app_update" -> runCatching {
+            val outcome = RoutineExecution.run(routine.actions) { step ->
+                val timer = RoutineSteps.timerAction(step)
+                if (timer != null) {
+                    when (deviceLearningSession.requestAndTrack(routine.phrase, timer) { requestDeviceAction(timer) }) {
+                        DeviceLearningSession.RequestResult.FAILED -> RoutineExecution.Status.FAILED
+                        DeviceLearningSession.RequestResult.AWAITING_OUTCOME -> RoutineExecution.Status.AWAITING_OUTCOME
+                        DeviceLearningSession.RequestResult.REQUESTED_WITHOUT_TRACKING -> RoutineExecution.Status.REQUESTED_WITHOUT_TRACKING
+                    }
+                } else when (step) {
+                    "volume_up", "volume_down" -> if (androidAssistant.adjustVolume(
+                        if (step == "volume_up") android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER))
+                        RoutineExecution.Status.VERIFIED else RoutineExecution.Status.FAILED
+                    "app_update" -> if (runCatching {
                         val context = systemService.context()
                         context.startActivity(android.content.Intent(context, com.assistant.core.MainActivity::class.java)
                             .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
                             .putExtra("jarvis_feature", "app_update"))
-                    }.isSuccess
-                    else -> false
+                    }.isSuccess) RoutineExecution.Status.REQUESTED else RoutineExecution.Status.FAILED
+                    else -> RoutineExecution.Status.FAILED
                 }
-                results.add("$action: ${if (!ok) "failed" else if (action == "app_update") "requested" else "changed and verified"}")
-                if (!ok) break
             }
-            val response = "Routine '${routine.phrase}': ${results.joinToString("; ")}." +
-                if ("app_update" in routine.actions) " Android may still require approval for installation." else ""
+            val results = outcome.steps.joinToString("; ") { (step, status) ->
+                RoutineProposal.describe(step) + ": " + when (status) {
+                    RoutineExecution.Status.VERIFIED -> "changed and verified"
+                    RoutineExecution.Status.REQUESTED -> "requested"
+                    RoutineExecution.Status.AWAITING_OUTCOME -> "requested; awaiting your outcome check"
+                    RoutineExecution.Status.REQUESTED_WITHOUT_TRACKING -> "requested; outcome tracking unavailable"
+                    RoutineExecution.Status.FAILED -> "failed; remaining steps stopped"
+                }
+            }
+            val response = "Routine '${routine.phrase}': $results." + when {
+                outcome.awaitingOutcome -> " Check the timer, then say 'it worked' to remember its duration as your last confirmed action, or 'it failed' to discard the result. The routine's approved steps remain saved."
+                outcome.missingOutcomeTracking -> " The timer was requested, but its outcome could not be retained. No recent-action memory was saved."
+                "app_update" in routine.actions -> " Android may still require approval for installation."
+                else -> ""
+            }
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -879,7 +897,7 @@ class HybridAssistantService(
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson)
         if (RoutineProposal.isCreationRequest(userText)) {
             if (lesson?.intent != "CREATE_ROUTINE")
-                return "I couldn't produce a supported routine definition. Give a name and explicit steps: volume up/down one step or opening the updater. Nothing was saved or run."
+                return "I couldn't produce a supported routine definition. Give a name and explicit steps: volume up/down one step, opening the updater, or a timer with an explicit duration. Nothing was saved or run."
             return proposeFallbackDeviceAction(userText, lessonJson)
         }
         if (lesson?.intent == "CREATE_ROUTINE")
@@ -898,7 +916,7 @@ class HybridAssistantService(
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson) ?: return null
         if (lesson.intent == "CREATE_ROUTINE") {
             val routine = RoutineProposal.fromLesson(lesson)
-                ?: return "I couldn't approve that routine definition. Supported steps are media volume up/down one step and opening the updater. Choose a short routine name and explicit steps. Nothing was saved or run."
+                ?: return "I couldn't approve that routine definition. Supported steps are media volume up/down one step, opening the updater, or a final timer from 1 second to 24 hours. Choose a short routine name and explicit steps. Nothing was saved or run."
             return proposeRoutine(routine.phrase, routine.actions)
         }
         if (lesson.intent == "SET_APP_PREFERENCE") {
@@ -928,7 +946,7 @@ class HybridAssistantService(
 
     private fun proposeRoutine(phrase: String, actions: List<String>): String {
         val proposal = routineRegistry.propose(phrase, actions)
-            ?: return "That routine uses an unsupported step or reserved name. Supported steps are volume up, volume down and opening the updater. Nothing was saved or run."
+            ?: return "That routine uses an unsupported step or reserved name. Supported steps are volume up, volume down, opening the updater, and a final timer from 1 second to 24 hours. Nothing was saved or run."
         val commands = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
         if (routineNameIsLearned(proposal.phrase, commands))
             return "That name is already a learned phrase. Choose a different routine name. Nothing was saved or run."

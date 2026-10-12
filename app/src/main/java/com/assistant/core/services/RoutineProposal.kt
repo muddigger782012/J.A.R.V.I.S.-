@@ -13,8 +13,7 @@ object RoutineProposal {
         if (!lesson.canTeachLocally() || lesson.intent != "CREATE_ROUTINE" || lesson.entities.keys != setOf("phrase", "steps")) return null
         val phrase = lesson.entities.getValue("phrase").lowercase(Locale.ROOT).trim().replace(Regex("\\s+"), " ")
         val steps = lesson.entities.getValue("steps").split(',').map { it.trim() }
-        if (!isUsableName(phrase) || steps.size !in 1..3 || steps.distinct().size != steps.size ||
-            steps.any { it !in ApprovedRoutineRegistry.capabilities }) return null
+        if (!isUsableName(phrase) || !RoutineSteps.isValid(steps)) return null
         return ApprovedRoutineRegistry.Routine(phrase, steps)
     }
 
@@ -35,6 +34,6 @@ object RoutineProposal {
         "volume_up" -> "raise media volume one step"
         "volume_down" -> "lower media volume one step"
         "app_update" -> "open the J.A.R.V.I.S. updater (Android installation approval still required)"
-        else -> "unsupported step"
+        else -> RoutineSteps.timerAction(action)?.description() ?: "unsupported step"
     }
 }
