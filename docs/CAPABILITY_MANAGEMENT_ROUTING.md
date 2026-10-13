@@ -1,7 +1,0 @@
-# Capability management speech boundary
-
-Phone screenshots after 3.5.379 showed “Troy capability request” and “Dry capability request” reaching the ordinary timer parser and immediately requesting a 600-second timer. Timer execution and reported-success memory worked, but these transcripts did not verify the trial approval gate.
-
-Malformed text containing the capability-request marker now returns local clarification before pending prompts, learned aliases, device parsers, explicit provider routing or AI fallback. It does not guess a corrected control or run the embedded description. Such wording is also reserved against learned aliases and fallback training. Previous approval/outcome sessions are cleared without a success/failure report. Exact recognized management commands keep their existing behavior, including exact saved-description lookup; “start timer” and “start a timer” remain distinct backlog entries.
-
-Phone test: with `start timer for 10 minutes` saved, type `Troy capability request start a timer for 10 minutes` and `Dry capability request start a timer for 10 minutes`. Neither should start a timer. Say yes afterward: there should be no pending approval. Then type `try capability request start timer for 10 minutes`: it must ask yes/no before execution. Test no, repeat, test yes and verify the timer before reporting `it worked`. The backlog remains unchanged and no management-command alias is learned. This routing fix awaits phone verification.

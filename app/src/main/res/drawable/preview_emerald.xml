@@ -1,4 +1,0 @@
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item><shape><gradient android:angle="0" android:startColor="#0A3020" android:centerColor="#174B3A" android:endColor="#22614B" /><corners android:radius="4dp" /></shape></item>
-    <item android:left="16dp" android:right="16dp" android:top="14dp" android:bottom="14dp"><shape><stroke android:width="1dp" android:color="#A0F0BD" /><corners android:radius="4dp" /></shape></item>
-</layer-list>

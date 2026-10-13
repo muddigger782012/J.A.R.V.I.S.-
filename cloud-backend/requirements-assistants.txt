@@ -1,2 +1,0 @@
--r requirements.txt
-websockets>=14,<16
