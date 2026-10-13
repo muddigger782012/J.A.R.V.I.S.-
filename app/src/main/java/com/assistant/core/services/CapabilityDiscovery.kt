@@ -21,7 +21,14 @@ object CapabilityDiscovery {
         .matchEntire(clean(text))?.groupValues?.get(1)?.trim()?.removeSurrounding("\"")
     fun trial(text: String): String? = Regex("(?i)^try capability request(?: (.*))?$")
         .matchEntire(clean(text))?.groupValues?.get(1)?.trim()?.removeSurrounding("\"")
-    fun isControl(text: String) = isHelp(text) || page(text) != null || request(text) != null || forget(text) != null || review(text) != null || trial(text) != null
+    private fun isRecognizedControl(text: String) = isHelp(text) || page(text) != null || request(text) != null || forget(text) != null || review(text) != null || trial(text) != null
+    // The embedded action is data even when speech recognition loses the leading verb.
+    fun isManagementText(text: String): Boolean =
+        Regex("(?i)\\bcapability[\\s-]+requests?\\b").containsMatchIn(text) ||
+            Regex("(?i)\\b(?:request|propose) (?:a )?(?:new )?capability\\b").containsMatchIn(clean(text))
+    fun needsClarification(text: String) = isManagementText(text) && !isRecognizedControl(text)
+    fun isControl(text: String) = isRecognizedControl(text) || isManagementText(text)
+    fun clarification(): String = "I heard capability-request wording, but couldn't match a management command. Type 'try capability request' followed by the exact description from 'show capability requests'. Nothing was run or approved; earlier approvals and outcome checks were cleared."
 
     fun help(): String = """Available local learning workflows:
         |• Media volume: set media volume to 25%; exact levels use device readback.

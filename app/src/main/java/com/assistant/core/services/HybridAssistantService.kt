@@ -52,6 +52,18 @@ class HybridAssistantService(
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
+        // Run before pending prompts, learned aliases, permissive local parsers or AI.
+        // A misheard control must not execute the timer/app embedded in its description.
+        if (CapabilityDiscovery.needsClarification(userInput)) {
+            routineConfirmations.consume("")
+            volumeConfirmations.consume("")
+            deviceLearningSession.consume("")
+            preferenceConfirmations.consume("")
+            pendingPrompt = PendingPrompt.NONE
+            pendingShellCommand = null
+            pendingLearningReset = false
+            return HybridAssistantReply(CapabilityDiscovery.clarification())
+        }
         val normalized = normalize(userInput)
         routineConfirmations.consume(userInput)?.let { resolution ->
             pendingPrompt = PendingPrompt.NONE
@@ -956,6 +968,10 @@ class HybridAssistantService(
     }
 
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+        if (CapabilityDiscovery.needsClarification(rawInput)) {
+            callback(handleUserInput(rawInput))
+            return
+        }
         AssistantConnectionProtocol.parse(rawInput)?.let { request ->
             routineConfirmations.consume("")
             Thread {
@@ -1025,6 +1041,7 @@ class HybridAssistantService(
     }
 
     private fun proposeCloudAction(userText: String, lessonJson: String?): String? {
+        if (CapabilityDiscovery.isManagementText(userText)) return CapabilityDiscovery.clarification()
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson)
         if (RoutineProposal.isCreationRequest(userText)) {
             if (lesson?.intent != "CREATE_ROUTINE")
@@ -1181,6 +1198,7 @@ class HybridAssistantService(
      * JARVIS capability/policy routing.
      */
     fun acceptFallbackLesson(userText: String, lessonJson: String): Boolean {
+        if (CapabilityDiscovery.isControl(userText)) return false
         val lesson = FallbackIntentLesson.fromJson(lessonJson) ?: return false
         if (!LearningAdmissionPolicy.canRecordWithoutActionResult(lesson)) return false
         val before = learningStore.count()
