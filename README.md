@@ -1,7 +1,7 @@
 # Jarvis Keyboard updates
 
-Latest: 1.10 (version code 11).
+Latest: 1.11 (versionCode 12). Adds Text editing: repeating cursor arrows, line start/end, Select All, Copy, Cut and Paste. Preserves the circuit/honeycomb skin and existing settings.
 
-Signed keyboard APKs and latest.json are distributed on this branch. Version 1.10 adds automatic sentence capitalization and double-tap Space punctuation, with independent switches in settings. Automatic downloads use the version feed, APK hash and signing identity checks. Android's install permission/confirmation fallback remains available.
+Open Jarvis Keyboard > Updates to check and download. Android may require installation confirmation or install-source permission. Feed/APK validation is performed before installation.
 
-Retain versioned APK filenames when publishing future releases. Never upload signing keys or the private source archive. This distribution branch is separate from the main Jarvis application.
+Signed APKs and latest.json only. Application source and signing keys remain private. This distribution branch is separate from the main Jarvis application.
