@@ -52,6 +52,16 @@ class HybridAssistantService(
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
+        if (GeminiFailureMemory.isQuestion(userInput)) {
+            routineConfirmations.consume("")
+            volumeConfirmations.consume("")
+            deviceLearningSession.consume(userInput)
+            preferenceConfirmations.consume("")
+            pendingPrompt = PendingPrompt.NONE
+            pendingShellCommand = null
+            pendingLearningReset = false
+            return HybridAssistantReply(GeminiFailureMemory(systemService.context()).explain())
+        }
         // Run before pending prompts, learned aliases, permissive local parsers or AI.
         // A misheard control must not execute the timer/app embedded in its description.
         if (CapabilityDiscovery.needsClarification(userInput)) {
@@ -256,7 +266,6 @@ class HybridAssistantService(
             return HybridAssistantReply("No action is awaiting yes/no approval. State the action you want, such as 'open Chrome'. Nothing was changed.")
         }
         // Discovery controls are local. Requested features never enter AI history or learning.
-        if (GeminiFailureMemory.isQuestion(userInput)) return HybridAssistantReply(GeminiFailureMemory(systemService.context()).explain())
         if (CapabilityDiscovery.isHelp(userInput)) return HybridAssistantReply(CapabilityDiscovery.help())
         val capabilityRequests = CapabilityRequestStore(systemService.context())
         CapabilityDiscovery.page(userInput)?.let { page ->
