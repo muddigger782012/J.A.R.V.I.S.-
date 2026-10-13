@@ -50,9 +50,31 @@ class VoicePlaybackUiTest {
             controller.loopMainThreadUntilIdle()
         }
     }
+    /** Cold emulator setup can leave another window above the resumed target. */
+    private fun focusSettings(scenario: ActivityScenario<AssistantVoiceSettingsActivity>) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.uiAutomation.executeShellCommand("input keyevent KEYCODE_WAKEUP").close()
+        scenario.onActivity { activity ->
+            activity.setShowWhenLocked(true)
+            activity.setTurnScreenOn(true)
+            if (!activity.hasWindowFocus()) activity.startActivity(android.content.Intent(activity, AssistantVoiceSettingsActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP))
+        }
+        val focused = AtomicBoolean(false)
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
+        while (!focused.get() && System.nanoTime() < deadline) {
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { focused.set(it.hasWindowFocus()) }
+            if (!focused.get()) Thread.sleep(100)
+        }
+        assertTrue("Voice settings must have window focus before real Espresso clicks", focused.get())
+    }
+
     @Test fun pickingAndSavingEveryMaleVoiceKeepsSettingsOpen() {
         ActivityScenario.launch(AssistantVoiceSettingsActivity::class.java).use { scenario ->
+            focusSettings(scenario)
             for ((index, id) in listOf(R.id.maleGeorge, R.id.maleLewis, R.id.maleMichael).withIndex()) {
+                focusSettings(scenario)
                 onView(withId(id)).perform(reveal(), click()).check(matches(isChecked()))
                 onView(withId(R.id.btnUseAssistantVoice)).perform(reveal(), click())
                 scenario.onActivity {

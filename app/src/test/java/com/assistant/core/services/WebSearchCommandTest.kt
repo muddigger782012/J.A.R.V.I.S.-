@@ -57,4 +57,22 @@ class WebSearchCommandTest {
         assertNull(WebSearchCommand.downloadFollowupQuery("Don't search for downloadable links", previous))
         assertNull(WebSearchCommand.downloadFollowupQuery("Can you install it?", previous))
     }
+
+    @Test fun videoTitlesAndLinkFollowupsUseOnlyThePreviousExplicitTarget() {
+        val previous = "Play diesel repair video"
+        assertEquals("diesel repair", WebSearchCommand.videoQuery(previous))
+        assertEquals("diesel repair", WebSearchCommand.videoQuery("Find me diesel repair videos"))
+        assertEquals("diesel repair", WebSearchCommand.videoQuery("Find me a link to diesel repair video"))
+        assertEquals("diesel repair", WebSearchCommand.videoFollowupQuery("Find me a link to the video instead", previous))
+        assertEquals("welding", WebSearchCommand.videoFollowupQuery("Could you get a link to that video?", "Show me a video about welding"))
+        assertNull(WebSearchCommand.videoQuery("Play Jarvis"))
+        assertNull(WebSearchCommand.videoQuery("Play the video"))
+        assertNull(WebSearchCommand.videoQuery("Find me a link to the video instead"))
+        assertNull(WebSearchCommand.videoFollowupQuery("Find me a link to the video instead", "Open Chrome"))
+        assertNull(WebSearchCommand.videoFollowupQuery("Find me a link to the video instead", null))
+        assertNull(WebSearchCommand.videoFollowupQuery("Don't find me a link to the video", previous))
+        assertNull(WebSearchCommand.videoFollowupQuery("Find me a link to the video and open Chrome", previous))
+        assertNull(WebSearchCommand.videoFollowupQuery("Install it instead", previous))
+        assertNull(WebSearchCommand.videoQuery("Play " + "x".repeat(301) + " video"))
+    }
 }

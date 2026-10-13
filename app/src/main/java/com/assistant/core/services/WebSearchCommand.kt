@@ -9,8 +9,29 @@ object WebSearchCommand {
         ).matchEntire(input.trim())?.groupValues?.get(1)
         val suffix = Regex("""^(?:please\s+)?search\s+(?:the\s+)?web\s+for\s+(.+?)\s+videos?$""", RegexOption.IGNORE_CASE)
             .matchEntire(input.trim())?.groupValues?.get(1)
-        return (direct ?: suffix)?.trim()?.trimEnd('.', '?', '!')?.trim()?.takeIf { it.length in 2..300 }
+        return (direct ?: suffix ?: videoTitleRequest(input))?.trim()?.trimEnd('.', '?', '!')?.trim()?.takeIf { it.length in 2..300 }
     }
+
+    /** A play request with an explicit video target opens search results, not autoplay. */
+    private fun videoTitleRequest(input: String): String? {
+        if (isVideoLinkFollowup(input)) return null
+        val match = Regex(
+            """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:play|find|show|get|locate)\s+(?:me\s+)?(?:(?:(?:a|the)\s+)?(?:link|url)\s+(?:to|for)\s+)?(.+?)\s+(?:videos?|clips?)[.!?]*$""",
+            RegexOption.IGNORE_CASE
+        ).matchEntire(input.trim()) ?: return null
+        val topic = match.groupValues[1].trim()
+        return topic.takeIf { it.length in 2..300 && it.lowercase(java.util.Locale.ROOT) !in setOf("the", "this", "that", "a", "it") &&
+            !Regex("(?i)^(?:a |the )?(?:link|url)\\b").containsMatchIn(it) }
+    }
+
+    fun isVideoLinkFollowup(input: String): Boolean = Regex(
+        """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:find|show|get|send)\s+(?:me\s+)?(?:a\s+|the\s+)?(?:link|url)\s+(?:to|for)\s+(?:(?:the|that|this)\s+)?(?:video|clip)(?:\s+instead)?[.!?]*$""",
+        RegexOption.IGNORE_CASE
+    ).matches(input.trim())
+
+    /** Resolve only the preceding user's explicit video target, never assistant-generated links. */
+    fun videoFollowupQuery(input: String, previousInput: String?): String? =
+        if (isVideoLinkFollowup(input)) previousInput?.let(::videoQuery) else null
 
     private val search = Regex(
         """^(?:please\s+)?(?:search\s+(?:the\s+)?web\s+for|search\s+(?:online\s+)?for|google|look\s+up(?:\s+online)?|find\s+(?:me\s+)?(?:information|info)\s+(?:about|on))(?:\s+)(.+)$""",
