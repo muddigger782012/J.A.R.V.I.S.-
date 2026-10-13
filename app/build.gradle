@@ -39,6 +39,8 @@ android {
         }
     }
 
+    testBuildType System.getenv("JARVIS_TEST_BUILD_TYPE") ?: "debug"
+
     buildTypes {
         release {
             signingConfig signingConfigs.release
@@ -48,6 +50,17 @@ android {
                 getDefaultProguardFile('proguard-android-optimize.txt'),
                 "proguard-rules.pro"
             )
+        }
+    }
+
+    buildTypes {
+        voiceCheck {
+            initWith release
+            signingConfig signingConfigs.debug
+            debuggable false
+            matchingFallbacks = ["release"]
+            // Instrumentation's Kotlin references are not visible to the host R8 pass.
+            proguardFiles "voice-test-host.pro"
         }
     }
 

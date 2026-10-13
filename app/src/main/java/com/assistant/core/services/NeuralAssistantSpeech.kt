@@ -42,11 +42,13 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                     val key = if (cachePhrase) cache.key(fingerprint, voice.id, chunk) else null
                     val cached = key?.let(cache::read)
                     val audio = cached ?: run {
+                        NeuralVoiceDiagnostics.record(app, source, voice.id, "initializing_model")
                         val synthesizer = engine ?: OfflineTts(config = configuration(pack.root)).also { engine = it }
                         if (generation.get() != token || closed) return@execute
-                        val generated = synthesizer.generateWithCallback(chunk, sid = voice.speaker, speed = 1.0f) {
-                            if (generation.get() == token && !closed) 1 else 0
-                        }
+                        NeuralVoiceDiagnostics.record(app, source, voice.id, "generating_audio")
+                        // Avoid the native-to-JVM callback boundary. Stop invalidates the token;
+                        // a cancelled chunk is discarded before any playback or caching.
+                        val generated = synthesizer.generate(chunk, sid = voice.speaker, speed = 1.0f)
                         NeuralSpeechCache.Clip(generated.sampleRate, generated.samples)
                     }
                     if (cached != null) cacheHits++
@@ -66,7 +68,7 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                 main.post { if (generation.get() == token && !closed) done() }
             } catch (failure: Throwable) {
                 if (generation.get() == token && !closed) {
-                    NeuralVoiceDiagnostics.record(app, source, voice.id, "error", firstAudioMs, cacheHits, failure.javaClass.simpleName)
+                    NeuralVoiceDiagnostics.record(app, source, voice.id, "error", firstAudioMs, cacheHits, "${failure.javaClass.simpleName}: ${failure.message.orEmpty()}")
                     terminalRecorded = true
                     main.post { if (generation.get() == token && !closed) error(failure.javaClass.simpleName) }
                 }

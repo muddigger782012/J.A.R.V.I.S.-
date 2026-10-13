@@ -40,6 +40,18 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
             selectedName = preferences.voiceName(selected)
             updateVoice()
         }
+        findViewById<RadioGroup>(R.id.maleVoiceChoices).setOnCheckedChangeListener { _, id ->
+            val voice = when (id) {
+                R.id.maleLewis -> "kokoro-v019:lewis"
+                R.id.maleMichael -> "kokoro-v019:michael"
+                else -> "kokoro-v019:george"
+            }
+            if (selectedName != voice) {
+                stopPreview()
+                selectedName = voice
+                updateVoice()
+            }
+        }
         findViewById<Button>(R.id.btnCloseAssistantVoice).setOnClickListener { finish() }
         findViewById<Button>(R.id.btnPreviewAssistantVoice).setOnClickListener {
             if (previewing) stopPreview() else preview()
@@ -210,6 +222,9 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
         if (installing) return false
         val pack = com.assistant.core.services.NeuralVoicePack(this)
         val original = selected == AssistantVoiceProfile.ORIGINAL
+        val choices = findViewById<RadioGroup>(R.id.maleVoiceChoices)
+        choices.visibility = if (original) android.view.View.VISIBLE else android.view.View.GONE
+        findViewById<Button>(R.id.btnChooseAssistantVoice).visibility = if (original) android.view.View.GONE else android.view.View.VISIBLE
         val download = findViewById<Button>(R.id.btnDownloadNeuralVoice)
         download.visibility = if (original && !pack.installed()) android.view.View.VISIBLE else android.view.View.GONE
         download.isEnabled = pack.available()
@@ -217,6 +232,7 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
         if (original) {
             val voice = com.assistant.core.services.NeuralVoiceCatalog.resolve(selectedName)
             selectedName = voice.id
+            choices.check(when (voice.speaker) { 10 -> R.id.maleLewis; 6 -> R.id.maleMichael; else -> R.id.maleGeorge })
             val installed = pack.installed()
             findViewById<TextView>(R.id.tvAssistantVoiceStatus).text = if (installed)
                 "${voice.label} · offline Kokoro. Preview, then save this exact voice."
@@ -240,14 +256,7 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
 
     private fun chooseVoice() {
         stopPreview()
-        if (selected == AssistantVoiceProfile.ORIGINAL) {
-            val voices = com.assistant.core.services.NeuralVoiceCatalog.voices
-            ThemedDialogBuilder(this).setTitle("Choose offline male voice")
-                .setSingleChoiceItems(voices.map { it.label }.toTypedArray(), voices.indexOfFirst { it.id == selectedName }) { dialog, index ->
-                    selectedName = voices[index].id; updateVoice()
-                }.setPositiveButton("Done", null).show()
-            return
-        }
+        if (selected == AssistantVoiceProfile.ORIGINAL) return
         val voices = AssistantSpeechVoice.available(speech)
         val labels = arrayOf("Automatic • prefer British English") + voices.map { "${it.name} • ${it.locale.displayName}" }
         val checked = voices.indexOfFirst { it.name == selectedName } + 1
