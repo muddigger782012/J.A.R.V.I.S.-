@@ -1239,7 +1239,7 @@ class MainActivity : ThemedActivity() {
         val files = pendingAttachments.toList()
         attachmentBusy = true
         appendOutput("You: $question\nAttachments: " + files.joinToString { it.name })
-        commandInput.setText("")
+        clearSubmittedComposer()
         findViewById<TextView>(R.id.tvAssistantState).text = "Reading attachments…"
         hybridAssistantService.handleAttachmentsAsync(question, files) { reply ->
             runOnUiThread {
@@ -1257,8 +1257,9 @@ class MainActivity : ThemedActivity() {
         if (pendingAttachments.isNotEmpty()) { sendAttachments(); return }
         val commandText = commandInput.text?.toString()?.trim().orEmpty()
         if (commandText.isBlank()) return
+        clearSubmittedComposer()
         appendOutput("You: ${if (commandText.isBlank()) "(status request)" else commandText}")
-        if (handleLiveChatControl(commandText)) { commandInput.setText(""); return }
+        if (handleLiveChatControl(commandText)) return
         if (liveChatStarted) return
         handleAssistantWithLocation(commandText) { reply ->
             runOnUiThread {
@@ -1266,7 +1267,20 @@ class MainActivity : ThemedActivity() {
                 statusOutput.text = reply.actionResult?.output ?: reply.text
             }
         }
-        commandInput.setText("")
+    }
+
+    private fun clearSubmittedComposer() {
+        // Finish the IME composition before emptying the submitted draft. Replies
+        // must never clear a new draft typed while an asynchronous request runs.
+        commandInput.text?.let { draft ->
+            android.view.inputmethod.BaseInputConnection.removeComposingSpans(draft)
+            draft.clear()
+        }
+        commandInput.setSelection(0)
+        if (commandInput.hasFocus()) {
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                .restartInput(commandInput)
+        }
     }
 
     /** Fetch structured results off the UI thread and preserve the originating conversation. */
@@ -2039,7 +2053,6 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun handleVoiceTranscript(command: String) {
-        commandInput.setText(command)
         appendOutput("You: $command")
         if (handleLiveChatControl(command)) return
         handleAssistantWithLocation(command) { reply ->
@@ -2188,7 +2201,6 @@ class MainActivity : ThemedActivity() {
 
     private fun handleVoiceRecognition(recognition: VoiceRecognitionResult) {
         val command = recognition.transcript
-        commandInput.setText(command)
         appendOutput("You: $command")
         updateVoiceInteractionState(VoiceInteractionState.PROCESSING)
 
