@@ -52,7 +52,8 @@ class HybridAssistantService(
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
-        if (GeminiFailureMemory.isQuestion(userInput)) {
+        val geminiFailure = GeminiFailureMemory(systemService.context())
+        if (geminiFailure.shouldAnswer(userInput)) {
             routineConfirmations.consume("")
             volumeConfirmations.consume("")
             deviceLearningSession.consume(userInput)
@@ -60,7 +61,7 @@ class HybridAssistantService(
             pendingPrompt = PendingPrompt.NONE
             pendingShellCommand = null
             pendingLearningReset = false
-            return HybridAssistantReply(GeminiFailureMemory(systemService.context()).explain())
+            return HybridAssistantReply(geminiFailure.explain())
         }
         // Run before pending prompts, learned aliases, permissive local parsers or AI.
         // A misheard control must not execute the timer/app embedded in its description.
