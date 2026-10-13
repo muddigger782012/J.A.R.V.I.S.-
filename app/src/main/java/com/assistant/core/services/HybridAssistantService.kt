@@ -262,16 +262,16 @@ class HybridAssistantService(
             return HybridAssistantReply(CapabilityDiscovery.render(page, capabilityRequests.snapshot()))
         }
         CapabilityDiscovery.review(userInput)?.let { description ->
-            val entry = capabilityRequests.find(description)
-                ?: return HybridAssistantReply("No exact saved capability request matched. Use the description from 'show capability requests'. Nothing was run or approved.")
+            val entry = capabilityRequests.findReference(description)
+                ?: return HybridAssistantReply("No saved capability request matched. Use its exact description or 'number 1' from the current 'show capability requests' list. Nothing was run or approved.")
             val assessment = CapabilityRequestReview.assess(entry.text) { label ->
                 androidAssistant.resolveLearnableApp(label)?.takeIf { androidAssistant.canLaunchApp(it.first) }
             }
             return HybridAssistantReply(CapabilityRequestReview.render(entry, assessment))
         }
         CapabilityDiscovery.trial(userInput)?.let { description ->
-            val entry = capabilityRequests.find(description)
-                ?: return HybridAssistantReply("No exact saved capability request matched. Use the description from 'show capability requests'. Nothing was run or approved.")
+            val entry = capabilityRequests.findReference(description)
+                ?: return HybridAssistantReply("No saved capability request matched. Use its exact description or 'number 1' from the current 'show capability requests' list. Nothing was run or approved.")
             return HybridAssistantReply(CapabilityRequestTrial.prepare(entry,
                 resolveApp = { label -> androidAssistant.resolveLearnableApp(label)?.takeIf { androidAssistant.canLaunchApp(it.first) } },
                 proposeDevice = deviceLearningSession::propose,

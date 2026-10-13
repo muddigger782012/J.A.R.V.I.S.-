@@ -37,6 +37,14 @@ class CapabilityRequestStore internal constructor(
         val wanted = key(text)
         if (wanted.isBlank() || wanted.length > MAX_TEXT) null else snapshot().singleOrNull { key(it.text) == wanted }
     }
+    /** Numbers refer to the current list. Callers bind its action before asking approval. */
+    fun findReference(text: String): Entry? = synchronized(lock) {
+        val reference = clean(text)
+        if (!Regex("(?i)^number(?: |$)").containsMatchIn(reference)) return@synchronized find(reference)
+        val number = Regex("(?i)^number ([1-9][0-9]*)$").matchEntire(reference)
+            ?.groupValues?.get(1)?.toIntOrNull() ?: return@synchronized null
+        if (number !in 1..LIMIT) null else snapshot().getOrNull(number - 1)
+    }
     fun add(text: String): Result = synchronized(lock) {
         val entry = Entry(clean(text), now())
         if (!valid(entry)) return@synchronized Result.INVALID

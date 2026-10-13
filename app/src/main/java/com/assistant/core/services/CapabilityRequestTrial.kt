@@ -18,7 +18,7 @@ object CapabilityRequestTrial {
             else -> return "This trial workflow supports timers, installed apps and exact media-volume levels. Review this request and issue its separate command if appropriate. Nothing was run, approved or learned."
         }
         if (!retained) return "Could not retain the approval proposal. Nothing was run or learned. State a new request before approving."
-        return "Review: ${definition.description}. Say yes to request it or no to cancel. " +
+        return "Saved request: ${entry.text}\nReview: ${definition.description}. Say yes to request it or no to cancel. " +
             if (definition.capability == ExactVolumeLearning.CAPABILITY)
                 "Android's volume readback will verify the result. Nothing has changed yet; no alias will be learned and the saved request stays unverified."
             else "After checking the app or timer, say 'it worked' to remember the confirmed action, or 'it failed' to discard the result. Nothing has run yet; no alias will be learned and the saved request stays unverified."
