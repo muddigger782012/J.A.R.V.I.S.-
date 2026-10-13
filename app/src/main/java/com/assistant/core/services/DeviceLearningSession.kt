@@ -20,7 +20,7 @@ class DeviceLearningSession internal constructor(
         fun shouldLearn(automaticEnabled: Boolean) = learnable && (explicitTeaching || automaticEnabled)
     }
     data class Resolution(val pending: Pending, val accepted: Boolean, val needsClarification: Boolean = false, val reminder: Boolean = false, val correction: Correction = Correction.NONE)
-    enum class Correction { NONE, UPDATED, INVALID_DURATION, TARGET_LOCKED, ALREADY_REQUESTED, SAVE_FAILED }
+    enum class Correction { NONE, UPDATED, INVALID_DURATION, INVALID_APP, TARGET_LOCKED, ALREADY_REQUESTED, SAVE_FAILED }
     enum class RequestResult { FAILED, REQUESTED_WITHOUT_TRACKING, AWAITING_OUTCOME }
 
     /** Used for local/preferred/learned actions as well as AI-interpreted ones. */
@@ -34,7 +34,7 @@ class DeviceLearningSession internal constructor(
         if (pending.explicitTeaching && (!pending.learnable || pending.replayed || pending.contextual != null)) return@synchronized false
         if (pending.replayed && (pending.learnable || !pending.awaitingOutcome)) return@synchronized false
         if (pending.contextual?.isValid() == false || !pending.action.isValid() || pending.phrase.isBlank() || pending.phrase.length > 240 ||
-            ConfirmationWords.isConfirmation(pending.phrase) || isOutcome(pending.phrase) || isReminder(pending.phrase) || PendingTimerCorrection.isRequest(pending.phrase)) return@synchronized false
+            ConfirmationWords.isConfirmation(pending.phrase) || isOutcome(pending.phrase) || isReminder(pending.phrase) || PendingTimerCorrection.isRequest(pending.phrase) || PendingAppCorrection.isRequest(pending.phrase)) return@synchronized false
         write(JSONObject().put("phrase", pending.phrase).put("capability", pending.action.capabilityId)
             .put("parameters", JSONObject(pending.action.parameters)).put("learnable", pending.learnable)
             .put("contextCapability", pending.contextual?.capabilityId)
@@ -42,7 +42,7 @@ class DeviceLearningSession internal constructor(
             .put("explicitTeaching", pending.explicitTeaching).put("replayed", pending.replayed).put("awaitingOutcome", pending.awaitingOutcome).put("created", now()).toString())
     }
 
-    fun consume(input: String): Resolution? = synchronized(lock) {
+    fun consume(input: String, resolveApp: (String) -> Pair<String, String>? = { null }): Resolution? = synchronized(lock) {
         val raw = read() ?: return@synchronized null
         val pending = runCatching {
             val json = JSONObject(raw)
@@ -61,19 +61,20 @@ class DeviceLearningSession internal constructor(
             if (explicit && (!json.optBoolean("learnable") || replayed || contextual != null)) return@runCatching null
             Pending(json.getString("phrase"), action, json.optBoolean("learnable"), json.optBoolean("awaitingOutcome"), contextual, replayed, explicit)
         }.getOrNull()
-        if (pending != null && PendingTimerCorrection.isRequest(input)) {
-            val action = PendingTimerCorrection.action(input)
-            val issue = when {
-                pending.awaitingOutcome -> Correction.ALREADY_REQUESTED
-                pending.action.capabilityId != "timer" || pending.contextual != null || pending.replayed -> Correction.TARGET_LOCKED
-                action == null -> Correction.INVALID_DURATION
-                else -> Correction.NONE
-            }
-            if (issue != Correction.NONE)
-                return@synchronized Resolution(pending, false, needsClarification = true, reminder = true, correction = issue)
-            // Preserve explicit alias consent; don't teach an original five-minute
-            // utterance as a ten-minute timer after an ordinary AI proposal edit.
-            val revised = pending.copy(action = action!!, learnable = pending.explicitTeaching)
+        val timerEdit = PendingTimerCorrection.isRequest(input)
+        val appEdit = PendingAppCorrection.isRequest(input)
+        if (pending != null && (timerEdit || appEdit)) {
+            val targetKind = if (timerEdit) "timer" else "open_app"
+            if (pending.awaitingOutcome || pending.action.capabilityId != targetKind || pending.contextual != null || pending.replayed)
+                return@synchronized Resolution(pending, false, needsClarification = true, reminder = true,
+                    correction = if (pending.awaitingOutcome) Correction.ALREADY_REQUESTED else Correction.TARGET_LOCKED)
+            val action = if (timerEdit) PendingTimerCorrection.action(input) else PendingAppCorrection.action(input, resolveApp)
+            if (action == null)
+                return@synchronized Resolution(pending, false, needsClarification = true, reminder = true,
+                    correction = if (timerEdit) Correction.INVALID_DURATION else Correction.INVALID_APP)
+            // Explicit aliases retain consent. Ordinary requests cannot teach their
+            // original duration/app wording as a different action after an edit.
+            val revised = pending.copy(action = action, learnable = pending.explicitTeaching)
             val json = JSONObject(raw).put("parameters", JSONObject(revised.action.parameters)).put("learnable", revised.learnable)
             val saved = write(json.toString())
             return@synchronized Resolution(if (saved) revised else pending, false, needsClarification = true, reminder = true,
