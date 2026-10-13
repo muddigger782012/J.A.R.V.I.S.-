@@ -243,6 +243,26 @@ class HybridAssistantService(
             pendingLearningReset = false
             return HybridAssistantReply("No action is awaiting yes/no approval. State the action you want, such as 'open Chrome'. Nothing was changed.")
         }
+        // Discovery controls are local. Requested features never enter AI history or learning.
+        if (CapabilityDiscovery.isHelp(userInput)) return HybridAssistantReply(CapabilityDiscovery.help())
+        val capabilityRequests = CapabilityRequestStore(systemService.context())
+        CapabilityDiscovery.page(userInput)?.let { page ->
+            return HybridAssistantReply(CapabilityDiscovery.render(page, capabilityRequests.snapshot()))
+        }
+        CapabilityDiscovery.request(userInput)?.let { description ->
+            val response = when (capabilityRequests.add(description)) {
+                CapabilityRequestStore.Result.ADDED -> "Recorded that capability request on this device for review. It is not a new installed capability; nothing was run or learned. Say 'show capability requests' to review it."
+                CapabilityRequestStore.Result.DUPLICATE -> "That capability request is already saved. Nothing was installed, run or learned."
+                CapabilityRequestStore.Result.FULL -> "The local list holds ${CapabilityRequestStore.LIMIT} requests. Review and forget an old request before adding another; nothing was replaced or run."
+                CapabilityRequestStore.Result.INVALID -> "Use a feature description from 1 to ${CapabilityRequestStore.MAX_TEXT} characters. Nothing was recorded or run."
+                CapabilityRequestStore.Result.FAILED -> "Could not save the capability request. Nothing was installed, run or learned."
+            }
+            return HybridAssistantReply(response)
+        }
+        CapabilityDiscovery.forget(userInput)?.let { description ->
+            return HybridAssistantReply(if (capabilityRequests.forget(description)) "Removed that capability request. Saved commands, preferences and routines remain available."
+                else "No matching request was removed. Use its exact description from 'show capability requests'.")
+        }
         LearnedCommandReviewCommands.page(userInput)?.let { page ->
             pendingLearningReset = false
             // Full local review lists must not enter the fallback conversation history.
