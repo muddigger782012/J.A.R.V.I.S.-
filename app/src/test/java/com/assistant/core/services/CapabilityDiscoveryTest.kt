@@ -50,7 +50,7 @@ class CapabilityDiscoveryTest {
         assertEquals(2, CapabilityDiscovery.page("show my capability requests page 2"))
         assertEquals(0, CapabilityDiscovery.page("show capability requests page 99999999999999"))
         for (text in listOf("don't show capability requests", "explain request a capability to check calendar", "show capability requests and open Chrome"))
-            assertFalse(CapabilityDiscovery.isControl(text))
+            assertTrue(CapabilityDiscovery.needsClarification(text))
         assertNull(CapabilityDiscovery.request("don't request a capability to open Chrome"))
         assertEquals("calendar workflow", CapabilityDiscovery.forget("forget capability request \"calendar workflow\""))
         val commands = ValidatedCommandMemory({ "[]" }, { fail("discovery controls must not be learned"); false })
