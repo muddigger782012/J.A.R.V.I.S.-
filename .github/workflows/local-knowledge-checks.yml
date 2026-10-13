@@ -133,13 +133,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: |
-            set +e
-            timeout 600s bash gradlew --no-daemon connectedVoiceCheckAndroidTest
-            voice_test_status=$?
-            adb logcat -d -v brief > voice-regression-logcat.txt
-            tail -n 250 voice-regression-logcat.txt
-            exit "$voice_test_status"
+          script: bash scripts/voice_android_regression.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -147,3 +141,4 @@ jobs:
           path: |
             app/build/reports/androidTests/connected/**
             voice-regression-logcat.txt
+            voice-regression-results.txt
