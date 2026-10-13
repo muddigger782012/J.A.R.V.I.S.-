@@ -52,6 +52,16 @@ class HybridAssistantService(
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
+        if (GeminiFailureMemory.isQuestion(userInput)) {
+            routineConfirmations.consume("")
+            volumeConfirmations.consume("")
+            deviceLearningSession.consume(userInput)
+            preferenceConfirmations.consume("")
+            pendingPrompt = PendingPrompt.NONE
+            pendingShellCommand = null
+            pendingLearningReset = false
+            return HybridAssistantReply(GeminiFailureMemory(systemService.context()).explain())
+        }
         // Run before pending prompts, learned aliases, permissive local parsers or AI.
         // A misheard control must not execute the timer/app embedded in its description.
         if (CapabilityDiscovery.needsClarification(userInput)) {
@@ -276,6 +286,19 @@ class HybridAssistantService(
                 resolveApp = { label -> androidAssistant.resolveLearnableApp(label)?.takeIf { androidAssistant.canLaunchApp(it.first) } },
                 proposeDevice = deviceLearningSession::propose,
                 proposeVolume = { phrase, lesson -> volumeConfirmations.propose(phrase, lesson) }))
+        }
+        CapabilityDiscovery.teaching(userInput)?.let { teaching ->
+            if (!RoutineProposal.isUsableName(teaching.alias))
+                return HybridAssistantReply("Choose a short non-reserved alias, such as work break. Nothing was run or learned.")
+            if (routineNameIsLearned(teaching.alias, deviceMemory) || routineRegistry.find(teaching.alias) != null)
+                return HybridAssistantReply("That alias is already saved. Review and forget its existing command or routine before teaching another meaning. Nothing was changed or learned.")
+            val entry = capabilityRequests.findReference(teaching.reference)
+                ?: return HybridAssistantReply("No saved capability request matched that number. Check 'show capability requests'. Nothing was run or approved.")
+            return HybridAssistantReply(CapabilityRequestTrial.prepare(entry,
+                resolveApp = { label -> androidAssistant.resolveLearnableApp(label)?.takeIf { androidAssistant.canLaunchApp(it.first) } },
+                proposeDevice = deviceLearningSession::propose,
+                proposeVolume = { phrase, lesson -> volumeConfirmations.propose(phrase, lesson, explicitTeaching = true) },
+                alias = teaching.alias))
         }
         CapabilityDiscovery.request(userInput)?.let { description ->
             val response = when (capabilityRequests.add(description)) {

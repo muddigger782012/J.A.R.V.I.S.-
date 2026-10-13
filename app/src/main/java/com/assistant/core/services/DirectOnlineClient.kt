@@ -69,10 +69,11 @@ object OnlineAnswers {
             "SERVICE_DISABLED" in reasons || "API_KEY_SERVICE_BLOCKED" in reasons -> "Check the project's Gemini API access and key restrictions in Google AI Studio."
             code == 429 -> "Your Gemini quota or rate limit was reached. Check your quota or try again later."
             code == 404 -> "The configured model isn't available. Check the model in Weather and AI settings."
+            code == 503 -> "Gemini is temporarily unavailable or overloaded. Wait briefly and retry; this does not indicate a content refusal."
             code in listOf(400, 401, 403) -> "Check API key, model, project access, and regional availability in Google AI Studio."
             else -> "Try again later."
         }
-        return "Gemini rejected the request ($diagnostic). $advice"
+        return (if (code >= 500) "Gemini couldn't complete the request" else "Gemini rejected the request") + " ($diagnostic). $advice"
     }
 
     fun geminiText(json: JSONObject): String? {
@@ -128,9 +129,13 @@ class DirectOnlineClient(private val context: Context) {
             val code = connection.responseCode
             if (code !in 200..299) {
                 val error = runCatching { connection.errorStream?.reader(Charsets.UTF_8)?.use { JSONObject(it.readText()) } }.getOrNull()
+                if (apiKey != null) GeminiFailureMemory(context).record(code, error)
                 return code to error
             }
             return code to JSONObject(connection.inputStream.reader(Charsets.UTF_8).use { it.readText() })
+        } catch (error: Exception) {
+            if (apiKey != null) GeminiFailureMemory(context).record(0, null)
+            throw error
         } finally { connection.disconnect() }
     }
     fun weather(question: String): String {

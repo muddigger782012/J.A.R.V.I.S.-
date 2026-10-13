@@ -21,7 +21,13 @@ object CapabilityDiscovery {
         .matchEntire(clean(text))?.groupValues?.get(1)?.trim()?.removeSurrounding("\"")
     fun trial(text: String): String? = Regex("(?i)^try capability request(?: (.*))?$")
         .matchEntire(clean(text))?.groupValues?.get(1)?.trim()?.removeSurrounding("\"")
-    private fun isRecognizedControl(text: String) = isHelp(text) || page(text) != null || request(text) != null || forget(text) != null || review(text) != null || trial(text) != null
+    data class Teaching(val reference: String, val alias: String)
+    fun teaching(text: String): Teaching? {
+        val match = Regex("(?i)^teach capability request (number [^ ]+) as (.{3,140})$")
+            .matchEntire(clean(text)) ?: return null
+        return Teaching(match.groupValues[1], match.groupValues[2].trim().removeSurrounding("\""))
+    }
+    private fun isRecognizedControl(text: String) = isHelp(text) || page(text) != null || request(text) != null || forget(text) != null || review(text) != null || trial(text) != null || teaching(text) != null
     // The embedded action is data even when speech recognition loses the leading verb.
     fun isManagementText(text: String): Boolean =
         Regex("(?i)\\bcapability[\\s-]+requests?\\b").containsMatchIn(text) ||
@@ -40,6 +46,7 @@ object CapabilityDiscovery {
         |• Routines: saved approved routines can compose existing volume, timer and app actions.
         |• Review: show saved commands; show assistant memory; show capability requests. To assess a saved idea: review capability request followed by its exact description.
         |• Try: try capability request followed by its exact saved description or number 1 from the current list; supported timers, apps and exact volume levels ask approval before execution. Review also accepts number 1. This does not create a learned alias or mark the request complete.
+        |• Name a saved action: teach capability request number one as work break; review, approve and verify before the alias is learned.
         |
         |This is the local learning catalogue, not a guarantee that every Android action is available. Installed apps and permissions still matter. Cloud answers and web search need internet. This system does not generate new executable features or provide offline generative AI.
         |To record an addition for review: request a capability to followed by its description. Recording a request does not install or run it.""".trimMargin()
