@@ -2387,6 +2387,10 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun openVoiceSettings() {
+        if (!currentVoiceConfig.useForegroundServiceMode && voiceEnabled) {
+            voiceService.stopListening()
+            localVoicePaused = true
+        }
         voiceSettingsLauncher.launch(Intent(this, VoiceSettingsActivity::class.java))
     }
 
@@ -2873,6 +2877,8 @@ class MainActivity : ThemedActivity() {
         startHudAnimations()
     }
 
+    private var localVoicePaused = false
+
     override fun onStop() {
         liveDialogueDialog?.dismiss()
         liveDialogueDialog = null
@@ -2898,6 +2904,10 @@ class MainActivity : ThemedActivity() {
         }
         syncLiveChatUi()
         if (!liveChatStarted) reloadVoiceConfiguration(showStatus = false)
+        if (localVoicePaused) {
+            localVoicePaused = false
+            if (voiceEnabled && !currentVoiceConfig.useForegroundServiceMode && !liveChatStarted) voiceService.startHotwordLoop()
+        }
         runCatching {
             val wakeStage = java.io.File(filesDir, "wake-stage.txt")
             if (wakeStage.exists()) appendOutput("[BG-DIAG] Wake stage: " + wakeStage.readText().trim())

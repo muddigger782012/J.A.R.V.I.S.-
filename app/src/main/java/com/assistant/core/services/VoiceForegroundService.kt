@@ -45,6 +45,9 @@ class VoiceForegroundService : Service() {
     private lateinit var voiceSession: VoiceSessionController
 
     private var pendingClarification: String? = null
+    private var practiceToken: String? = null
+    private var resumeAfterPractice = false
+    private val practiceTimeout = Runnable { releasePracticeMicrophone(practiceToken.orEmpty()) }
     private var pipelineStarted = false
     private var appliedVoiceConfig: VoiceConfig? = null
     private var liveChatActive = false
@@ -81,7 +84,26 @@ class VoiceForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_PRACTICE_PAUSE -> {
+                val token = intent.getStringExtra("token").orEmpty()
+                if (token.isBlank()) return START_NOT_STICKY
+                if (liveChatActive || practiceToken != null) {
+                    VoicePracticeMicrophone.acknowledge(this, token, false)
+                    return START_NOT_STICKY
+                }
+                practiceToken = token
+                resumeAfterPractice = pipelineStarted
+                if (::voiceService.isInitialized) { stopVoicePipeline(); voiceService.stopSpeaking() }
+                VoicePracticeMicrophone.acknowledge(this, token, true)
+                liveHandler.postDelayed(practiceTimeout, 30000L)
+                return START_NOT_STICKY
+            }
+            ACTION_PRACTICE_RELEASE -> {
+                releasePracticeMicrophone(intent.getStringExtra("token").orEmpty())
+                return START_NOT_STICKY
+            }
             ACTION_LIVE_START -> {
+                if (practiceToken != null) return START_NOT_STICKY
                 startForeground(NOTIFICATION_ID, buildNotification("Starting live chat…"))
                 if (!liveChatActive) {
                     try {
@@ -114,6 +136,9 @@ class VoiceForegroundService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_STOP -> {
+                practiceToken = null
+                resumeAfterPractice = false
+                liveHandler.removeCallbacks(practiceTimeout)
                 if (liveChatActive) { resumeWakeAfterLive = false; finishLiveChat("Live chat ended.") }
                 if (::voiceService.isInitialized) stopVoicePipeline()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -121,7 +146,7 @@ class VoiceForegroundService : Service() {
                 return START_NOT_STICKY
             }
             else -> {
-                if (liveChatActive) return START_NOT_STICKY
+                if (liveChatActive || practiceToken != null) return START_NOT_STICKY
                 startForeground(NOTIFICATION_ID, buildNotification("Voice service is active"))
                 persistStage("entered-start-command")
                 publishEvent("Foreground service entered start command.")
@@ -369,6 +394,19 @@ class VoiceForegroundService : Service() {
         )
     }
 
+    private fun releasePracticeMicrophone(token: String) {
+        if (practiceToken != token) {
+            if (practiceToken == null && !liveChatActive && !pipelineStarted) stopSelf()
+            return
+        }
+        practiceToken = null
+        liveHandler.removeCallbacks(practiceTimeout)
+        val resume = resumeAfterPractice
+        resumeAfterPractice = false
+        if (resume && ::voiceService.isInitialized) startVoicePipeline()
+        else if (!liveChatActive && !pipelineStarted) stopSelf()
+    }
+
     private fun startVoicePipeline(announce: Boolean = false) {
         currentConfig = voicePreferences.load()
         appliedVoiceConfig = currentConfig
@@ -607,6 +645,16 @@ class VoiceForegroundService : Service() {
 
         private const val CHANNEL_ID = "jarvis_voice_service"
         private const val NOTIFICATION_ID = 42001
+
+        private const val ACTION_PRACTICE_PAUSE = "com.assistant.core.action.PAUSE_VOICE_FOR_PRACTICE"
+        private const val ACTION_PRACTICE_RELEASE = "com.assistant.core.action.RELEASE_VOICE_PRACTICE"
+
+        fun pauseForPractice(context: Context, token: String) {
+            context.startService(Intent(context, VoiceForegroundService::class.java).setAction(ACTION_PRACTICE_PAUSE).putExtra("token", token))
+        }
+        fun releasePractice(context: Context, token: String) {
+            context.startService(Intent(context, VoiceForegroundService::class.java).setAction(ACTION_PRACTICE_RELEASE).putExtra("token", token))
+        }
 
         private const val ACTION_START = "com.assistant.core.action.START_VOICE_SERVICE"
         private const val ACTION_STOP = "com.assistant.core.action.STOP_VOICE_SERVICE"

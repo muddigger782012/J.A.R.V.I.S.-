@@ -1,0 +1,35 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="16dp" android:background="?attr/jarvis_background">
+    <Button android:id="@+id/voiceProfileBack" style="@style/Widget.AssistantPlatform.QuietButton"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Back" />
+    <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:fillViewport="true">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingBottom="24dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="My voice profile"
+                android:textSize="24sp" android:textStyle="bold" android:textColor="?attr/jarvis_on_dark" android:accessibilityHeading="true" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginVertical="12dp"
+                android:textColor="?attr/jarvis_on_dark_muted" android:text="Practice recognition and approve the wording you meant. Approved phrases become vocabulary hints where supported. This personalizes recognition; it does not retrain Android’s acoustic model. Practice never runs commands. Jarvis saves approved text locally, not recordings. Your recognizer may process audio and hints online when using the default engine." />
+            <TextView android:id="@+id/voiceProfileEngine" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="?attr/jarvis_on_dark_muted" />
+            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/voiceProfileDevice" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Use on-device recognition for practice" android:textColor="?attr/jarvis_on_dark" />
+            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/voiceProfileHints" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Use approved hints during practice" android:checked="true" android:textColor="?attr/jarvis_on_dark" />
+            <TextView android:id="@+id/voiceProfileProgress" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:textColor="?attr/jarvis_primary" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Say this phrase (or edit it)" android:labelFor="@id/voiceProfilePhrase" android:textColor="?attr/jarvis_on_dark" />
+            <EditText android:id="@+id/voiceProfilePhrase" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="textCapSentences|textMultiLine" android:maxLength="160" android:maxLines="3" android:textColor="?attr/jarvis_on_dark" />
+            <Button android:id="@+id/voiceProfileRecord" style="@style/Widget.AssistantPlatform.QuietButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Record phrase" android:minHeight="48dp" />
+            <TextView android:id="@+id/voiceProfileStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:accessibilityLiveRegion="polite" android:textColor="?attr/jarvis_on_dark_muted" android:layout_marginVertical="8dp" />
+            <LinearLayout android:id="@+id/voiceProfileReview" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone" android:padding="12dp" android:background="@drawable/intelligence_panel">
+                <TextView android:id="@+id/voiceProfileHeard" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="?attr/jarvis_on_dark" android:textIsSelectable="true" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Intended wording" android:labelFor="@id/voiceProfileIntended" android:textColor="?attr/jarvis_on_dark_muted" />
+                <EditText android:id="@+id/voiceProfileIntended" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="textCapSentences|textMultiLine" android:maxLength="160" android:maxLines="3" android:textColor="?attr/jarvis_on_dark" />
+                <Button android:id="@+id/voiceProfileApprove" style="@style/Widget.AssistantPlatform.QuietButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Approve wording" android:minHeight="48dp" />
+                <Button android:id="@+id/voiceProfileDiscard" style="@style/Widget.AssistantPlatform.QuietButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Discard attempt" android:minHeight="48dp" />
+            </LinearLayout>
+            <Button android:id="@+id/voiceProfileNext" style="@style/Widget.AssistantPlatform.QuietButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Next phrase" android:minHeight="48dp" />
+            <TextView android:id="@+id/voiceProfileScore" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginVertical="12dp" android:textColor="?attr/jarvis_on_dark" />
+            <Button android:id="@+id/voiceProfileRetest" style="@style/Widget.AssistantPlatform.QuietButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Restart practice" android:minHeight="48dp" />
+            <Button android:id="@+id/voiceProfileManage" style="@style/Widget.AssistantPlatform.QuietButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Review approved phrases" android:minHeight="48dp" />
+            <LinearLayout android:id="@+id/voiceProfileEntries" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone" />
+            <Button android:id="@+id/voiceProfileReset" style="@style/Widget.AssistantPlatform.QuietButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Reset profile" android:minHeight="48dp" />
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>
