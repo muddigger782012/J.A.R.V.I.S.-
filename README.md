@@ -1,6 +1,6 @@
 # Jarvis Keyboard updates
 
-Latest: 1.12 (versionCode 13). Letter labels now switch between lowercase and uppercase with Shift/Caps Lock and automatic capitalization. Active Shift is highlighted; tapping Caps Lock turns it off, including a quick third tap.
+Latest: 1.13 (versionCode 14). Small secondary characters now use vivid red with a subtle glow for stronger visibility on the honeycomb keys.
 
 Open Jarvis Keyboard > Updates to check and download. Android may require installation confirmation or install-source permission. Feed/APK validation is performed before installation.
 
