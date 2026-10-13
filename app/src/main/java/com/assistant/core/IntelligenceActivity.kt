@@ -147,6 +147,13 @@ class IntelligenceActivity : ThemedActivity() {
         text(routinePanel, "Reviewing a routine does not run it. Create and approve new routines in chat; invoke their saved names to run them offline.")
         button(routinePanel, "Review or forget routines") { chooseRoutine() }
 
+        val discovery = section("Capability discovery")
+        val requests = CapabilityRequestStore(this).snapshot()
+        text(discovery, "Requested features for review: ${requests.size} / ${CapabilityRequestStore.LIMIT}")
+        text(discovery, requests.take(3).joinToString("\n\n") { "${it.text} — requested; implementation not verified" }
+            .ifEmpty { "No capability requests are saved." })
+        text(discovery, "These are feature requests, not installed capabilities. In chat, say 'show offline capabilities', 'request a capability to' followed by its description, or 'show capability requests'. Recording and reviewing requests never runs them.")
+
         val connection = section("AI connection")
         text(connection, "Primary online AI: ${overview.primaryAi}" + if (overview.primaryAi != "Not configured") " — configured" else "")
         val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
