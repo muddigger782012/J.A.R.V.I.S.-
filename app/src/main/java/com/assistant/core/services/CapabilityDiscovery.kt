@@ -17,7 +17,9 @@ object CapabilityDiscovery {
         .matchEntire(clean(text))?.groupValues?.get(1)?.trim()
     fun forget(text: String): String? = Regex("(?i)^forget capability request (.+)$")
         .matchEntire(clean(text))?.groupValues?.get(1)?.trim()?.removeSurrounding("\"")
-    fun isControl(text: String) = isHelp(text) || page(text) != null || request(text) != null || forget(text) != null
+    fun review(text: String): String? = Regex("(?i)^review capability request(?: (.*))?$")
+        .matchEntire(clean(text))?.groupValues?.get(1)?.trim()?.removeSurrounding("\"")
+    fun isControl(text: String) = isHelp(text) || page(text) != null || request(text) != null || forget(text) != null || review(text) != null
 
     fun help(): String = """Available local learning workflows:
         |• Media volume: set media volume to 25%; exact levels use device readback.
@@ -27,7 +29,7 @@ object CapabilityDiscovery {
         |• Repeat: do that again; uses the most recent confirmed app or timer and asks approval.
         |• Teach: teach Jarvis that short break means start a timer for 5 minutes; approve, check, then say 'it worked'.
         |• Routines: saved approved routines can compose existing volume, timer and app actions.
-        |• Review: show saved commands; show assistant memory; show capability requests.
+        |• Review: show saved commands; show assistant memory; show capability requests. To assess a saved idea: review capability request followed by its exact description.
         |
         |This is the local learning catalogue, not a guarantee that every Android action is available. Installed apps and permissions still matter. Cloud answers and web search need internet. This system does not generate new executable features or provide offline generative AI.
         |To record an addition for review: request a capability to followed by its description. Recording a request does not install or run it.""".trimMargin()
@@ -38,10 +40,10 @@ object CapabilityDiscovery {
         if (requests.isEmpty()) return "No capability requests are saved on this device. Say 'request a capability to' followed by the feature you want. Nothing is installed or run by recording a request."
         val pages = (requests.size + PAGE_SIZE - 1) / PAGE_SIZE
         if (page > pages) return "There are $pages capability-request pages. Say 'show capability requests page $pages'."
-        return "Requested features for review: ${requests.size}. Page $page of $pages. These requests are not implemented capabilities.\n" +
+        return "Requested features for review: ${requests.size}. Page $page of $pages. These entries are feature requests, not proof of implementation.\n" +
             requests.drop((page - 1) * PAGE_SIZE).take(PAGE_SIZE).mapIndexed { index, entry ->
                 "${(page - 1) * PAGE_SIZE + index + 1}. ${entry.text} — requested; implementation not verified"
-            }.joinToString("\n") + "\nTo remove one: forget capability request followed by its exact description." +
+            }.joinToString("\n") + "\nTo assess one: review capability request followed by its exact description.\nTo remove one: forget capability request followed by its exact description." +
             if (page < pages) "\nMore: show capability requests page ${page + 1}." else ""
     }
 }

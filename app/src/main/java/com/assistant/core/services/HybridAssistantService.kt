@@ -249,6 +249,14 @@ class HybridAssistantService(
         CapabilityDiscovery.page(userInput)?.let { page ->
             return HybridAssistantReply(CapabilityDiscovery.render(page, capabilityRequests.snapshot()))
         }
+        CapabilityDiscovery.review(userInput)?.let { description ->
+            val entry = capabilityRequests.find(description)
+                ?: return HybridAssistantReply("No exact saved capability request matched. Use the description from 'show capability requests'. Nothing was run or approved.")
+            val assessment = CapabilityRequestReview.assess(entry.text) { label ->
+                androidAssistant.resolveLearnableApp(label)?.takeIf { androidAssistant.canLaunchApp(it.first) }
+            }
+            return HybridAssistantReply(CapabilityRequestReview.render(entry, assessment))
+        }
         CapabilityDiscovery.request(userInput)?.let { description ->
             val response = when (capabilityRequests.add(description)) {
                 CapabilityRequestStore.Result.ADDED -> "Recorded that capability request on this device for review. It is not a new installed capability; nothing was run or learned. Say 'show capability requests' to review it."

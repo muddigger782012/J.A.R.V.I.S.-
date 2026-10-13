@@ -33,6 +33,10 @@ class CapabilityRequestStore internal constructor(
             }.getOrNull() }.distinctBy { key(it.text) }.takeLast(LIMIT).asReversed()
         }.getOrDefault(emptyList())
     }
+    fun find(text: String): Entry? = synchronized(lock) {
+        val wanted = key(text)
+        if (wanted.isBlank() || wanted.length > MAX_TEXT) null else snapshot().singleOrNull { key(it.text) == wanted }
+    }
     fun add(text: String): Result = synchronized(lock) {
         val entry = Entry(clean(text), now())
         if (!valid(entry)) return@synchronized Result.INVALID
