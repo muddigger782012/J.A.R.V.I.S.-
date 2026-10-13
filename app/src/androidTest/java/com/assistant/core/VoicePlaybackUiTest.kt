@@ -46,7 +46,7 @@ class VoicePlaybackUiTest {
             while (parent !is ScrollView) { offset += parent.top; parent = parent.parent as View }
             parent.clearFocus()
             parent.isSmoothScrollingEnabled = false
-            parent.scrollTo(0, offset)
+            parent.scrollTo(0, maxOf(0, offset - parent.paddingTop - 24))
             controller.loopMainThreadUntilIdle()
         }
     }
