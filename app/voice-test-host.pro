@@ -14,3 +14,5 @@
 # their public runtime surface across the separate R8 passes.
 -keep,allowoptimization class androidx.** { *; }
 -keep,allowoptimization class com.assistant.core.services.NeuralVoicePack { public *; }
+# AGP emits non-final resource IDs; instrumentation references their fields.
+-keep class com.assistant.core.R$* { *; }
