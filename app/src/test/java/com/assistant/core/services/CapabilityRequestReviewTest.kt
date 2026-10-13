@@ -12,22 +12,23 @@ class CapabilityRequestReviewTest {
     @Test fun definitionsUseExistingBoundedHandlersAndMaximumNeverBecomesOneStep() {
         val volume = CapabilityRequestReview.assess("raise media volume to 100%", resolve)
         assertEquals(CapabilityRequestReview.Status.EXISTING_HANDLER, volume.status)
-        assertEquals(ExactVolumeLearning.CAPABILITY, volume.definition!!.capability)
-        assertEquals(mapOf("percent" to "100"), volume.definition.parameters)
-        assertEquals("set media volume to 100%", volume.definition.command)
+        val volumeDefinition = volume.definition!!
+        assertEquals(ExactVolumeLearning.CAPABILITY, volumeDefinition.capability)
+        assertEquals(mapOf("percent" to "100"), volumeDefinition.parameters)
+        assertEquals("set media volume to 100%", volumeDefinition.command)
         assertEquals("100", CapabilityRequestReview.assess("turn volume all the way up", resolve).definition!!.parameters["percent"])
-        val timer = CapabilityRequestReview.assess("start a timer for 10 minutes", resolve)
-        assertEquals("timer", timer.definition!!.capability)
-        assertEquals(mapOf("seconds" to "600"), timer.definition.parameters)
-        assertEquals("start a timer for 600 seconds", timer.definition.command)
-        val app = CapabilityRequestReview.assess("open Chrome", resolve)
-        assertEquals("open_app", app.definition!!.capability)
-        assertEquals(mapOf("package" to "com.android.chrome", "label" to "Chrome"), app.definition.parameters)
-        assertEquals("open Chrome", app.definition.command)
+        val timer = CapabilityRequestReview.assess("start a timer for 10 minutes", resolve).definition!!
+        assertEquals("timer", timer.capability)
+        assertEquals(mapOf("seconds" to "600"), timer.parameters)
+        assertEquals("start a timer for 600 seconds", timer.command)
+        val app = CapabilityRequestReview.assess("open Chrome", resolve).definition!!
+        assertEquals("open_app", app.capability)
+        assertEquals(mapOf("package" to "com.android.chrome", "label" to "Chrome"), app.parameters)
+        assertEquals("open Chrome", app.command)
         assertEquals("volume_down", CapabilityRequestReview.assess("lower volume", resolve).definition!!.capability)
-        val update = CapabilityRequestReview.assess("update app", resolve)
-        assertEquals("app_update", update.definition!!.capability)
-        assertTrue(update.definition.verification.contains("does not verify"))
+        val update = CapabilityRequestReview.assess("update app", resolve).definition!!
+        assertEquals("app_update", update.capability)
+        assertTrue(update.verification.contains("does not verify"))
     }
 
     @Test fun unknownMissingAmbiguousAndInvalidRequestsNeverReceiveExecutableDefinitions() {
