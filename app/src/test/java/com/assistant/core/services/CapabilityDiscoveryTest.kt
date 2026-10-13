@@ -19,7 +19,7 @@ class CapabilityDiscoveryTest {
         // This content is a request description only; storage has no executor or learned-command API.
         assertEquals(2, store().snapshot().size)
         val review = CapabilityDiscovery.render(1, store().snapshot())
-        assertTrue(review.contains("not implemented capabilities")); assertTrue(review.contains("requested; implementation not verified"))
+        assertTrue(review.contains("not proof of implementation")); assertTrue(review.contains("requested; implementation not verified"))
         assertTrue(store().forget("check my calendar before I leave"))
         assertEquals("open Chrome and run arbitrary code", store().snapshot().single().text)
         assertFalse(store().forget("missing request"))
