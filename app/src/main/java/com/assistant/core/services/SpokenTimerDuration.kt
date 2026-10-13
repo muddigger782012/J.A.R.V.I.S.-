@@ -11,7 +11,7 @@ object SpokenTimerDuration {
         .replace(Regex("(?<=[a-z])-(?=[a-z])"), " ").replace(Regex("\\s+"), " ")
 
     fun command(text: String): Int? {
-        val match = Regex("^(?:set|start) (?:a )?timer (?:for )?(.+)$").matchEntire(clean(text)) ?: return null
+        val match = Regex("^(?:(?:hey )?jarvis[, ]+)?(?:please )?(?:set|start) (?:a )?timer (?:for )?(.+)$").matchEntire(clean(text)) ?: return null
         return seconds(match.groupValues[1])
     }
     fun seconds(text: String): Int? {

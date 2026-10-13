@@ -10,6 +10,7 @@ class SpokenTimerDurationTest {
             "one hundred and twenty five seconds" to 125, "a minute" to 60,
             "twenty four hours" to 86400, "eighty six thousand four hundred seconds" to 86400,
             "0 hours and 5 minutes" to 300, "1 second" to 1)
+        assertEquals(300, SpokenTimerDuration.command("Hey Jarvis, please start a timer for five minutes"))
         examples.forEach { (text, seconds) ->
             assertEquals(text, seconds, SpokenTimerDuration.seconds(text))
             assertEquals(text, seconds, SpokenTimerDuration.command("Start a timer for $text!"))
