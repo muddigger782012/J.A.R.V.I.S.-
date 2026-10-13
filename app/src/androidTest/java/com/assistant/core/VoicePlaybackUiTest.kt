@@ -4,7 +4,13 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
-import androidx.test.espresso.action.ViewActions.scrollTo
+import androidx.test.espresso.ViewAction
+import androidx.test.espresso.UiController
+import androidx.test.espresso.matcher.ViewMatchers.isDescendantOfA
+import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
+import android.view.View
+import android.widget.ScrollView
+import org.hamcrest.Matcher
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isChecked
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
@@ -31,16 +37,29 @@ class VoicePlaybackUiTest {
             AssistantVoicePreferences(context).save(AssistantVoiceProfile.ORIGINAL, NeuralVoiceCatalog.voices.first().id)
         }
     }
+    private fun reveal() = object : ViewAction {
+        override fun getDescription() = "Scroll the containing page to this control"
+        override fun getConstraints(): Matcher<View> = isDescendantOfA(isAssignableFrom(ScrollView::class.java))
+        override fun perform(controller: UiController, view: View) {
+            var offset = view.top
+            var parent = view.parent as View
+            while (parent !is ScrollView) { offset += parent.top; parent = parent.parent as View }
+            parent.clearFocus()
+            parent.isSmoothScrollingEnabled = false
+            parent.scrollTo(0, offset)
+            controller.loopMainThreadUntilIdle()
+        }
+    }
     @Test fun pickingAndSavingEveryMaleVoiceKeepsSettingsOpen() {
         ActivityScenario.launch(AssistantVoiceSettingsActivity::class.java).use { scenario ->
             for ((index, id) in listOf(R.id.maleGeorge, R.id.maleLewis, R.id.maleMichael).withIndex()) {
-                onView(withId(id)).perform(scrollTo(), click()).check(matches(isChecked()))
-                onView(withId(R.id.btnUseAssistantVoice)).perform(scrollTo(), click())
+                onView(withId(id)).perform(reveal(), click()).check(matches(isChecked()))
+                onView(withId(R.id.btnUseAssistantVoice)).perform(reveal(), click())
                 scenario.onActivity {
                     assertFalse(it.isFinishing)
                     assertEquals(NeuralVoiceCatalog.voices[index].id, AssistantVoicePreferences(it).voiceName(AssistantVoiceProfile.ORIGINAL))
                 }
-                onView(withId(id)).perform(scrollTo()).check(matches(isDisplayed()))
+                onView(withId(id)).perform(reveal()).check(matches(isDisplayed()))
             }
         }
     }
