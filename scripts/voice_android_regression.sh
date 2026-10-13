@@ -6,6 +6,13 @@ test -n "$voice_apk"
 test -n "$voice_tests"
 adb install -r -t "$voice_apk"
 adb install -r -t "$voice_tests"
+# Fresh Google emulator setup can create search/assistant windows over the
+# activity under test. This changes only the disposable CI emulator.
+adb shell pm disable-user --user 0 com.google.android.googlequicksearchbox || true
+adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard
+adb shell settings put system screen_off_timeout 2147483647
+adb shell svc power stayon true
 adb logcat -c
 adb logcat -v threadtime > voice-regression-logcat.txt &
 voice_log_pid=$!
