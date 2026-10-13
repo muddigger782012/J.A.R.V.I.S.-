@@ -38,7 +38,7 @@ class TeachSavedCapabilityTest {
         val outcome = session.consume("it worked")!!
         assertTrue(outcome.accepted); assertTrue(outcome.pending.awaitingOutcome)
         var lessons: String? = null
-        val memory = ValidatedCommandMemory({ lessons }, { lessons = it; true })
+        val memory = ValidatedCommandMemory({ lessons ?: "[]" }, { lessons = it; true })
         assertTrue(memory.recordSuccess(outcome.pending.phrase, outcome.pending.action.capabilityId,
             LearnableDeviceAction.capabilities, outcome.pending.action.parameters))
         assertEquals("300", memory.match("work break", LearnableDeviceAction.capabilities)!!.parameters["seconds"])
