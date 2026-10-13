@@ -13,3 +13,4 @@
 # AndroidX instrumentation shares dependencies with the target APK. Preserve
 # their public runtime surface across the separate R8 passes.
 -keep,allowoptimization class androidx.** { *; }
+-keep,allowoptimization class com.assistant.core.services.NeuralVoicePack { public *; }
