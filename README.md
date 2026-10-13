@@ -1,9 +1,7 @@
 # Jarvis Keyboard updates
 
-Signed Jarvis Keyboard APKs and the public latest.json update feed. This branch contains keyboard distribution files only.
+Latest: 1.10 (version code 11).
 
-Latest: version 1.9 (version code 10).
+Signed keyboard APKs and latest.json are distributed on this branch. Version 1.10 adds automatic sentence capitalization and double-tap Space punctuation, with independent switches in settings. Automatic downloads use the version feed, APK hash and signing identity checks. Android's install permission/confirmation fallback remains available.
 
-The app checks this feed when its Updates screen opens, downloads only newer versions, verifies APK SHA-256 and package signing identity, then requests automatic self-installation through Android PackageInstaller. Android's installation permission and confirmation fallback remain available.
-
-No signing keys, clipboard content, or user data are stored in this branch. Future releases must retain versioned APK filenames and update latest.json only after signature and hash verification.
+Retain versioned APK filenames when publishing future releases. Never upload signing keys or the private source archive. This distribution branch is separate from the main Jarvis application.
