@@ -256,6 +256,7 @@ class HybridAssistantService(
             return HybridAssistantReply("No action is awaiting yes/no approval. State the action you want, such as 'open Chrome'. Nothing was changed.")
         }
         // Discovery controls are local. Requested features never enter AI history or learning.
+        if (GeminiFailureMemory.isQuestion(userInput)) return HybridAssistantReply(GeminiFailureMemory(systemService.context()).explain())
         if (CapabilityDiscovery.isHelp(userInput)) return HybridAssistantReply(CapabilityDiscovery.help())
         val capabilityRequests = CapabilityRequestStore(systemService.context())
         CapabilityDiscovery.page(userInput)?.let { page ->
