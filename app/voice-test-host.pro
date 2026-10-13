@@ -10,3 +10,6 @@
 -keep,allowoptimization class com.assistant.core.services.NeuralVoiceDiagnostics { public *; }
 -keep,allowoptimization class com.assistant.core.services.NeuralSpeechCache$Clip { public *; }
 -keep,allowoptimization class com.assistant.core.services.NeuralPcmPlayer { public *; }
+# AndroidX instrumentation shares dependencies with the target APK. Preserve
+# their public runtime surface across the separate R8 passes.
+-keep,allowoptimization class androidx.** { *; }

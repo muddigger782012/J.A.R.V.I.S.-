@@ -11,11 +11,20 @@ adb logcat -v threadtime > voice-regression-logcat.txt &
 voice_log_pid=$!
 trap 'kill "$voice_log_pid" 2>/dev/null || true' EXIT
 set +e
-timeout 360s adb shell am instrument -w -r com.assistant.core.test/androidx.test.runner.AndroidJUnitRunner > voice-regression-results.txt 2>&1
+timeout 360s adb shell am instrument -w -r com.assistant.core.test/androidx.test.runner.AndroidJUnitRunner > voice-regression-results.txt 2>&1 &
+voice_test_pid=$!
+while kill -0 "$voice_test_pid" 2>/dev/null; do
+    if grep -q 'Process: com.assistant.core,' voice-regression-logcat.txt; then
+        kill "$voice_test_pid" 2>/dev/null || true
+        break
+    fi
+    sleep 2
+done
+wait "$voice_test_pid"
 voice_test_status=$?
 set -e
 cat voice-regression-results.txt
-tail -n 200 voice-regression-logcat.txt
+grep -E 'VoiceRegression|TestRunner|AndroidRuntime|sherpa|com.assistant.core' voice-regression-logcat.txt | tail -n 180 || true
 if [ "$voice_test_status" -ne 0 ]; then exit "$voice_test_status"; fi
 # am instrument can return exit zero even when a test failed.
 grep -Eq 'OK \(3 tests\)' voice-regression-results.txt
