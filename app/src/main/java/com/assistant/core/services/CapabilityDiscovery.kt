@@ -52,14 +52,14 @@ object CapabilityDiscovery {
         |To record an addition for review: request a capability to followed by its description. Recording a request does not install or run it.""".trimMargin()
 
     const val PAGE_SIZE = 5
-    fun render(page: Int, requests: List<CapabilityRequestStore.Entry>): String {
+    fun render(page: Int, requests: List<CapabilityRequestStore.Entry>, evidence: (CapabilityRequestStore.Entry) -> String = { "" }): String {
         if (page < 1) return "Choose a page starting at 1: show capability requests."
         if (requests.isEmpty()) return "No capability requests are saved on this device. Say 'request a capability to' followed by the feature you want. Nothing is installed or run by recording a request."
         val pages = (requests.size + PAGE_SIZE - 1) / PAGE_SIZE
         if (page > pages) return "There are $pages capability-request pages. Say 'show capability requests page $pages'."
         return "Requested features for review: ${requests.size}. Page $page of $pages. These entries are feature requests, not proof of implementation.\n" +
             requests.drop((page - 1) * PAGE_SIZE).take(PAGE_SIZE).mapIndexed { index, entry ->
-                "${(page - 1) * PAGE_SIZE + index + 1}. ${entry.text} — requested; implementation not verified"
+                "${(page - 1) * PAGE_SIZE + index + 1}. ${entry.text} — requested; implementation not verified" + evidence(entry).takeIf { it.isNotBlank() }?.let { "; $it" }.orEmpty()
             }.joinToString("\n") + "\nReview or try by current list number: review capability request number 1; try capability request number 1. Numbers can change when the list changes; check the displayed request and action before approving.\nTo assess one by wording: review capability request followed by its exact description.\nTo remove one: forget capability request followed by its exact description." +
             if (page < pages) "\nMore: show capability requests page ${page + 1}." else ""
     }

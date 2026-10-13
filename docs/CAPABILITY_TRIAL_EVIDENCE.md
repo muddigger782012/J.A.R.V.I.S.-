@@ -1,0 +1,11 @@
+# Linked timer/app trial evidence
+
+Saved capability requests now have stable private identifiers. Legacy rows receive deterministic identifiers on read; new rows use a fresh random identifier. Forgetting and re-adding an identical description starts a new identity, so old success cannot verify a replacement request.
+
+Timer/app trials carry that request identifier through the existing approval and outcome session. Only user-confirmed success, user-reported failure after execution, or a failed Android launch request creates linked evidence. Proposal approval, cancellation, uncertain feedback, elapsed sessions and bare success feedback create no evidence. Existing recent-action memory and learning rules remain unchanged. Media-volume readback remains in the existing action journal; request-linked volume evidence is outside this phase.
+
+Show capability requests displays a compact latest-result summary. Review capability request number one compares the latest recorded tested target with a freshly assessed target, shows its source and timestamp, and explains if an edit produced a different target. Success for a five-minute edit cannot establish the original ten-minute request's target. Historical success establishes a bounded action result on that device at that time, not installation of a new feature or future availability. Reviews/lists perform no action, approval or learning and never supply this evidence to AI conversation prompts.
+
+The most recent 100 records are retained in an atomic, file-locked private journal shared by UI and :wake. Writing or reading this evidence never becomes command-matching authority. Old result history is not retroactively linked to requests. Removing a request hides its evidence by identity; old bounded journal rows expire through retention.
+
+Validation covers legacy identity stability, forget/re-add isolation, link preservation across restart/approval/edit/outcome, edited-target comparison, source labels, latest-failure precedence, bounds, corruption and invalid-link rejection. Phone check: save a ten-minute timer request, try it, edit to five minutes, approve, check Clock, say “it worked,” then review the saved request. It should show a confirmed five-minute tested target and explain the mismatch with the original ten-minute target.

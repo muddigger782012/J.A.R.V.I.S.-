@@ -16,7 +16,7 @@ class DeviceLearningSession internal constructor(
             editor.commit()
         }
     )
-    data class Pending(val phrase: String, val action: LearnableDeviceAction, val learnable: Boolean, val awaitingOutcome: Boolean = false, val contextual: ContextualAction? = null, val replayed: Boolean = false, val explicitTeaching: Boolean = false) {
+    data class Pending(val phrase: String, val action: LearnableDeviceAction, val learnable: Boolean, val awaitingOutcome: Boolean = false, val contextual: ContextualAction? = null, val replayed: Boolean = false, val explicitTeaching: Boolean = false, val requestId: String? = null) {
         fun shouldLearn(automaticEnabled: Boolean) = learnable && (explicitTeaching || automaticEnabled)
     }
     data class Resolution(val pending: Pending, val accepted: Boolean, val needsClarification: Boolean = false, val reminder: Boolean = false, val correction: Correction = Correction.NONE)
@@ -31,6 +31,7 @@ class DeviceLearningSession internal constructor(
     }
 
     fun propose(pending: Pending): Boolean = synchronized(lock) {
+        if (pending.requestId != null && (!CapabilityRequestStore.validId(pending.requestId) || pending.contextual != null || pending.replayed)) return@synchronized false
         if (pending.explicitTeaching && (!pending.learnable || pending.replayed || pending.contextual != null)) return@synchronized false
         if (pending.replayed && (pending.learnable || !pending.awaitingOutcome)) return@synchronized false
         if (pending.contextual?.isValid() == false || !pending.action.isValid() || pending.phrase.isBlank() || pending.phrase.length > 240 ||
@@ -39,7 +40,7 @@ class DeviceLearningSession internal constructor(
             .put("parameters", JSONObject(pending.action.parameters)).put("learnable", pending.learnable)
             .put("contextCapability", pending.contextual?.capabilityId)
             .put("contextParameters", pending.contextual?.let { JSONObject(it.parameters) })
-            .put("explicitTeaching", pending.explicitTeaching).put("replayed", pending.replayed).put("awaitingOutcome", pending.awaitingOutcome).put("created", now()).toString())
+            .put("requestId", pending.requestId).put("explicitTeaching", pending.explicitTeaching).put("replayed", pending.replayed).put("awaitingOutcome", pending.awaitingOutcome).put("created", now()).toString())
     }
 
     fun consume(input: String, resolveApp: (String) -> Pair<String, String>? = { null }): Resolution? = synchronized(lock) {
@@ -59,7 +60,8 @@ class DeviceLearningSession internal constructor(
             if (replayed && (json.optBoolean("learnable") || !json.optBoolean("awaitingOutcome"))) return@runCatching null
             val explicit = json.optBoolean("explicitTeaching")
             if (explicit && (!json.optBoolean("learnable") || replayed || contextual != null)) return@runCatching null
-            Pending(json.getString("phrase"), action, json.optBoolean("learnable"), json.optBoolean("awaitingOutcome"), contextual, replayed, explicit)
+            val requestId = if (json.has("requestId")) json.getString("requestId").takeIf { CapabilityRequestStore.validId(it) && !replayed && contextual == null } ?: return@runCatching null else null
+            Pending(json.getString("phrase"), action, json.optBoolean("learnable"), json.optBoolean("awaitingOutcome"), contextual, replayed, explicit, requestId)
         }.getOrNull()
         val timerEdit = PendingTimerCorrection.isRequest(input)
         val appEdit = PendingAppCorrection.isRequest(input)
