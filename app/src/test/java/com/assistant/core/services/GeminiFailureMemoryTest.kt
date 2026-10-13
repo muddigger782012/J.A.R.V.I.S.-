@@ -6,6 +6,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GeminiFailureMemoryTest {
+    @Test fun naturalRepairFollowupsUseRecentFailureWithoutRevivingStaleOrMissingContext() {
+        var raw: String? = null
+        var clock = 1000L
+        val memory = GeminiFailureMemory({ raw }, { raw = it; true }, { clock })
+        val questions = listOf("What can I do to fix it?", "Is there anything I can do on my end to fix it", "Hey Jarvis how do I fix it")
+        for (q in questions) assertFalse(memory.shouldAnswer(q))
+        memory.record(503, JSONObject("""{"error":{"status":"UNAVAILABLE"}}"""))
+        val before = raw
+        for (q in questions) { assertTrue(memory.shouldAnswer(q)); assertTrue(GeminiFailureMemory.isQuestion(q)) }
+        assertEquals(before, raw)
+        clock += 600001
+        for (q in questions) assertFalse(memory.shouldAnswer(q))
+        assertTrue(memory.shouldAnswer("why did Gemini reject the request"))
+        assertFalse(memory.shouldAnswer("what can I do to fix it and open Chrome"))
+        clock = 0
+        for (q in questions) assertFalse(memory.shouldAnswer(q))
+        assertFalse(GeminiFailureMemory({ "broken" }, { false }).shouldAnswer(questions.first()))
+        memory.record(0, null)
+        assertTrue(memory.explain().contains("Check internet access and retry"))
+    }
     @Test fun unavailableFailureExplainsCauseAndRemedyLocallyWithoutRetainingSensitiveBody() {
         var raw: String? = null
         val memory = GeminiFailureMemory({ raw }, { raw = it; true }, { 1000 })
