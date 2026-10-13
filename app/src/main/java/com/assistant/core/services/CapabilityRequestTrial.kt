@@ -14,7 +14,7 @@ object CapabilityRequestTrial {
         val phrase = alias ?: definition.command
         val retained = when (definition.capability) {
             "timer", "open_app" -> proposeDevice(DeviceLearningSession.Pending(phrase,
-                LearnableDeviceAction(definition.capability, definition.parameters), learnable = alias != null, explicitTeaching = alias != null))
+                LearnableDeviceAction(definition.capability, definition.parameters), learnable = alias != null, explicitTeaching = alias != null, requestId = entry.id))
             ExactVolumeLearning.CAPABILITY -> proposeVolume(phrase,
                 FallbackIntentLesson("DEVICE_SETTING", .95, mapOf("setting" to "media_volume",
                     "percent" to definition.parameters.getValue("percent")), learnable = alias != null))

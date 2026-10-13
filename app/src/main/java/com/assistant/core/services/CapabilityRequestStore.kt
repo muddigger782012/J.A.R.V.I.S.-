@@ -18,18 +18,18 @@ class CapabilityRequestStore internal constructor(
             editor.commit()
         }
     )
-    data class Entry(val text: String, val created: Long)
+    data class Entry(val text: String, val created: Long, val id: String = legacyId(text, created))
     enum class Result { ADDED, DUPLICATE, FULL, INVALID, FAILED }
     private fun clean(text: String) = text.trim().trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
     private fun key(text: String) = clean(text).lowercase(Locale.ROOT)
-    private fun valid(entry: Entry) = entry.created >= 0 && entry.text.isNotBlank() && entry.text.length <= MAX_TEXT
+    private fun valid(entry: Entry) = validId(entry.id) && entry.created >= 0 && entry.text.isNotBlank() && entry.text.length <= MAX_TEXT
 
     fun snapshot(): List<Entry> = synchronized(lock) {
         runCatching {
             val rows = JSONArray(read() ?: "[]")
             (0 until rows.length()).mapNotNull { index -> runCatching {
                 val row = rows.getJSONObject(index)
-                Entry(row.getString("text"), row.getLong("created")).takeIf(::valid)
+                Entry(row.getString("text"), row.getLong("created"), if (row.has("id")) row.getString("id") else legacyId(row.getString("text"), row.getLong("created"))).takeIf(::valid)
             }.getOrNull() }.distinctBy { key(it.text) }.takeLast(LIMIT).asReversed()
         }.getOrDefault(emptyList())
     }
@@ -49,7 +49,7 @@ class CapabilityRequestStore internal constructor(
         if (number !in 1..LIMIT) null else snapshot().getOrNull(number - 1)
     }
     fun add(text: String): Result = synchronized(lock) {
-        val entry = Entry(clean(text), now())
+        val entry = Entry(clean(text), now(), java.util.UUID.randomUUID().toString().replace("-", ""))
         if (!valid(entry)) return@synchronized Result.INVALID
         val current = snapshot()
         if (current.any { key(it.text) == key(entry.text) }) return@synchronized Result.DUPLICATE
@@ -64,10 +64,13 @@ class CapabilityRequestStore internal constructor(
     }
     private fun persist(entries: List<Entry>): Boolean = runCatching {
         val rows = JSONArray()
-        entries.forEach { rows.put(JSONObject().put("text", it.text).put("created", it.created)) }
+        entries.forEach { rows.put(JSONObject().put("text", it.text).put("created", it.created).put("id", it.id)) }
         write(rows.toString())
     }.getOrDefault(false)
     companion object {
+        fun validId(id: String) = Regex("[a-f0-9]{32}|[a-f0-9]{64}").matches(id)
+        private fun legacyId(text: String, created: Long): String = java.security.MessageDigest.getInstance("SHA-256")
+            .digest((created.toString() + "\n" + text).toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
         const val LIMIT = 20
         const val MAX_TEXT = 240
         private val lock = Any()

@@ -47,6 +47,7 @@ class HybridAssistantService(
     private val volumeConfirmations = VolumeConfirmationStore(systemService.context())
     private val deviceLearningSession = DeviceLearningSession(systemService.context())
     private val assistantMemory = AssistantMemory(systemService.context())
+    private val trialEvidence = CapabilityTrialEvidence(systemService.context().filesDir)
     private val resultHistory = IntelligenceResultHistory(systemService.context())
     private val preferenceConfirmations = PreferenceConfirmationStore(systemService.context())
 
@@ -195,11 +196,15 @@ class HybridAssistantService(
                             "You reported it failed. Paused this learned phrase on this device. Review it with 'show learned commands'. Go online and verify a new successful lesson to restore the same meaning, or forget the phrase before teaching a different meaning."
                         else "You reported it failed, but the matching learned phrase could not be paused. Its storage may have changed or failed. Check 'show learned commands'; nothing was learned."
                     } else {
-                        if (pending.awaitingOutcome) resultHistory.record(pending.phrase, pending.action.description(), IntelligenceResultHistory.Outcome.USER_FAILED, "Nothing learned; recent confirmed action unchanged.")
+                        if (pending.awaitingOutcome) {
+                            resultHistory.record(pending.phrase, pending.action.description(), IntelligenceResultHistory.Outcome.USER_FAILED, "Nothing learned; recent confirmed action unchanged.")
+                            trialEvidence.record(pending.requestId, pending.action, CapabilityTrialEvidence.Outcome.USER_FAILED)
+                        }
                         "Request cancelled or reported unsuccessful. Nothing was learned."
                     }
                 }
                 pending.awaitingOutcome -> {
+                    val trialSaved = pending.requestId == null || trialEvidence.record(pending.requestId, pending.action, CapabilityTrialEvidence.Outcome.USER_CONFIRMED)
                     val contextSaved = assistantMemory.recordConfirmed(pending.action)
                     val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
                     val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
@@ -214,9 +219,13 @@ class HybridAssistantService(
                     } else if (learned)
                         "You confirmed it worked. Learned \"${pending.phrase}\" on this device for offline reuse."
                     else "Your successful result was noted, but this phrase was not saved. Learning may be disabled or the phrase may conflict with another command."
-                    lessonReply + if (contextSaved || !pending.learnable) "" else " Recent-action context could not be saved."
+                    lessonReply + (if (contextSaved || !pending.learnable) "" else " Recent-action context could not be saved.") +
+                        if (trialSaved) "" else " Linked trial evidence could not be saved; review the request before relying on its status."
                 }
-                !requestDeviceAction(pending.action) -> "Android couldn't launch the requested action. Nothing was learned."
+                !requestDeviceAction(pending.action) -> {
+                    trialEvidence.record(pending.requestId, pending.action, CapabilityTrialEvidence.Outcome.REQUEST_FAILED)
+                    "Android couldn't launch the requested action. Nothing was learned."
+                }
                 !deviceLearningSession.propose(pending.copy(awaitingOutcome = true)) -> "The action was requested, but its learning outcome could not be retained. Nothing was learned."
                 else -> "Requested: ${pending.action.description()}. Check the timer or app, then say 'it worked' to " +
                     if (pending.learnable) "save your original phrase, or 'it failed' to discard it. Nothing is learned yet."
@@ -270,7 +279,9 @@ class HybridAssistantService(
         if (CapabilityDiscovery.isHelp(userInput)) return HybridAssistantReply(CapabilityDiscovery.help())
         val capabilityRequests = CapabilityRequestStore(systemService.context())
         CapabilityDiscovery.page(userInput)?.let { page ->
-            return HybridAssistantReply(CapabilityDiscovery.render(page, capabilityRequests.snapshot()))
+            return HybridAssistantReply(CapabilityDiscovery.render(page, capabilityRequests.snapshot()) { entry ->
+                trialEvidence.latest(entry)?.let { "last linked trial: ${it.outcome.label}; tested ${it.action.description()}; review to compare the requested target" }.orEmpty()
+            })
         }
         CapabilityDiscovery.review(userInput)?.let { description ->
             val entry = capabilityRequests.findReference(description)
@@ -278,7 +289,7 @@ class HybridAssistantService(
             val assessment = CapabilityRequestReview.assess(entry.text) { label ->
                 androidAssistant.resolveLearnableApp(label)?.takeIf { androidAssistant.canLaunchApp(it.first) }
             }
-            return HybridAssistantReply(CapabilityRequestReview.render(entry, assessment))
+            return HybridAssistantReply(CapabilityRequestReview.render(entry, assessment) + "\n\n" + trialEvidence.render(entry, assessment.definition))
         }
         CapabilityDiscovery.trial(userInput)?.let { description ->
             val entry = capabilityRequests.findReference(description)
