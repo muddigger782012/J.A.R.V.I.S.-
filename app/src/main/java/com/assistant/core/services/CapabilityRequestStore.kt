@@ -41,8 +41,11 @@ class CapabilityRequestStore internal constructor(
     fun findReference(text: String): Entry? = synchronized(lock) {
         val reference = clean(text)
         if (!Regex("(?i)^number(?: |$)").containsMatchIn(reference)) return@synchronized find(reference)
-        val number = Regex("(?i)^number ([1-9][0-9]*)$").matchEntire(reference)
-            ?.groupValues?.get(1)?.toIntOrNull() ?: return@synchronized null
+        val value = Regex("(?i)^number (.+)$").matchEntire(reference)
+            ?.groupValues?.get(1)?.lowercase(Locale.ROOT) ?: return@synchronized null
+        val number = if (Regex("[1-9][0-9]*").matches(value)) value.toIntOrNull()
+            else SPOKEN_NUMBERS.indexOf(value).takeIf { it >= 0 }?.plus(1)
+        if (number == null) return@synchronized null
         if (number !in 1..LIMIT) null else snapshot().getOrNull(number - 1)
     }
     fun add(text: String): Result = synchronized(lock) {
@@ -64,5 +67,11 @@ class CapabilityRequestStore internal constructor(
         entries.forEach { rows.put(JSONObject().put("text", it.text).put("created", it.created)) }
         write(rows.toString())
     }.getOrDefault(false)
-    companion object { const val LIMIT = 20; const val MAX_TEXT = 240; private val lock = Any() }
+    companion object {
+        const val LIMIT = 20
+        const val MAX_TEXT = 240
+        private val lock = Any()
+        private val SPOKEN_NUMBERS = listOf("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+            "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty")
+    }
 }
