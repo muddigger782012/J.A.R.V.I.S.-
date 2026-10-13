@@ -14,16 +14,23 @@ class LiveSpeechCapture(private val context: Context) {
     private var recognizer: SpeechRecognizer? = null
     fun stop() {
         generation++
-        recognizer?.cancel()
-        recognizer?.destroy()
+        val previous = recognizer
         recognizer = null
+        runCatching { previous?.cancel() }
+        runCatching { previous?.destroy() }
     }
-    fun listen(preferOffline: Boolean, onPartial: (String) -> Unit, onResult: (String) -> Unit, onError: (Int) -> Unit) {
+    fun listen(preferOffline: Boolean, onPartial: (String) -> Unit, onResult: (String) -> Unit, onError: (Int) -> Unit,
+               onDeviceOnly: Boolean = false, useProfileHints: Boolean = true) {
         stop()
         val current = generation
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) { onError(SpeechRecognizer.ERROR_CLIENT); return }
+        val available = if (onDeviceOnly) android.os.Build.VERSION.SDK_INT >= 31 &&
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(context) else SpeechRecognizer.isRecognitionAvailable(context)
+        if (!available) { onError(SpeechRecognizer.ERROR_CLIENT); return }
         try {
-            val engine = SpeechRecognizer.createSpeechRecognizer(context)
+            val engine = if (onDeviceOnly && android.os.Build.VERSION.SDK_INT >= 31)
+                SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+            else if (onDeviceOnly) { onError(SpeechRecognizer.ERROR_CLIENT); return }
+            else SpeechRecognizer.createSpeechRecognizer(context)
             recognizer = engine
             engine.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) = Unit
@@ -52,6 +59,7 @@ class LiveSpeechCapture(private val context: Context) {
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                VoiceRecognitionHints.apply(context, this, useProfileHints)
             })
         } catch (_: Exception) { stop(); onError(SpeechRecognizer.ERROR_CLIENT) }
     }

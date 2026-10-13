@@ -16,3 +16,6 @@
 -keep,allowoptimization class com.assistant.core.services.NeuralVoicePack { public *; }
 # AGP emits non-final resource IDs; instrumentation references their fields.
 -keep class com.assistant.core.R$* { *; }
+# Recognition-profile UI regression references these APIs in the optimized target.
+-keep,allowoptimization class com.assistant.core.services.VoiceProfileStore { public *; }
+-keep,allowoptimization class com.assistant.core.services.VoiceRecognitionHints { public *; }

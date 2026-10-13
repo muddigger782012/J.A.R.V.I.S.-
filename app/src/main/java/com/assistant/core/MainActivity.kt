@@ -2387,6 +2387,10 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun openVoiceSettings() {
+        // Release Activity-owned push-to-talk as well as local wake capture.
+        // The separate foreground service hands off its microphone per attempt.
+        localVoicePaused = !currentVoiceConfig.useForegroundServiceMode && voiceEnabled
+        voiceService.stopListening()
         voiceSettingsLauncher.launch(Intent(this, VoiceSettingsActivity::class.java))
     }
 
@@ -2873,6 +2877,8 @@ class MainActivity : ThemedActivity() {
         startHudAnimations()
     }
 
+    private var localVoicePaused = false
+
     override fun onStop() {
         liveDialogueDialog?.dismiss()
         liveDialogueDialog = null
@@ -2898,6 +2904,10 @@ class MainActivity : ThemedActivity() {
         }
         syncLiveChatUi()
         if (!liveChatStarted) reloadVoiceConfiguration(showStatus = false)
+        if (localVoicePaused) {
+            localVoicePaused = false
+            if (voiceEnabled && !currentVoiceConfig.useForegroundServiceMode && !liveChatStarted) voiceService.startHotwordLoop()
+        }
         runCatching {
             val wakeStage = java.io.File(filesDir, "wake-stage.txt")
             if (wakeStage.exists()) appendOutput("[BG-DIAG] Wake stage: " + wakeStage.readText().trim())

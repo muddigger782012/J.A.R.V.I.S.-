@@ -506,6 +506,7 @@ class VoiceAssistantService(
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline)
             putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
+            if (mode == RecognitionMode.COMMAND) VoiceRecognitionHints.apply(context, this)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
         }
         listeningWithSpeechRecognizer = true

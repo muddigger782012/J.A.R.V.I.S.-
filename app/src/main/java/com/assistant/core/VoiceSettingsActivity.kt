@@ -68,6 +68,12 @@ class VoiceSettingsActivity : ThemedActivity() {
             setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, AssistantVoiceSettingsActivity::class.java)) }
         }, 3)
 
+        (saveButton.parent as android.view.ViewGroup).addView(com.google.android.material.button.MaterialButton(this).apply {
+            text = "My voice profile"
+            isAllCaps = false
+            setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, VoiceProfileActivity::class.java)) }
+        }, 3)
+
         val learningButton = com.google.android.material.button.MaterialButton(this).apply {
             text = "Intelligence • Local Learning"
             isAllCaps = false
