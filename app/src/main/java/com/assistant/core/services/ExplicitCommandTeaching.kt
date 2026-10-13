@@ -12,11 +12,7 @@ object ExplicitCommandTeaching {
     fun isRequest(input: String) = input.trim().startsWith("teach ", ignoreCase = true)
 
     fun resolveDevice(target: String, resolveApp: (String) -> Pair<String, String>?): LearnableDeviceAction? {
-        val timer = Regex("(?i)^(?:set|start) (?:a )?timer (?:for )?([1-9][0-9]{0,5}) (seconds?|minutes?|hours?)$").matchEntire(target)
-        if (timer != null) {
-            val multiplier = when { timer.groupValues[2].startsWith("hour", true) -> 3600L
-                timer.groupValues[2].startsWith("minute", true) -> 60L; else -> 1L }
-            val seconds = timer.groupValues[1].toLong() * multiplier
+        SpokenTimerDuration.command(target)?.let { seconds ->
             return LearnableDeviceAction("timer", mapOf("seconds" to seconds.toString())).takeIf { it.isValid() }
         }
         val app = Regex("(?i)^(?:open|launch) (.{1,100})$").matchEntire(target)?.groupValues?.get(1) ?: return null

@@ -50,9 +50,9 @@ object CapabilityRequestReview {
                 appendLine("If you want to execute it, state a new request: ${definition.command}")
             }
             Status.APP_UNAVAILABLE -> appendLine("I couldn't resolve one launchable installed app with that exact name. Check its launcher name and availability; this does not establish that new app code is needed.")
-            Status.DETAILS_REQUIRED -> appendLine("This looks like a timer request, but its bounded duration could not be resolved. Specify digits and seconds/minutes/hours, from 1 second to 24 hours.")
+            Status.DETAILS_REQUIRED -> appendLine("This looks like a timer request, but its bounded duration could not be resolved. Specify digits or English number words with seconds/minutes/hours, from 1 second to 24 hours.")
             Status.REVIEW_REQUIRED -> appendLine("No single bounded handler matched this wording. Clearer parameters or an existing approved routine may cover it; otherwise it needs implementation review. This is not proof that the whole Android app lacks the feature.")
         }
-        append("Review covers media volume, numeric timers, exact app launches and the updater. Nothing was run, approved, learned or installed. Review does not change the request’s saved status or verify an outcome.")
+        append("Review covers media volume, bounded timers, exact app launches and the updater. Nothing was run, approved, learned or installed. Review does not change the request’s saved status or verify an outcome.")
     }
 }

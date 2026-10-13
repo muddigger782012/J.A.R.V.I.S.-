@@ -55,7 +55,7 @@ class PendingTimerCorrectionTest {
             assertEquals(expected, edit.correction); assertFalse(edit.accepted)
             assertEquals(pending.action, edit.pending.action); assertEquals(original, raw)
         }
-        for (text in listOf("make that 0 minutes", "make that 25 hours", "make it -1 minute", "make it 1.5 minutes", "make that five minutes"))
+        for (text in listOf("make that 0 minutes", "make that 25 hours", "make it -1 minute", "make it 1.5 minutes", "make that five hundred hours"))
             check(DeviceLearningSession.Pending("timer alias", timer, true), text, DeviceLearningSession.Correction.INVALID_DURATION)
         check(DeviceLearningSession.Pending("app alias", chrome, true), "make that 10 minutes", DeviceLearningSession.Correction.TARGET_LOCKED)
         check(DeviceLearningSession.Pending("repeat timer", timer, true, contextual = ContextualAction("repeat_action", mapOf("kind" to "timer"))),
