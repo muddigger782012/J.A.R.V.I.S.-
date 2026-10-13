@@ -177,7 +177,7 @@ class HybridAssistantService(
                             if (pending.explicitTeaching) " Your chosen alias will be saved only after you check the result and say 'it worked'." else " The original request wording won't be learned from this edited proposal."
                         DeviceLearningSession.Correction.ALREADY_REQUESTED -> "That action has already been requested. This follow-up cannot replace an opened app or change a running timer. No second action was requested. Check the existing result and say 'it worked' or 'it failed', or state a new request."
                         DeviceLearningSession.Correction.TARGET_LOCKED -> "This check isn't an editable proposal for that kind of action. State a new app or timer request. Nothing was changed; the original check remains pending."
-                        DeviceLearningSession.Correction.INVALID_DURATION -> "Use a duration from 1 second to 24 hours, with digits—for example, 'make that 10 minutes'. The original proposal remains pending; nothing was changed."
+                        DeviceLearningSession.Correction.INVALID_DURATION -> "Use a duration from 1 second to 24 hours, in digits or English number words—for example, 'make that 10 minutes'. The original proposal remains pending; nothing was changed."
                         DeviceLearningSession.Correction.INVALID_APP -> "I couldn't resolve one launchable installed app with that exact name. The original proposal remains pending; nothing was opened or changed."
                         DeviceLearningSession.Correction.SAVE_FAILED -> "I couldn't retain the revised target. The original proposal remains pending; nothing was changed or run."
                         DeviceLearningSession.Correction.NONE -> ""
@@ -760,7 +760,7 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        parseTimerSeconds(normalized)?.let { seconds ->
+        parseTimerSeconds(userInput)?.let { seconds ->
             val action = LearnableDeviceAction("timer", mapOf("seconds" to seconds.toString()))
             val response = if (action.isValid()) requestContextAction(userInput, action)
                 else if (androidAssistant.setTimer(seconds)) "Requested a timer for $seconds seconds." else "I couldn't open the Android timer service."
@@ -1320,15 +1320,7 @@ class HybridAssistantService(
         return start.timeInMillis to end.timeInMillis
     }
 
-    private fun parseTimerSeconds(text: String): Int? {
-        val match = Regex("(?:set|start) (?:a )?timer (?:for )?(\\d+) (second|seconds|minute|minutes|hour|hours)").find(text) ?: return null
-        val amount = match.groupValues[1].toIntOrNull() ?: return null
-        return when (match.groupValues[2]) {
-            "hour", "hours" -> amount * 3600
-            "minute", "minutes" -> amount * 60
-            else -> amount
-        }
-    }
+    private fun parseTimerSeconds(text: String): Int? = SpokenTimerDuration.command(text)
 
     private fun parseCalendarRequest(raw: String): String? {
         val match = Regex("(?i)^(?:create|add|schedule) (?:a |an )?(?:calendar )?(?:event|appointment)(?: called| named)? (.+)$").find(raw.trim()) ?: return null
