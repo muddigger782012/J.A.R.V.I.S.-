@@ -478,6 +478,9 @@ class VoiceForegroundService : Service() {
     }
 
     private fun speakResponse(text: String) {
+        // A reply started before practice may finish asynchronously. Keep it
+        // visible in events without playing speech into calibration audio.
+        if (practiceToken != null) return
         voiceService.speak(text)
     }
 

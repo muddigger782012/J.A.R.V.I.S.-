@@ -2387,10 +2387,10 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun openVoiceSettings() {
-        if (!currentVoiceConfig.useForegroundServiceMode && voiceEnabled) {
-            voiceService.stopListening()
-            localVoicePaused = true
-        }
+        // Release Activity-owned push-to-talk as well as local wake capture.
+        // The separate foreground service hands off its microphone per attempt.
+        localVoicePaused = !currentVoiceConfig.useForegroundServiceMode && voiceEnabled
+        voiceService.stopListening()
         voiceSettingsLauncher.launch(Intent(this, VoiceSettingsActivity::class.java))
     }
 

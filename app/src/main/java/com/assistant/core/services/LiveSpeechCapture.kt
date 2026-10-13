@@ -14,9 +14,10 @@ class LiveSpeechCapture(private val context: Context) {
     private var recognizer: SpeechRecognizer? = null
     fun stop() {
         generation++
-        recognizer?.cancel()
-        recognizer?.destroy()
+        val previous = recognizer
         recognizer = null
+        runCatching { previous?.cancel() }
+        runCatching { previous?.destroy() }
     }
     fun listen(preferOffline: Boolean, onPartial: (String) -> Unit, onResult: (String) -> Unit, onError: (Int) -> Unit,
                onDeviceOnly: Boolean = false, useProfileHints: Boolean = true) {
