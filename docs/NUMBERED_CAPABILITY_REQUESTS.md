@@ -1,0 +1,7 @@
+# Numbered capability request references
+
+Review and trial accept `number N` alongside the existing exact description: `review capability request number 1` or `try capability request number 1`. Numbers follow the current global list order across pages, range from 1 to 20 and are read-only references. Invalid, missing and overflowing numbers return no match; plain numeric descriptions keep their exact meaning. Deletion continues to require exact wording.
+
+Trial responses show the chosen saved description and bounded action before asking approval. The action is captured in the existing expiring confirmation session; yes does not reread the numbered list. Thus a changed list cannot retarget a pending approval. As before, a new unrelated chat command invalidates pending approval. Numbers may move when requests are added or removed, so users review the visible target each time. No aliases, backlog completion or executable features are created by numbered review/trial. Misheard control prefixes remain blocked.
+
+Phone test offline: show capability requests, then review capability request number 1. Confirm the displayed description matches entry 1. Try capability request number 1 and say no: nothing should run. Repeat, check the displayed action and say yes; verify its result before saying it worked. Try number 99: no approval should be staged. 3.5.381 composer reset and the preceding trial approval/outcome flow were phone-confirmed before this change. Numbered references await phone verification.

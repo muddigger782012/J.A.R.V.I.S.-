@@ -39,7 +39,7 @@ object CapabilityDiscovery {
         |• Teach: teach Jarvis that short break means start a timer for 5 minutes; approve, check, then say 'it worked'.
         |• Routines: saved approved routines can compose existing volume, timer and app actions.
         |• Review: show saved commands; show assistant memory; show capability requests. To assess a saved idea: review capability request followed by its exact description.
-        |• Try: try capability request followed by its exact saved description; supported timers, apps and exact volume levels ask approval before execution. This does not create a learned alias or mark the request complete.
+        |• Try: try capability request followed by its exact saved description or number 1 from the current list; supported timers, apps and exact volume levels ask approval before execution. Review also accepts number 1. This does not create a learned alias or mark the request complete.
         |
         |This is the local learning catalogue, not a guarantee that every Android action is available. Installed apps and permissions still matter. Cloud answers and web search need internet. This system does not generate new executable features or provide offline generative AI.
         |To record an addition for review: request a capability to followed by its description. Recording a request does not install or run it.""".trimMargin()
@@ -53,7 +53,7 @@ object CapabilityDiscovery {
         return "Requested features for review: ${requests.size}. Page $page of $pages. These entries are feature requests, not proof of implementation.\n" +
             requests.drop((page - 1) * PAGE_SIZE).take(PAGE_SIZE).mapIndexed { index, entry ->
                 "${(page - 1) * PAGE_SIZE + index + 1}. ${entry.text} — requested; implementation not verified"
-            }.joinToString("\n") + "\nTo assess one: review capability request followed by its exact description.\nTo remove one: forget capability request followed by its exact description." +
+            }.joinToString("\n") + "\nReview or try by current list number: review capability request number 1; try capability request number 1. Numbers can change when the list changes; check the displayed request and action before approving.\nTo assess one by wording: review capability request followed by its exact description.\nTo remove one: forget capability request followed by its exact description." +
             if (page < pages) "\nMore: show capability requests page ${page + 1}." else ""
     }
 }
