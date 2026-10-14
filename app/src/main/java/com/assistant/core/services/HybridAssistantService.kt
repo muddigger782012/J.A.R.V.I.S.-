@@ -38,7 +38,36 @@ class HybridAssistantService(
     private var pendingShellCommand: String? = null
     private var lastContactTarget: String? = null
     private var personalityTurn = 0
-    private val history = ArrayDeque<Pair<String, String>>()
+    private val conversationContext = ConversationContext(systemService.context().filesDir)
+    private val history get() = conversationContext.snapshot()
+    private val requestToken = ThreadLocal<ConversationContext.Token>()
+    private val planConversation = PlanConversation { IntelligencePlanRepository(systemService.context()).snapshot() }
+
+    @Synchronized fun bindConversation(id: String, seed: List<Pair<String, String>> = emptyList(), force: Boolean = false) {
+        conversationContext.bind(id, seed, force)
+        planConversation.restore(history)
+        if (force) {
+            pendingPrompt = PendingPrompt.NONE; pendingShellCommand = null; pendingLearningReset = false
+            routineConfirmations.consume(""); volumeConfirmations.consume(""); deviceLearningSession.consume(""); preferenceConfirmations.consume("")
+        }
+    }
+    private fun syncConversation() {
+        val id = LiveChatStore.currentConversation(systemService.context()).ifBlank { "device" }
+        if (conversationContext.token().id != id) bindConversation(id)
+    }
+    fun conversationToken(): ConversationContext.Token { syncConversation(); return conversationContext.token() }
+    fun isConversationCurrent(token: ConversationContext.Token): Boolean = conversationContext.accepts(token) && LiveChatStore.currentConversation(systemService.context()).ifBlank { "device" } == token.id
+    private fun requestIsCurrent(): Boolean {
+        val token = requestToken.get() ?: return true
+        return conversationContext.accepts(token) && LiveChatStore.currentConversation(systemService.context()).ifBlank { "device" } == token.id
+    }
+    private fun background(block: () -> Unit): Thread {
+        val token = conversationContext.token()
+        return Thread {
+            requestToken.set(token)
+            try { if (requestIsCurrent()) block() } finally { requestToken.remove() }
+        }
+    }
     private val androidAssistant = AndroidAssistantService(systemService.context())
     private val learningStore = IntentLearningStore(systemService.context())
     private val directOnlineClient = DirectOnlineClient(systemService.context())
@@ -52,6 +81,7 @@ class HybridAssistantService(
     private val preferenceConfirmations = PreferenceConfirmationStore(systemService.context())
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
+        syncConversation()
         val userInput = rawInput.trim()
         val geminiFailure = GeminiFailureMemory(systemService.context())
         if (geminiFailure.shouldAnswer(userInput)) {
@@ -274,6 +304,10 @@ class HybridAssistantService(
         if (ConfirmationWords.isConfirmation(userInput)) {
             pendingLearningReset = false
             return HybridAssistantReply("No action is awaiting yes/no approval. State the action you want, such as 'open Chrome'. Nothing was changed.")
+        }
+        planConversation.reply(userInput)?.let { response ->
+            remember(userInput, response)
+            return HybridAssistantReply(response)
         }
         // Discovery controls are local. Requested features never enter AI history or learning.
         if (CapabilityDiscovery.isHelp(userInput)) return HybridAssistantReply(CapabilityDiscovery.help())
@@ -1001,23 +1035,29 @@ class HybridAssistantService(
 
     fun canAnalyzeAttachments(): Boolean = directOnlineClient.hasGeminiKey()
 
-    fun handleAttachmentsAsync(question: String, attachments: List<ChatAttachment>, callback: (HybridAssistantReply) -> Unit) {
+    fun handleAttachmentsAsync(question: String, attachments: List<ChatAttachment>, deliver: (HybridAssistantReply) -> Unit) {
+        syncConversation()
+        val token = conversationContext.token()
+        val callback: (HybridAssistantReply) -> Unit = { reply -> if (conversationContext.accepts(token) && requestIsCurrent()) deliver(reply) }
         routineConfirmations.consume("")
-        Thread {
+        background {
             val response = directOnlineClient.gemini(question, getConversationSnapshot(), attachments)
             remember(question + "\nAttachments: " + attachments.joinToString { it.name }, response)
             callback(HybridAssistantReply(response))
         }.start()
     }
 
-    fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+    fun handleUserInputAsync(rawInput: String, deliver: (HybridAssistantReply) -> Unit) {
+        syncConversation()
+        val token = conversationContext.token()
+        val callback: (HybridAssistantReply) -> Unit = { reply -> if (conversationContext.accepts(token) && requestIsCurrent()) deliver(reply) }
         if (CapabilityDiscovery.needsClarification(rawInput)) {
             callback(handleUserInput(rawInput))
             return
         }
         AssistantConnectionProtocol.parse(rawInput)?.let { request ->
             routineConfirmations.consume("")
-            Thread {
+            background {
                 val response = assistantConnections.ask(request)
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
@@ -1027,7 +1067,7 @@ class HybridAssistantService(
         val local = handleUserInput(rawInput)
         val unresolved = local.text.startsWith("I don't understand that locally yet.")
         if (unresolved && !RoutineProposal.isCreationRequest(rawInput) && OnlineAnswers.isWeather(rawInput)) {
-            Thread {
+            background {
                 val response = directOnlineClient.weather(rawInput)
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
@@ -1051,32 +1091,38 @@ class HybridAssistantService(
             return
         }
         if (directOnlineClient.hasGeminiKey()) {
-            Thread {
+            background {
                 val cloud = directOnlineClient.assistant(rawInput, getConversationSnapshot(), ContextualAction.aiContext(assistantMemory))
-                val response = proposeCloudAction(rawInput, cloud.lessonJson) ?: cloud.reply
+                val response = synchronized(this) {
+                    if (!requestIsCurrent()) return@background
+                    proposeCloudAction(rawInput, cloud.lessonJson) ?: cloud.reply
+                }
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
             }.start()
             return
         }
         if (!fallbackAiClient.isConfigured()) {
-            val response = "I don't understand that locally yet. AI fallback needs configuration. Enter your Gemini API key in Voice Settings → Weather and AI."
+            val response = "I don't understand that locally yet. AI fallback needs configuration. Enter your Gemini API key in Settings → AI and weather."
             remember(rawInput, response)
             callback(HybridAssistantReply(response, local.actionResult))
             return
         }
-        Thread {
+        background {
             val cloud = fallbackAiClient.ask(rawInput, capabilityContext = ContextualAction.aiContext(assistantMemory), conversation = conversationTurns())
             if (cloud == null) {
                 val response = "I don't understand that locally yet. Cloud fallback failed or returned no usable reply. Check your connection and AI settings."
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response, local.actionResult))
-                return@Thread
+                return@background
             }
             // A plausible cloud interpretation is not proof of a successful action.
             // Do not train device-action intents from unverified cloud replies.
-            val actionResponse = proposeCloudAction(rawInput, cloud.lessonJson)
-            if (actionResponse == null) cloud.lessonJson?.let { acceptFallbackLesson(rawInput, it) }
+            val actionResponse = synchronized(this) {
+                if (!requestIsCurrent()) return@background
+                proposeCloudAction(rawInput, cloud.lessonJson)
+            }
+            if (requestIsCurrent() && actionResponse == null) cloud.lessonJson?.let { acceptFallbackLesson(rawInput, it) }
             val response = actionResponse ?: cloud.reply
             remember(rawInput, response)
             callback(HybridAssistantReply(response))
@@ -1260,7 +1306,7 @@ class HybridAssistantService(
     }
 
     @Synchronized
-    fun getConversationSnapshot(limit: Int = 8): String {
+    fun getConversationSnapshot(limit: Int = 12): String {
         return history.filterNot { it.second.startsWith("I don’t understand that locally yet.") || it.second.startsWith("I don't understand that locally yet.") }.takeLast(limit).joinToString(separator = "\n\n") { (user, assistant) ->
             "You: $user\nJ.A.R.V.I.S.: $assistant"
         }
@@ -1269,7 +1315,7 @@ class HybridAssistantService(
     @Synchronized
     private fun conversationTurns(): List<Pair<String, String>> = history.filterNot {
         it.second.startsWith("I don't understand that locally yet.") || it.second.startsWith("I don’t understand that locally yet.")
-    }.takeLast(8)
+    }.takeLast(12)
 
     private fun replyFromResult(userText: String, preface: String, result: ActionResult): HybridAssistantReply {
         val reply = buildString {
@@ -1297,10 +1343,9 @@ class HybridAssistantService(
 
     @Synchronized
     private fun remember(userText: String, assistantText: String) {
-        history.addLast(userText to assistantText)
-        while (history.size > 30) {
-            history.removeFirst()
-        }
+        if (!requestIsCurrent()) return
+        if (assistantText.startsWith("I don't understand that locally yet.") || assistantText.startsWith("I don’t understand that locally yet.")) return
+        conversationContext.remember(requestToken.get() ?: conversationContext.token(), userText, assistantText)
     }
 
     private fun isTimeRequest(text: String): Boolean {

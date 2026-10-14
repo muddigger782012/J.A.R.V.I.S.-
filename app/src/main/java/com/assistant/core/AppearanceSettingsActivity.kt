@@ -16,33 +16,30 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.tabs.TabLayout
 
 class AppearanceSettingsActivity : ThemedActivity() {
-    private var selectedTab = 0
+    private var selectedTab = -1
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        selectedTab = savedInstanceState?.getInt("appearance_tab") ?: 0
+        selectedTab = savedInstanceState?.getInt("appearance_tab") ?: -1
         setContentView(R.layout.activity_appearances)
-        findViewById<Button>(R.id.btnCloseAppearances).setOnClickListener { finish() }
-        bindChatDarkness()
-        val tabs = findViewById<TabLayout>(R.id.appearanceTabs)
-        tabs.setTabTextColors(ThemePreferences.color(this, R.color.jarvis_on_dark_muted), ThemePreferences.color(this, R.color.jarvis_primary))
-        tabs.setSelectedTabIndicatorColor(ThemePreferences.color(this, R.color.jarvis_primary))
-        tabs.addTab(tabs.newTab().setText("Themes"), selectedTab == 0)
-        tabs.addTab(tabs.newTab().setText("Fonts"), selectedTab == 1)
-        tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
-            override fun onTabSelected(tab: TabLayout.Tab) { selectedTab = tab.position; showTab() }
-            override fun onTabUnselected(tab: TabLayout.Tab) = Unit
-            override fun onTabReselected(tab: TabLayout.Tab) = Unit
+        findViewById<Button>(R.id.btnCloseAppearances).setOnClickListener { back() }
+        findViewById<View>(R.id.appearanceTabs).visibility = View.GONE
+        findViewById<View>(R.id.chatDarknessControls).visibility = View.GONE
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() { back() }
         })
         showTab()
     }
+
+    private fun back() { if (selectedTab == -1) finish() else { selectedTab = -1; showTab() } }
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("appearance_tab", selectedTab)
         super.onSaveInstanceState(outState)
     }
 
-    private fun bindChatDarkness() {
-        val panel = findViewById<LinearLayout>(R.id.chatDarknessControls)
+    private fun chatDarkness(): View {
+        val panel = SettingsMenuViews.panel(this)
+        panel.addView(SettingsMenuViews.heading(this, "Chat contrast"))
         val label = TextView(this).apply {
             textSize = 16f
             setTextColor(ThemePreferences.color(this@AppearanceSettingsActivity, R.color.jarvis_on_dark))
@@ -77,22 +74,44 @@ class AppearanceSettingsActivity : ThemedActivity() {
             override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
-        panel.addView(MaterialButton(this).apply {
+        panel.addView(MaterialButton(this, null, R.attr.materialButtonOutlinedStyle).apply {
             text = "Reset chat boxes"; isAllCaps = false
             setOnClickListener { slider.progress = 0; ChatAppearancePreferences.save(this@AppearanceSettingsActivity, 0) }
         })
         preview(slider.progress)
+        return ScrollView(this).apply { addView(panel) }
     }
 
     private fun showTab() {
         val host = findViewById<FrameLayout>(R.id.appearanceContent)
         host.removeAllViews()
-        if (selectedTab == 0) {
-            val themes = layoutInflater.inflate(R.layout.activity_themes, host, false)
-            themes.findViewById<View>(R.id.btnCloseThemes).visibility = View.GONE
-            ThemeSettingsActivity.bindThemes(this, themes)
-            host.addView(themes)
-        } else host.addView(fontControls())
+        when (selectedTab) {
+            0 -> {
+                val panel = SettingsMenuViews.panel(this)
+                panel.addView(SettingsMenuViews.heading(this, "Themes"))
+                ThemePreferences.ids.forEach { id ->
+                    val selected = ThemePreferences.selected(this) == id
+                    panel.addView(SettingsMenuViews.row(this, ThemePreferences.label(id), if (selected) "Active theme" else "Apply this theme", R.drawable.ic_tools_settings) {
+                        if (!selected) { ThemePreferences.save(this, id); recreate() }
+                    })
+                }
+                host.addView(ScrollView(this).apply { addView(panel) })
+            }
+            1 -> host.addView(fontControls())
+            2 -> host.addView(chatDarkness())
+            else -> {
+                val panel = SettingsMenuViews.panel(this)
+                panel.addView(SettingsMenuViews.heading(this, "Personalize"))
+                fun choice(title: String, detail: String, page: Int) {
+                    panel.addView(SettingsMenuViews.row(this, title, detail, R.drawable.ic_tools_settings) { selectedTab = page; showTab() })
+                }
+                choice("Themes", "Current: " + ThemePreferences.label(ThemePreferences.selected(this)), 0)
+                choice("Fonts", "Text size, color and a live preview", 1)
+                choice("Chat contrast", "Message box darkness and preview", 2)
+                host.addView(ScrollView(this).apply { addView(panel) })
+            }
+        }
+        FontPreferences.applyTo(host, this)
     }
 
     private fun fontControls(): View {
@@ -107,7 +126,7 @@ class AppearanceSettingsActivity : ThemedActivity() {
             setTextColor(ThemePreferences.color(this@AppearanceSettingsActivity, R.color.jarvis_on_dark))
             panel.addView(this)
         }
-        fun button(value: String, action: () -> Unit) = MaterialButton(this).apply {
+        fun button(value: String, action: () -> Unit) = MaterialButton(this, null, R.attr.materialButtonOutlinedStyle).apply {
             text = value; isAllCaps = false
             panel.addView(this, LinearLayout.LayoutParams(-1, -2))
             setOnClickListener { action() }

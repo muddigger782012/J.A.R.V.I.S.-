@@ -468,8 +468,10 @@ class VoiceForegroundService : Service() {
         // central assistant pipeline as typed input. Legacy parser routing is
         // retained below only until the remaining migration is complete.
         publishEvent("Voice diagnostic: live transcript submitted to assistant.")
+        val responseContext = hybridAssistantService.conversationToken()
         hybridAssistantService.handleUserInputAsync(transcript) { reply ->
             liveHandler.post {
+                if (!hybridAssistantService.isConversationCurrent(responseContext)) return@post
                 publishEvent("Voice diagnostic: live assistant response received (${reply.text.length} characters).")
                 publishEvent("J.A.R.V.I.S.: ${reply.text}")
                 speakResponse(reply.text)

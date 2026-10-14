@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "revision": 1,
+  "updated": "2026-10-13",
+  "throughVersion": "3.5.394",
+  "workstreams": [
+    {
+      "id": "router",
+      "title": "Unified intelligence router",
+      "percent": 85,
+      "status": "Implemented; supported typed flows phone-verified",
+      "implemented": "Local command, preference, repeat and correction routing; capability-management boundaries; local error follow-ups. Bounded per-chat conversation context and local plan follow-ups.",
+      "remaining": "Broader action coverage, voice/live-chat routing parity and ambiguous multi-action handling."
+    },
+    {
+      "id": "settings",
+      "title": "AI and learning settings",
+      "percent": 70,
+      "status": "Implemented; partial phone verification",
+      "implemented": "Learning controls, preferences, targeted forget/reset, capability-request commands and My voice profile calibration. Focused Appearance and Intelligence category menus.",
+      "remaining": "Complete capability lifecycle controls and phone checks for voice calibration."
+    },
+    {
+      "id": "learning",
+      "title": "Verified learning loop",
+      "percent": 85,
+      "status": "Phone-verified for supported actions",
+      "implemented": "Volume, app and timer aliases, outcome feedback, offline reuse and proposal edits. Saved-request alias teaching is implemented.",
+      "remaining": "Broader action learning and generalization; saved-request alias phone verification remains pending."
+    },
+    {
+      "id": "builder",
+      "title": "AI capability builder",
+      "percent": 50,
+      "status": "Bounded composition implemented",
+      "implemented": "Approved routines use existing handlers. Requests can be captured, assessed, selected by number and staged for a supported-action trial. Timer/app and exact-volume trials retain request identity and display linked outcomes with fresh target comparison. Volume uses Android readback; timer/app outcomes use user feedback.",
+      "remaining": "Arbitrary feature-code generation, sandbox evaluation and builder-driven deployment are not operational."
+    },
+    {
+      "id": "dashboard",
+      "title": "Intelligence dashboard",
+      "percent": 75,
+      "status": "Implemented; partial phone verification",
+      "implemented": "Inventory, command/memory/routine review, outcome journal, diagnostics and capability-discovery review through chat. In-app progress report, cached offline and refreshed separately from APK updates.",
+      "remaining": "Complete capability lifecycle management and integrated update approval."
+    },
+    {
+      "id": "providers",
+      "title": "AI provider integration",
+      "percent": 85,
+      "status": "Implemented; Gemini/search flows phone-verified",
+      "implemented": "Gemini and search routing; local failure explanations and repair follow-ups that can answer while Gemini is unavailable.",
+      "remaining": "Provider parity, outage recovery and offline generative AI. HTTP 503 availability remains provider-controlled."
+    },
+    {
+      "id": "updates",
+      "title": "Secure updates and rollback",
+      "percent": 75,
+      "status": "Signed delivery working",
+      "implemented": "Repeatable CI, unit checks, permanent-key signing, in-app update packages and direct APK delivery.",
+      "remaining": "Builder-driven approval/deployment and rollback recovery are not fully integrated or phone-verified."
+    }
+  ],
+  "note": "Engineering scope estimate with seven equally weighted workstreams. Percentages are not an accuracy score or proof of device verification. A newer plan may describe a release newer than the installed app.",
+  "milestone": "Edited timer trial and request review were phone-confirmed in 3.5.388. Linked volume reviews and refined menu navigation await phone verification. In-app plan, menu refinements and chat context require phone review after this update; estimates stay unchanged."
+}

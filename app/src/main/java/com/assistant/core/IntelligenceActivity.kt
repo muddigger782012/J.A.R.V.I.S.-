@@ -31,16 +31,26 @@ class IntelligenceActivity : ThemedActivity() {
     private val prefs by lazy { getSharedPreferences("jarvis_cloud_ai", MODE_PRIVATE) }
     private lateinit var content: LinearLayout
     private lateinit var scroll: ScrollView
+    private var selectedPage: String? = null
     private var checking = false
     private var lastTest = "Connection has not been tested in this screen."
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        selectedPage = savedInstanceState?.getString("intelligence_page")
         setContentView(R.layout.activity_intelligence)
         content = findViewById(R.id.intelligenceContent)
         scroll = findViewById(R.id.intelligenceScroll)
-        findViewById<Button>(R.id.btnCloseIntelligence).setOnClickListener { finish() }
+        findViewById<Button>(R.id.btnCloseIntelligence).setOnClickListener { back() }
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() { back() }
+        })
     }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("intelligence_page", selectedPage); super.onSaveInstanceState(outState)
+    }
+    private fun back() { if (selectedPage == null) finish() else { selectedPage = null; scroll.scrollTo(0, 0); render() } }
 
     override fun onResume() {
         super.onResume()
@@ -62,16 +72,10 @@ class IntelligenceActivity : ThemedActivity() {
         setBackgroundResource(R.drawable.intelligence_panel)
         content.addView(this, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
         text(this, title, true)
+        visibility = if (selectedPage == title) android.view.View.VISIBLE else android.view.View.GONE
     }
-    private fun button(panel: LinearLayout, label: String, action: () -> Unit) = MaterialButton(this).apply {
-        text = label
-        isAllCaps = false
-        setSingleLine(false)
-        maxLines = 3
-        minHeight = dp(48)
-        panel.addView(this, LinearLayout.LayoutParams(-1, -2))
-        setOnClickListener { action() }
-    }
+    private fun button(panel: LinearLayout, label: String, action: () -> Unit): android.view.View =
+        SettingsMenuViews.row(this, label, icon = R.drawable.ic_composer_tools, action = action).also { panel.addView(it) }
     private fun toast(value: String) = Toast.makeText(this, value, Toast.LENGTH_LONG).show()
 
     private fun render() {
@@ -84,6 +88,26 @@ class IntelligenceActivity : ThemedActivity() {
         val savedRoutines = routines.snapshot()
         val overview = IntelligenceOverview.build(savedCommands, savedExamples, savedRoutines.size,
             direct.hasGeminiKey(), gateway.isConfigured(), prefs.getBoolean("automatic_command_learning", true))
+        val menu = section("Intelligence")
+        menu.visibility = if (selectedPage == null) android.view.View.VISIBLE else android.view.View.GONE
+        text(menu, "${overview.commandEntries} command entries · ${overview.approvedRoutines} available routines")
+        menu.addView(SettingsMenuViews.heading(this, "Development"))
+        menu.addView(SettingsMenuViews.row(this, "Intelligence Plan", "Progress, remaining work and plan updates", R.drawable.ic_jarvis_core) {
+            startActivity(Intent(this, IntelligencePlanActivity::class.java))
+        })
+        fun destination(label: String, page: String, detail: String) {
+            menu.addView(SettingsMenuViews.row(this, label, detail, R.drawable.ic_composer_tools) {
+                selectedPage = page; scroll.scrollTo(0, 0); render()
+            })
+        }
+        menu.addView(SettingsMenuViews.heading(this, "Learning and memory"))
+        destination("Commands and learning", "Learning on this device", "Review phrases and automatic learning")
+        destination("Assistant memory", "Approved memory", "Preferences and confirmed recent actions")
+        destination("Routines", "Approved routines", "Review approved sequences")
+        destination("Action results", "Action and learning results", "Review or clear the local outcome journal")
+        menu.addView(SettingsMenuViews.heading(this, "Capabilities and connections"))
+        destination("Capability requests", "Capability discovery", "Review requested features and supported trials")
+        destination("AI connection", "AI connection", "Configuration and explicit connection test")
         val local = section("Learning on this device")
         text(local, "Saved command entries: ${overview.commandEntries}\nPaused entries: ${overview.pausedEntries}\nIntent examples: ${overview.intentExamples}\nAvailable approved routines: ${overview.approvedRoutines}")
         text(local, "Counts describe saved learning, not every action J.A.R.V.I.S. can perform. Paused phrases need a new verified lesson or removal.")

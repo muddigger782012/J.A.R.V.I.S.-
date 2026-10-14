@@ -96,6 +96,25 @@ jobs:
       - name: Verify dedicated male models and embed download metadata
         run: |
           timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke --bundle app/src/beta/assets/voice-packs/kokoro.tar.bz2
+      - name: Stamp the bundled and public intelligence progress report
+        env:
+          JARVIS_PLAN_BUILD: ${{ github.run_number }}
+        run: |
+          python3 - <<'PYPLAN'
+          import json, os
+          from pathlib import Path
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          source = Path('docs/intelligence-plan.json')
+          plan = json.loads(source.read_text())
+          build = int(os.environ['JARVIS_PLAN_BUILD'])
+          plan['revision'] = max(int(plan['revision']) + 1, build)
+          plan['throughVersion'] = '3.5.' + str(build)
+          plan['updated'] = datetime.now(ZoneInfo('America/New_York')).date().isoformat()
+          text = json.dumps(plan, ensure_ascii=False, indent=2) + '\n'
+          source.write_text(text)
+          Path('app/src/main/assets/intelligence-plan.json').write_text(text)
+          PYPLAN
       - name: Test bundled APK integrity checks
         run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - name: Verify native keyword decoder and run unit tests
@@ -207,7 +226,7 @@ jobs:
           cp /tmp/jarvis-arm64-latest.apk artifacts/app-debug.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add artifacts/app-debug.apk
+          git add artifacts/app-debug.apk docs/intelligence-plan.json app/src/main/assets/intelligence-plan.json
           if git diff --cached --quiet; then
             echo "Updater APK is already current."
           else
