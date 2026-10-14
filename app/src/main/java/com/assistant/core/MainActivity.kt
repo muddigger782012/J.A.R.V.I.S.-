@@ -308,6 +308,12 @@ class MainActivity : ThemedActivity() {
         reloadVoiceConfiguration(showStatus = true)
     }
 
+    private val betaIntroductionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        reloadVoiceConfiguration(showStatus = false)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -413,11 +419,13 @@ class MainActivity : ThemedActivity() {
         refreshSpecialPermissionsStatus()
         refreshShizukuRuntimeStatus()
         updateMicrophonePermissionUi()
-        promptForMicrophonePermissionOnFirstLaunch()
+        if (!BetaIntroductionActivity.shouldShow(this)) promptForMicrophonePermissionOnFirstLaunch()
 
         statusOutput.text = systemService.buildStatusSummary(capabilityState)
         refreshAuditDebugSection()
-        if (savedInstanceState == null) handleAssistantFeatureIntent(intent)
+        if (savedInstanceState == null && BetaIntroductionActivity.shouldShow(this)) {
+            betaIntroductionLauncher.launch(Intent(this, BetaIntroductionActivity::class.java))
+        } else if (savedInstanceState == null) handleAssistantFeatureIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -1805,17 +1813,18 @@ class MainActivity : ThemedActivity() {
     private fun buildUpdateUrlCandidates(): List<String> {
         val owner = BuildConfig.GITHUB_REPO_OWNER.trim().ifEmpty { "muddigger782012" }
         val repo = BuildConfig.GITHUB_REPO_NAME.trim().ifEmpty { "assistant-platform" }
+        val apkPath = BuildConfig.GITHUB_UPDATE_APK_PATH
         val branch = BuildConfig.GITHUB_UPDATE_BRANCH.trim().ifEmpty { "main" }
         val encodedBranch = Uri.encode(branch)
         val apiBranch = Uri.encode(branch, "@#&=*+-_.,:!?()/~'%")
 
         return listOf(
-            "https://raw.githubusercontent.com/$owner/$repo/$branch/artifacts/app-debug.apk",
-            "https://raw.githubusercontent.com/$owner/$repo/$encodedBranch/artifacts/app-debug.apk",
-            "https://raw.githubusercontent.com/$owner/$repo/refs/heads/$branch/artifacts/app-debug.apk",
-            "https://api.github.com/repos/$owner/$repo/contents/artifacts/app-debug.apk?ref=$apiBranch",
-            "https://github.com/$owner/$repo/raw/refs/heads/$branch/artifacts/app-debug.apk",
-            "https://github.com/$owner/$repo/raw/$branch/artifacts/app-debug.apk"
+            "https://raw.githubusercontent.com/$owner/$repo/$branch/$apkPath",
+            "https://raw.githubusercontent.com/$owner/$repo/$encodedBranch/$apkPath",
+            "https://raw.githubusercontent.com/$owner/$repo/refs/heads/$branch/$apkPath",
+            "https://api.github.com/repos/$owner/$repo/contents/$apkPath?ref=$apiBranch",
+            "https://github.com/$owner/$repo/raw/refs/heads/$branch/$apkPath",
+            "https://github.com/$owner/$repo/raw/$branch/$apkPath"
         ).distinct()
     }
 
@@ -2382,6 +2391,9 @@ class MainActivity : ThemedActivity() {
                 tab("Status and updates", 3); tab("Activity log", 5); tab("Permissions", 6)
                 row("Live chat history") { popup.dismiss(); startActivity(Intent(this, LiveChatHistoryActivity::class.java)) }
                 row("Diagnostics") { popup.dismiss(); showVoiceDiagnostics() }
+                if (BetaIntroductionActivity.isBeta(this)) row("Introduction and setup") {
+                    popup.dismiss(); betaIntroductionLauncher.launch(Intent(this, BetaIntroductionActivity::class.java))
+                }
             } }
             FontPreferences.applyTo(surface, this)
             surface.scrollTo(0, 0)
@@ -2416,6 +2428,10 @@ class MainActivity : ThemedActivity() {
         }
         if (showStatus) updateVoiceInteractionState(if (voiceEnabled) VoiceInteractionState.WAKE_LISTENING else VoiceInteractionState.IDLE)
         refreshVoiceButtonLabel()
+        if (BetaIntroductionActivity.shouldShow(this)) {
+            refreshPrivilegeCenter()
+            return
+        }
         if (currentVoiceConfig.useForegroundServiceMode &&
             currentVoiceConfig.autoStartForegroundService &&
             !voiceEnabled &&
