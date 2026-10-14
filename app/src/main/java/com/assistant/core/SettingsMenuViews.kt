@@ -24,7 +24,7 @@ object SettingsMenuViews {
         this.text = text; textSize = 13f
         setTextColor(color(context, R.attr.jarvis_on_dark_muted))
         setPadding(dp(context, 14), dp(context, 18), dp(context, 14), dp(context, 8))
-        accessibilityHeading = true
+        androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
     }
     fun row(context: Context, title: String, detail: String? = null, icon: Int, action: () -> Unit): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
