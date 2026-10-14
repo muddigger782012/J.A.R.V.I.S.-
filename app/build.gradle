@@ -25,6 +25,8 @@ android {
         buildConfigField "String", "BETA_GEMINI_API_KEY", "\"\""
         buildConfigField "boolean", "BUNDLED_NEURAL_VOICES", "false"
         buildConfigField "String", "GITHUB_UPDATE_DOWNLOAD_URL", "\"\""
+        buildConfigField "String", "UPDATE_CHANNEL", "\"jarvis\""
+        buildConfigField "String", "UPDATE_METADATA_URL", "\"https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/updates/jarvis.json\""
         resValue "string", "install_package", "com.assistant.core"
     }
 
@@ -52,7 +54,8 @@ android {
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            // PRs compile optimized unsigned APKs without receiving production secrets.
+            signingConfig = System.getenv("JARVIS_SIGNING_STORE_FILE") ? signingConfigs.release : null
             minifyEnabled true
             shrinkResources true
             proguardFiles(
@@ -72,8 +75,36 @@ android {
             buildConfigField "String", "GITHUB_UPDATE_APK_PATH", "\"artifacts/beta.apk\""
             buildConfigField "boolean", "BUNDLED_NEURAL_VOICES", "true"
             buildConfigField "String", "GITHUB_UPDATE_DOWNLOAD_URL", "\"https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/beta-latest/Beta.apk\""
+            buildConfigField "String", "UPDATE_CHANNEL", "\"beta\""
+            buildConfigField "String", "UPDATE_METADATA_URL", "\"https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/updates/beta.json\""
             // Build-time embedding keeps the key out of the public source tree.
             buildConfigField "String", "BETA_GEMINI_API_KEY", groovy.json.JsonOutput.toJson(System.getenv("JARVIS_BETA_GEMINI_API_KEY") ?: "")
+        }
+        betaBridge {
+            initWith beta
+            versionNameSuffix "-beta-bridge"
+            matchingFallbacks = ["beta", "release"]
+            // Only the historical raw-APK cohort uses this intermediate update.
+            // It preserves that cohort's downloadable voices; full Beta stays bundled.
+            buildConfigField "boolean", "BUNDLED_NEURAL_VOICES", "false"
+        }
+        updaterCheck {
+            initWith release
+            signingConfig signingConfigs.debug
+            debuggable true
+            minifyEnabled false
+            shrinkResources false
+            matchingFallbacks = ["release"]
+        }
+        updaterBetaCheck {
+            initWith beta
+            signingConfig signingConfigs.debug
+            debuggable true
+            minifyEnabled false
+            shrinkResources false
+            matchingFallbacks = ["beta", "release"]
+            buildConfigField "String", "BETA_GEMINI_API_KEY", "\"jarvis-updater-fixture-not-a-provider-key\""
+            buildConfigField "boolean", "BUNDLED_NEURAL_VOICES", "false"
         }
         voiceCheck {
             initWith release
@@ -83,6 +114,14 @@ android {
             // Instrumentation's Kotlin references are not visible to the host R8 pass.
             proguardFiles "voice-test-host.pro"
         }
+    }
+
+    sourceSets {
+        betaBridge {
+            // Share Beta's label/resources without copying its large bundled asset.
+            res.srcDir 'src/beta/res'
+        }
+        updaterBetaCheck { res.srcDir 'src/beta/res' }
     }
 
     compileOptions {
@@ -98,7 +137,8 @@ android {
             enable true
             reset()
             include 'arm64-v8a', 'armeabi-v7a', 'x86_64'
-            universalApk false
+            // Legacy updaters cannot select an ABI. Universal aliases are release-only.
+            universalApk = System.getenv("JARVIS_UNIVERSAL_APK") == "true"
         }
     }
 }
@@ -122,3 +162,4 @@ dependencies {
     implementation 'dev.rikka.shizuku:aidl:13.1.5'
     implementation 'io.github.iamr0s:Dhizuku-API:2.5.3'
 }
+

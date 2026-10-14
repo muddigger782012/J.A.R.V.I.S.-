@@ -60,6 +60,9 @@ import com.assistant.core.engine.IntentClassifier
 import com.assistant.core.engine.PolicyGate
 import com.assistant.core.models.ActionResult
 import com.assistant.core.models.CapabilityState
+import com.assistant.core.services.ApkUpdateService
+import com.assistant.core.services.UpdateCheckResult
+import com.assistant.core.services.UpdateDownloadResult
 import com.assistant.core.services.ChatAttachment
 import com.assistant.core.services.AttachmentPolicy
 import com.assistant.core.services.AuditService
@@ -91,9 +94,6 @@ import com.rosan.dhizuku.api.Dhizuku
 import rikka.shizuku.Shizuku
 import java.io.File
 import java.io.FileOutputStream
-import java.io.RandomAccessFile
-import java.net.HttpURLConnection
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -226,7 +226,8 @@ class MainActivity : ThemedActivity() {
     private var pendingClarification: String? = null
     private var runningTerminalCommand: RunningShizukuCommand? = null
     private var updateInProgress = false
-    private var pendingDownloadedUpdate: File? = null
+    private var updateWorker: Thread? = null
+    private var pendingDownloadedUpdate: UpdateDownloadResult.Downloaded? = null
     private var currentTabIndex = 0
     private var allowSwipeForCurrentTouch = true
     private var headerSelectionAnimator: ValueAnimator? = null
@@ -507,6 +508,12 @@ class MainActivity : ThemedActivity() {
         terminalStopButton = findViewById(R.id.btnTerminalStopCommand)
         terminalClearButton = findViewById(R.id.btnTerminalClearOutput)
         autoUpgradeButton = findViewById(R.id.btnAutoUpgradeApp)
+        pendingDownloadedUpdate = savedInstanceState?.getString("pending_verified_update")?.let {
+            ApkUpdateService.restoreReceipt(this, it)
+        }
+        if (savedInstanceState?.getBoolean("interrupted_update") == true && pendingDownloadedUpdate == null) {
+            updateStatusOutput.text = "The previous update was interrupted. Tap Update App to retry."
+        }
         refreshShizukuStatusButton = findViewById(R.id.btnRefreshShizukuStatus)
         openShizukuAppButton = findViewById(R.id.btnOpenShizukuApp)
         requestShizukuPermissionButton = findViewById(R.id.btnRequestShizukuPermission)
@@ -1234,6 +1241,10 @@ class MainActivity : ThemedActivity() {
         pendingAttachments.forEach { array.put(JSONObject().put("name", it.name).put("mime", it.mime).put("path", it.file.absolutePath)) }
         outState.putString("attachment_draft", array.toString())
         outState.putString("attachment_camera_path", pendingCameraPath)
+        pendingDownloadedUpdate?.let {
+            outState.putString("pending_verified_update", ApkUpdateService.serializeReceipt(it))
+        }
+        outState.putBoolean("interrupted_update", updateInProgress)
     }
 
     private fun sendAttachments() {
@@ -1721,113 +1732,96 @@ class MainActivity : ThemedActivity() {
             setUpdateStatus("Update is already in progress.")
             return
         }
+        pendingDownloadedUpdate?.let { reverifyAndLaunchInstaller(it); return }
         if (BuildConfig.GITHUB_UPDATE_TOKEN_REQUIRED && getGithubUpdateToken().isBlank()) {
             promptForGithubTokenAndRetryUpdate()
             return
         }
         updateInProgress = true
         autoUpgradeButton.isEnabled = false
-        setUpdateStatus("Downloading latest build...")
-
-        Thread {
+        setUpdateStatus("Checking the matching update channel…")
+        val updater = ApkUpdateService(this, getGithubUpdateToken())
+        updateWorker = Thread {
             try {
-                val updateDir = File(cacheDir, "updates").apply { mkdirs() }
-                val apkFile = File(updateDir, "jarvis-latest.apk")
-                val sourceUrl = downloadLatestApk(apkFile)
-                runOnUiThread {
-                    setUpdateStatus("Download complete from ${sourceUrl.substringAfter("//")}. Launching installer...")
-                    launchInstallerForDownloadedApk(apkFile)
+                when (val check = updater.checkForUpdate()) {
+                    is UpdateCheckResult.Available -> {
+                        var lastPercent = -1
+                        when (val result = updater.downloadAndVerify(check) { received, total ->
+                            val percent = (received * 100 / total).toInt()
+                            if (percent != lastPercent) {
+                                lastPercent = percent
+                                runOnUiThread {
+                                    if (!isDestroyed) updateStatusOutput.text =
+                                        "Downloading " + check.metadata.channel.displayName + " " +
+                                            check.metadata.versionName + " (" + percent + "%)…"
+                                }
+                            }
+                        }) {
+                            is UpdateDownloadResult.Downloaded -> runOnUiThread {
+                                if (isDestroyed || isFinishing) updater.discard(result.file)
+                                else {
+                                    setUpdateStatus("Update verified. Opening Android installation…")
+                                    launchInstallerForDownloadedApk(result)
+                                }
+                            }
+                            is UpdateDownloadResult.Failure -> runOnUiThread {
+                                if (!isDestroyed) setUpdateStatus("Update failed: " + result.failure.message)
+                            }
+                        }
+                    }
+                    is UpdateCheckResult.UpToDate -> runOnUiThread {
+                        if (!isDestroyed) setUpdateStatus(check.channel.displayName + " has no newer published update.")
+                    }
+                    is UpdateCheckResult.Failure -> runOnUiThread {
+                        if (!isDestroyed) setUpdateStatus("Update failed: " + check.failure.message)
+                    }
                 }
-            } catch (error: Throwable) {
+            } catch (_: Exception) {
                 runOnUiThread {
-                    val detail = error.message ?: "unknown download error"
-                    setUpdateStatus("Update failed: $detail")
+                    if (!isDestroyed) setUpdateStatus("Update could not be completed. Your existing app is unchanged; tap Update App to retry.")
                 }
             } finally {
                 runOnUiThread {
-                    updateInProgress = false
-                    autoUpgradeButton.isEnabled = true
-                }
-            }
-        }.start()
-    }
-
-    private fun downloadLatestApk(targetFile: File): String {
-        val failures = mutableListOf<String>()
-        for (url in buildUpdateUrlCandidates()) {
-            val result = runCatching { downloadLatestApkFromUrl(url, targetFile, getGithubUpdateToken()) }
-            if (result.isSuccess) {
-                return url
-            }
-            failures += "${url.substringAfter("//")} -> ${result.exceptionOrNull()?.message ?: "unknown error"}"
-        }
-        throw IllegalStateException(failures.firstOrNull() ?: "No updater URL candidates available.")
-    }
-
-    private fun downloadLatestApkFromUrl(url: String, targetFile: File, githubToken: String) {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 22000
-            readTimeout = 70000
-            requestMethod = "GET"
-            doInput = true
-            instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "JARVIS-Updater/2.3")
-            setRequestProperty("Accept", "application/vnd.android.package-archive,application/octet-stream,*/*")
-            if (githubToken.isNotBlank()) {
-                setRequestProperty("Authorization", "token $githubToken")
-            }
-            connect()
-        }
-        try {
-            if (connection.responseCode !in 200..299) {
-                throw IllegalStateException("HTTP ${connection.responseCode}")
-            }
-            val contentType = connection.contentType.orEmpty().lowercase(Locale.getDefault())
-            if (contentType.contains("text/html")) {
-                throw IllegalStateException("received HTML instead of APK")
-            }
-            connection.inputStream.use { input ->
-                FileOutputStream(targetFile, false).use { output ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read <= 0) break
-                        output.write(buffer, 0, read)
+                    if (!isDestroyed) {
+                        updateInProgress = false
+                        updateWorker = null
+                        autoUpgradeButton.isEnabled = true
                     }
-                    output.flush()
                 }
             }
-            if (!targetFile.exists() || targetFile.length() < MIN_VALID_APK_BYTES) {
-                throw IllegalStateException("Downloaded APK appears invalid.")
-            }
-            if (!isLikelyApkZip(targetFile)) {
-                throw IllegalStateException("Downloaded file is not an APK archive.")
-            }
-        } catch (error: Throwable) {
-            targetFile.delete()
-            throw error
-        } finally {
-            connection.disconnect()
-        }
+        }.also { it.start() }
     }
 
-    private fun buildUpdateUrlCandidates(): List<String> {
-        BuildConfig.GITHUB_UPDATE_DOWNLOAD_URL.takeIf { it.isNotBlank() }?.let { return listOf(it) }
-        val owner = BuildConfig.GITHUB_REPO_OWNER.trim().ifEmpty { "muddigger782012" }
-        val repo = BuildConfig.GITHUB_REPO_NAME.trim().ifEmpty { "assistant-platform" }
-        val apkPath = BuildConfig.GITHUB_UPDATE_APK_PATH
-        val branch = BuildConfig.GITHUB_UPDATE_BRANCH.trim().ifEmpty { "main" }
-        val encodedBranch = Uri.encode(branch)
-        val apiBranch = Uri.encode(branch, "@#&=*+-_.,:!?()/~'%")
-
-        return listOf(
-            "https://raw.githubusercontent.com/$owner/$repo/$branch/$apkPath",
-            "https://raw.githubusercontent.com/$owner/$repo/$encodedBranch/$apkPath",
-            "https://raw.githubusercontent.com/$owner/$repo/refs/heads/$branch/$apkPath",
-            "https://api.github.com/repos/$owner/$repo/contents/$apkPath?ref=$apiBranch",
-            "https://github.com/$owner/$repo/raw/refs/heads/$branch/$apkPath",
-            "https://github.com/$owner/$repo/raw/$branch/$apkPath"
-        ).distinct()
+    /** A restored receipt is verified again off the UI thread before Android receives it. */
+    private fun reverifyAndLaunchInstaller(receipt: UpdateDownloadResult.Downloaded) {
+        if (updateInProgress) return
+        updateInProgress = true
+        autoUpgradeButton.isEnabled = false
+        setUpdateStatus("Rechecking the downloaded update…")
+        val updater = ApkUpdateService(this, getGithubUpdateToken())
+        updateWorker = Thread {
+            try {
+                val result = updater.verifyDownloaded(receipt)
+                runOnUiThread {
+                    if (isDestroyed || isFinishing) return@runOnUiThread
+                    when (result) {
+                        is UpdateDownloadResult.Downloaded -> launchInstallerForDownloadedApk(result)
+                        is UpdateDownloadResult.Failure -> {
+                            pendingDownloadedUpdate = null
+                            setUpdateStatus("Update failed: " + result.failure.message)
+                        }
+                    }
+                }
+            } finally {
+                runOnUiThread {
+                    if (!isDestroyed) {
+                        updateInProgress = false
+                        updateWorker = null
+                        autoUpgradeButton.isEnabled = true
+                    }
+                }
+            }
+        }.also { it.start() }
     }
 
     private fun promptForGithubTokenAndRetryUpdate() {
@@ -1870,44 +1864,37 @@ class MainActivity : ThemedActivity() {
         uiPreferences.edit().putString(KEY_GITHUB_UPDATE_TOKEN, token).apply()
     }
 
-    private fun isLikelyApkZip(file: File): Boolean {
-        if (!file.exists() || file.length() < 4) return false
-        return try {
-            RandomAccessFile(file, "r").use { raf ->
-                val b0 = raf.read()
-                val b1 = raf.read()
-                b0 == 0x50 && b1 == 0x4B // PK
-            }
-        } catch (_: Throwable) {
-            false
-        }
-    }
-
-    private fun launchInstallerForDownloadedApk(apkFile: File) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-            pendingDownloadedUpdate = apkFile
-            setUpdateStatus("Allow J.A.R.V.I.S. to install this update, then return here. Installation will continue automatically.")
-            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
-            return
-        }
-        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
-        val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-            data = uri
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-        }
+    private fun launchInstallerForDownloadedApk(receipt: UpdateDownloadResult.Downloaded) {
         try {
-            startActivity(installIntent)
-            setUpdateStatus("Installer opened. Confirm installation to complete update.")
-        } catch (_: Throwable) {
-            val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                pendingDownloadedUpdate = receipt
+                setUpdateStatus("Allow " + getString(R.string.app_name) + " to request installation, then return here. Android will ask you to confirm the update.")
+                startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                return
+            }
+            pendingDownloadedUpdate = null
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", receipt.file)
+            val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                data = uri
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
             }
-            startActivity(fallbackIntent)
-            setUpdateStatus("Installer opened. Confirm installation to complete update.")
+            try {
+                startActivity(installIntent)
+                setUpdateStatus("Installer opened. Confirm installation to complete update.")
+            } catch (_: android.content.ActivityNotFoundException) {
+                val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(fallbackIntent)
+                setUpdateStatus("Installer opened. Confirm installation to complete update.")
+            }
+        } catch (_: Exception) {
+            pendingDownloadedUpdate = receipt
+            setUpdateStatus("Android could not open installation. Check install-unknown-apps permission or device policy, then tap Update App to retry.")
         }
     }
 
@@ -2917,12 +2904,7 @@ class MainActivity : ThemedActivity() {
         super.onResume()
         pendingDownloadedUpdate?.let { pending ->
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()) {
-                pendingDownloadedUpdate = null
-                if (pending.exists() && isLikelyApkZip(pending)) {
-                    launchInstallerForDownloadedApk(pending)
-                } else {
-                    setUpdateStatus("Downloaded update is no longer available. Tap Update App to download it again.")
-                }
+                reverifyAndLaunchInstaller(pending)
             }
         }
         syncLiveChatUi()
@@ -2951,6 +2933,8 @@ class MainActivity : ThemedActivity() {
     }
 
     override fun onDestroy() {
+        updateWorker?.interrupt()
+        updateWorker = null
         runningTerminalCommand?.stop()
         runningTerminalCommand = null
         voiceService.shutdown()
@@ -2963,7 +2947,6 @@ class MainActivity : ThemedActivity() {
         private const val SHIZUKU_PERMISSION_REQUEST_CODE = 9567
         private const val TAB_TRANSITION_DURATION_MS = 220L
         private const val SWIPE_VELOCITY_THRESHOLD = 900f
-        private const val MIN_VALID_APK_BYTES = 250_000L
     }
 
     private data class TabBinding(
@@ -2971,3 +2954,4 @@ class MainActivity : ThemedActivity() {
         val section: View
     )
 }
+

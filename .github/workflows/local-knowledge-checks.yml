@@ -22,16 +22,10 @@ jobs:
           cache: gradle
       - uses: android-actions/setup-android@v4
       - run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
-      - name: Restore sherpa-onnx AAR required by Gradle
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p app/libs
-          curl --fail --location --retry 3 --retry-all-errors \
-            --output app/libs/sherpa-onnx-1.13.8.aar \
-            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
-          test -s app/libs/sherpa-onnx-1.13.8.aar
-          unzip -tq app/libs/sherpa-onnx-1.13.8.aar
+      - name: Prepare the same Android runtime and KWS assets as production
+        run: bash scripts/prepare_android_runtime.sh
+      - name: Verify packaged production wake models
+        run: timeout 60s python3 scripts/wake_decoder_smoke.py app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
       - name: Report packaged native ABIs
         shell: bash
         run: |
@@ -42,8 +36,33 @@ jobs:
       - name: Verify Kokoro male speaker synthesis
         run: |
           python3 -m pip install --quiet sherpa-onnx==1.13.8 numpy
-          timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke
+          timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke --bundle app/src/beta/assets/voice-packs/kokoro.tar.bz2
       - run: bash gradlew --no-daemon testDebugUnitTest assembleDebug
+      - name: Compile optimized unsigned update variants without production secrets
+        env:
+          JARVIS_BETA_GEMINI_API_KEY: jarvis-ci-fixture-not-a-provider-key
+          JARVIS_UNIVERSAL_APK: 'true'
+        run: |
+          bash gradlew --no-daemon assembleRelease assembleBeta
+          JARVIS_VERSION_CODE=108 bash gradlew --no-daemon assembleBetaBridge
+          python3 scripts/verify_beta_configuration.py --build-config app/build/generated/source/buildConfig/release/com/assistant/core/BuildConfig.java app/build/outputs/apk/release/*.apk
+          python3 scripts/verify_beta_configuration.py --beta --build-config app/build/generated/source/buildConfig/beta/com/assistant/core/BuildConfig.java app/build/outputs/apk/beta/*.apk
+          python3 scripts/verify_beta_configuration.py --beta --build-config app/build/generated/source/buildConfig/betaBridge/com/assistant/core/BuildConfig.java app/build/outputs/apk/betaBridge/*.apk
+          for apk in app/build/outputs/apk/release/*.apk app/build/outputs/apk/betaBridge/*.apk; do
+            python3 scripts/verify_bundled_voice_apk.py "$apk" --absent
+          done
+          for apk in app/build/outputs/apk/beta/*.apk; do
+            python3 scripts/verify_bundled_voice_apk.py "$apk"
+          done
+          python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+      - name: Measure production-sized universal legacy APKs
+        run: python3 scripts/verify_legacy_apk_budget.py --original-dir app/build/outputs/apk/release --bridge-dir app/build/outputs/apk/betaBridge --model-dir app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01 --runtime-aar app/libs/sherpa-onnx-1.13.8.aar --report app/build/reports/updater/legacy-apk-budget.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: updater-legacy-apk-budget
+          path: app/build/reports/updater/legacy-apk-budget.json
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: layout-smoke-apk
@@ -142,3 +161,4 @@ jobs:
             app/build/reports/androidTests/connected/**
             voice-regression-logcat.txt
             voice-regression-results.txt
+
