@@ -27,13 +27,14 @@ class VolumeConfirmationStore internal constructor(
         }
     )
 
-    data class Pending(val phrase: String, val lesson: FallbackIntentLesson, val explicitTeaching: Boolean = false)
+    data class Pending(val phrase: String, val lesson: FallbackIntentLesson, val explicitTeaching: Boolean = false, val requestId: String? = null)
     data class Resolution(val pending: Pending, val approved: Boolean)
 
-    fun propose(phrase: String, lesson: FallbackIntentLesson, explicitTeaching: Boolean = false): Boolean = synchronized(lock) {
+    fun propose(phrase: String, lesson: FallbackIntentLesson, explicitTeaching: Boolean = false, requestId: String? = null): Boolean = synchronized(lock) {
+        if (requestId != null && (!CapabilityRequestStore.validId(requestId) || ExactVolumeLearning.fromLesson(lesson) == null)) return@synchronized false
         if (explicitTeaching && (ExactVolumeLearning.fromLesson(lesson) == null || !lesson.canTeachLocally())) return@synchronized false
         if (phrase.isBlank() || phrase.length > 240 || ConfirmationWords.isConfirmation(phrase) || (VerifiedVolumeLearning.capability(lesson) == null && ExactVolumeLearning.fromLesson(lesson) == null)) return@synchronized false
-        write(JSONObject().put("phrase", phrase).put("explicitTeaching", explicitTeaching).put("created", now()).put("lesson", JSONObject()
+        write(JSONObject().put("phrase", phrase).put("explicitTeaching", explicitTeaching).put("created", now()).put("requestId", requestId).put("lesson", JSONObject()
             .put("intent", lesson.intent).put("confidence", lesson.confidence)
             .put("entities", JSONObject(lesson.entities)).put("learnable", lesson.learnable)).toString())
     }
@@ -50,7 +51,9 @@ class VolumeConfirmationStore internal constructor(
             if ((VerifiedVolumeLearning.capability(lesson) == null && ExactVolumeLearning.fromLesson(lesson) == null)) return@runCatching null
             val explicit = json.optBoolean("explicitTeaching")
             if (explicit && (ExactVolumeLearning.fromLesson(lesson) == null || !lesson.canTeachLocally())) return@runCatching null
-            Pending(json.getString("phrase"), lesson, explicit)
+            val requestId = if (json.has("requestId")) json.getString("requestId") else null
+            if (requestId != null && (!CapabilityRequestStore.validId(requestId) || ExactVolumeLearning.fromLesson(lesson) == null)) return@runCatching null
+            Pending(json.getString("phrase"), lesson, explicit, requestId)
         }.getOrNull() ?: return@synchronized null
         if (!ConfirmationWords.isConfirmation(input)) return@synchronized null
         Resolution(pending, ConfirmationWords.approves(input))

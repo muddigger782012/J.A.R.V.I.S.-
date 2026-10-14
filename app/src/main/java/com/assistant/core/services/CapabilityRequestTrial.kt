@@ -4,7 +4,8 @@ package com.assistant.core.services
 object CapabilityRequestTrial {
     fun prepare(entry: CapabilityRequestStore.Entry, resolveApp: (String) -> Pair<String, String>?,
         proposeDevice: (DeviceLearningSession.Pending) -> Boolean,
-        proposeVolume: (String, FallbackIntentLesson) -> Boolean, alias: String? = null): String {
+        proposeVolume: (String, FallbackIntentLesson) -> Boolean, alias: String? = null,
+        proposeLinkedVolume: ((String, FallbackIntentLesson, String) -> Boolean)? = null): String {
         if (alias != null && !RoutineProposal.isUsableName(alias))
             return "Choose a short non-reserved alias, such as work break. Nothing was run or learned."
         // Reassess now: a prior review is neither authority nor a cached app binding.
@@ -15,7 +16,7 @@ object CapabilityRequestTrial {
         val retained = when (definition.capability) {
             "timer", "open_app" -> proposeDevice(DeviceLearningSession.Pending(phrase,
                 LearnableDeviceAction(definition.capability, definition.parameters), learnable = alias != null, explicitTeaching = alias != null, requestId = entry.id))
-            ExactVolumeLearning.CAPABILITY -> proposeVolume(phrase,
+            ExactVolumeLearning.CAPABILITY -> (proposeLinkedVolume?.let { linked -> { text: String, lesson: FallbackIntentLesson -> linked(text, lesson, entry.id) } } ?: proposeVolume)(phrase,
                 FallbackIntentLesson("DEVICE_SETTING", .95, mapOf("setting" to "media_volume",
                     "percent" to definition.parameters.getValue("percent")), learnable = alias != null))
             else -> return "This trial workflow supports timers, installed apps and exact media-volume levels. Review this request and issue its separate command if appropriate. Nothing was run, approved or learned."

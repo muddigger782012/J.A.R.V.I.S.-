@@ -60,6 +60,53 @@ class CapabilityTrialEvidenceTest {
         File(temporary.root, "capability-trial-evidence.json").writeText("broken")
         assertNull(store.latest(entry))
     }
+    @Test fun exactVolumeTrialCarriesLinkThroughRestartAndRequiresDeviceReadback() {
+        val entry = CapabilityRequestStore.Entry("set media volume to 25%", 1000)
+        var pending: String? = null
+        fun confirmations() = VolumeConfirmationStore({ pending }, { pending = it; true }, { 2000 })
+        val evidence = CapabilityTrialEvidence(temporary.root) { 2000 }
+        CapabilityRequestTrial.prepare(entry, { null }, { error("not timer") }, { _, _ -> error("must link") },
+            proposeLinkedVolume = { phrase, lesson, id -> confirmations().propose(phrase, lesson, requestId = id) })
+        assertNull(evidence.latest(entry))
+        val approved = confirmations().consume("yes")!!
+        assertTrue(approved.approved)
+        assertEquals(entry.id, approved.pending.requestId)
+        assertFalse(approved.pending.lesson.learnable)
+        assertNull(confirmations().consume("yes"))
+        val action = LearnableDeviceAction(ExactVolumeLearning.CAPABILITY, mapOf("percent" to "25"))
+        assertFalse(action.isValid()) // Volume evidence cannot enter the timer/app session or alias matcher.
+        assertFalse(evidence.record(entry.id, action, CapabilityTrialEvidence.Outcome.USER_CONFIRMED))
+        assertFalse(evidence.record(entry.id, timer, CapabilityTrialEvidence.Outcome.DEVICE_VERIFIED))
+        val result = ExactVolumeLearning.execute(approved.pending.phrase, 25, false,
+            { percent -> VerifiedMediaVolumeLevel.execute(percent, 15, { 4 }, { }) }, { _, _ -> error("no alias") })
+        assertTrue(result.executed)
+        assertTrue(evidence.record(entry.id, action, CapabilityTrialEvidence.Outcome.DEVICE_VERIFIED))
+        val text = CapabilityTrialEvidence(temporary.root) { 2000 }.render(entry, CapabilityRequestReview.assess(entry.text) { null }.definition)
+        assertTrue(text.contains("Android volume readback verified"))
+        assertTrue(text.contains("nearest supported level")); assertFalse(text.contains("differs"))
+        assertTrue(evidence.record(entry.id, action, CapabilityTrialEvidence.Outcome.NOT_VERIFIED))
+        assertEquals(CapabilityTrialEvidence.Outcome.NOT_VERIFIED, evidence.latest(entry)!!.outcome)
+        assertFalse(evidence.record(entry.id, action.copy(parameters = mapOf("percent" to "101")), CapabilityTrialEvidence.Outcome.DEVICE_VERIFIED))
+    }
+    @Test fun invalidOrRelativeVolumeLinksCannotApproveAndCancelledTrialsHaveNoEvidence() {
+        var raw: String? = null
+        var time = 2000L
+        fun confirmations() = VolumeConfirmationStore({ raw }, { raw = it; true }, { time })
+        val entry = CapabilityRequestStore.Entry("set media volume to 25%", 1000)
+        val exact = FallbackIntentLesson("DEVICE_SETTING", .95, mapOf("setting" to "media_volume", "percent" to "25"))
+        val relative = exact.copy(entities = mapOf("setting" to "media_volume", "direction" to "up"))
+        assertFalse(confirmations().propose("volume up", relative, requestId = entry.id))
+        assertFalse(confirmations().propose("set volume", exact, requestId = "bad"))
+        assertTrue(confirmations().propose("set volume", exact, requestId = entry.id))
+        raw = JSONObject(raw!!).put("requestId", "bad").toString()
+        assertNull(confirmations().consume("yes")); assertNull(raw)
+        assertTrue(confirmations().propose("set volume", exact, requestId = entry.id))
+        assertFalse(confirmations().consume("no")!!.approved)
+        assertNull(CapabilityTrialEvidence(temporary.root) { time }.latest(entry))
+        assertTrue(confirmations().propose("set volume", exact, requestId = entry.id))
+        time += 120001
+        assertNull(confirmations().consume("yes"))
+    }
     @Test fun invalidTrialLinkCannotBecomeAnApprovedPendingAction() {
         var raw: String? = null
         val session = DeviceLearningSession({ raw }, { raw = it; true }, { 2000 })
