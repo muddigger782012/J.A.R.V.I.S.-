@@ -439,7 +439,7 @@ class MainActivity : ThemedActivity() {
         // Exported entry points only select fixed features; never execute arbitrary command extras.
         when (intent.getStringExtra("jarvis_feature")) {
             "voice" -> ensureMicPermissionAndStartVoice()
-            "weather_settings" -> voiceSettingsLauncher.launch(Intent(this, VoiceSettingsActivity::class.java))
+            "weather_settings" -> AiConnectionSettings.show(this)
             "connections" -> startActivity(Intent(this, AssistantConnectionsActivity::class.java))
             "app_update" -> startAppUpgradeFlow()
         }
@@ -2336,66 +2336,72 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun showToolsAndSettingsMenu() {
-        val labels = arrayOf("Settings", "Intelligence", "Projects", "Device tools", "System status and updates",
-            "Terminal", "Activity log", "Permissions", "Device administration", "Live chat history", "Diagnostics") +
-            if (BetaIntroductionActivity.isBeta(this)) arrayOf("Introduction and setup") else emptyArray<String>()
-        fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
-        fun themeColor(attr: Int): Int {
-            val value = android.util.TypedValue()
-            theme.resolveAttribute(attr, value, true)
-            return if (value.resourceId != 0) ContextCompat.getColor(this, value.resourceId) else value.data
-        }
-        val corner = android.util.TypedValue().also { theme.resolveAttribute(R.attr.jarvis_corner, it, true) }
-            .getDimension(resources.displayMetrics)
+        fun dp(value: Int) = SettingsMenuViews.dp(this, value)
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val surface = ScrollView(this).apply {
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            isFillViewport = false
+            setPadding(dp(4), dp(4), dp(4), dp(4))
             clipToOutline = true
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(ColorUtils.compositeColors(themeColor(R.attr.jarvis_surface_glass_strong), themeColor(R.attr.jarvis_bg_deep)))
-                cornerRadius = corner
-                setStroke(dp(1), themeColor(R.attr.jarvis_panel_stroke))
+                setColor(ColorUtils.compositeColors(SettingsMenuViews.color(this@MainActivity, R.attr.jarvis_surface_glass_strong), SettingsMenuViews.color(this@MainActivity, R.attr.jarvis_bg_deep)))
+                cornerRadius = android.util.TypedValue().also { theme.resolveAttribute(R.attr.jarvis_corner, it, true) }.getDimension(resources.displayMetrics)
+                setStroke(dp(1), SettingsMenuViews.color(this@MainActivity, R.attr.jarvis_panel_stroke))
             }
-            addView(panel, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(panel)
         }
-        val visibleFrame = Rect().also { settingsButton.getWindowVisibleDisplayFrame(it) }
-        val menuWidth = minOf(dp(280), (visibleFrame.width() - dp(24)).coerceAtLeast(dp(160)))
+        val frame = Rect().also { settingsButton.getWindowVisibleDisplayFrame(it) }
         val location = IntArray(2).also { settingsButton.getLocationOnScreen(it) }
-        val availableHeight = (visibleFrame.bottom - location[1] - settingsButton.height - dp(16)).coerceAtLeast(dp(48))
-        val popup = android.widget.PopupWindow(surface, menuWidth,
-            minOf(dp(48) * labels.size + dp(16), availableHeight), true).apply {
+        val availableHeight = (frame.bottom - location[1] - settingsButton.height - dp(16)).coerceAtLeast(dp(48))
+        val popup = android.widget.PopupWindow(surface, minOf(dp(288), (frame.width() - dp(24)).coerceAtLeast(dp(160))),
+            minOf(dp(420), availableHeight), true).apply {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
-            isOutsideTouchable = true
-            elevation = dp(10).toFloat()
+            isOutsideTouchable = true; elevation = dp(10).toFloat()
             inputMethodMode = android.widget.PopupWindow.INPUT_METHOD_NOT_NEEDED
         }
-        labels.forEachIndexed { index, label ->
-            panel.addView(TextView(this).apply {
-                text = label
-                textSize = 15f
-                gravity = android.view.Gravity.CENTER_VERTICAL
-                minHeight = dp(48)
-                setPadding(dp(14), 0, dp(14), 0)
-                setTextColor(themeColor(if (index == 0) R.attr.jarvis_primary else R.attr.jarvis_on_dark))
-                isFocusable = true
-                background = android.graphics.drawable.RippleDrawable(
-                    android.content.res.ColorStateList.valueOf(ColorUtils.setAlphaComponent(themeColor(R.attr.jarvis_primary), 48)),
-                    null, android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE))
-                setOnClickListener {
-                    popup.dismiss()
-                    when (index) {
-                        0 -> openVoiceSettings()
-                        1 -> startActivity(Intent(this@MainActivity, IntelligenceActivity::class.java))
-                        9 -> startActivity(Intent(this@MainActivity, LiveChatHistoryActivity::class.java))
-                        10 -> showVoiceDiagnostics()
-                        11 -> betaIntroductionLauncher.launch(Intent(this@MainActivity, BetaIntroductionActivity::class.java))
-                        else -> showTab(index - 1, animate = true, direction = 1)
-                    }
-                }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        fun resize() {
+            surface.measure(View.MeasureSpec.makeMeasureSpec(popup.width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(availableHeight, View.MeasureSpec.AT_MOST))
+            if (popup.isShowing) popup.update(popup.width, surface.measuredHeight)
+            else popup.height = surface.measuredHeight
         }
-        FontPreferences.applyTo(surface, this)
+        fun row(label: String, icon: Int = R.drawable.ic_composer_tools, action: () -> Unit) {
+            panel.addView(SettingsMenuViews.row(this, label, icon = icon, action = action))
+        }
+        fun tab(label: String, index: Int) { row(label) { popup.dismiss(); showTab(index, animate = true, direction = 1) } }
+        lateinit var root: () -> Unit
+        fun group(title: String, contents: () -> Unit) {
+            panel.removeAllViews()
+            row("Back", R.drawable.ic_search_open) { root() }
+            panel.addView(SettingsMenuViews.heading(this, title))
+            contents()
+            FontPreferences.applyTo(surface, this)
+            surface.scrollTo(0, 0)
+            resize()
+        }
+        root = {
+            panel.removeAllViews()
+            row("Settings", R.drawable.ic_tools_settings) {
+                popup.dismiss()
+                localVoicePaused = !currentVoiceConfig.useForegroundServiceMode && voiceEnabled
+                voiceService.stopListening()
+                voiceSettingsLauncher.launch(Intent(this, SettingsActivity::class.java))
+            }
+            row("Intelligence", R.drawable.ic_jarvis_core) { popup.dismiss(); startActivity(Intent(this, IntelligenceActivity::class.java)) }
+            row("Tools") { group("Tools") {
+                tab("Projects", 1); tab("Device tools", 2); tab("Terminal", 4); tab("Device administration", 7)
+            } }
+            row("Support", R.drawable.ic_tools_settings) { group("Support") {
+                tab("Status and updates", 3); tab("Activity log", 5); tab("Permissions", 6)
+                row("Live chat history") { popup.dismiss(); startActivity(Intent(this, LiveChatHistoryActivity::class.java)) }
+                row("Diagnostics") { popup.dismiss(); showVoiceDiagnostics() }
+                if (BetaIntroductionActivity.isBeta(this)) row("Introduction and setup") {
+                    popup.dismiss(); betaIntroductionLauncher.launch(Intent(this, BetaIntroductionActivity::class.java))
+                }
+            } }
+            FontPreferences.applyTo(surface, this)
+            surface.scrollTo(0, 0)
+            resize()
+        }
+        root()
         popup.showAsDropDown(settingsButton, 0, dp(8), android.view.Gravity.END)
     }
 

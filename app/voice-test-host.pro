@@ -19,3 +19,7 @@
 # Recognition-profile UI regression references these APIs in the optimized target.
 -keep,allowoptimization class com.assistant.core.services.VoiceProfileStore { public *; }
 -keep,allowoptimization class com.assistant.core.services.VoiceRecognitionHints { public *; }
+# Settings instrumentation directly calls these helpers in the separately compiled test APK.
+-keep,allowoptimization class com.assistant.core.FontPreferences { public *; }
+-keep,allowoptimization class com.assistant.core.ThemePreferences { public *; }
+-keep,allowoptimization class com.assistant.core.SettingsMenuViews { public *; }

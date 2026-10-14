@@ -18,7 +18,7 @@ class VoiceSettingsActivity : ThemedActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_voice_settings)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = getString(R.string.voice_settings_title)
+        supportActionBar?.title = "Wake word and listening"
 
         voicePreferences = VoicePreferences(this)
         val current = voicePreferences.load()
@@ -53,138 +53,6 @@ class VoiceSettingsActivity : ThemedActivity() {
             examples.visibility = if (examples.visibility == android.view.View.VISIBLE) android.view.View.GONE else android.view.View.VISIBLE
         }
         val saveButton: Button = findViewById(R.id.btnSaveVoiceSettings)
-
-        val appearanceButton = com.google.android.material.button.MaterialButton(this).apply {
-            id = R.id.btnThemes
-            text = "Appearances • " + ThemePreferences.label(ThemePreferences.selected(this@VoiceSettingsActivity))
-            isAllCaps = false
-            setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, AppearanceSettingsActivity::class.java)) }
-        }
-        (saveButton.parent as android.view.ViewGroup).addView(appearanceButton, 3)
-
-        (saveButton.parent as android.view.ViewGroup).addView(com.google.android.material.button.MaterialButton(this).apply {
-            text = "Assistant voice"
-            isAllCaps = false
-            setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, AssistantVoiceSettingsActivity::class.java)) }
-        }, 3)
-
-        (saveButton.parent as android.view.ViewGroup).addView(com.google.android.material.button.MaterialButton(this).apply {
-            text = "My voice profile"
-            isAllCaps = false
-            setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, VoiceProfileActivity::class.java)) }
-        }, 3)
-
-        val learningButton = com.google.android.material.button.MaterialButton(this).apply {
-            text = "Intelligence • Local Learning"
-            isAllCaps = false
-            setOnClickListener {
-                val store = com.assistant.core.services.IntentLearningStore(this@VoiceSettingsActivity)
-                val commandCount = com.assistant.core.learning.ValidatedCommandMemory(this@VoiceSettingsActivity).learnedPhraseCount()
-                val summary = "Learned intent examples: ${store.count()}\nValidated command phrases: $commandCount\n\n" +
-                    "Clear this device removes only locally saved examples. It does not delete learning on another device."
-                ThemedDialogBuilder(this@VoiceSettingsActivity)
-                    .setTitle("Intelligence • Local Learning")
-                    .setPositiveButton("Dashboard") { _, _ -> startActivity(android.content.Intent(this@VoiceSettingsActivity, IntelligenceActivity::class.java)) }
-                    .setMessage(summary)
-                    .setNegativeButton("Close", null)
-                    .setNeutralButton("Clear this device") { _, _ ->
-                        ThemedDialogBuilder(this@VoiceSettingsActivity)
-                            .setTitle("Clear learning on this device?")
-                            .setMessage("This permanently clears the learned examples on this installation only. Other devices are unchanged.")
-                            .setNegativeButton("Cancel", null)
-                            .setPositiveButton("Clear this device") { _, _ ->
-                                val intentsCleared = store.clear()
-                                val commandsCleared = com.assistant.core.learning.ValidatedCommandMemory(this@VoiceSettingsActivity).clear()
-                                val message = if (intentsCleared && commandsCleared) "Local learning cleared on this device" else "Unable to clear all local learning; please retry"
-                                android.widget.Toast.makeText(this@VoiceSettingsActivity, message, android.widget.Toast.LENGTH_LONG).show()
-                            }
-                            .show()
-                    }
-                    .show()
-            }
-        }
-        (saveButton.parent as android.view.ViewGroup).addView(learningButton, 4)
-
-        val gatewayPrefs = getSharedPreferences("jarvis_cloud_ai", MODE_PRIVATE)
-        val gatewayButton = com.google.android.material.button.MaterialButton(this).apply {
-            text = "Weather and AI"
-            isAllCaps = false
-            setOnClickListener {
-                val fields = android.widget.LinearLayout(this@VoiceSettingsActivity).apply {
-                    orientation = android.widget.LinearLayout.VERTICAL
-                    setPadding(32, 16, 32, 16)
-                }
-                fun field(label: String, key: String, secret: Boolean = false): EditText {
-                    fields.addView(TextView(this@VoiceSettingsActivity).apply { text = label })
-                    return EditText(this@VoiceSettingsActivity).apply {
-                        setSingleLine(true)
-                        if (secret) inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-                        setText(gatewayPrefs.getString(key, ""))
-                        fields.addView(this)
-                    }
-                }
-                fields.addView(TextView(this@VoiceSettingsActivity).apply {
-                    text = "Weather uses National Weather Service directly. Gemini sends unresolved questions to Google using your own API key."
-                })
-                val keyStore = com.assistant.core.services.ApiKeyStore(this@VoiceSettingsActivity)
-                val geminiKey = field("Gemini API key (Google AI Studio)", "unused", true).apply { setText(keyStore.read()) }
-                val geminiModel = field("Gemini model", "gemini_model").apply {
-                    if (text.isBlank()) setText("gemini-3.5-flash-lite")
-                }
-                val endpoint = field("Optional gateway HTTPS URL ending in /chat", "endpoint")
-                val token = field("Gateway token", "gateway_token", true)
-                val deviceLocation = SwitchMaterial(this@VoiceSettingsActivity).apply {
-                    text = "Use my precise phone location for weather"
-                    isChecked = gatewayPrefs.getBoolean("weather_device_location", false)
-                }
-                fields.addView(deviceLocation)
-                val latitude = field("Weather latitude", "weather_latitude")
-                val longitude = field("Weather longitude", "weather_longitude")
-                fields.addView(com.google.android.material.button.MaterialButton(this@VoiceSettingsActivity).apply {
-                    text = "Use Chesapeake, VA for weather"
-                    setOnClickListener { deviceLocation.isChecked = false; latitude.setText("36.7682"); longitude.setText("-76.2875") }
-                })
-                val scroll = android.widget.ScrollView(this@VoiceSettingsActivity).apply { addView(fields) }
-                val dialog = ThemedDialogBuilder(this@VoiceSettingsActivity)
-                    .setTitle("Weather and AI")
-                    .setView(scroll).setNegativeButton("Cancel", null)
-                    .setPositiveButton("Save", null).create()
-                dialog.setOnShowListener {
-                    dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        val url = endpoint.text.toString().trim()
-                        val uri = android.net.Uri.parse(url)
-                        val lat = latitude.text.toString().trim()
-                        val lon = longitude.text.toString().trim()
-                        if (url.isNotBlank() && (uri.scheme != "https" || uri.host.isNullOrBlank() || uri.userInfo != null)) {
-                            endpoint.error = "Enter a valid HTTPS gateway URL"
-                        } else if ((lat.isNotBlank() || lon.isNotBlank()) &&
-                            (lat.toDoubleOrNull()?.let { it.isFinite() && it in -90.0..90.0 } != true ||
-                             lon.toDoubleOrNull()?.let { it.isFinite() && it in -180.0..180.0 } != true)) {
-                            latitude.error = "Enter valid latitude and longitude together"
-                        } else if (!Regex("[a-zA-Z0-9._-]+").matches(geminiModel.text.toString().trim())) {
-                            geminiModel.error = "Enter a valid Gemini model name"
-                        } else {
-                            try { keyStore.save(geminiKey.text.toString().trim()) } catch (_: Exception) {
-                                geminiKey.error = "Couldn't save the API key securely. Try again."
-                                return@setOnClickListener
-                            }
-                            gatewayPrefs.edit().putBoolean("weather_device_location", deviceLocation.isChecked).putString("gemini_model", geminiModel.text.toString().trim()).putString("endpoint", url)
-                                .putString("gateway_token", token.text.toString().trim())
-                                .putString("weather_latitude", lat).putString("weather_longitude", lon).apply()
-                            dialog.dismiss()
-                        }
-                    }
-                }
-                dialog.show()
-            }
-        }
-        (saveButton.parent as android.view.ViewGroup).addView(gatewayButton, 4)
-
-        (saveButton.parent as android.view.ViewGroup).addView(com.google.android.material.button.MaterialButton(this).apply {
-            text = "Optional assistant connections"
-            isAllCaps = false
-            setOnClickListener { startActivity(android.content.Intent(this@VoiceSettingsActivity, AssistantConnectionsActivity::class.java)) }
-        }, 5)
 
         dedicatedSwitch.isChecked = current.enableDedicatedWakeWord
         wakeWordInput.setText(current.wakeWord)
