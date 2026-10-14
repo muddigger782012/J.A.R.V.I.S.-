@@ -113,6 +113,33 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon assembleRelease
+      - name: Compile Beta from the same source revision
+        if: steps.signing.outputs.configured == 'true'
+        env:
+          JARVIS_BETA_GEMINI_API_KEY: ${{ secrets.JARVIS_BETA_GEMINI_API_KEY }}
+          JARVIS_VERSION_CODE: ${{ github.run_number }}
+          JARVIS_VERSION_NAME: 3.5.${{ github.run_number }}
+          JARVIS_SIGNING_STORE_FILE: ${{ runner.temp }}/jarvis-release.jks
+          JARVIS_SIGNING_STORE_PASSWORD: ${{ secrets.JARVIS_SIGNING_STORE_PASSWORD }}
+          JARVIS_SIGNING_KEY_ALIAS: ${{ secrets.JARVIS_SIGNING_KEY_ALIAS }}
+          JARVIS_SIGNING_KEY_PASSWORD: ${{ secrets.JARVIS_SIGNING_KEY_PASSWORD }}
+        run: |
+          if [ -z "$JARVIS_BETA_GEMINI_API_KEY" ]; then
+            echo '::warning::Beta is not configured. Add repository secret JARVIS_BETA_GEMINI_API_KEY to enable its automatic builds.'
+            exit 0
+          fi
+          ./gradlew --no-daemon assembleBeta
+          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
+          APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          found=0
+          for APK in app/build/outputs/apk/beta/*.apk; do
+            found=1
+            "$APKSIGNER" verify "$APK"
+            "$AAPT" dump badging "$APK" | head -n 1 | grep -q "name='com.assistant.core.beta'"
+            "$AAPT" dump badging "$APK" | head -n 1 | grep -q "versionCode='${{ github.run_number }}'"
+            "$AAPT" dump badging "$APK" | grep -q "application-label:'Beta'"
+          done
+          test "$found" -eq 1
       - name: Verify APK identity and signing
         if: steps.signing.outputs.configured == 'true'
         shell: bash
@@ -137,13 +164,24 @@ jobs:
           name: Jarvis-release-APK
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
-      - name: Publish ARM64 APK for in-app updater
+      - name: Upload Beta APK artifact
+        if: steps.signing.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Beta-release-APK
+          path: app/build/outputs/apk/beta/*.apk
+          if-no-files-found: ignore
+      - name: Publish ARM64 APKs for in-app updaters
         if: steps.signing.outputs.configured == 'true'
         shell: bash
         run: |
           APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*arm64-v8a*.apk' -print -quit)"
           test -n "$APK"
           cp "$APK" /tmp/jarvis-arm64-latest.apk
+          BETA_APK="$(find app/build/outputs/apk/beta -maxdepth 1 -name '*arm64-v8a*.apk' -print -quit 2>/dev/null || true)"
+          if [ -n "$BETA_APK" ]; then
+            cp "$BETA_APK" /tmp/jarvis-beta-latest.apk
+          fi
           git fetch origin main
           git reset --hard origin/main
           mkdir -p artifacts
@@ -151,6 +189,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add artifacts/app-debug.apk
+          if [ -f /tmp/jarvis-beta-latest.apk ]; then
+            cp /tmp/jarvis-beta-latest.apk artifacts/beta.apk
+            git add artifacts/beta.apk
+          fi
           if git diff --cached --quiet; then
             echo "Updater APK is already current."
           else

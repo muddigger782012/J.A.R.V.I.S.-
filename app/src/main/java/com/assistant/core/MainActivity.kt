@@ -1805,17 +1805,18 @@ class MainActivity : ThemedActivity() {
     private fun buildUpdateUrlCandidates(): List<String> {
         val owner = BuildConfig.GITHUB_REPO_OWNER.trim().ifEmpty { "muddigger782012" }
         val repo = BuildConfig.GITHUB_REPO_NAME.trim().ifEmpty { "assistant-platform" }
+        val apkPath = BuildConfig.GITHUB_UPDATE_APK_PATH
         val branch = BuildConfig.GITHUB_UPDATE_BRANCH.trim().ifEmpty { "main" }
         val encodedBranch = Uri.encode(branch)
         val apiBranch = Uri.encode(branch, "@#&=*+-_.,:!?()/~'%")
 
         return listOf(
-            "https://raw.githubusercontent.com/$owner/$repo/$branch/artifacts/app-debug.apk",
-            "https://raw.githubusercontent.com/$owner/$repo/$encodedBranch/artifacts/app-debug.apk",
-            "https://raw.githubusercontent.com/$owner/$repo/refs/heads/$branch/artifacts/app-debug.apk",
-            "https://api.github.com/repos/$owner/$repo/contents/artifacts/app-debug.apk?ref=$apiBranch",
-            "https://github.com/$owner/$repo/raw/refs/heads/$branch/artifacts/app-debug.apk",
-            "https://github.com/$owner/$repo/raw/$branch/artifacts/app-debug.apk"
+            "https://raw.githubusercontent.com/$owner/$repo/$branch/$apkPath",
+            "https://raw.githubusercontent.com/$owner/$repo/$encodedBranch/$apkPath",
+            "https://raw.githubusercontent.com/$owner/$repo/refs/heads/$branch/$apkPath",
+            "https://api.github.com/repos/$owner/$repo/contents/$apkPath?ref=$apiBranch",
+            "https://github.com/$owner/$repo/raw/refs/heads/$branch/$apkPath",
+            "https://github.com/$owner/$repo/raw/$branch/$apkPath"
         ).distinct()
     }
 

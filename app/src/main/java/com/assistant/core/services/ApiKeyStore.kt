@@ -22,7 +22,11 @@ class ApiKeyStore(context: Context, private val name: String = "gemini") {
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
-    fun read(): String = runCatching {
+    fun read(): String = readStored().ifBlank {
+        if (name == "gemini") com.assistant.core.BuildConfig.BETA_GEMINI_API_KEY else ""
+    }
+
+    private fun readStored(): String = runCatching {
         val encoded = prefs.getString(name, null) ?: return ""
         val parts = encoded.split(":")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")

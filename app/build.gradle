@@ -21,6 +21,9 @@ android {
         buildConfigField "String", "GITHUB_REPO_NAME", "\"J.A.R.V.I.S.-\""
         buildConfigField "String", "GITHUB_UPDATE_BRANCH", "\"main\""
         buildConfigField "boolean", "GITHUB_UPDATE_TOKEN_REQUIRED", "false"
+        buildConfigField "String", "GITHUB_UPDATE_APK_PATH", "\"artifacts/app-debug.apk\""
+        buildConfigField "String", "BETA_GEMINI_API_KEY", "\"\""
+        resValue "string", "install_package", "com.assistant.core"
     }
 
     buildFeatures {
@@ -54,6 +57,16 @@ android {
     }
 
     buildTypes {
+        beta {
+            initWith release
+            applicationIdSuffix ".beta"
+            versionNameSuffix "-beta"
+            matchingFallbacks = ["release"]
+            resValue "string", "install_package", "com.assistant.core.beta"
+            buildConfigField "String", "GITHUB_UPDATE_APK_PATH", "\"artifacts/beta.apk\""
+            // Build-time embedding keeps the key out of the public source tree.
+            buildConfigField "String", "BETA_GEMINI_API_KEY", groovy.json.JsonOutput.toJson(System.getenv("JARVIS_BETA_GEMINI_API_KEY") ?: "")
+        }
         voiceCheck {
             initWith release
             signingConfig signingConfigs.debug
