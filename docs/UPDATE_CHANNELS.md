@@ -32,6 +32,10 @@ APK. This branch preserves that approved behavior and adds no provider credentia
 to main. A proxy/per-tester-key migration needs separate owner approval. Safe build
 checks compare generated configuration and compiled credential presence/isolation
 without printing values. They do not establish that a provider accepts the key.
+The optional saved GitHub token retains its existing plain preference storage;
+these public downloads need no token. No storage migration is made here. New
+requests send authorization only to the approved original URL and strip it from
+release-storage redirects.
 If the existing Beta credential is unavailable, production Beta builds/publication
 are explicitly skipped; existing Beta download locations are preserved.
 
@@ -83,6 +87,9 @@ The existing **Build Jarvis APK** workflow name and run-number versioning remain
 It can publish only from this repository's main branch. `JARVIS_UNIVERSAL_APK=true`
 adds universal APKs only where explicitly requested by release/validation jobs;
 normal local and existing device-test builds retain their ABI splits.
+The native runtime AAR also contains `x86`, which was never one of the existing
+APK splits. APK packaging excludes that unused ABI so universal aliases contain
+exactly the same three supported architectures.
 
 `scripts/stage_update_channels.py` verifies complete APK signatures using
 `apksigner`, reads package/version/SDK/native-ABI/label information with `aapt`,

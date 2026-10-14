@@ -34,6 +34,14 @@ android {
         noCompress += ["bz2"]
     }
 
+    packaging {
+        jniLibs {
+            // The AAR also contains x86, which is outside our existing APK ABIs.
+            // Universal APKs otherwise include it despite the split include list.
+            excludes += ["lib/x86/**"]
+        }
+    }
+
     buildFeatures {
         buildConfig true
     }

@@ -62,12 +62,15 @@ def verify(apk, model_dir, runtime_aar, unsigned=True):
 
 def find_universal(directory):
     universal = []
+    observed = []
     for apk in Path(directory).glob('*.apk'):
         with zipfile.ZipFile(apk) as package:
-            if native_abis(package) == set(ABIS):
+            abis = native_abis(package)
+            observed.append(f'{apk.name}: {",".join(sorted(abis))}')
+            if abis == set(ABIS):
                 universal.append(apk)
     if len(universal) != 1:
-        raise ValueError('Expected exactly one universal APK for each legacy variant')
+        raise ValueError('Expected exactly one universal APK for each legacy variant; observed ' + '; '.join(observed))
     return universal[0]
 
 

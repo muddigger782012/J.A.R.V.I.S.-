@@ -250,6 +250,18 @@ class LegacyPackagingBudgetTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 budget.verify(apk, model, runtime)
 
+    def test_extra_runtime_abi_is_rejected_with_packaging_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model, runtime = self.fixtures(root)
+            apk = self.apk(root, model)
+            with zipfile.ZipFile(apk, 'a') as archive:
+                archive.writestr('lib/x86/libsherpa.so', b'native')
+            with self.assertRaisesRegex(ValueError, 'universal.apk:.*x86'):
+                budget.find_universal(root)
+            with self.assertRaises(ValueError):
+                budget.verify(apk, model, runtime)
+
 
 class ConfigurationTests(unittest.TestCase):
     def test_beta_presence_and_main_isolation_without_exposing_values(self):
