@@ -52,3 +52,14 @@ Keep these documents synchronized with approved changes. When docs and code disa
 - Record important research findings with source URLs, retrieval dates, licensing considerations and decision status. Prefer primary technical documentation.
 - Report what changed, tests passed/failed, known limitations, and exact next steps. Do not invent build progress, ETAs, download URLs or device test outcomes.
 - Ask approval before deleting features, changing public UX behavior, introducing paid dependencies, or changing data handling/security boundaries.
+
+## Jarvis vs Jarvis Beta: strict variant separation
+- Two independently installable applications already exist. Current Gradle IDs: main `com.assistant.core`; Beta `com.assistant.core.beta`. Preserve both application IDs, labels, signing/update compatibility and separate user data.
+- Main and Beta should share approved functional code and feature fixes, but must retain their existing distinct configuration, API behavior, distribution and update channels. Do not copy Beta credentials into main, swap endpoints, erase configuration or silently replace current integrations.
+- The current Beta Gradle configuration uses `JARVIS_BETA_GEMINI_API_KEY` to populate `BETA_GEMINI_API_KEY` in the APK. This is extractable by recipients despite being sourced from GitHub Secrets. Preserve existing behavior pending an explicit owner-approved security migration, report the risk clearly, and never expose or print the secret. Do not add new embedded credentials.
+- Do not assume `BETA_GEMINI_API_KEY` is present in a build just because the build succeeds: verify secret injection and expected runtime behavior through safe checks that never log key values.
+- Both previously installed variants must offer an in-app update action that checks the matching channel, downloads its own compatible APK, verifies package ID, increasing versionCode, signing certificate, integrity and distribution source, and launches Android's system installation flow. Never install the opposite variant as an update.
+- Android requires user confirmation for ordinary APK installation and may require install-unknown-apps permission. Do not promise silent installation or bypass platform restrictions.
+- Test upgrades from representative older main and Beta versions, verify settings/user-data retention and failure recovery, and distinguish download success from actual installation success.
+- Check existing update code, workflow artifact names, release URLs, build types, ABI splits, signing keys and version-code monotonicity before changing distribution logic. A debug-signed APK generally cannot update a release-signed installation.
+- Keep the current release stable; implement update-channel fixes on a separate branch and PR after verifying the existing paths and workflows.
