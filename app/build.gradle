@@ -23,7 +23,13 @@ android {
         buildConfigField "boolean", "GITHUB_UPDATE_TOKEN_REQUIRED", "false"
         buildConfigField "String", "GITHUB_UPDATE_APK_PATH", "\"artifacts/app-debug.apk\""
         buildConfigField "String", "BETA_GEMINI_API_KEY", "\"\""
+        buildConfigField "boolean", "BUNDLED_NEURAL_VOICES", "false"
+        buildConfigField "String", "GITHUB_UPDATE_DOWNLOAD_URL", "\"\""
         resValue "string", "install_package", "com.assistant.core"
+    }
+
+    androidResources {
+        noCompress += ["bz2"]
     }
 
     buildFeatures {
@@ -64,6 +70,8 @@ android {
             matchingFallbacks = ["release"]
             resValue "string", "install_package", "com.assistant.core.beta"
             buildConfigField "String", "GITHUB_UPDATE_APK_PATH", "\"artifacts/beta.apk\""
+            buildConfigField "boolean", "BUNDLED_NEURAL_VOICES", "true"
+            buildConfigField "String", "GITHUB_UPDATE_DOWNLOAD_URL", "\"https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/beta-latest/Beta.apk\""
             // Build-time embedding keeps the key out of the public source tree.
             buildConfigField "String", "BETA_GEMINI_API_KEY", groovy.json.JsonOutput.toJson(System.getenv("JARVIS_BETA_GEMINI_API_KEY") ?: "")
         }

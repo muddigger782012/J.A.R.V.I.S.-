@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import shutil
 from pathlib import Path
 import tarfile
 import urllib.request
@@ -65,7 +66,12 @@ if __name__ == "__main__":
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--metadata", type=Path, required=True)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--bundle", type=Path, help="Copy the verified archive into a variant asset directory")
     args = parser.parse_args()
     root = prepare(args.directory, args.metadata)
     if args.smoke:
         smoke(root)
+    if args.bundle:
+        args.bundle.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(args.directory / "kokoro.tar.bz2", args.bundle)
+        print("Bundled verified offline voices:", args.bundle)

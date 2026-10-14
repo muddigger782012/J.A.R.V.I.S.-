@@ -20,3 +20,6 @@ __pycache__/
 .env
 .env.*
 !*.example
+
+# CI-generated bundled Beta voice archive
+app/src/beta/assets/voice-packs/*.bz2

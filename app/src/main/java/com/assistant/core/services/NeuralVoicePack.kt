@@ -22,6 +22,7 @@ class NeuralVoicePack(context: Context) {
         require(it.getLong("bytes") in 1..MAX_BYTES)
         require(it.getLong("unpacked_bytes") in 1..MAX_BYTES)
     }
+    fun bundled() = com.assistant.core.BuildConfig.BUNDLED_NEURAL_VOICES
     fun available() = runCatching { metadata(); true }.getOrDefault(false)
     fun installed() = runCatching {
         val meta = metadata()
@@ -31,14 +32,17 @@ class NeuralVoicePack(context: Context) {
     }.getOrDefault(false)
     fun downloadSizeMb() = runCatching { metadata().getLong("bytes") / 1048576 }.getOrDefault(0)
 
-    /** Explicit user download only. No user text or credentials are transmitted. */
+    /** Beta reads its signed APK asset; other variants download only after a user request. */
     fun install(cancelled: AtomicBoolean, status: (String) -> Unit) = synchronized(installLock) {
         RandomAccessFile(File(app.filesDir, "neural-voice-install.lock"), "rw").use { lock ->
             lock.channel.lock().use {
-                if (installed()) return@synchronized
+                val backup = File(app.filesDir, "neural-voice-backup")
+                // Recover an interrupted swap before inspecting the ready marker.
+                if (!root.exists() && backup.exists()) Files.move(backup.toPath(), root.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                if (installed()) { backup.deleteRecursively(); return@synchronized }
                 val meta = metadata()
                 require(app.filesDir.usableSpace > meta.getLong("bytes") + meta.getLong("unpacked_bytes") + 32 * 1048576L) {
-                    "Not enough free storage for the voice download"
+                    "Not enough free storage to prepare voices. Free at least ${(meta.getLong("bytes") + meta.getLong("unpacked_bytes") + 32 * 1048576L) / 1048576 + 1} MB and retry."
                 }
                 val archive = File(app.filesDir, "neural-voice-download.part")
                 val stage = File(app.filesDir, "neural-voice-stage")
@@ -47,18 +51,18 @@ class NeuralVoicePack(context: Context) {
                     val digest = MessageDigest.getInstance("SHA-256")
                     var downloaded = 0L
                     var lastPercent = -1
-                    download().use { input ->
+                    (if (bundled()) app.assets.open(BUNDLED_ASSET) else download()).use { input ->
                         archive.outputStream().buffered().use { output ->
                             val buffer = ByteArray(65536)
                             while (true) {
-                                check(!cancelled.get()) { "Download cancelled" }
+                                check(!cancelled.get()) { "Voice preparation cancelled" }
                                 val count = input.read(buffer)
                                 if (count < 0) break
                                 downloaded += count
                                 check(downloaded <= meta.getLong("bytes")) { "Unexpected voice download size" }
                                 digest.update(buffer, 0, count); output.write(buffer, 0, count)
                                 val percent = (downloaded * 100 / meta.getLong("bytes")).toInt()
-                                if (percent != lastPercent) { status("Downloading voices: $percent%"); lastPercent = percent }
+                                if (percent != lastPercent) { status(if (bundled()) "Preparing bundled voices: $percent%" else "Downloading voices: $percent%"); lastPercent = percent }
                             }
                         }
                     }
@@ -71,7 +75,7 @@ class NeuralVoicePack(context: Context) {
                     archive.inputStream().buffered().use { source ->
                         TarArchiveInputStream(BZip2CompressorInputStream(source)).use { tar ->
                             while (true) {
-                                check(!cancelled.get()) { "Download cancelled" }
+                                check(!cancelled.get()) { "Voice preparation cancelled" }
                                 val entry = tar.nextTarEntry ?: break
                                 check(entry.isDirectory || entry.isFile) { "Unsupported voice archive entry" }
                                 val target = NeuralVoiceCatalog.safeDestination(stage, entry.name)
@@ -83,7 +87,7 @@ class NeuralVoicePack(context: Context) {
                                     val buffer = ByteArray(65536)
                                     var written = 0L
                                     while (true) {
-                                        check(!cancelled.get()) { "Download cancelled" }
+                                        check(!cancelled.get()) { "Voice preparation cancelled" }
                                         val count = tar.read(buffer)
                                         if (count < 0) break
                                         output.write(buffer, 0, count); written += count
@@ -98,10 +102,17 @@ class NeuralVoicePack(context: Context) {
                     check(unpacked == meta.getLong("unpacked_bytes"))
                     check(listOf("model.onnx", "voices.bin", "tokens.txt", "LICENSE").all { File(stage, it).length() > 0 })
                     check(File(stage, "espeak-ng-data").isDirectory)
-                    check(!cancelled.get()) { "Download cancelled" }
+                    check(!cancelled.get()) { "Voice preparation cancelled" }
                     File(stage, ".ready").writeText(hash)
-                    check(!root.exists()) { "An existing voice pack needs inspection before replacement" }
-                    Files.move(stage.toPath(), root.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                    backup.deleteRecursively()
+                    if (root.exists()) Files.move(root.toPath(), backup.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                    try {
+                        Files.move(stage.toPath(), root.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                    } catch (error: Throwable) {
+                        if (!root.exists() && backup.exists()) Files.move(backup.toPath(), root.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                        throw error
+                    }
+                    backup.deleteRecursively()
                     status("Offline voices installed")
                 } finally { archive.delete(); stage.deleteRecursively() }
             }
@@ -128,6 +139,7 @@ class NeuralVoicePack(context: Context) {
         error("Too many voice download redirects")
     }
     companion object {
+        const val BUNDLED_ASSET = "voice-packs/kokoro.tar.bz2"
         const val SOURCE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-en-v0_19.tar.bz2"
         private const val MAX_BYTES = 1024 * 1024 * 1024L
         private val installLock = Any()

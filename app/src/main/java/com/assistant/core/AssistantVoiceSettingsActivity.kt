@@ -24,6 +24,30 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
     private val downloadCancelled = java.util.concurrent.atomic.AtomicBoolean(false)
     private var installing = false
 
+    private val bundleHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val bundlePoll = object : Runnable {
+        override fun run() {
+            if (closed) return
+            val pack = com.assistant.core.services.NeuralVoicePack(this@AssistantVoiceSettingsActivity)
+            if (pack.installed()) { updateVoice(); return }
+            if (selected == AssistantVoiceProfile.ORIGINAL) {
+                findViewById<TextView>(R.id.tvAssistantVoiceStatus).text =
+                    com.assistant.core.services.BundledVoicePreparation.status(this@AssistantVoiceSettingsActivity)
+            }
+            bundleHandler.postDelayed(this, 1000)
+        }
+    }
+    override fun onResume() {
+        super.onResume()
+        val pack = com.assistant.core.services.NeuralVoicePack(this)
+        if (pack.bundled()) {
+            com.assistant.core.services.BundledVoicePreparation.ensure(applicationContext)
+            bundleHandler.removeCallbacks(bundlePoll)
+            bundleHandler.post(bundlePoll)
+        }
+    }
+    override fun onPause() { bundleHandler.removeCallbacks(bundlePoll); super.onPause() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_assistant_voice)
@@ -76,7 +100,7 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
         findViewById<Button>(R.id.btnDownloadNeuralVoice).setOnClickListener { downloadVoices() }
         findViewById<Button>(R.id.btnNeuralVoiceCredits).setOnClickListener {
             ThemedDialogBuilder(this).setTitle("Offline voice credits")
-                .setMessage("Kokoro v0.19 by hexgrad, Apache License 2.0; ONNX package provided by the sherpa-onnx project. George and Lewis are British male presets; Michael is an American male preset. These are independent voices, not a Paul Bettany clone. The downloaded pack retains its upstream license files and espeak-ng data. No spoken text is sent to a speech server.")
+                .setMessage("Kokoro v0.19 by hexgrad, Apache License 2.0; ONNX package provided by the sherpa-onnx project. George and Lewis are British male presets; Michael is an American male preset. These are independent voices, not a Paul Bettany clone. The voice pack retains its upstream license files and espeak-ng data. No spoken text is sent to a speech server.")
                 .setPositiveButton("OK", null).show()
         }
         findViewById<Button>(R.id.btnVoiceDiagnostics).setOnClickListener {
@@ -124,6 +148,11 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
         if (installing) { downloadCancelled.set(true); return }
         val pack = com.assistant.core.services.NeuralVoicePack(this)
         if (!pack.available()) return
+        if (pack.bundled()) {
+            com.assistant.core.services.BundledVoicePreparation.ensure(applicationContext)
+            findViewById<TextView>(R.id.tvAssistantVoiceStatus).text = com.assistant.core.services.BundledVoicePreparation.status(this)
+            return
+        }
         ThemedDialogBuilder(this).setTitle("Download offline male voices?")
             .setMessage("One download of about ${pack.downloadSizeMb()} MB installs George, Lewis and Michael. Allow roughly 800 MB of free storage during installation. Once installed, speech works offline inside JARVIS. No other app is required.")
             .setNegativeButton("Cancel", null).setPositiveButton("Download") { _, _ ->
@@ -228,7 +257,7 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
         val download = findViewById<Button>(R.id.btnDownloadNeuralVoice)
         download.visibility = if (original && !pack.installed()) android.view.View.VISIBLE else android.view.View.GONE
         download.isEnabled = pack.available()
-        download.text = "Download male voices (${pack.downloadSizeMb()} MB)"
+        download.text = if (pack.bundled()) "Prepare included voices" else "Download male voices (${pack.downloadSizeMb()} MB)"
         if (original) {
             val voice = com.assistant.core.services.NeuralVoiceCatalog.resolve(selectedName)
             selectedName = voice.id
@@ -236,6 +265,7 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
             val installed = pack.installed()
             findViewById<TextView>(R.id.tvAssistantVoiceStatus).text = if (installed)
                 "${voice.label} · offline Kokoro. Preview, then save this exact voice."
+            else if (pack.bundled()) com.assistant.core.services.BundledVoicePreparation.status(this)
             else if (pack.available()) "Download the voice pack to preview ${voice.label}. Choose a preset, preview it, then save your choice."
             else "This build does not include verified voice download metadata. Install the signed release build."
             setButtonsEnabled(installed)

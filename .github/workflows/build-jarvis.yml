@@ -95,7 +95,9 @@ jobs:
           PY
       - name: Verify dedicated male models and embed download metadata
         run: |
-          timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke
+          timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke --bundle app/src/beta/assets/voice-packs/kokoro.tar.bz2
+      - name: Test bundled APK integrity checks
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - name: Verify native keyword decoder and run unit tests
         run: |
           timeout 60s python3 scripts/wake_decoder_smoke.py app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
@@ -138,6 +140,7 @@ jobs:
             "$AAPT" dump badging "$APK" | head -n 1 | grep -q "name='com.assistant.core.beta'"
             "$AAPT" dump badging "$APK" | head -n 1 | grep -q "versionCode='${{ github.run_number }}'"
             "$AAPT" dump badging "$APK" | grep -q "application-label:'Beta'"
+            python3 scripts/verify_bundled_voice_apk.py "$APK"
           done
           test "$found" -eq 1
       - name: Verify APK identity and signing
@@ -152,6 +155,7 @@ jobs:
             echo "Verifying $APK ($(du -h "$APK" | cut -f1))"
             "$AAPT" dump badging "$APK" | head -n 1
             "$APKSIGNER" verify --print-certs "$APK"
+            python3 scripts/verify_bundled_voice_apk.py "$APK" --absent
             "$AAPT" dump badging "$APK" | head -n 1 | grep -q "name='com.assistant.core'"
             "$AAPT" dump badging "$APK" | head -n 1 | grep -q "versionCode='${{ github.run_number }}'"
           done
@@ -169,19 +173,34 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Beta-release-APK
-          path: app/build/outputs/apk/beta/*.apk
+          path: app/build/outputs/apk/beta/*arm64-v8a*.apk
+          compression-level: 0
+          retention-days: 3
           if-no-files-found: ignore
-      - name: Publish ARM64 APKs for in-app updaters
+      - name: Publish complete Beta APK as a release download
+        if: steps.signing.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          BETA_APK="$(find app/build/outputs/apk/beta -maxdepth 1 -name '*arm64-v8a*.apk' -print -quit 2>/dev/null || true)"
+          if [ -z "$BETA_APK" ]; then
+            echo 'Beta was not configured for this run.'
+            exit 0
+          fi
+          cp "$BETA_APK" "$RUNNER_TEMP/Beta.apk"
+          if ! gh release view beta-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create beta-latest --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'J.A.R.V.I.S. Beta' --prerelease --notes 'Complete Beta with bundled offline voices and preconfigured AI.'
+          fi
+          gh release upload beta-latest "$RUNNER_TEMP/Beta.apk" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit beta-latest --repo "$GITHUB_REPOSITORY" --notes "Signed Beta from commit $GITHUB_SHA, version 3.5.${{ github.run_number }}-beta. Includes the verified Kokoro voice pack and first-launch setup."
+      - name: Publish ARM64 APK for the normal app updater
         if: steps.signing.outputs.configured == 'true'
         shell: bash
         run: |
           APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*arm64-v8a*.apk' -print -quit)"
           test -n "$APK"
           cp "$APK" /tmp/jarvis-arm64-latest.apk
-          BETA_APK="$(find app/build/outputs/apk/beta -maxdepth 1 -name '*arm64-v8a*.apk' -print -quit 2>/dev/null || true)"
-          if [ -n "$BETA_APK" ]; then
-            cp "$BETA_APK" /tmp/jarvis-beta-latest.apk
-          fi
           git fetch origin main
           git reset --hard origin/main
           mkdir -p artifacts
@@ -189,10 +208,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add artifacts/app-debug.apk
-          if [ -f /tmp/jarvis-beta-latest.apk ]; then
-            cp /tmp/jarvis-beta-latest.apk artifacts/beta.apk
-            git add artifacts/beta.apk
-          fi
           if git diff --cached --quiet; then
             echo "Updater APK is already current."
           else

@@ -319,6 +319,7 @@ class MainActivity : ThemedActivity() {
         setContentView(R.layout.activity_main)
 
         initViews()
+        com.assistant.core.services.BundledVoicePreparation.ensure(applicationContext)
         pendingCameraPath = savedInstanceState?.getString("attachment_camera_path")
         savedInstanceState?.getString("attachment_draft")?.let { restoreAttachmentDraft(it) }
         renderAttachmentChips()
@@ -1811,6 +1812,7 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun buildUpdateUrlCandidates(): List<String> {
+        BuildConfig.GITHUB_UPDATE_DOWNLOAD_URL.takeIf { it.isNotBlank() }?.let { return listOf(it) }
         val owner = BuildConfig.GITHUB_REPO_OWNER.trim().ifEmpty { "muddigger782012" }
         val repo = BuildConfig.GITHUB_REPO_NAME.trim().ifEmpty { "assistant-platform" }
         val apkPath = BuildConfig.GITHUB_UPDATE_APK_PATH

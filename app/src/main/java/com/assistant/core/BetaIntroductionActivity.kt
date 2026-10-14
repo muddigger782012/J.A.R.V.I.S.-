@@ -26,6 +26,14 @@ import com.google.android.material.button.MaterialButton
 class BetaIntroductionActivity : ThemedActivity() {
     private val setup by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
     private lateinit var content: LinearLayout
+    private var voiceProgress: TextView? = null
+    private val voiceHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val voicePoll = object : Runnable {
+        override fun run() {
+            voiceProgress?.text = com.assistant.core.services.BundledVoicePreparation.status(this@BetaIntroductionActivity)
+            voiceHandler.postDelayed(this, 1000)
+        }
+    }
     private var step = 0
     private var checking = false
     private var testReply = ""
@@ -54,7 +62,14 @@ class BetaIntroductionActivity : ThemedActivity() {
         render()
     }
 
-    override fun onResume() { super.onResume(); if (::content.isInitialized) render() }
+    override fun onResume() {
+        super.onResume()
+        com.assistant.core.services.BundledVoicePreparation.ensure(applicationContext)
+        if (::content.isInitialized) render()
+        voiceHandler.removeCallbacks(voicePoll)
+        if (com.assistant.core.BuildConfig.BUNDLED_NEURAL_VOICES) voiceHandler.post(voicePoll)
+    }
+    override fun onPause() { voiceHandler.removeCallbacks(voicePoll); super.onPause() }
     override fun onSupportNavigateUp(): Boolean { if (step > 0) move(-1) else defer(); return true }
     private fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
     private fun text(value: String, heading: Boolean = false) {
@@ -87,6 +102,14 @@ class BetaIntroductionActivity : ThemedActivity() {
     private fun render() {
         content.removeAllViews()
         text("Step ${step + 1} of 5")
+        voiceProgress = null
+        if (com.assistant.core.BuildConfig.BUNDLED_NEURAL_VOICES) {
+            text(com.assistant.core.services.BundledVoicePreparation.status(this))
+            voiceProgress = content.getChildAt(content.childCount - 1) as TextView
+            if (!com.assistant.core.services.NeuralVoicePack(this).installed()) {
+                button("Prepare voices again") { com.assistant.core.services.BundledVoicePreparation.ensure(applicationContext) }
+            }
+        }
         when (step) {
             0 -> {
                 text("Welcome to J.A.R.V.I.S. Beta", true)
@@ -109,7 +132,7 @@ class BetaIntroductionActivity : ThemedActivity() {
             }
             2 -> {
                 text("Make Jarvis your own", true)
-                text("Choose a theme, readable fonts and an assistant voice. Return here after saving your preferences. Extra neural voices may need a download before they can speak.")
+                text("Choose a theme, readable fonts and an assistant voice. Return here after saving your preferences. George, Lewis and Michael are included in this APK and prepare automatically. No separate voice download is needed.")
                 button("Themes and appearance") { open(Intent(this, AppearanceSettingsActivity::class.java)) }
                 button("Assistant voice and responses") { open(Intent(this, AssistantVoiceSettingsActivity::class.java)) }
                 button("Practice recognition with my voice") { open(Intent(this, VoiceProfileActivity::class.java)) }
