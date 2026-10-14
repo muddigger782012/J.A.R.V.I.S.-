@@ -164,7 +164,7 @@ class IntelligenceActivity : ThemedActivity() {
         text(connection, "Configuration is not proof of a working connection. Testing sends a short test prompt to the primary AI; it sends no conversation, learned phrases, memory or location and performs no device action.")
         button(connection, if (checking) "Testing connection…" else "Test primary AI connection") { testConnection(overview.primaryAi) }
             .isEnabled = !checking && overview.primaryAi != "Not configured"
-        button(connection, "Open AI and voice settings") { startActivity(Intent(this, VoiceSettingsActivity::class.java)) }
+        button(connection, "AI connection settings") { AiConnectionSettings.show(this) }
         button(connection, "Refresh dashboard") { render() }
         val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "unknown"
         text(content, "App version: $version\nUpdated ${DateFormat.getTimeFormat(this).format(Date())}. Inventory stays on this device.")
