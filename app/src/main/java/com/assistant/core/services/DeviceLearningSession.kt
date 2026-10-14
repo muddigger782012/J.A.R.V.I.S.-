@@ -8,14 +8,9 @@ class DeviceLearningSession internal constructor(
     private val read: () -> String?, private val write: (String?) -> Boolean,
     private val now: () -> Long = System::currentTimeMillis
 ) {
-    constructor(context: Context) : this(
-        { context.applicationContext.getSharedPreferences("jarvis_device_learning_session", Context.MODE_PRIVATE).getString("pending", null) },
-        { value ->
-            val editor = context.applicationContext.getSharedPreferences("jarvis_device_learning_session", Context.MODE_PRIVATE).edit()
-            if (value == null) editor.remove("pending") else editor.putString("pending", value)
-            editor.commit()
-        }
-    )
+    constructor(context: Context) : this(ConversationPendingStore(context.applicationContext.filesDir, "device"))
+    private constructor(store: ConversationPendingStore) : this(store::read, store::write)
+
     data class Pending(val phrase: String, val action: LearnableDeviceAction, val learnable: Boolean, val awaitingOutcome: Boolean = false, val contextual: ContextualAction? = null, val replayed: Boolean = false, val explicitTeaching: Boolean = false, val requestId: String? = null) {
         fun shouldLearn(automaticEnabled: Boolean) = learnable && (explicitTeaching || automaticEnabled)
     }
@@ -101,7 +96,7 @@ class DeviceLearningSession internal constructor(
     }
 
     companion object {
-        private val lock = Any()
+        private val lock = ConversationIdentityStore.processLock
         fun isOutcome(text: String): Boolean = OutcomeFeedback.parse(text) != null
         private fun followupKey(text: String) = text.lowercase(java.util.Locale.ROOT).trim()
             .trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
@@ -113,3 +108,4 @@ class DeviceLearningSession internal constructor(
             followupKey(text) in setOf("show assistant memory", "assistant memory", "what do you remember about my apps and timers", "learning status", "show learning status", "how many commands have you learned")
     }
 }
+

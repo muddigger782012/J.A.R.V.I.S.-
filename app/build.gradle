@@ -22,7 +22,6 @@ android {
         buildConfigField "String", "GITHUB_UPDATE_BRANCH", "\"main\""
         buildConfigField "boolean", "GITHUB_UPDATE_TOKEN_REQUIRED", "false"
         buildConfigField "String", "GITHUB_UPDATE_APK_PATH", "\"artifacts/app-debug.apk\""
-        buildConfigField "String", "BETA_GEMINI_API_KEY", "\"\""
         buildConfigField "boolean", "BUNDLED_NEURAL_VOICES", "false"
         buildConfigField "String", "GITHUB_UPDATE_DOWNLOAD_URL", "\"\""
         resValue "string", "install_package", "com.assistant.core"
@@ -52,7 +51,11 @@ android {
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            // PRs compile optimized APKs without access to the permanent signing key.
+            // The publishing workflow requires this key before building installable updates.
+            if (System.getenv("JARVIS_SIGNING_STORE_FILE")) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled true
             shrinkResources true
             proguardFiles(
@@ -72,8 +75,6 @@ android {
             buildConfigField "String", "GITHUB_UPDATE_APK_PATH", "\"artifacts/beta.apk\""
             buildConfigField "boolean", "BUNDLED_NEURAL_VOICES", "true"
             buildConfigField "String", "GITHUB_UPDATE_DOWNLOAD_URL", "\"https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/beta-latest/Beta.apk\""
-            // Build-time embedding keeps the key out of the public source tree.
-            buildConfigField "String", "BETA_GEMINI_API_KEY", groovy.json.JsonOutput.toJson(System.getenv("JARVIS_BETA_GEMINI_API_KEY") ?: "")
         }
         voiceCheck {
             initWith release
@@ -122,3 +123,4 @@ dependencies {
     implementation 'dev.rikka.shizuku:aidl:13.1.5'
     implementation 'io.github.iamr0s:Dhizuku-API:2.5.3'
 }
+

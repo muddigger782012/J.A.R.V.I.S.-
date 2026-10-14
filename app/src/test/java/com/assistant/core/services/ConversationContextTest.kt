@@ -32,4 +32,26 @@ class ConversationContextTest {
         assertEquals(12, context.snapshot().size)
         assertTrue(temporary.root.listFiles()!!.all { it.parentFile == temporary.root })
     }
+    @Test fun escapedAndMultibyteTurnsFitStorageBoundAndSurviveRestart() {
+        val context = ConversationContext(temporary.root)
+        val token = context.bind("large")
+        repeat(12) { i -> assertTrue(context.remember(token, "question $i " + "\\\"".repeat(900), "界".repeat(3000))) }
+        val saved = context.snapshot()
+        assertTrue(saved.isNotEmpty())
+        assertTrue(saved.last().first.startsWith("question 11 "))
+        assertTrue(temporary.root.listFiles()!!.filter { it.extension == "json" }.all { it.length() <= 65536 })
+        val restarted = ConversationContext(temporary.root); restarted.bind("large")
+        assertEquals(saved, restarted.snapshot())
+    }
+    @Test fun managementSynonymsAndPunctuationStayPrivateWhenRememberedOrSeeded() {
+        val context = ConversationContext(temporary.root)
+        val token = context.bind("private")
+        val commands = listOf("show routines", "SHOW ROUTINES!", "assistant memory?", "what do you remember about my apps and timers?", "learning status!", "show saved commands.")
+        commands.forEach { assertFalse(it, context.remember(token, it, "private definitions")) }
+        assertTrue(ConversationContext.pairs(commands.flatMap { listOf("You: $it", "J.A.R.V.I.S.: private definitions") }).isEmpty())
+        assertTrue(context.remember(token, "你好", "Hello"))
+        assertTrue(context.remember(token, "show intelligence plan progress", "Public report"))
+        assertEquals(2, context.snapshot().size)
+    }
 }
+

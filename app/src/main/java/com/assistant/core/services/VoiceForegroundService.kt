@@ -53,6 +53,7 @@ class VoiceForegroundService : Service() {
     private var liveChatActive = false
     private var resumeWakeAfterLive = false
     private var liveConversation = ""
+    private var liveConversationToken: ConversationContext.Token? = null
     private var liveRecordSession = ""
     private val dialogueOverlay by lazy { LiveChatDialogueOverlay(this) { finishLiveChat("Live chat ended.") } }
     private val responseOptionsReceiver = object : android.content.BroadcastReceiver() {
@@ -66,6 +67,10 @@ class VoiceForegroundService : Service() {
     private val heartbeat = object : Runnable {
         override fun run() {
             if (!liveChatActive) return
+            if (liveConversationToken?.let { hybridAssistantService.isConversationCurrent(it) } != true) {
+                finishLiveChat("Live chat ended for the selected conversation.")
+                return
+            }
             LiveChatStore.state(this@VoiceForegroundService, true, livePhase, liveMessage)
             dialogueOverlay.refresh(true)
             liveHandler.postDelayed(this, 30000L)
@@ -112,6 +117,10 @@ class VoiceForegroundService : Service() {
                         liveRecordSession = java.util.UUID.randomUUID().toString()
                         LiveChatStore.lastReply(this, org.json.JSONObject())
                         if (!::voiceService.isInitialized) { initializeEngine(); initializeVoice() }
+                        val selected = LiveChatStore.currentConversation(this)
+                        if (selected.isBlank()) LiveChatStore.currentConversation(this, liveConversation)
+                        liveConversationToken = hybridAssistantService.conversationToken()
+                        if (liveConversationToken?.id != liveConversation) throw IllegalStateException("Conversation changed")
                         voiceService.stopListening()
                         voiceService.stopSpeaking()
                         pipelineStarted = false
@@ -238,14 +247,21 @@ class VoiceForegroundService : Service() {
 
     private fun nextLiveTurn(delay: Long) {
         val token = liveSession.token
+        val responseContext = liveConversationToken ?: return
         liveHandler.postDelayed({
             if (!liveChatActive || liveSession.token != token) return@postDelayed
+            if (!hybridAssistantService.isConversationCurrent(responseContext)) {
+                finishLiveChat("Live chat ended for the selected conversation.")
+                return@postDelayed
+            }
             val turn = liveSession.listen() ?: return@postDelayed
             liveStatus(VoiceInteractionState.LISTENING, "Listening. Say “end live chat” to finish.")
             liveCapture.listen(currentConfig.preferOfflineCommandRecognition,
                 onPartial = { /* Partial transcripts stay transient; only complete turns enter chat. */ },
                 onResult = { text ->
-                    if (liveChatActive && liveSession.transcript(turn)) {
+                    if (liveChatActive && liveSession.token == turn && !hybridAssistantService.isConversationCurrent(responseContext)) {
+                        finishLiveChat("Live chat ended for the selected conversation.")
+                    } else if (liveChatActive && liveSession.transcript(turn)) {
                         liveLine("You: $text")
                         if (LiveChatCommands.parse(text) == LiveChatCommands.Control.STOP) {
                             finishLiveChat("Live chat ended.")
@@ -257,7 +273,7 @@ class VoiceForegroundService : Service() {
                             liveStatus(VoiceInteractionState.PROCESSING, "Thinking…")
                             hybridAssistantService.handleUserInputAsync(text) { reply ->
                                 liveHandler.post {
-                                    if (liveChatActive && liveSession.response(turn)) {
+                                    if (liveChatActive && hybridAssistantService.isConversationCurrent(responseContext) && liveSession.response(turn)) {
                                         liveLine("J.A.R.V.I.S.: ${reply.text}")
                                         speakLiveReply(reply.text)
                                     }
@@ -301,6 +317,7 @@ class VoiceForegroundService : Service() {
     private fun finishLiveChat(message: String) {
         dialogueOverlay.hide()
         liveChatActive = false
+        liveConversationToken = null
         liveSession.stop()
         liveHandler.removeCallbacksAndMessages(null)
         liveCapture.stop()
@@ -546,10 +563,12 @@ class VoiceForegroundService : Service() {
                 // Bypassing it through the legacy ActionRequest parser caused
                 // learned routines and local aliases to behave differently.
                 publishEvent("Voice diagnostic: assistant processing started.")
+                val responseContext = hybridAssistantService.conversationToken()
                 hybridAssistantService.handleUserInputAsync(
                     parsed.fallbackTextCommand ?: command
                 ) { reply ->
                     liveHandler.post {
+                        if (!hybridAssistantService.isConversationCurrent(responseContext)) return@post
                         publishEvent("Voice diagnostic: assistant response received (${reply.text.length} characters).")
                         publishEvent("J.A.R.V.I.S.: ${reply.text}")
                         speakResponse(reply.text)
@@ -682,3 +701,4 @@ class VoiceForegroundService : Service() {
         }
     }
 }
+

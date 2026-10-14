@@ -10,6 +10,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONObject
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class IntelligenceMenusUiTest {
@@ -21,7 +23,15 @@ class IntelligenceMenusUiTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val theme = ThemePreferences.selected(context)
         val percent = FontPreferences.percent(context); val color = FontPreferences.colorHex(context)
+        val cache = File(context.filesDir, "intelligence-plan-cache.json")
+        val previousCache = if (cache.exists()) cache.readBytes() else null
         try {
+            // A newer cached report is legitimate. UI checks must not pin the shipped estimate.
+            val cachedPlan = JSONObject(context.assets.open("intelligence-plan.json").bufferedReader().use { it.readText() })
+            cachedPlan.put("revision", cachedPlan.getLong("revision") + 1)
+            val workstreams = cachedPlan.getJSONArray("workstreams")
+            for (index in 0 until workstreams.length()) workstreams.getJSONObject(index).put("percent", 97)
+            cache.writeText(cachedPlan.toString())
             FontPreferences.save(context, 150, "")
             for (id in ThemePreferences.ids) {
                 ThemePreferences.save(context, id)
@@ -41,11 +51,17 @@ class IntelligenceMenusUiTest {
                 ActivityScenario.launch(IntelligencePlanActivity::class.java).use { scenario -> scenario.onActivity { activity ->
                     assertNotNull(row(activity, "Check plan updates"))
                     val text = visible(activity).filterIsInstance<TextView>().joinToString("\n") { it.text.toString() }
-                    assertTrue(text.contains("75%")); assertTrue(text.contains("engineering", ignoreCase = true))
-                    assertEquals(7, visible(activity).filterIsInstance<android.widget.ProgressBar>().size)
+                    assertTrue(text.contains("≈97% estimated scope completion")); assertTrue(text.contains("engineering", ignoreCase = true))
+                    val progress = visible(activity).filterIsInstance<android.widget.ProgressBar>()
+                    assertEquals(workstreams.length(), progress.size)
+                    assertTrue(progress.all { it.progress == 97 })
                     assertFalse(activity.isFinishing)
                 } }
             }
-        } finally { ThemePreferences.save(context, theme); FontPreferences.save(context, percent, color) }
+        } finally {
+            if (previousCache == null) cache.delete() else cache.writeBytes(previousCache)
+            ThemePreferences.save(context, theme); FontPreferences.save(context, percent, color)
+        }
     }
 }
+

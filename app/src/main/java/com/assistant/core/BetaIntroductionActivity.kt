@@ -113,9 +113,10 @@ class BetaIntroductionActivity : ThemedActivity() {
         when (step) {
             0 -> {
                 text("Welcome to J.A.R.V.I.S. Beta", true)
-                text("Your assistant for conversation, voice commands, web search and phone tasks. Beta receives the same updates as J.A.R.V.I.S.; its Gemini connection is preconfigured. You can use typed chat immediately and add voice when ready.")
+                text("Your assistant for conversation, voice commands, web search and phone tasks. Beta receives the same updates as J.A.R.V.I.S. Local typed commands work immediately; configure your own Gemini key for online AI answers and add voice when ready.")
                 text("We'll help you set up voice, choose your appearance and enable the optional Android features you want. Nothing requires root or another assistant app.")
-                text(if (ApiKeyStore(this).read().isNotBlank()) "Gemini key: configured. An internet connection is needed for AI answers." else "Gemini key: missing. Open Weather and AI in Settings to configure it; local commands still work.")
+                text(if (ApiKeyStore(this).read().isNotBlank()) "Your Gemini key: configured and encrypted on this device. An internet connection is needed for AI answers." else "Your Gemini key: not configured. Add it in AI and weather settings; local commands still work.")
+                button("AI and weather settings") { AiConnectionSettings.show(this) { render() } }
             }
             1 -> {
                 text("Enable your microphone", true)
@@ -214,3 +215,4 @@ class BetaIntroductionActivity : ThemedActivity() {
         }
     }
 }
+

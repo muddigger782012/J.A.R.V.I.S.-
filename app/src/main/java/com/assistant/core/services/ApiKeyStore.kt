@@ -22,9 +22,7 @@ class ApiKeyStore(context: Context, private val name: String = "gemini") {
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
-    fun read(): String = readStored().ifBlank {
-        if (name == "gemini") com.assistant.core.BuildConfig.BETA_GEMINI_API_KEY else ""
-    }
+    fun read(): String = readStored()
 
     private fun readStored(): String = runCatching {
         val encoded = prefs.getString(name, null) ?: return ""
@@ -41,3 +39,4 @@ class ApiKeyStore(context: Context, private val name: String = "gemini") {
         prefs.edit().putString(name, Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" + Base64.encodeToString(encrypted, Base64.NO_WRAP)).apply()
     }
 }
+

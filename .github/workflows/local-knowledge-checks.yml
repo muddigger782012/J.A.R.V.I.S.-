@@ -2,7 +2,9 @@ name: Local assistant checks
 on:
   pull_request:
   push:
-    branches: ['fix/local-date-math']
+    branches: [main, 'fix/local-date-math']
+    paths-ignore:
+      - 'artifacts/**'
 permissions:
   contents: read
 # A new PR revision supersedes its older emulator run; avoid a backlog of
@@ -13,6 +15,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -21,6 +24,8 @@ jobs:
           java-version: '17'
           cache: gradle
       - uses: android-actions/setup-android@v4
+      - name: Test APK integrity and credential exclusion checks
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
       - name: Restore sherpa-onnx AAR required by Gradle
         shell: bash
@@ -42,8 +47,33 @@ jobs:
       - name: Verify Kokoro male speaker synthesis
         run: |
           python3 -m pip install --quiet sherpa-onnx==1.13.8 numpy
-          timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke
+          timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke --bundle app/src/beta/assets/voice-packs/kokoro.tar.bz2
       - run: bash gradlew --no-daemon testDebugUnitTest assembleDebug
+      - name: Compile optimized release and Beta without signing or provider credentials
+        run: bash gradlew --no-daemon assembleRelease assembleBeta
+      - name: Verify unsigned APK identities and exclude embedded credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
+          for variant in debug release beta; do
+            found=0
+            package=com.assistant.core
+            if [ "$variant" = beta ]; then package=com.assistant.core.beta; fi
+            for APK in app/build/outputs/apk/"$variant"/*.apk; do
+              test -f "$APK"
+              found=1
+              "$AAPT" dump badging "$APK" > "$RUNNER_TEMP/$variant-badging.txt"
+              head -n 1 "$RUNNER_TEMP/$variant-badging.txt" | grep -Fq "name='$package'"
+              python3 scripts/verify_no_embedded_api_keys.py "$APK"
+              if [ "$variant" = beta ]; then
+                python3 scripts/verify_bundled_voice_apk.py "$APK"
+              else
+                python3 scripts/verify_bundled_voice_apk.py "$APK" --absent
+              fi
+            done
+            test "$found" -eq 1
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: layout-smoke-apk
@@ -142,3 +172,4 @@ jobs:
             app/build/reports/androidTests/connected/**
             voice-regression-logcat.txt
             voice-regression-results.txt
+

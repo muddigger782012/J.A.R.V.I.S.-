@@ -11,14 +11,9 @@ class RoutineConfirmationStore internal constructor(
     private val read: () -> String?, private val write: (String?) -> Boolean,
     private val now: () -> Long = System::currentTimeMillis
 ) {
-    constructor(context: Context) : this(
-        { context.applicationContext.getSharedPreferences("jarvis_routine_confirmation", Context.MODE_PRIVATE).getString("pending", null) },
-        { value ->
-            val editor = context.applicationContext.getSharedPreferences("jarvis_routine_confirmation", Context.MODE_PRIVATE).edit()
-            if (value == null) editor.remove("pending") else editor.putString("pending", value)
-            editor.commit()
-        }
-    )
+    constructor(context: Context) : this(ConversationPendingStore(context.applicationContext.filesDir, "routine"))
+    private constructor(store: ConversationPendingStore) : this(store::read, store::write)
+
     data class Resolution(val routine: ApprovedRoutineRegistry.Routine, val approved: Boolean)
     fun propose(routine: ApprovedRoutineRegistry.Routine): Boolean = synchronized(lock) {
         val lesson = FallbackIntentLesson("CREATE_ROUTINE", .95, mapOf("phrase" to routine.phrase, "steps" to routine.actions.joinToString(",")), learnable = true)
@@ -41,5 +36,6 @@ class RoutineConfirmationStore internal constructor(
             else -> null
         }
     }
-    companion object { private val lock = Any() }
+    companion object { private val lock = ConversationIdentityStore.processLock }
 }
+
