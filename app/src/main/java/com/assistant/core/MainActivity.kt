@@ -308,6 +308,12 @@ class MainActivity : ThemedActivity() {
         reloadVoiceConfiguration(showStatus = true)
     }
 
+    private val betaIntroductionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        reloadVoiceConfiguration(showStatus = false)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -413,11 +419,13 @@ class MainActivity : ThemedActivity() {
         refreshSpecialPermissionsStatus()
         refreshShizukuRuntimeStatus()
         updateMicrophonePermissionUi()
-        promptForMicrophonePermissionOnFirstLaunch()
+        if (!BetaIntroductionActivity.shouldShow(this)) promptForMicrophonePermissionOnFirstLaunch()
 
         statusOutput.text = systemService.buildStatusSummary(capabilityState)
         refreshAuditDebugSection()
-        if (savedInstanceState == null) handleAssistantFeatureIntent(intent)
+        if (savedInstanceState == null && BetaIntroductionActivity.shouldShow(this)) {
+            betaIntroductionLauncher.launch(Intent(this, BetaIntroductionActivity::class.java))
+        } else if (savedInstanceState == null) handleAssistantFeatureIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -2327,7 +2335,8 @@ class MainActivity : ThemedActivity() {
 
     private fun showToolsAndSettingsMenu() {
         val labels = arrayOf("Settings", "Intelligence", "Projects", "Device tools", "System status and updates",
-            "Terminal", "Activity log", "Permissions", "Device administration", "Live chat history", "Diagnostics")
+            "Terminal", "Activity log", "Permissions", "Device administration", "Live chat history", "Diagnostics") +
+            if (BetaIntroductionActivity.isBeta(this)) arrayOf("Introduction and setup") else emptyArray<String>()
         fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
         fun themeColor(attr: Int): Int {
             val value = android.util.TypedValue()
@@ -2376,8 +2385,9 @@ class MainActivity : ThemedActivity() {
                     when (index) {
                         0 -> openVoiceSettings()
                         1 -> startActivity(Intent(this@MainActivity, IntelligenceActivity::class.java))
-                        labels.lastIndex - 1 -> startActivity(Intent(this@MainActivity, LiveChatHistoryActivity::class.java))
-                        labels.lastIndex -> showVoiceDiagnostics()
+                        9 -> startActivity(Intent(this@MainActivity, LiveChatHistoryActivity::class.java))
+                        10 -> showVoiceDiagnostics()
+                        11 -> betaIntroductionLauncher.launch(Intent(this@MainActivity, BetaIntroductionActivity::class.java))
                         else -> showTab(index - 1, animate = true, direction = 1)
                     }
                 }
@@ -2412,6 +2422,10 @@ class MainActivity : ThemedActivity() {
         }
         if (showStatus) updateVoiceInteractionState(if (voiceEnabled) VoiceInteractionState.WAKE_LISTENING else VoiceInteractionState.IDLE)
         refreshVoiceButtonLabel()
+        if (BetaIntroductionActivity.shouldShow(this)) {
+            refreshPrivilegeCenter()
+            return
+        }
         if (currentVoiceConfig.useForegroundServiceMode &&
             currentVoiceConfig.autoStartForegroundService &&
             !voiceEnabled &&

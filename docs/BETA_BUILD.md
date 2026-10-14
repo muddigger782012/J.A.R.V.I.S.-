@@ -10,3 +10,9 @@ After successful compilation, signature, package, version and launcher-label ver
 https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/artifacts/beta.apk
 
 Until the secret is configured, the workflow explicitly skips Beta and continues building the original app. No Beta APK or valid Beta download is promised before a successful build. Source checks do not establish actual device behavior. Test install, Gemini response, voice, accessibility, file sharing, shortcuts and updates on the tester device.
+
+## First-launch introduction
+
+Beta opens a five-step themed setup guide on first launch: introduction and configured-key status, microphone and notification permission, appearance and voice preferences, optional Android background/Accessibility/default-assistant settings, and a real Gemini connection test. Finish with typed chat or explicitly start background voice. Permission denial never prevents typed use. Finish later dismisses automatic prompts and keeps the current step for resumption. The menu's Introduction and setup entry reopens the guide. Setup completion is retained across updates, and the guide is not automatically shown in the original app.
+
+Android controls its own permission/settings screens. The guide opens these screens but cannot approve permissions, remove battery restrictions or select a default assistant itself. Actual AI test responses are displayed rather than treating key presence as a successful network check.
