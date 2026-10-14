@@ -74,7 +74,7 @@ class AppearanceSettingsActivity : ThemedActivity() {
             override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
-        panel.addView(MaterialButton(this, null, R.attr.materialButtonOutlinedStyle).apply {
+        panel.addView((layoutInflater.inflate(R.layout.settings_action_button, null) as MaterialButton).apply {
             text = "Reset chat boxes"; isAllCaps = false
             setOnClickListener { slider.progress = 0; ChatAppearancePreferences.save(this@AppearanceSettingsActivity, 0) }
         })
@@ -126,7 +126,7 @@ class AppearanceSettingsActivity : ThemedActivity() {
             setTextColor(ThemePreferences.color(this@AppearanceSettingsActivity, R.color.jarvis_on_dark))
             panel.addView(this)
         }
-        fun button(value: String, action: () -> Unit) = MaterialButton(this, null, R.attr.materialButtonOutlinedStyle).apply {
+        fun button(value: String, action: () -> Unit) = (layoutInflater.inflate(R.layout.settings_action_button, null) as MaterialButton).apply {
             text = value; isAllCaps = false
             panel.addView(this, LinearLayout.LayoutParams(-1, -2))
             setOnClickListener { action() }
