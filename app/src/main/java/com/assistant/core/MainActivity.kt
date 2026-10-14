@@ -103,7 +103,7 @@ import org.json.JSONObject
 class MainActivity : ThemedActivity() {
 
     private val pendingAttachments = mutableListOf<ChatAttachment>()
-    private var attachmentBusy = false
+    internal var attachmentBusy = false
     private var pendingCameraPath: String? = null
     private val photoPicker = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(AttachmentPolicy.MAX_FILES)) { uris ->
         importAttachments(uris)
@@ -1635,6 +1635,7 @@ class MainActivity : ThemedActivity() {
 
     /** Both new and saved chats discard work that belongs to the previous conversation. */
     internal fun selectConversation(id: String) {
+        if (attachmentBusy) { attachmentNotice("Wait for the attachment request to finish."); return }
         pendingWeatherPermissionCommand = null
         pendingMissedCallCommand = null
         pendingLiveChatPermission = false

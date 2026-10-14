@@ -172,6 +172,11 @@ internal class ConversationPendingStore(private val directory: File, name: Strin
                 observed = null
                 !file.exists() || file.delete()
             } else {
+                val revision = observed
+                if (revision != null) {
+                    val entry = entry() ?: return@locked false
+                    if (entry.optString("revision") != revision || entry.optString("conversation") != current.id || entry.optString("epoch") != current.epoch) return@locked false
+                }
                 val encoded = JSONObject().put("conversation", current.id).put("epoch", current.epoch)
                     .put("revision", java.util.UUID.randomUUID().toString()).put("pending", value).toString()
                 require(encoded.toByteArray(Charsets.UTF_8).size <= 65536)

@@ -53,6 +53,7 @@ class ConversationIdentityStoreTest {
         assertTrue(oldReader.write("old proposal"))
         assertEquals("old proposal", oldReader.read())
         assertTrue(pending().write("newer proposal"))
+        assertFalse(oldReader.write("stale correction"))
         assertFalse(oldReader.write(null))
         assertEquals("newer proposal", pending().read())
         identities().activate("second")
@@ -107,5 +108,28 @@ class ConversationIdentityStoreTest {
         assertEquals(true, identities().withCurrent(identity) { store.propose("less noise", lesson) })
         assertEquals(true, identities().withCurrent(identity) { store.consume("yes")?.approved })
         assertNull(store.consume("yes"))
+    }
+    @Test fun staleTimerCorrectionCannotReplaceNewProposalFromAnotherInstance() {
+        identities().activate("first")
+        fun session(): DeviceLearningSession {
+            val file = pending("device")
+            return DeviceLearningSession(file::read, file::write, { 1000L })
+        }
+        val original = DeviceLearningSession.Pending("old break", LearnableDeviceAction("timer", mapOf("seconds" to "60")), true)
+        val newer = DeviceLearningSession.Pending("new break", LearnableDeviceAction("timer", mapOf("seconds" to "300")), true)
+        assertTrue(session().propose(original))
+        var replaced = false
+        val file = pending("device")
+        val stale = DeviceLearningSession(file::read, file::write, {
+            if (!replaced) { replaced = true; assertTrue(session().propose(newer)) }
+            1000L
+        })
+        assertEquals(DeviceLearningSession.Correction.SAVE_FAILED, stale.consume("make that 10 minutes")!!.correction)
+        val current = session()
+        val approved = current.consume("yes")!!
+        assertEquals(newer, approved.pending)
+        // After consuming the old revision, a deliberately new proposal is still admitted.
+        assertTrue(current.propose(original))
+        assertEquals(original, current.consume("yes")!!.pending)
     }
 }

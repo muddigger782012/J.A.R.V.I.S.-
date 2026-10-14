@@ -63,7 +63,11 @@ class ConversationSwitchUiTest {
                     VoiceForegroundService.startLiveChat(activity, original, false)
                 }
                 awaitState { LiveChatStore.state(context).optBoolean("active") }
-                instrumentation.waitForIdleSync()
+                awaitState {
+                    var composerDisabled = false
+                    scenario.onActivity { composerDisabled = !it.findViewById<EditText>(R.id.etCommandInput).isEnabled }
+                    composerDisabled
+                }
                 scenario.onActivity { activity ->
                     assertFalse(activity.findViewById<EditText>(R.id.etCommandInput).isEnabled)
                     activity.findViewById<Button>(R.id.btnNewAssistantChat).performClick()
@@ -80,6 +84,11 @@ class ConversationSwitchUiTest {
                 awaitState { !LiveChatStore.state(context).optBoolean("active") }
                 scenario.onActivity { activity ->
                     val oldRequest = activity.pendingConversationCommand("Show intelligence plan progress")
+                    activity.attachmentBusy = true
+                    activity.selectConversation(saved)
+                    assertEquals(oldRequest.token.id, LiveChatStore.currentConversation(activity))
+                    assertEquals(oldRequest.token.epoch, activity.pendingConversationCommand("Show intelligence plan progress").token.epoch)
+                    activity.attachmentBusy = false
                     activity.findViewById<TextView>(R.id.tvAssistantState).text = "Thinking…"
                     // This is the same destination handler used by the saved-history dialog.
                     activity.selectConversation(saved)
