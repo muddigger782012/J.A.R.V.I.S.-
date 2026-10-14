@@ -13,6 +13,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Existing install identity: changing the signer prevents in-place updates.
+      JARVIS_EXPECTED_SIGNER_SHA256: 93a2f2031692f947440f4cfd874a166609cd2735eeda28e60904da64e8245790
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -47,8 +50,8 @@ jobs:
             chmod 600 "$RUNNER_TEMP/jarvis-release.jks"
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Permanent signing secrets are not configured; publishing is disabled for this run."
+            echo "::error::Permanent signing secrets are required for this APK publishing workflow."
+            exit 1
           fi
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
@@ -96,7 +99,26 @@ jobs:
       - name: Verify dedicated male models and embed download metadata
         run: |
           timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke --bundle app/src/beta/assets/voice-packs/kokoro.tar.bz2
-      - name: Test bundled APK integrity checks
+      - name: Stamp the bundled and public intelligence progress report
+        env:
+          JARVIS_PLAN_BUILD: ${{ github.run_number }}
+        run: |
+          python3 - <<'PYPLAN'
+          import json, os
+          from pathlib import Path
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          source = Path('docs/intelligence-plan.json')
+          plan = json.loads(source.read_text())
+          build = int(os.environ['JARVIS_PLAN_BUILD'])
+          plan['revision'] = max(int(plan['revision']) + 1, build)
+          plan['throughVersion'] = '3.5.' + str(build)
+          plan['updated'] = datetime.now(ZoneInfo('America/New_York')).date().isoformat()
+          text = json.dumps(plan, ensure_ascii=False, indent=2) + '\n'
+          source.write_text(text)
+          Path('app/src/main/assets/intelligence-plan.json').write_text(text)
+          PYPLAN
+      - name: Test APK integrity and credential exclusion checks
         run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - name: Verify native keyword decoder and run unit tests
         run: |
@@ -118,7 +140,6 @@ jobs:
       - name: Compile Beta from the same source revision
         if: steps.signing.outputs.configured == 'true'
         env:
-          JARVIS_BETA_GEMINI_API_KEY: ${{ secrets.JARVIS_BETA_GEMINI_API_KEY }}
           JARVIS_VERSION_CODE: ${{ github.run_number }}
           JARVIS_VERSION_NAME: 3.5.${{ github.run_number }}
           JARVIS_SIGNING_STORE_FILE: ${{ runner.temp }}/jarvis-release.jks
@@ -126,21 +147,21 @@ jobs:
           JARVIS_SIGNING_KEY_ALIAS: ${{ secrets.JARVIS_SIGNING_KEY_ALIAS }}
           JARVIS_SIGNING_KEY_PASSWORD: ${{ secrets.JARVIS_SIGNING_KEY_PASSWORD }}
         run: |
-          if [ -z "$JARVIS_BETA_GEMINI_API_KEY" ]; then
-            echo '::warning::Beta is not configured. Add repository secret JARVIS_BETA_GEMINI_API_KEY to enable its automatic builds.'
-            exit 0
-          fi
           ./gradlew --no-daemon assembleBeta
           AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
           APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
           found=0
           for APK in app/build/outputs/apk/beta/*.apk; do
             found=1
-            "$APKSIGNER" verify "$APK"
-            "$AAPT" dump badging "$APK" | head -n 1 | grep -q "name='com.assistant.core.beta'"
-            "$AAPT" dump badging "$APK" | head -n 1 | grep -q "versionCode='${{ github.run_number }}'"
-            "$AAPT" dump badging "$APK" | grep -q "application-label:'Beta'"
+            "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/beta-signature.txt"
+            cat "$RUNNER_TEMP/beta-signature.txt"
+            grep -Fq "Signer #1 certificate SHA-256 digest: $JARVIS_EXPECTED_SIGNER_SHA256" "$RUNNER_TEMP/beta-signature.txt"
+            "$AAPT" dump badging "$APK" > "$RUNNER_TEMP/beta-badging.txt"
+            head -n 1 "$RUNNER_TEMP/beta-badging.txt" | grep -q "name='com.assistant.core.beta'"
+            head -n 1 "$RUNNER_TEMP/beta-badging.txt" | grep -q "versionCode='${{ github.run_number }}'"
+            grep -q "application-label:'Beta'" "$RUNNER_TEMP/beta-badging.txt"
             python3 scripts/verify_bundled_voice_apk.py "$APK"
+            python3 scripts/verify_no_embedded_api_keys.py "$APK"
           done
           test "$found" -eq 1
       - name: Verify APK identity and signing
@@ -153,11 +174,15 @@ jobs:
           for APK in app/build/outputs/apk/release/*.apk; do
             found=1
             echo "Verifying $APK ($(du -h "$APK" | cut -f1))"
-            "$AAPT" dump badging "$APK" | head -n 1
-            "$APKSIGNER" verify --print-certs "$APK"
+            "$AAPT" dump badging "$APK" > "$RUNNER_TEMP/release-badging.txt"
+            head -n 1 "$RUNNER_TEMP/release-badging.txt"
+            "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/release-signature.txt"
+            cat "$RUNNER_TEMP/release-signature.txt"
+            grep -Fq "Signer #1 certificate SHA-256 digest: $JARVIS_EXPECTED_SIGNER_SHA256" "$RUNNER_TEMP/release-signature.txt"
             python3 scripts/verify_bundled_voice_apk.py "$APK" --absent
-            "$AAPT" dump badging "$APK" | head -n 1 | grep -q "name='com.assistant.core'"
-            "$AAPT" dump badging "$APK" | head -n 1 | grep -q "versionCode='${{ github.run_number }}'"
+            python3 scripts/verify_no_embedded_api_keys.py "$APK"
+            head -n 1 "$RUNNER_TEMP/release-badging.txt" | grep -q "name='com.assistant.core'"
+            head -n 1 "$RUNNER_TEMP/release-badging.txt" | grep -q "versionCode='${{ github.run_number }}'"
           done
           test "$found" -eq 1
 
@@ -176,41 +201,34 @@ jobs:
           path: app/build/outputs/apk/beta/*arm64-v8a*.apk
           compression-level: 0
           retention-days: 3
-          if-no-files-found: ignore
+          if-no-files-found: error
+      - name: Check current source before advancing public download channels
+        id: publication
+        shell: bash
+        run: |
+          git fetch origin main
+          if [ "$GITHUB_REF" = refs/heads/main ] && [ "$(git rev-parse origin/main)" = "$GITHUB_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "Source is outside current main; signed artifacts remain review candidates."
+          fi
       - name: Publish complete Beta APK as a release download
-        if: steps.signing.outputs.configured == 'true'
+        if: steps.signing.outputs.configured == 'true' && steps.publication.outputs.current == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           BETA_APK="$(find app/build/outputs/apk/beta -maxdepth 1 -name '*arm64-v8a*.apk' -print -quit 2>/dev/null || true)"
-          if [ -z "$BETA_APK" ]; then
-            echo 'Beta was not configured for this run.'
-            exit 0
-          fi
+          test -n "$BETA_APK"
           cp "$BETA_APK" "$RUNNER_TEMP/Beta.apk"
           if ! gh release view beta-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create beta-latest --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'J.A.R.V.I.S. Beta' --prerelease --notes 'Complete Beta with bundled offline voices and preconfigured AI.'
+            gh release create beta-latest --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'J.A.R.V.I.S. Beta' --prerelease --notes 'Complete Beta with bundled offline voices. Configure your own Gemini key in AI settings.'
           fi
           gh release upload beta-latest "$RUNNER_TEMP/Beta.apk" --repo "$GITHUB_REPOSITORY" --clobber
-          gh release edit beta-latest --repo "$GITHUB_REPOSITORY" --notes "Signed Beta from commit $GITHUB_SHA, version 3.5.${{ github.run_number }}-beta. Includes the verified Kokoro voice pack and first-launch setup."
+          gh release edit beta-latest --repo "$GITHUB_REPOSITORY" --notes "Signed Beta from commit $GITHUB_SHA, version 3.5.${{ github.run_number }}-beta. Includes the verified Kokoro voice pack and first-launch setup. Configure your own Gemini key in AI settings; no provider credential is bundled."
       - name: Publish ARM64 APK for the normal app updater
-        if: steps.signing.outputs.configured == 'true'
+        if: steps.signing.outputs.configured == 'true' && steps.publication.outputs.current == 'true'
         shell: bash
-        run: |
-          APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*arm64-v8a*.apk' -print -quit)"
-          test -n "$APK"
-          cp "$APK" /tmp/jarvis-arm64-latest.apk
-          git fetch origin main
-          git reset --hard origin/main
-          mkdir -p artifacts
-          cp /tmp/jarvis-arm64-latest.apk artifacts/app-debug.apk
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add artifacts/app-debug.apk
-          if git diff --cached --quiet; then
-            echo "Updater APK is already current."
-          else
-            git commit -m "Publish JARVIS updater APK [skip ci]"
-            git push origin HEAD:main
-          fi
+        run: bash scripts/publish_updater.sh
+

@@ -103,7 +103,7 @@ import org.json.JSONObject
 class MainActivity : ThemedActivity() {
 
     private val pendingAttachments = mutableListOf<ChatAttachment>()
-    private var attachmentBusy = false
+    internal var attachmentBusy = false
     private var pendingCameraPath: String? = null
     private val photoPicker = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(AttachmentPolicy.MAX_FILES)) { uris ->
         importAttachments(uris)
@@ -797,17 +797,14 @@ class MainActivity : ThemedActivity() {
         findViewById<Button>(R.id.btnNewAssistantChat).setOnClickListener {
             if (attachmentBusy) { attachmentNotice("Wait for the attachment request to finish."); return@setOnClickListener }
             clearAttachmentDraft()
-            if (liveChatStarted) endLiveChat("Live chat ended for the new conversation.")
             archiveConversation()
-            conversationSessionId = "session_" + System.currentTimeMillis()
-            outputLines.clear()
-            outputLog.text = ""
-            conversationPrefs.edit().putString("active_session", conversationSessionId).apply()
+            selectConversation("session_" + java.util.UUID.randomUUID().toString())
             persistActiveConversation()
             renderConversation(forceScroll = true)
         }
 
         findViewById<Button>(R.id.btnAssistantHistory).setOnClickListener {
+            if (attachmentBusy) { attachmentNotice("Wait for the attachment request to finish."); return@setOnClickListener }
             showConversationHistory()
         }
 
@@ -972,29 +969,41 @@ class MainActivity : ThemedActivity() {
         }
     }
 
-    private var pendingWeatherPermissionCommand: String? = null
+    internal data class PendingConversationCommand(val command: String, val token: com.assistant.core.services.ConversationContext.Token)
+    internal fun pendingConversationCommand(command: String) = PendingConversationCommand(command, hybridAssistantService.conversationToken())
+    internal var pendingWeatherPermissionCommand: PendingConversationCommand? = null
     private val weatherPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-        val command = pendingWeatherPermissionCommand
+        completeWeatherPermission(grants[Manifest.permission.ACCESS_FINE_LOCATION] == true)
+    }
+
+    internal fun completeWeatherPermission(granted: Boolean) {
+        val request = pendingWeatherPermissionCommand
         pendingWeatherPermissionCommand = null
-        if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true && command != null) {
-            handleVoiceTranscript(command)
+        if (request == null || !hybridAssistantService.isConversationCurrent(request.token)) return
+        if (granted) {
+            handleVoiceTranscript(request.command)
         } else {
             appendOutput("J.A.R.V.I.S.: Precise location wasn't granted. Enable Precise location in Android app permissions, or choose a saved weather location.")
         }
     }
 
-    private var pendingMissedCallCommand: String? = null
+    internal var pendingMissedCallCommand: PendingConversationCommand? = null
     private val callLogPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val command = pendingMissedCallCommand
+        completeCallLogPermission(granted)
+    }
+
+    internal fun completeCallLogPermission(granted: Boolean) {
+        val request = pendingMissedCallCommand
         pendingMissedCallCommand = null
-        if (granted && command != null) handleVoiceTranscript(command)
+        if (request == null || !hybridAssistantService.isConversationCurrent(request.token)) return
+        if (granted) handleVoiceTranscript(request.command)
         else appendOutput("J.A.R.V.I.S.: Call Log permission wasn't granted. Allow Call logs in Android app permissions, then ask again.")
     }
 
     private fun handleAssistantWithLocation(command: String, callback: (com.assistant.core.services.HybridAssistantReply) -> Unit) {
         if (com.assistant.core.services.CommandPhrases.isLastMissedCall(command) &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
-            pendingMissedCallCommand = command
+            pendingMissedCallCommand = pendingConversationCommand(command)
             callLogPermissionLauncher.launch(Manifest.permission.READ_CALL_LOG)
             return
         }
@@ -1003,11 +1012,15 @@ class MainActivity : ThemedActivity() {
         if (wantsLocation) prefs.edit().putBoolean("weather_device_location", true).apply()
         if (com.assistant.core.services.OnlineAnswers.isWeather(command) && prefs.getBoolean("weather_device_location", false) &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            pendingWeatherPermissionCommand = command
+            pendingWeatherPermissionCommand = pendingConversationCommand(command)
             weatherPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
             return
         }
-        hybridAssistantService.handleUserInputAsync(command, callback)
+        val chat = conversationSessionId
+        val token = hybridAssistantService.conversationToken()
+        hybridAssistantService.handleUserInputAsync(command) { reply ->
+            runOnUiThread { if (!isDestroyed && chat == conversationSessionId && hybridAssistantService.isConversationCurrent(token)) callback(reply) }
+        }
     }
 
     private fun attachmentNotice(message: String) {
@@ -1241,7 +1254,7 @@ class MainActivity : ThemedActivity() {
         if (!hybridAssistantService.canAnalyzeAttachments()) {
             ThemedDialogBuilder(this).setTitle("Configure attachment analysis")
                 .setMessage("Photo and file analysis uses your Gemini API key. Add it in Weather and AI settings; your attachments will stay here.")
-                .setPositiveButton("Open settings") { _, _ -> openVoiceSettings() }.setNegativeButton("Cancel", null).show()
+                .setPositiveButton("Open settings") { _, _ -> AiConnectionSettings.show(this) }.setNegativeButton("Cancel", null).show()
             return
         }
         val question = commandInput.text?.toString()?.trim().orEmpty().ifBlank { "Describe or summarize the attached files." }
@@ -1250,10 +1263,12 @@ class MainActivity : ThemedActivity() {
         appendOutput("You: $question\nAttachments: " + files.joinToString { it.name })
         clearSubmittedComposer()
         findViewById<TextView>(R.id.tvAssistantState).text = "Reading attachments…"
+        val attachmentChat = conversationSessionId
+        val attachmentToken = hybridAssistantService.conversationToken()
         hybridAssistantService.handleAttachmentsAsync(question, files) { reply ->
             runOnUiThread {
                 attachmentBusy = false
-                if (isDestroyed) return@runOnUiThread
+                if (isDestroyed || attachmentChat != conversationSessionId || !hybridAssistantService.isConversationCurrent(attachmentToken)) return@runOnUiThread
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
                 statusOutput.text = reply.text
                 findViewById<TextView>(R.id.tvAssistantState).text = getString(R.string.ui_ready)
@@ -1492,7 +1507,7 @@ class MainActivity : ThemedActivity() {
             }
         com.assistant.core.services.LiveChatStore.currentConversation(this, conversationSessionId)
         val stored = conversationPrefs.getString("messages_$conversationSessionId", null)
-        if (stored == null) { renderConversation(forceScroll = true); return }
+        if (stored == null) { hybridAssistantService.bindConversation(conversationSessionId); renderConversation(forceScroll = true); return }
         runCatching {
             val array = JSONArray(stored)
             outputLines.clear()
@@ -1504,6 +1519,7 @@ class MainActivity : ThemedActivity() {
             }
             outputLog.text = outputLines.joinToString(separator = "\n\n")
         }
+        hybridAssistantService.bindConversation(conversationSessionId, com.assistant.core.services.ConversationContext.pairs(outputLines))
         persistActiveConversation()
         renderConversation(forceScroll = true)
     }
@@ -1617,6 +1633,37 @@ class MainActivity : ThemedActivity() {
         conversationPrefs.edit().putString("session_history", updated.toString()).apply()
     }
 
+    /** Both new and saved chats discard work that belongs to the previous conversation. */
+    internal fun selectConversation(id: String) {
+        if (attachmentBusy) { attachmentNotice("Wait for the attachment request to finish."); return }
+        pendingWeatherPermissionCommand = null
+        pendingMissedCallCommand = null
+        pendingLiveChatPermission = false
+        shouldStartVoiceAfterPermission = false
+        if (liveChatStarted || com.assistant.core.services.LiveChatStore.state(this).optBoolean("active")) {
+            endLiveChat("Live chat ended for the conversation change.")
+        }
+        liveChatStarted = false
+        liveDialogueDialog?.dismiss()
+        liveDialogueDialog = null
+        commandInput.isEnabled = true
+        findViewById<Button>(R.id.btnRunAssistantCommand).isEnabled = true
+        findViewById<TextView>(R.id.tvLiveChatStatus).visibility = View.GONE
+        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnLiveChat).apply {
+            contentDescription = "Start live chat"
+            setIconResource(R.drawable.ic_composer_live)
+        }
+        updateVoiceInteractionState(VoiceInteractionState.IDLE)
+        conversationSessionId = id
+        com.assistant.core.services.LiveChatStore.currentConversation(this, id, force = true)
+        hybridAssistantService.bindConversation(id, force = true)
+        conversationPrefs.edit().putString("active_session", id).apply()
+        // A missing/corrupt saved chat must not retain the previous chat's visible messages.
+        outputLines.clear()
+        outputLog.text = ""
+        loadOrCreateConversation()
+    }
+
     private fun showConversationHistory() {
         archiveConversation()
         val history = runCatching {
@@ -1637,9 +1684,7 @@ class MainActivity : ThemedActivity() {
         ThemedDialogBuilder(this)
             .setTitle("Conversation history")
             .setItems(labels.toTypedArray()) { _, which ->
-                conversationSessionId = ids[which]
-                conversationPrefs.edit().putString("active_session", conversationSessionId).apply()
-                loadOrCreateConversation()
+                selectConversation(ids[which])
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -2139,7 +2184,6 @@ class MainActivity : ThemedActivity() {
 
     private fun syncLiveChatUi() {
         val state = com.assistant.core.services.LiveChatStore.state(this)
-        val wasActive = liveChatStarted
         liveChatStarted = state.optBoolean("active")
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnLiveChat).apply {
             contentDescription = if (liveChatStarted) "End live chat" else "Start live chat"
@@ -2153,7 +2197,7 @@ class MainActivity : ThemedActivity() {
         updateVoiceInteractionState(if (liveChatStarted) phase else VoiceInteractionState.IDLE)
         importLiveChatMessages()
         syncLiveDialogue()
-        if (wasActive && !liveChatStarted && restoreLocalWake && hasMicrophonePermission()) voiceService.startHotwordLoop()
+        if (!liveChatStarted && restoreLocalWake && hasMicrophonePermission()) voiceService.startHotwordLoop()
         if (!liveChatStarted) restoreLocalWake = false
     }
 
@@ -2363,10 +2407,10 @@ class MainActivity : ThemedActivity() {
             if (popup.isShowing) popup.update(popup.width, surface.measuredHeight)
             else popup.height = surface.measuredHeight
         }
-        fun row(label: String, icon: Int = R.drawable.ic_composer_tools, action: () -> Unit) {
-            panel.addView(SettingsMenuViews.row(this, label, icon = icon, action = action))
+        fun row(label: String, icon: Int = R.drawable.ic_composer_tools, detail: String? = null, action: () -> Unit) {
+            panel.addView(SettingsMenuViews.row(this, label, detail, icon, action))
         }
-        fun tab(label: String, index: Int) { row(label) { popup.dismiss(); showTab(index, animate = true, direction = 1) } }
+        fun tab(label: String, index: Int, detail: String) { row(label, detail = detail) { popup.dismiss(); showTab(index, animate = true, direction = 1) } }
         lateinit var root: () -> Unit
         fun group(title: String, contents: () -> Unit) {
             panel.removeAllViews()
@@ -2387,10 +2431,19 @@ class MainActivity : ThemedActivity() {
             }
             row("Intelligence", R.drawable.ic_jarvis_core) { popup.dismiss(); startActivity(Intent(this, IntelligenceActivity::class.java)) }
             row("Tools") { group("Tools") {
-                tab("Projects", 1); tab("Device tools", 2); tab("Terminal", 4); tab("Device administration", 7)
+                panel.addView(SettingsMenuViews.heading(this, "Projects and terminal"))
+                tab("Projects", 1, "Create and manage local projects")
+                tab("Terminal", 4, "Command sessions and output")
+                panel.addView(SettingsMenuViews.heading(this, "Device access"))
+                tab("Device tools", 2, "Shizuku access and controls")
+                tab("Device administration", 7, "Administration and privileged controls")
             } }
             row("Support", R.drawable.ic_tools_settings) { group("Support") {
-                tab("Status and updates", 3); tab("Activity log", 5); tab("Permissions", 6)
+                panel.addView(SettingsMenuViews.heading(this, "App and permissions"))
+                tab("Status and updates", 3, "App health and signed updates")
+                tab("Permissions", 6, "Review Android access")
+                panel.addView(SettingsMenuViews.heading(this, "History and troubleshooting"))
+                tab("Activity log", 5, "Review recorded activity")
                 row("Live chat history") { popup.dismiss(); startActivity(Intent(this, LiveChatHistoryActivity::class.java)) }
                 row("Diagnostics") { popup.dismiss(); showVoiceDiagnostics() }
                 if (BetaIntroductionActivity.isBeta(this)) row("Introduction and setup") {
@@ -2971,3 +3024,4 @@ class MainActivity : ThemedActivity() {
         val section: View
     )
 }
+

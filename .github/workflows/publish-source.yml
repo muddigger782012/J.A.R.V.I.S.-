@@ -15,6 +15,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # This archive bootstrapped v3.3 once. Tracked source is now authoritative;
+          # never copy the legacy archive over later development or user features.
+          if git ls-files --error-unmatch app/src/main/AndroidManifest.xml >/dev/null 2>&1; then
+            echo "Existing tracked Android source found; legacy archive bootstrap skipped."
+            exit 0
+          fi
           mkdir -p /tmp/jarvis-unpacked
           unzip -q Jarvis-AI-cloud-build-v3.3.zip -d /tmp/jarvis-unpacked
           root=/tmp/jarvis-unpacked
@@ -42,3 +48,4 @@ jobs:
             git commit -m "Publish Jarvis Android source from verified v3.3 archive"
             git push
           fi
+

@@ -7,7 +7,7 @@ import com.google.android.material.switchmaterial.SwitchMaterial
 
 /** One provider-settings destination shared by the hub and intelligence dashboard. */
 object AiConnectionSettings {
-    fun show(activity: Activity) {
+    fun show(activity: Activity, onDismiss: () -> Unit = {}) {
         val gatewayPrefs = activity.getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
         val fields = android.widget.LinearLayout(activity).apply {
             orientation = android.widget.LinearLayout.VERTICAL
@@ -74,6 +74,8 @@ object AiConnectionSettings {
                 }
             }
         }
+        dialog.setOnDismissListener { onDismiss() }
         dialog.show()
     }
 }
+

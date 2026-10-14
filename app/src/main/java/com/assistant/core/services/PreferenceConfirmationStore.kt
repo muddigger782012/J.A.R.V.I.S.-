@@ -7,14 +7,9 @@ class PreferenceConfirmationStore internal constructor(
     private val read: () -> String?, private val write: (String?) -> Boolean,
     private val now: () -> Long = System::currentTimeMillis
 ) {
-    constructor(context: Context) : this(
-        { context.applicationContext.getSharedPreferences("jarvis_preference_confirmation", Context.MODE_PRIVATE).getString("pending", null) },
-        { value ->
-            val editor = context.applicationContext.getSharedPreferences("jarvis_preference_confirmation", Context.MODE_PRIVATE).edit()
-            if (value == null) editor.remove("pending") else editor.putString("pending", value)
-            editor.commit()
-        }
-    )
+    constructor(context: Context) : this(ConversationPendingStore(context.applicationContext.filesDir, "preference"))
+    private constructor(store: ConversationPendingStore) : this(store::read, store::write)
+
     data class Pending(val slot: String, val action: LearnableDeviceAction?, val approved: Boolean = false, val learningPhrase: String? = null)
     fun propose(slot: String, action: LearnableDeviceAction? = null, learningPhrase: String? = null): Boolean = synchronized(lock) {
         if (learningPhrase != null && (slot == "clear" || !validLearningPhrase(learningPhrase))) return@synchronized false
@@ -43,8 +38,9 @@ class PreferenceConfirmationStore internal constructor(
         }.getOrNull()
     }
     companion object {
-        private val lock = Any()
+        private val lock = ConversationIdentityStore.processLock
         fun validLearningPhrase(phrase: String): Boolean = phrase.isNotBlank() && phrase.length <= 240 &&
             !ConfirmationWords.isConfirmation(phrase) && !DeviceLearningSession.isOutcome(phrase)
     }
 }
+

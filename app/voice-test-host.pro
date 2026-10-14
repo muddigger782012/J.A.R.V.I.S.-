@@ -23,3 +23,11 @@
 -keep,allowoptimization class com.assistant.core.FontPreferences { public *; }
 -keep,allowoptimization class com.assistant.core.ThemePreferences { public *; }
 -keep,allowoptimization class com.assistant.core.SettingsMenuViews { public *; }
+# Chat-isolation instrumentation uses the same transition and permission handlers as the UI.
+-keep,allowoptimization class com.assistant.core.MainActivity { public *; }
+-keep,allowoptimization class com.assistant.core.MainActivity$PendingConversationCommand { public *; }
+-keep,allowoptimization class com.assistant.core.services.ConversationContext$Token { public *; }
+-keep,allowoptimization class com.assistant.core.services.LiveChatStore { public *; }
+-keep,allowoptimization class com.assistant.core.services.VoiceForegroundService { public *; }
+-keep,allowoptimization class com.assistant.core.services.VoiceForegroundService$Companion { public *; }
+

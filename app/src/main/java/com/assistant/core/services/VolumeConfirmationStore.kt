@@ -18,14 +18,8 @@ class VolumeConfirmationStore internal constructor(
     private val write: (String?) -> Boolean,
     private val now: () -> Long = System::currentTimeMillis
 ) {
-    constructor(context: Context) : this(
-        read = { context.applicationContext.getSharedPreferences("jarvis_volume_confirmation", Context.MODE_PRIVATE).getString("pending", null) },
-        write = { value ->
-            val editor = context.applicationContext.getSharedPreferences("jarvis_volume_confirmation", Context.MODE_PRIVATE).edit()
-            if (value == null) editor.remove("pending") else editor.putString("pending", value)
-            editor.commit()
-        }
-    )
+    constructor(context: Context) : this(ConversationPendingStore(context.applicationContext.filesDir, "volume"))
+    private constructor(store: ConversationPendingStore) : this(store::read, store::write)
 
     data class Pending(val phrase: String, val lesson: FallbackIntentLesson, val explicitTeaching: Boolean = false, val requestId: String? = null)
     data class Resolution(val pending: Pending, val approved: Boolean)
@@ -59,5 +53,6 @@ class VolumeConfirmationStore internal constructor(
         Resolution(pending, ConfirmationWords.approves(input))
     }
 
-    companion object { private val lock = Any() }
+    companion object { private val lock = ConversationIdentityStore.processLock }
 }
+

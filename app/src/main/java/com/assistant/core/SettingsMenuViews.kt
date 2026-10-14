@@ -14,6 +14,20 @@ import androidx.core.graphics.ColorUtils
 
 /** Compact, wrapping menu rows with theme-owned colors and ordinary touch targets. */
 object SettingsMenuViews {
+    fun panel(context: Context) = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setBackgroundResource(R.drawable.glass_panel_surface)
+        val inset = dp(context, 12)
+        setPadding(inset, inset, inset, inset)
+    }
+    fun screen(context: Context, panel: View) = android.widget.ScrollView(context).apply {
+        val value = TypedValue()
+        context.theme.resolveAttribute(R.attr.jarvis_background, value, true)
+        if (value.resourceId != 0) setBackgroundResource(value.resourceId) else setBackgroundColor(value.data)
+        val inset = dp(context, 16)
+        setPadding(inset, inset, inset, inset)
+        addView(panel)
+    }
     fun dp(context: Context, value: Int) = (value * context.resources.displayMetrics.density + .5f).toInt()
     fun color(context: Context, attr: Int): Int {
         val value = TypedValue()
