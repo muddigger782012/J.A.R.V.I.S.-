@@ -11,7 +11,11 @@ class SettingsActivity : ThemedActivity() {
         super.onCreate(savedInstanceState)
         supportActionBar?.title = "Settings"
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(SettingsMenuViews.dp(this@SettingsActivity, 12), 0, SettingsMenuViews.dp(this@SettingsActivity, 12), SettingsMenuViews.dp(this@SettingsActivity, 24)) }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.glass_panel_surface)
+            setPadding(SettingsMenuViews.dp(this@SettingsActivity, 12), 0, SettingsMenuViews.dp(this@SettingsActivity, 12), SettingsMenuViews.dp(this@SettingsActivity, 24))
+        }
         fun section(title: String) { panel.addView(SettingsMenuViews.heading(this, title)) }
         fun destination(title: String, detail: String, icon: Int, target: Class<*>) {
             panel.addView(SettingsMenuViews.row(this, title, detail, icon) { startActivity(Intent(this, target)) })
@@ -29,6 +33,8 @@ class SettingsActivity : ThemedActivity() {
         panel.addView(SettingsMenuViews.row(this, "AI and weather", "Provider credentials and weather location", R.drawable.ic_composer_tools) { AiConnectionSettings.show(this) })
         destination("Assistant connections", "Optional assistant integrations", R.drawable.ic_composer_tools, AssistantConnectionsActivity::class.java)
         setContentView(ScrollView(this).apply {
+            val inset = SettingsMenuViews.dp(this@SettingsActivity, 16)
+            setPadding(inset, inset, inset, inset)
             val backgroundValue = android.util.TypedValue()
             theme.resolveAttribute(R.attr.jarvis_background, backgroundValue, true)
             if (backgroundValue.resourceId != 0) setBackgroundResource(backgroundValue.resourceId)
