@@ -320,6 +320,12 @@ class MainActivity : ThemedActivity() {
         setContentView(R.layout.activity_main)
 
         initViews()
+        pendingDownloadedUpdate = savedInstanceState?.getString("pending_verified_update")?.let {
+            ApkUpdateService.restoreReceipt(this, it)
+        }
+        if (savedInstanceState?.getBoolean("interrupted_update") == true && pendingDownloadedUpdate == null) {
+            updateStatusOutput.text = "The previous update was interrupted. Tap Update App to retry."
+        }
         com.assistant.core.services.BundledVoicePreparation.ensure(applicationContext)
         pendingCameraPath = savedInstanceState?.getString("attachment_camera_path")
         savedInstanceState?.getString("attachment_draft")?.let { restoreAttachmentDraft(it) }
@@ -508,12 +514,6 @@ class MainActivity : ThemedActivity() {
         terminalStopButton = findViewById(R.id.btnTerminalStopCommand)
         terminalClearButton = findViewById(R.id.btnTerminalClearOutput)
         autoUpgradeButton = findViewById(R.id.btnAutoUpgradeApp)
-        pendingDownloadedUpdate = savedInstanceState?.getString("pending_verified_update")?.let {
-            ApkUpdateService.restoreReceipt(this, it)
-        }
-        if (savedInstanceState?.getBoolean("interrupted_update") == true && pendingDownloadedUpdate == null) {
-            updateStatusOutput.text = "The previous update was interrupted. Tap Update App to retry."
-        }
         refreshShizukuStatusButton = findViewById(R.id.btnRefreshShizukuStatus)
         openShizukuAppButton = findViewById(R.id.btnOpenShizukuApp)
         requestShizukuPermissionButton = findViewById(R.id.btnRequestShizukuPermission)
