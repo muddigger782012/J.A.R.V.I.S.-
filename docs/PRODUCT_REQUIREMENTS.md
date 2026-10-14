@@ -36,3 +36,13 @@ Status: project requirements compiled from user discussions. This document is **
 - User instructions govern product choices; a design preference is not a claim of completed implementation.
 - Keep screenshots, verified device observations and acceptance criteria alongside feature changes.
 - Protect the current release: no unrelated refactors or signing changes during release stabilization.
+
+## Variant-specific API and update compatibility (approved direction; implementation unverified)
+- **Jarvis (main):** package `com.assistant.core`, its existing API/configuration behavior and its own update channel. Do not add Beta-only credentials to main.
+- **Jarvis Beta:** package `com.assistant.core.beta`, retains existing Beta-specific API integration and bundled-voice configuration. Beta must continue receiving shared feature improvements, without unintentionally sharing production identity or data.
+- Keep existing embedded API behavior **unchanged unless the owner approves a migration**. Important: `JARVIS_BETA_GEMINI_API_KEY` is compiled into `BuildConfig.BETA_GEMINI_API_KEY` by the current Beta Gradle setup, and can be extracted from a distributed APK. Secret storage in CI does not make an embedded key secret. A future secure proxy or per-tester credentials migration requires separate approval.
+- Both installed apps, including supported older versions, should be able to use their own in-app Update button to discover, download and request installation of a compatible newer APK. The updater must not confuse main and Beta channels.
+- Main and Beta need separately published, stable download locations, reliable update metadata, monotonic version codes, package/signature verification, download integrity checks and clear user-facing errors.
+- Check older-version updater behavior: an old APK cannot automatically gain new updater code. Maintain backwards-compatible download URLs/manifests or provide a documented one-time manual migration if its embedded URL is irreparably wrong.
+- Standard Android installation still requires system prompts and applicable permissions; do not bypass them.
+- Release acceptance: test old-main → new-main and old-Beta → new-Beta, verify no cross-install, preserve user data, ensure the correct signer, and test broken network/downloads.
