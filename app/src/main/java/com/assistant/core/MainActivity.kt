@@ -430,7 +430,7 @@ class MainActivity : ThemedActivity() {
         // Exported entry points only select fixed features; never execute arbitrary command extras.
         when (intent.getStringExtra("jarvis_feature")) {
             "voice" -> ensureMicPermissionAndStartVoice()
-            "weather_settings" -> voiceSettingsLauncher.launch(Intent(this, VoiceSettingsActivity::class.java))
+            "weather_settings" -> AiConnectionSettings.show(this)
             "connections" -> startActivity(Intent(this, AssistantConnectionsActivity::class.java))
             "app_update" -> startAppUpgradeFlow()
         }
