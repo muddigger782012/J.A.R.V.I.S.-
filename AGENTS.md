@@ -44,3 +44,11 @@ Document the proposed classification in PR descriptions for significant features
 - **Specialized diagnostics**: possible future independent product, not a reason to expand the assistant's default permissions.
 - **Cloud gateway**: shared service, not an Android APK.
 - Never add a mandatory cross-app dependency or broad system permissions solely to enable ecosystem reuse.
+
+## Codex implementation efficiency
+
+- Follow `docs/CODEX_WORKFLOW.md`, `docs/DEVELOPMENT_BACKLOG.md`, and `docs/TESTING_BUILD_POLICY.md` for all substantial coding tasks.
+- Use `.github/ISSUE_TEMPLATE/codex-task.md` to specify one approved, bounded implementation with acceptance criteria, dependencies and test plan.
+- Check open related PRs and avoid duplicating or overwriting ongoing work. Prefer narrow searches, small cohesive patches and relevant targeted tests during iteration.
+- Never trade away security, test coverage or upgrade compatibility to save usage. Report failing checks and physical-device verification separately.
+- End each task with changed files, PR, tests, unresolved blockers and next recommended task.
