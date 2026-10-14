@@ -29,7 +29,10 @@ class SettingsActivity : ThemedActivity() {
         panel.addView(SettingsMenuViews.row(this, "AI and weather", "Provider credentials and weather location", R.drawable.ic_composer_tools) { AiConnectionSettings.show(this) })
         destination("Assistant connections", "Optional assistant integrations", R.drawable.ic_composer_tools, AssistantConnectionsActivity::class.java)
         setContentView(ScrollView(this).apply {
-            setBackgroundColor(SettingsMenuViews.color(this@SettingsActivity, R.attr.jarvis_background))
+            val backgroundValue = android.util.TypedValue()
+            theme.resolveAttribute(R.attr.jarvis_background, backgroundValue, true)
+            if (backgroundValue.resourceId != 0) setBackgroundResource(backgroundValue.resourceId)
+            else setBackgroundColor(backgroundValue.data)
             addView(panel)
         })
         FontPreferences.applyTo(panel, this)
