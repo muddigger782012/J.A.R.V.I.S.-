@@ -37,8 +37,7 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
             bundleHandler.postDelayed(this, 1000)
         }
     }
-    override fun onResume() {
-        super.onResume()
+    private fun resumeBundledVoicePreparation() {
         val pack = com.assistant.core.services.NeuralVoicePack(this)
         if (pack.bundled()) {
             com.assistant.core.services.BundledVoicePreparation.ensure(applicationContext)
@@ -338,6 +337,7 @@ class AssistantVoiceSettingsActivity : ThemedActivity() {
         refreshDialoguePermission()
         com.assistant.core.services.VoiceResponsePreferences.notifyChanged(this)
         if (ready) updateVoice()
+        resumeBundledVoicePreparation()
     }
 
     override fun onStop() {

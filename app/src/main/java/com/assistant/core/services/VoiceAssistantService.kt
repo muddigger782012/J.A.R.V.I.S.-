@@ -546,7 +546,8 @@ class VoiceAssistantService(
         val result = if (profile == AssistantVoiceProfile.ORIGINAL) {
             if (NeuralVoicePack(context).installed()) AssistantSpeechVoice.Result(true, "Offline Kokoro male voices ready.")
             else AssistantSpeechVoice.apply(tts, AssistantVoiceProfile.FEMALE, saved.femaleVoice, saved.femaleVoice).let {
-                it.copy(description = "Offline male voices need downloading in Assistant voice. Using Default (Female) temporarily. " + it.description)
+                it.copy(description = (if (NeuralVoicePack(context).bundled()) "Included male voices are preparing. Using Default (Female) temporarily. "
+                    else "Offline male voices need downloading in Assistant voice. Using Default (Female) temporarily. ") + it.description)
             }
         } else AssistantSpeechVoice.apply(tts, profile, saved.voiceName(profile), saved.femaleVoice)
         speechVoiceUsable = result.usable
