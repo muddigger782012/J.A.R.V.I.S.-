@@ -36,6 +36,9 @@ android {
 
     packaging {
         jniLibs {
+            // Android extracts these libraries at install time. Compression keeps
+            // the universal legacy download below GitHub's raw-file size limit.
+            useLegacyPackaging = true
             // The AAR also contains x86, which is outside our existing APK ABIs.
             // Universal APKs otherwise include it despite the split include list.
             excludes += ["lib/x86/**"]

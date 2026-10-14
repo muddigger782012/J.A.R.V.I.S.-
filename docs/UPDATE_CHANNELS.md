@@ -90,6 +90,13 @@ normal local and existing device-test builds retain their ABI splits.
 The native runtime AAR also contains `x86`, which was never one of the existing
 APK splits. APK packaging excludes that unused ABI so universal aliases contain
 exactly the same three supported architectures.
+Native libraries use Android's supported compressed/extracted packaging because
+the otherwise valid three-ABI universal original APK measured 110,625,493 bytes
+in PR CI, exceeding the legacy raw-file budget. Android extracts the same native
+libraries during installation; no model or supported ABI is removed. Downloads
+are smaller, while installation needs space for extracted native libraries.
+The fixture and voice tests use this packaging too; signed production sizes and
+physical-device installation still require release checks.
 
 `scripts/stage_update_channels.py` verifies complete APK signatures using
 `apksigner`, reads package/version/SDK/native-ABI/label information with `aapt`,
