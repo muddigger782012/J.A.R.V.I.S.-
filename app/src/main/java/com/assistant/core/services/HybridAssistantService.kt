@@ -160,7 +160,7 @@ class HybridAssistantService(
         }
 
         volumeConfirmations.consume(userInput)?.let { resolution ->
-            val response = if (resolution.approved) executeConfirmedVolume(resolution.pending.phrase, resolution.pending.lesson, resolution.pending.explicitTeaching)
+            val response = if (resolution.approved) executeConfirmedVolume(resolution.pending.phrase, resolution.pending.lesson, resolution.pending.explicitTeaching, resolution.pending.requestId)
                 else "Media volume request cancelled. Nothing was changed or learned."
             remember(userInput, response)
             return HybridAssistantReply(response)
@@ -280,7 +280,7 @@ class HybridAssistantService(
         val capabilityRequests = CapabilityRequestStore(systemService.context())
         CapabilityDiscovery.page(userInput)?.let { page ->
             return HybridAssistantReply(CapabilityDiscovery.render(page, capabilityRequests.snapshot()) { entry ->
-                trialEvidence.latest(entry)?.let { "last linked trial: ${it.outcome.label}; tested ${it.action.description()}; review to compare the requested target" }.orEmpty()
+                trialEvidence.latest(entry)?.let { "last linked trial: ${it.outcome.label}; tested ${CapabilityTrialEvidence.description(it.action)}; review to compare the requested target" }.orEmpty()
             })
         }
         CapabilityDiscovery.review(userInput)?.let { description ->
@@ -297,7 +297,8 @@ class HybridAssistantService(
             return HybridAssistantReply(CapabilityRequestTrial.prepare(entry,
                 resolveApp = { label -> androidAssistant.resolveLearnableApp(label)?.takeIf { androidAssistant.canLaunchApp(it.first) } },
                 proposeDevice = deviceLearningSession::propose,
-                proposeVolume = { phrase, lesson -> volumeConfirmations.propose(phrase, lesson) }))
+                proposeVolume = { phrase, lesson -> volumeConfirmations.propose(phrase, lesson) },
+                proposeLinkedVolume = { phrase, lesson, id -> volumeConfirmations.propose(phrase, lesson, requestId = id) }))
         }
         CapabilityDiscovery.teaching(userInput)?.let { teaching ->
             if (!RoutineProposal.isUsableName(teaching.alias))
@@ -310,7 +311,8 @@ class HybridAssistantService(
                 resolveApp = { label -> androidAssistant.resolveLearnableApp(label)?.takeIf { androidAssistant.canLaunchApp(it.first) } },
                 proposeDevice = deviceLearningSession::propose,
                 proposeVolume = { phrase, lesson -> volumeConfirmations.propose(phrase, lesson, explicitTeaching = true) },
-                alias = teaching.alias))
+                alias = teaching.alias,
+                proposeLinkedVolume = { phrase, lesson, id -> volumeConfirmations.propose(phrase, lesson, explicitTeaching = true, requestId = id) }))
         }
         CapabilityDiscovery.request(userInput)?.let { description ->
             val response = when (capabilityRequests.add(description)) {
@@ -1191,7 +1193,7 @@ class HybridAssistantService(
         }
     }
 
-    private fun executeExactVolume(phrase: String, percent: Int, learn: Boolean, replayed: Boolean = false): String {
+    private fun executeExactVolume(phrase: String, percent: Int, learn: Boolean, replayed: Boolean = false, requestId: String? = null): String {
         val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
         val outcome = ExactVolumeLearning.execute(phrase, percent, learn, androidAssistant::setMediaVolumePercent,
             record = { original, parameters -> memory.recordSuccess(original, ExactVolumeLearning.CAPABILITY, ExactVolumeLearning.capabilities, parameters) })
@@ -1199,20 +1201,23 @@ class HybridAssistantService(
         resultHistory.record(phrase, "set media volume to $percent% (nearest supported level)",
             if (outcome.executed) IntelligenceResultHistory.Outcome.DEVICE_VERIFIED else IntelligenceResultHistory.Outcome.NOT_VERIFIED,
             if (outcome.learned) "Original phrase saved for offline reuse." else if (paused) "Learned phrase paused after failed verification." else "No new phrase saved.")
-        return when {
+        val evidenceSaved = requestId == null || trialEvidence.record(requestId,
+            LearnableDeviceAction(ExactVolumeLearning.CAPABILITY, mapOf("percent" to percent.toString())),
+            if (outcome.executed) CapabilityTrialEvidence.Outcome.DEVICE_VERIFIED else CapabilityTrialEvidence.Outcome.NOT_VERIFIED)
+        return (when {
             !outcome.executed -> "Could not verify the requested media-volume level. Nothing was learned." +
                 if (paused) " Paused this learned phrase; review 'show learned commands'." else ""
             outcome.learned -> "Media volume set to the nearest supported level for $percent% and verified. Learned your original phrase for offline reuse."
             learn -> "Media volume level verified for $percent%, but the phrase could not be saved. It may conflict with another command or storage may have failed."
             else -> "Media volume level verified for $percent%, using the nearest supported level."
-        }
+        }) + if (evidenceSaved) "" else " Linked trial evidence could not be saved; review will not show this result."
     }
 
-    private fun executeConfirmedVolume(userText: String, lesson: FallbackIntentLesson, explicitTeaching: Boolean = false): String {
+    private fun executeConfirmedVolume(userText: String, lesson: FallbackIntentLesson, explicitTeaching: Boolean = false, requestId: String? = null): String {
         ExactVolumeLearning.fromLesson(lesson)?.let { percent ->
             val enabled = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
                 .getBoolean("automatic_command_learning", true)
-            return executeExactVolume(userText, percent, learn = (explicitTeaching || enabled) && lesson.canTeachLocally())
+            return executeExactVolume(userText, percent, learn = (explicitTeaching || enabled) && lesson.canTeachLocally(), requestId = requestId)
         }
         val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
         val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
