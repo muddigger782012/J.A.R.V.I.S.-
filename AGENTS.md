@@ -27,3 +27,20 @@ The project is evolving into a reusable software platform for Jarvis, Jarvis Bet
 - Require CI unit, backend, theme, voice, and emulator UI checks relevant to changed code. Never bypass a failing check to claim release readiness; diagnose flaky emulator infrastructure separately from app regressions.
 - For changes affecting distribution, verify clean install, upgrade from a previously published APK, signature/package identity, preserved user data, correct channel-specific updater target, and rollback/recovery behavior.
 - Record planned module boundaries and migration steps in `docs/COMMERCIAL_ARCHITECTURE.md`. Keep proposed work separate from implemented work and report build, emulator, and physical-device verification independently.
+
+## Standalone APK / product boundary decisions
+
+Jarvis is **one standalone AI assistant APK**, not a launcher or operating system. The wider commercial ecosystem may eventually contain separate APKs. Jarvis Keyboard **already exists** and must be treated as an independent product, not recreated or merged into Jarvis.
+
+For each significant feature request or implementation, assess and report one of:
+1. **Core Jarvis**: assistant conversation, intelligence, context, wake word, speech, personality, and ordinary assistant-driven device actions; keep in the Jarvis APK.
+2. **Shared technology**: reusable functionality exposed behind a stable interface, but not necessarily a separate APK; avoid needless process boundaries.
+3. **Standalone APK candidate**: a distinct user-facing workflow with its own lifecycle, permissions, UX, update cadence, or potential commercial market. Present rationale and tradeoffs to the user **before** splitting.
+
+Document the proposed classification in PR descriptions for significant features, including: dependencies, APK/download-size impact, runtime/memory/battery cost, update compatibility, privacy/security permissions, and commercial potential. The user approves product splits; do not automatically create APKs or repositories.
+
+- **Jarvis Keyboard**: maintain its existing standalone APK, signing identity, updater, installation and data. Share AI/voice contracts only through optional, versioned integration; keyboard must remain useful if Jarvis is absent or offline. Do not assume keyboard source lives in this repository.
+- **Jarvis Launcher/UI**: a future independent APK candidate; do not expand Jarvis Assistant into a launcher.
+- **Specialized diagnostics**: possible future independent product, not a reason to expand the assistant's default permissions.
+- **Cloud gateway**: shared service, not an Android APK.
+- Never add a mandatory cross-app dependency or broad system permissions solely to enable ecosystem reuse.
