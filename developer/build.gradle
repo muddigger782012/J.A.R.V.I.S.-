@@ -12,6 +12,7 @@ android {
         versionCode Integer.parseInt(System.getenv('DEVELOPER_VERSION_CODE') ?: '1')
         versionName System.getenv('DEVELOPER_VERSION_NAME') ?: '0.1.0'
     }
+    buildFeatures { buildConfig true }
     signingConfigs {
         release {
             def path = System.getenv('JARVIS_SIGNING_STORE_FILE')
