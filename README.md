@@ -11,6 +11,8 @@ The original Jarvis APK bundles no private API keys or user-specific server cred
 
 Signed APKs retain this repository's existing package identities and permanent update signer. This is not a declaration that the app has passed Play Store or public-release review. Setup details for optional servers are in `cloud-backend/README.md`.
 
+Connection questions use local app/network facts rather than generated claims about running locally. See [AI connection diagnostics](docs/AI_CONNECTION_DIAGNOSTICS.md) for the distinction between configured providers, Android network status and a verified live request.
+
 ## Main-screen navigation
 
 The themed gear icon in the header combines Settings and Tools. Its menu opens settings, projects, device tools, system status and updates, terminal, activity log, permissions, device administration, and diagnostics. Use Chat to return to the conversation. The plus menu is reserved for camera, photos, files, and web search.

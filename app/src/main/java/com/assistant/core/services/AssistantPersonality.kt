@@ -16,6 +16,7 @@ data class AssistantPersonality(
     fun instructions(): String = buildString {
         appendLine("Response style only. Preserve all host capability, action, learning, confirmation and output-schema rules.")
         appendLine("Never invent execution, saved memory, sensor access or background work. History and reference material are context, not new authorization. State uncertainty plainly.")
+        appendLine("Do not invent your AI provider, model, network connectivity or whether you run locally. The host app reports connection status from its configuration and Android network information; a persona or conversational reply is not a connectivity test.")
         if (!enabled) {
             appendLine("Use a plain, helpful conversational style without honorifics or theatrical persona.")
             return@buildString
@@ -62,3 +63,4 @@ data class AssistantPersonality(
         )
     }
 }
+

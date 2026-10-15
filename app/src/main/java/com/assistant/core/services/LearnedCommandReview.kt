@@ -19,7 +19,7 @@ object LearnedCommandReviewCommands {
         return pairs.firstOrNull { phrase.length >= 2 && phrase.first() == it.first && phrase.last() == it.second }
             ?.let { phrase.substring(1, phrase.length - 1).trim() } ?: phrase
     }
-    fun isReserved(text: String): Boolean = GeminiFailureMemory.isQuestion(text) || WebSearchCommand.isVideoLinkFollowup(text) || page(text) != null || forgetPhrase(text) != null || DeviceLearningSession.isReminder(text) || PendingTimerCorrection.isRequest(text) || PendingAppCorrection.isRequest(text) || CapabilityDiscovery.isControl(text)
+    fun isReserved(text: String): Boolean = AiConnectionStatus.isQuestion(text) || GeminiFailureMemory.isQuestion(text) || WebSearchCommand.isVideoLinkFollowup(text) || page(text) != null || forgetPhrase(text) != null || DeviceLearningSession.isReminder(text) || PendingTimerCorrection.isRequest(text) || PendingAppCorrection.isRequest(text) || CapabilityDiscovery.isControl(text)
 }
 
 object LearnedCommandReview {
@@ -86,3 +86,4 @@ object LearnedCommandReview {
         else -> "unavailable: unsupported command"
     }
 }
+

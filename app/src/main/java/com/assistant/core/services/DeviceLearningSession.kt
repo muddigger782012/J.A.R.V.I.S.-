@@ -109,7 +109,8 @@ class DeviceLearningSession internal constructor(
             "what am i confirming", "what am i approving", "which action am i confirming",
             "which action", "what should i check", "what was the last request"
         )
-        private fun isInspection(text: String): Boolean = GeminiFailureMemory.isQuestion(text) || LearnedCommandReviewCommands.page(text) != null || CapabilityDiscovery.isHelp(text) || CapabilityDiscovery.page(text) != null || CapabilityDiscovery.review(text) != null ||
+        private fun isInspection(text: String): Boolean = AiConnectionStatus.isQuestion(text) || GeminiFailureMemory.isQuestion(text) || LearnedCommandReviewCommands.page(text) != null || CapabilityDiscovery.isHelp(text) || CapabilityDiscovery.page(text) != null || CapabilityDiscovery.review(text) != null ||
             followupKey(text) in setOf("show assistant memory", "assistant memory", "what do you remember about my apps and timers", "learning status", "show learning status", "how many commands have you learned")
     }
 }
+

@@ -46,7 +46,9 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: bash scripts/updater_android_regression.sh --run
+          script: |
+            bash scripts/updater_android_regression.sh --run
+            bash scripts/ai_connection_android_regression.sh --run
       - uses: actions/upload-artifact@v4
         if: always()
         with:
