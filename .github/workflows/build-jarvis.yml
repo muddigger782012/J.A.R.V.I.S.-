@@ -1,9 +1,10 @@
 name: Build Jarvis APK
 on:
   push:
-    branches: [main]
+    branches: [main, codex/separate-update-channels]
     paths-ignore:
       - 'artifacts/**'
+      - 'updates/**'
   workflow_dispatch:
 permissions:
   contents: write
@@ -12,10 +13,30 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
+    if: github.repository == 'muddigger782012/J.A.R.V.I.S.-' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/codex/separate-update-channels')
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require existing production credentials for encrypted candidates
+        if: github.ref == 'refs/heads/codex/separate-update-channels'
+        shell: bash
+        env:
+          JARVIS_SIGNING_KEY_B64: ${{ secrets.JARVIS_SIGNING_KEY_B64 }}
+          JARVIS_SIGNING_STORE_PASSWORD: ${{ secrets.JARVIS_SIGNING_STORE_PASSWORD }}
+          JARVIS_SIGNING_KEY_PASSWORD: ${{ secrets.JARVIS_SIGNING_KEY_PASSWORD }}
+          JARVIS_SIGNING_KEY_ALIAS: ${{ secrets.JARVIS_SIGNING_KEY_ALIAS }}
+          JARVIS_BETA_GEMINI_API_KEY: ${{ secrets.JARVIS_BETA_GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          for required in JARVIS_SIGNING_KEY_B64 JARVIS_SIGNING_STORE_PASSWORD JARVIS_SIGNING_KEY_PASSWORD JARVIS_SIGNING_KEY_ALIAS JARVIS_BETA_GEMINI_API_KEY; do
+            if [ -z "${!required}" ]; then
+              echo '::error::Encrypted candidates require the existing production signing and Beta credentials; no candidate was built.'
+              exit 1
+            fi
+          done
       - name: Extract Jarvis project ZIP if present
         shell: bash
         run: |
@@ -49,50 +70,12 @@ jobs:
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Permanent signing secrets are not configured; publishing is disabled for this run."
+            echo "No signed APK was built or published: permanent signing configuration was unavailable." >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
-      - name: Prepare sherpa-onnx Android runtime
-        shell: bash
-        run: |
-          mkdir -p app/libs
-          curl -fL --retry 3 -o app/libs/sherpa-onnx-1.13.8.aar \
-            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
-          test -s app/libs/sherpa-onnx-1.13.8.aar
-          curl -fL --retry 3 -o /tmp/sherpa-kws.tar.bz2 \
-            https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2
-          mkdir -p app/src/main/assets
-          tar -xjf /tmp/sherpa-kws.tar.bz2 -C app/src/main/assets
-          KWS_DIR="$(find app/src/main/assets -maxdepth 1 -type d -name 'sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01*' | head -n1)"
-          test -n "$KWS_DIR"
-          if [ "$(basename "$KWS_DIR")" != "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01" ]; then
-            rm -rf app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
-            mv "$KWS_DIR" app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
-          fi
-          find app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01 -maxdepth 1 -type f -printf '%f\n'
-          test -f app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/tokens.txt
-          # Package FP32 models to isolate the first-decode INT8 stall.
-          ls -lh app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/*onnx
-          python3 -m pip install --quiet sentencepiece sherpa-onnx==1.13.8 numpy
-          python3 - <<'PY'
-          from pathlib import Path
-          import sentencepiece as spm
-          d = Path("app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01")
-          model = d / "bpe.model"
-          if not model.is_file():
-              raise SystemExit("English KWS BPE tokenizer is missing: " + str(model))
-          sp = spm.SentencePieceProcessor(model_file=str(model))
-          pieces = sp.encode("HEY JARVIS", out_type=str)
-          valid = {line.rsplit(" ", 1)[0] for line in (d / "tokens.txt").read_text().splitlines() if line.strip()}
-          if not pieces or any(piece not in valid for piece in pieces):
-              raise SystemExit("HEY JARVIS cannot be represented by the model's token vocabulary: " + repr(pieces))
-          keyword = " ".join(pieces) + " @HEY_JARVIS\n"
-          (d / "jarvis-keywords.txt").write_text(keyword)
-          print("Generated Sherpa wake tokens:", keyword.strip())
-          for prefix in ("encoder-", "decoder-", "joiner-"):
-              if not any(p.name.startswith(prefix) and p.name.endswith(".onnx") for p in d.iterdir()):
-                  raise SystemExit("Missing " + prefix + " ONNX model")
-          PY
+      - name: Prepare existing Android runtime and production KWS assets
+        run: bash scripts/prepare_android_runtime.sh
       - name: Verify dedicated male models and embed download metadata
         run: |
           timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke --bundle app/src/beta/assets/voice-packs/kokoro.tar.bz2
@@ -103,114 +86,184 @@ jobs:
           timeout 60s python3 scripts/wake_decoder_smoke.py app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
           chmod +x ./gradlew
           ./gradlew --no-daemon testDebugUnitTest
-      - name: Compile versioned release APK
+      - name: Compile versioned release APK and universal legacy alias
         if: steps.signing.outputs.configured == 'true'
         env:
           JARVIS_VERSION_CODE: ${{ github.run_number }}
           JARVIS_VERSION_NAME: 3.5.${{ github.run_number }}
+          JARVIS_UNIVERSAL_APK: 'true'
           JARVIS_SIGNING_STORE_FILE: ${{ runner.temp }}/jarvis-release.jks
           JARVIS_SIGNING_STORE_PASSWORD: ${{ secrets.JARVIS_SIGNING_STORE_PASSWORD }}
           JARVIS_SIGNING_KEY_ALIAS: ${{ secrets.JARVIS_SIGNING_KEY_ALIAS }}
           JARVIS_SIGNING_KEY_PASSWORD: ${{ secrets.JARVIS_SIGNING_KEY_PASSWORD }}
-        run: |
-          chmod +x ./gradlew
-          ./gradlew --no-daemon assembleRelease
-      - name: Compile Beta from the same source revision
-        if: steps.signing.outputs.configured == 'true'
+        run: bash gradlew --no-daemon assembleRelease
+      - name: Verify and stage main-only phone candidate
+        if: github.ref == 'refs/heads/codex/separate-update-channels' && steps.signing.outputs.configured == 'true'
         env:
           JARVIS_BETA_GEMINI_API_KEY: ${{ secrets.JARVIS_BETA_GEMINI_API_KEY }}
-          JARVIS_VERSION_CODE: ${{ github.run_number }}
-          JARVIS_VERSION_NAME: 3.5.${{ github.run_number }}
-          JARVIS_SIGNING_STORE_FILE: ${{ runner.temp }}/jarvis-release.jks
-          JARVIS_SIGNING_STORE_PASSWORD: ${{ secrets.JARVIS_SIGNING_STORE_PASSWORD }}
-          JARVIS_SIGNING_KEY_ALIAS: ${{ secrets.JARVIS_SIGNING_KEY_ALIAS }}
-          JARVIS_SIGNING_KEY_PASSWORD: ${{ secrets.JARVIS_SIGNING_KEY_PASSWORD }}
-        run: |
-          if [ -z "$JARVIS_BETA_GEMINI_API_KEY" ]; then
-            echo '::warning::Beta is not configured. Add repository secret JARVIS_BETA_GEMINI_API_KEY to enable its automatic builds.'
-            exit 0
-          fi
-          ./gradlew --no-daemon assembleBeta
-          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
-          APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
-          found=0
-          for APK in app/build/outputs/apk/beta/*.apk; do
-            found=1
-            "$APKSIGNER" verify "$APK"
-            "$AAPT" dump badging "$APK" | head -n 1 | grep -q "name='com.assistant.core.beta'"
-            "$AAPT" dump badging "$APK" | head -n 1 | grep -q "versionCode='${{ github.run_number }}'"
-            "$AAPT" dump badging "$APK" | grep -q "application-label:'Beta'"
-            python3 scripts/verify_bundled_voice_apk.py "$APK"
-          done
-          test "$found" -eq 1
-      - name: Verify APK identity and signing
-        if: steps.signing.outputs.configured == 'true'
         shell: bash
         run: |
-          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
-          APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
-          found=0
-          for APK in app/build/outputs/apk/release/*.apk; do
-            found=1
-            echo "Verifying $APK ($(du -h "$APK" | cut -f1))"
-            "$AAPT" dump badging "$APK" | head -n 1
-            "$APKSIGNER" verify --print-certs "$APK"
-            python3 scripts/verify_bundled_voice_apk.py "$APK" --absent
-            "$AAPT" dump badging "$APK" | head -n 1 | grep -q "name='com.assistant.core'"
-            "$AAPT" dump badging "$APK" | head -n 1 | grep -q "versionCode='${{ github.run_number }}'"
+          set -euo pipefail
+          python3 scripts/verify_beta_configuration.py --build-config app/build/generated/source/buildConfig/release/com/assistant/core/BuildConfig.java app/build/outputs/apk/release/*.apk
+          for apk in app/build/outputs/apk/release/*.apk; do
+            python3 scripts/verify_bundled_voice_apk.py "$apk" --absent
           done
-          test "$found" -eq 1
-
-      - name: Upload APK artifact
-        if: steps.signing.outputs.configured == 'true'
+          prior="$RUNNER_TEMP/jarvis-phone-prior"
+          phone_stage="$RUNNER_TEMP/jarvis-phone-stage"
+          mkdir -p "$prior/updates"
+          curl --fail --location --retry 3 --output "$prior/original.apk" https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/artifacts/app-debug.apk
+          git fetch origin main
+          if git cat-file -e 'origin/main:updates/jarvis.json' 2>/dev/null; then
+            git show 'origin/main:updates/jarvis.json' > "$prior/updates/jarvis.json"
+          fi
+          python3 scripts/stage_update_channels.py --original-dir app/build/outputs/apk/release --previous-original "$prior/original.apk" --previous-metadata-dir "$prior/updates" --source-commit "$GITHUB_SHA" --version-code '${{ github.run_number }}' --output "$phone_stage" --aapt "$ANDROID_HOME/build-tools/34.0.0/aapt" --apksigner "$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          cd "$phone_stage/releases/jarvis"
+          sha256sum Jarvis.apk > Jarvis.apk.sha256.txt
+      - name: Upload public main-only phone candidate
+        if: github.ref == 'refs/heads/codex/separate-update-channels' && steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: Jarvis-release-APK
-          path: app/build/outputs/apk/release/*.apk
-          if-no-files-found: error
-      - name: Upload Beta APK artifact
-        if: steps.signing.outputs.configured == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: Beta-release-APK
-          path: app/build/outputs/apk/beta/*arm64-v8a*.apk
+          name: Jarvis-phone-test-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/jarvis-phone-stage/releases/jarvis/Jarvis.apk
+            ${{ runner.temp }}/jarvis-phone-stage/releases/jarvis/Jarvis.apk.sha256.txt
           compression-level: 0
           retention-days: 3
-          if-no-files-found: ignore
-      - name: Publish complete Beta APK as a release download
-        if: steps.signing.outputs.configured == 'true'
+          if-no-files-found: error
+      - name: Publish direct main-only phone test download
+        if: github.ref == 'refs/heads/codex/separate-update-channels' && steps.signing.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          BETA_APK="$(find app/build/outputs/apk/beta -maxdepth 1 -name '*arm64-v8a*.apk' -print -quit 2>/dev/null || true)"
-          if [ -z "$BETA_APK" ]; then
-            echo 'Beta was not configured for this run.'
-            exit 0
-          fi
-          cp "$BETA_APK" "$RUNNER_TEMP/Beta.apk"
-          if ! gh release view beta-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create beta-latest --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'J.A.R.V.I.S. Beta' --prerelease --notes 'Complete Beta with bundled offline voices and preconfigured AI.'
-          fi
-          gh release upload beta-latest "$RUNNER_TEMP/Beta.apk" --repo "$GITHUB_REPOSITORY" --clobber
-          gh release edit beta-latest --repo "$GITHUB_REPOSITORY" --notes "Signed Beta from commit $GITHUB_SHA, version 3.5.${{ github.run_number }}-beta. Includes the verified Kokoro voice pack and first-launch setup."
-      - name: Publish ARM64 APK for the normal app updater
+          set -euo pipefail
+          candidate_tag='jarvis-phone-${{ github.run_number }}'
+          gh release create "$candidate_tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false --title 'Jarvis 3.5.${{ github.run_number }} phone test' --notes 'Signed Jarvis phone-test candidate. Install over the existing Jarvis application and verify retained data and voice behavior. Physical-device acceptance is pending. Stable update channels and Beta distribution are unchanged.'
+          gh release upload "$candidate_tag" "$RUNNER_TEMP/jarvis-phone-stage/releases/jarvis/Jarvis.apk" "$RUNNER_TEMP/jarvis-phone-stage/releases/jarvis/Jarvis.apk.sha256.txt" --repo "$GITHUB_REPOSITORY"
+          echo 'Phone test APK: https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/jarvis-phone-${{ github.run_number }}/Jarvis.apk' >> "$GITHUB_STEP_SUMMARY"
+      - name: Check existing Beta credential availability
+        id: beta
         if: steps.signing.outputs.configured == 'true'
+        env:
+          JARVIS_BETA_GEMINI_API_KEY: ${{ secrets.JARVIS_BETA_GEMINI_API_KEY }}
         shell: bash
         run: |
-          APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*arm64-v8a*.apk' -print -quit)"
-          test -n "$APK"
-          cp "$APK" /tmp/jarvis-arm64-latest.apk
-          git fetch origin main
-          git reset --hard origin/main
-          mkdir -p artifacts
-          cp /tmp/jarvis-arm64-latest.apk artifacts/app-debug.apk
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add artifacts/app-debug.apk
-          if git diff --cached --quiet; then
-            echo "Updater APK is already current."
+          if [ -n "$JARVIS_BETA_GEMINI_API_KEY" ]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
           else
-            git commit -m "Publish JARVIS updater APK [skip ci]"
-            git push origin HEAD:main
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo '::warning::Beta credential is absent. Beta builds/publication are skipped; existing Beta downloads and API behavior remain unchanged.'
+            echo 'Beta was NOT built or updated: its existing credential was unavailable.' >> "$GITHUB_STEP_SUMMARY"
           fi
+      - name: Compile full Beta from the same source revision
+        if: steps.beta.outputs.configured == 'true'
+        env:
+          JARVIS_BETA_GEMINI_API_KEY: ${{ secrets.JARVIS_BETA_GEMINI_API_KEY }}
+          JARVIS_VERSION_CODE: ${{ github.run_number }}
+          JARVIS_VERSION_NAME: 3.5.${{ github.run_number }}
+          JARVIS_UNIVERSAL_APK: 'true'
+          JARVIS_SIGNING_STORE_FILE: ${{ runner.temp }}/jarvis-release.jks
+          JARVIS_SIGNING_STORE_PASSWORD: ${{ secrets.JARVIS_SIGNING_STORE_PASSWORD }}
+          JARVIS_SIGNING_KEY_ALIAS: ${{ secrets.JARVIS_SIGNING_KEY_ALIAS }}
+          JARVIS_SIGNING_KEY_PASSWORD: ${{ secrets.JARVIS_SIGNING_KEY_PASSWORD }}
+        run: bash gradlew --no-daemon assembleBeta
+      - name: Compile compact bridge for historical raw Beta installs
+        if: steps.beta.outputs.configured == 'true'
+        env:
+          JARVIS_BETA_GEMINI_API_KEY: ${{ secrets.JARVIS_BETA_GEMINI_API_KEY }}
+          JARVIS_UNIVERSAL_APK: 'true'
+          JARVIS_SIGNING_STORE_FILE: ${{ runner.temp }}/jarvis-release.jks
+          JARVIS_SIGNING_STORE_PASSWORD: ${{ secrets.JARVIS_SIGNING_STORE_PASSWORD }}
+          JARVIS_SIGNING_KEY_ALIAS: ${{ secrets.JARVIS_SIGNING_KEY_ALIAS }}
+          JARVIS_SIGNING_KEY_PASSWORD: ${{ secrets.JARVIS_SIGNING_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          JARVIS_VERSION_CODE=$(( ${{ github.run_number }} - 1 ))
+          export JARVIS_VERSION_CODE
+          export JARVIS_VERSION_NAME="3.5.$JARVIS_VERSION_CODE"
+          bash gradlew --no-daemon assembleBetaBridge
+      - name: Verify API configuration isolation and voice packaging
+        if: steps.signing.outputs.configured == 'true'
+        env:
+          JARVIS_BETA_GEMINI_API_KEY: ${{ secrets.JARVIS_BETA_GEMINI_API_KEY }}
+          BETA_CONFIGURED: ${{ steps.beta.outputs.configured }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_beta_configuration.py --build-config app/build/generated/source/buildConfig/release/com/assistant/core/BuildConfig.java app/build/outputs/apk/release/*.apk
+          for apk in app/build/outputs/apk/release/*.apk; do
+            python3 scripts/verify_bundled_voice_apk.py "$apk" --absent
+          done
+          if [ "$BETA_CONFIGURED" = 'true' ]; then
+            python3 scripts/verify_beta_configuration.py --beta --build-config app/build/generated/source/buildConfig/beta/com/assistant/core/BuildConfig.java app/build/outputs/apk/beta/*.apk
+            python3 scripts/verify_beta_configuration.py --beta --build-config app/build/generated/source/buildConfig/betaBridge/com/assistant/core/BuildConfig.java app/build/outputs/apk/betaBridge/*.apk
+            for apk in app/build/outputs/apk/beta/*.apk; do
+              python3 scripts/verify_bundled_voice_apk.py "$apk"
+            done
+            for apk in app/build/outputs/apk/betaBridge/*.apk; do
+              python3 scripts/verify_bundled_voice_apk.py "$apk" --absent
+            done
+          fi
+      - name: Stage verified channels against existing signed installations
+        if: steps.signing.outputs.configured == 'true'
+        env:
+          BETA_CONFIGURED: ${{ steps.beta.outputs.configured }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          prior="$RUNNER_TEMP/jarvis-prior"
+          mkdir -p "$prior/updates"
+          curl --fail --location --retry 3 --output "$prior/original.apk" https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/artifacts/app-debug.apk
+          # Read current pointers, including a preceding publisher's commit.
+          git fetch origin main
+          for channel in jarvis beta; do
+            if git cat-file -e "origin/main:updates/$channel.json" 2>/dev/null; then
+              git show "origin/main:updates/$channel.json" > "$prior/updates/$channel.json"
+            fi
+          done
+          beta_args=()
+          if [ "$BETA_CONFIGURED" = 'true' ]; then
+            curl --fail --location --retry 3 --output "$prior/beta-raw.apk" https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/artifacts/beta.apk
+            curl --fail --location --retry 3 --output "$prior/beta-full.apk" https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/beta-latest/Beta.apk
+            beta_args=(--beta-dir app/build/outputs/apk/beta --bridge-dir app/build/outputs/apk/betaBridge --previous-beta-raw "$prior/beta-raw.apk" --previous-beta-full "$prior/beta-full.apk")
+          fi
+          python3 scripts/stage_update_channels.py --original-dir app/build/outputs/apk/release --previous-original "$prior/original.apk" --previous-metadata-dir "$prior/updates" --source-commit "$GITHUB_SHA" --version-code '${{ github.run_number }}' --output "$RUNNER_TEMP/jarvis-update-stage" --aapt "$ANDROID_HOME/build-tools/34.0.0/aapt" --apksigner "$ANDROID_HOME/build-tools/34.0.0/apksigner" "${beta_args[@]}"
+      - name: Upload verified APK artifact
+        if: github.ref == 'refs/heads/main' && steps.signing.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-release-APK
+          path: ${{ runner.temp }}/jarvis-update-stage/releases/jarvis/*.apk
+          if-no-files-found: error
+      - name: Upload verified Beta APK artifact
+        if: github.ref == 'refs/heads/main' && steps.beta.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Beta-release-APK
+          path: ${{ runner.temp }}/jarvis-update-stage/releases/beta/*.apk
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
+      - name: Encrypt compact verified candidate bundle
+        if: github.ref == 'refs/heads/codex/separate-update-channels' && steps.signing.outputs.configured == 'true' && steps.beta.outputs.configured == 'true'
+        run: python3 scripts/encrypt_candidate.py --stage "$RUNNER_TEMP/jarvis-update-stage" --source-commit "$GITHUB_SHA" --recipient .github/candidate-recipient.pem --output "$RUNNER_TEMP/jarvis-candidate.cms"
+      - name: Upload encrypted candidate only
+        if: github.ref == 'refs/heads/codex/separate-update-channels' && steps.signing.outputs.configured == 'true' && steps.beta.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-encrypted-candidate-${{ github.run_number }}
+          path: ${{ runner.temp }}/jarvis-candidate.cms
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
+      - name: Publish verified channels and preserve legacy updater paths
+        if: github.ref == 'refs/heads/main' && steps.signing.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish_update_channels.py --stage "${{ runner.temp }}/jarvis-update-stage" --source-commit "$GITHUB_SHA"
+      - name: Remove signing material and plaintext build outputs
+        if: always()
+        shell: bash
+        run: |
+          rm -f -- "$RUNNER_TEMP/jarvis-release.jks"
+          rm -rf -- "$RUNNER_TEMP/jarvis-update-stage" "$RUNNER_TEMP/jarvis-phone-stage" app/build
