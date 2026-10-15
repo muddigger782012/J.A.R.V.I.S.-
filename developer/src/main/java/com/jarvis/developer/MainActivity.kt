@@ -74,6 +74,20 @@ class MainActivity : Activity() {
         root.addView(builds)
         val updates = Button(this).apply { text = "Check for Developer updates" }
         root.addView(updates)
+        val githubToken = field("GitHub fine-grained token (not saved)").apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val iconTest = Button(this).apply { text = "Run self-icon coding test" }
+        root.addView(iconTest)
+        iconTest.setOnClickListener {
+            iconTest.isEnabled = false
+            IconTask.run(githubToken.text.toString().trim(), prompt.text.toString()) { message ->
+                runOnUiThread {
+                    status.text = message
+                    if (message.startsWith("Icon committed") || message.startsWith("Icon task failed")) iconTest.isEnabled = true
+                }
+            }
+        }
         updates.setOnClickListener { DeveloperUpdater.check(this) { message -> status.text = message } }
         plans.setOnClickListener {
             status.text = "Reading GitHub plans..."
