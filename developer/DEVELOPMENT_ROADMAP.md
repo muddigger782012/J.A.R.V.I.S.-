@@ -7,7 +7,7 @@ Status: approved product plan; **not** an assertion of implemented functionality
 
 On 2026-10-15 the owner explicitly instructed: "Skip the recovery and start phase one." Recovery remains **unverified**; the historical evidence below is retained. This authorization permits Phase 1 implementation and tests on `feature/jarvis-developer`. It does not authorize publishing, installation, credential changes, release promotion, or marking recovery complete.
 
-Phase 1 implementation is now present for CI validation:
+Phase 1 implementation is present and has passed the automated acceptance below:
 
 - GET-only, allowlisted source inventory across Developer, selected Jarvis sources/resources and shared docs, pinned to a full commit SHA; verified UTF-8 bytes, Git blob IDs, response budgets, redirect denial and credential-file exclusions.
 - Source browsing with path/prefix selection, bounded line ranges, recognized credential redaction, and commit/blob/line citations.
@@ -16,7 +16,15 @@ Phase 1 implementation is now present for CI validation:
 - Developer UI actions for inventory, source browsing and analysis, independent of the existing icon-editing action. Normal Jarvis/Beta source, package identities, credentials configuration, signing and update channels are untouched.
 - JVM tests for transport boundaries, source browsing, analysis limits/dependencies, and the five representative tasks against the real immutable Actions checkout. The isolated Developer workflow runs unit tests, theme-contract source checks and debug assembly; the existing release workflow remains unchanged.
 
-**Validation status: pending the first CI run for this implementation; no device/emulator or live on-device GitHub verification claimed.** Local Kotlin/Gradle tooling and the shell network proxy are unavailable, so Android compilation and executable unit results must come from Actions. The older `sumOf` implementation has been replaced; passing compilation is not assumed. Recovery failures are a deferred release blocker, not evidence against a source-only Phase 1 acceptance result.
+**Validation status: Phase 1 automated acceptance MET at source `b5de09630273c597817a556093034d93be8ebc17`.** The [isolated Developer run 38802862576](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/38802862576) passed the repository theme-contract source check, `:developer:testDebugUnitTest`, and debug APK assembly. Independently read [JUnit XML artifact 12005516179](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/38802862576/artifacts/12005516179): **52 passed, 0 failures, 0 errors, 0 skipped** (22 engine, 16 GET transport, 9 source browser, 5 real-checkout acceptance tests).
+
+All five representative tasks passed: menu restructuring; Appearance scrolling; AI connectivity diagnosis; per-chat context; Intelligence Plan progress. They run through the production `Reader.analyzeSnapshot` request budget using a GET-only GitHub-response fixture backed by actual checkout bytes and the exact Actions commit SHA. Assertions verify relevant implementation files, real declarations/dependencies, commit/blob/line citations, response closure and unchanged source snapshots before/after analysis. This is executable source/transport integration evidence; it does not claim live GitHub or on-device behavior.
+
+The [signed candidate run 38802863400](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/38802863400) also passed release compilation, `apksigner verify`, and the `com.jarvis.developer` package check. Candidate artifact: [12004443794](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/38802863400/artifacts/12004443794). APK SHA-256 from CI: `3b5c654df9773ca2157339e921a8b5e061316b4d55fb5e4f3d19f9a71668dfa9`. This is an Actions candidate, not a published update. Manual backup/promotion/publication steps were skipped. The existing `sumOf` compilation failure is resolved by the replacement analyzer.
+
+The first implementation run exposed two production-budget retrieval misses and a case-sensitive impact assertion. Discovery now weights filename terms above common package-directory terms and deprioritizes generic test/documentation discovery; a dedicated regression preserves relevant files within the 61-source GET slots after three metadata requests. The semantic impact assertion remains intact with case-insensitive matching. The final passing results above include these corrections.
+
+No device/emulator, theme visual review, lifecycle/cancellation exercise, or live on-device GitHub/API authentication test was performed. Local Kotlin/Gradle tooling and the shell network proxy were unavailable; executable evidence came from Actions. Recovery failures remain a deferred release blocker. Phase 2 multi-file patches/diffs/writes and later planning/testing/self-development/application phases remain pending.
 
 Known limits: lexical analysis does not prove runtime/transitive behavior; scans cap files/bytes and network sessions cap requests/time; unauthenticated GitHub access may hit rate limits. Reported plans require review. No patches, commits, builds, releases or installations are performed by a read-only analysis request.
 
@@ -57,11 +65,11 @@ Android project generation, UI/backend scaffolding, testing and packaging, then 
 Estimates assume steady focused work and working API/GitHub/CI access; unexpected Android integration or model/tool limitations can extend them. Phases may overlap after their safety gates pass. The initial Developer coding agent currently only edits `developer/src/main/res/drawable/developer_icon.xml`; multi-file coding and the roadmap UI still need implementation. Documentation is shared with Codex through `developer/AGENTS.md`; the installed Developer APK will not automatically display this file until a roadmap reader/UI is built.
 
 ## Immediate backlog
-1. Complete recovery gate with a successful manual release and tested recovery behavior.
-2. Implement read-only GitHub tree/file inventory and task-to-file mapping.
-3. Add dependency/symbol context and source citation to Developer UI.
-4. Build diff preview, multi-file allowlist and approval workflow.
-5. Add multi-file commit/CI feedback and clear phase progress.
+1. Recovery gate: deferred by owner for Phase 1; still unverified and required before release promotion.
+2. Phase 1 tree/file inventory and task mapping: implemented and passing automated acceptance.
+3. Phase 1 lexical dependencies/symbols and cited read-only Developer previews: implemented; device/live integration review pending.
+4. Phase 2 diff preview, multi-file allowlist and approval workflow: pending.
+5. Phases 2–3 multi-file commit/CI feedback and persisted phase progress: pending.
 
 ## Recovery verification evidence — 2026-10-15
 
@@ -75,7 +83,7 @@ Estimates assume steady focused work and working API/GitHub/CI access; unexpecte
 
 To unblock, repair effective release authorization through owner-managed credential/permission review; preserve the exact published APK with its immutable source SHA; independently download, hash and compare the backup bytes; verify package and signing identity; and validate a higher-version signed recovery candidate from the pinned source. Use a build-only recovery path for validation. The current manual workflow couples recovery with publication, so it must not be dispatched merely to validate recovery under the current no-publish instruction. Publication and installation remain separate approval gates. Do not bypass backup failures or count a successful compile as recovery verification.
 
-## Phase 1 implementation and validation evidence — 2026-10-15
+## Historical Phase 1 source audit at 993c6666 — 2026-10-15
 
 At the audited source SHA:
 
