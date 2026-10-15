@@ -1081,9 +1081,17 @@ class HybridAssistantService(
                             "$previousResearch. Follow-up question: $rawInput"
                         else -> rawInput
                     }
-                    val grounded = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }.getOrNull()
+                    val firstGrounded = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }.getOrNull()
+                    // A long conversation-context prompt can yield no supported grounding.
+                    // Retry once with a focused query, retaining the relevant conversation context.
+                    val grounded = if (firstGrounded != null || !isManualRequest) firstGrounded else {
+                        val focusedQuery = if (recentContext.isNotBlank())
+                            "Find official or authorized technical/service manual sources for the equipment discussed here. Context: ${recentContext.take(600)}. Request: $rawInput"
+                        else rawInput
+                        runCatching { directOnlineClient.groundedSearch(focusedQuery, "web") }.getOrNull()
+                    }
                     val valid = grounded?.takeIf { result ->
-                        result.query == contextualQuery && !result.answer.isNullOrBlank() &&
+                        !result.answer.isNullOrBlank() &&
                             result.items.any { item -> item.title.isNotBlank() && ChatSearchResults.safeUrl(item.url) }
                     }
                     if (valid != null) {
