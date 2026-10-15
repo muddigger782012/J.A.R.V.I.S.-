@@ -718,7 +718,7 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        if (containsAny(normalized, "what can you do", "help", "capabilities", "features")) {
+        if (normalized in setOf("what can you do", "help", "capabilities", "features", "show help", "show capabilities", "show features", "what are your capabilities", "what are your features")) {
             val response = buildString {
                 appendLine("I can help with:")
                 appendLine("- Call a number or contact with Phone permission")
