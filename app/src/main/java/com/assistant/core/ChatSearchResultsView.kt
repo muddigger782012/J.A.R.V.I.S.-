@@ -71,7 +71,7 @@ object ChatSearchResultsView {
             else if (ChatSearchResults.safeUrl(item.url)) activity.startActivity(Intent(activity, SearchBrowserActivity::class.java)
                 .putExtra(SearchBrowserActivity.EXTRA_URL, item.url))
         }
-        val sources = message.items.filter { it.kind != "image" && ChatSearchResults.safeUrl(it.url) }
+        val sources = message.items.filter { it.kind != "image" }
         root.addView(label(message.query, 12f, true).apply { setPadding(0, 0, 0, dp(10)) })
         val formatted = message.answer?.let(SearchReadableText::format)
         if (formatted != null) {
