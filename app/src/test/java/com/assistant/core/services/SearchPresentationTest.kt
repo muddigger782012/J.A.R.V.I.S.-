@@ -35,4 +35,15 @@ class SearchPresentationTest {
         val old = """J.A.R.V.I.S.: [search-results-v1]{"query":"engines","results":[{"title":"Photo","url":"https://example.org/photo","kind":"image"}]}"""
         assertEquals("image", ChatSearchResults.decode(old)!!.kind)
     }
+    @Test fun numberedStepsAndQuotesRemainReadable() {
+        val result = SearchReadableText.format("### Procedure\n1) **Drain** fuel\n2. Flush tank\n> Safety first")
+        assertEquals("Procedure\n1. Drain fuel\n2. Flush tank\n│ Safety first", result.text)
+        assertEquals(listOf("Procedure", "Drain"), result.emphasis.map { result.text.substring(it.start, it.end) })
+    }
+
+    @Test fun modelLinksDoNotLeakUntrustedDestinations() {
+        val result = SearchReadableText.format("Read [manual](javascript:alert(1)) [1].")
+        assertFalse(result.text.contains("javascript:"))
+        assertTrue(result.text.contains("[1]"))
+    }
 }
