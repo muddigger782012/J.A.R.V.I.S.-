@@ -1035,7 +1035,7 @@ class HybridAssistantService(
             local.actionResult == null &&
             (local.text.contains("cannot access", ignoreCase = true) ||
                 local.text.contains("cannot retrieve", ignoreCase = true))
-        val unresolved = local.text.startsWith("I don't understand that locally yet.") || unsupportedManualReply
+        val unresolved = local.text.startsWith("I don't understand that locally yet.") || unsupportedManualReply || (manualRetrieval && local.actionResult == null)
         if (unresolved && !RoutineProposal.isCreationRequest(rawInput) && OnlineAnswers.isWeather(rawInput)) {
             Thread {
                 val response = directOnlineClient.weather(rawInput)
