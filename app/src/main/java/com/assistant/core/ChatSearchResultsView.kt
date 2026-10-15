@@ -101,7 +101,7 @@ object ChatSearchResultsView {
                 Toast.makeText(activity, "Answer copied", Toast.LENGTH_SHORT).show()
             })
         }
-        if (message.kind == "image") {
+        if (message.items.any { it.kind == "image" }) {
             val images = message.items.filter { it.kind == "image" }
             if (images.isNotEmpty()) root.addView(SearchMediaViews.images(activity, images))
         }
