@@ -1058,11 +1058,20 @@ class HybridAssistantService(
             if (researchDecision == ConversationalResearchPolicy.Decision.RESEARCH &&
                 !RoutineProposal.isCreationRequest(rawInput)) {
                 Thread {
-                    val contextualQuery = if (previousResearch != null &&
-                        rawInput.length < 100 &&
-                        !rawInput.contains("look up", ignoreCase = true) &&
-                        !rawInput.contains("search for", ignoreCase = true))
-                        "$previousResearch. Follow-up question: $rawInput" else rawInput
+                    val isManualRequest = Regex(
+                        "(?i)\\b(?:technical|service|repair|shop|workshop|operator)\\s+manual\\b|technical documentation|service documentation"
+                    ).containsMatchIn(rawInput)
+                    val recentContext = if (isManualRequest && previousResearch == null)
+                        getConversationSnapshot(limit = 3).take(1200) else ""
+                    val contextualQuery = when {
+                        isManualRequest && recentContext.isNotBlank() ->
+                            "Using the conversation context below, identify the equipment and find its official technical manual or authorized documentation. Provide verifiable links; do not invent procedures or claim access to restricted manuals.\n$recentContext\\nRequest: $rawInput"
+                        previousResearch != null && rawInput.length < 100 &&
+                            !rawInput.contains("look up", ignoreCase = true) &&
+                            !rawInput.contains("search for", ignoreCase = true) ->
+                            "$previousResearch. Follow-up question: $rawInput"
+                        else -> rawInput
+                    }
                     val grounded = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }.getOrNull()
                     val valid = grounded?.takeIf { result ->
                         result.query == contextualQuery && !result.answer.isNullOrBlank() &&
