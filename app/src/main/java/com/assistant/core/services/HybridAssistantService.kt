@@ -274,7 +274,7 @@ class HybridAssistantService(
         }
         if (ConfirmationWords.isConfirmation(userInput)) {
             pendingLearningReset = false
-            return HybridAssistantReply("No action is awaiting yes/no approval. State the action you want, such as 'open Chrome'. Nothing was changed.")
+            return HybridAssistantReply("I don't understand that locally yet. No device action is pending; interpret this reply using the preceding conversation.")
         }
         // Discovery controls are local. Requested features never enter AI history or learning.
         if (CapabilityDiscovery.isHelp(userInput)) return HybridAssistantReply(CapabilityDiscovery.help())
@@ -1074,7 +1074,7 @@ class HybridAssistantService(
                         getConversationSnapshot(limit = 3).take(1200) else ""
                     val contextualQuery = when {
                         isManualRequest && recentContext.isNotBlank() ->
-                            "Using the conversation context below, identify the equipment and find its official technical manual or authorized documentation. Provide verifiable links; do not invent procedures or claim access to restricted manuals.\n$recentContext\\nRequest: $rawInput"
+                            "Using the conversation context below, identify the equipment and find its official technical manual or authorized documentation. Provide verifiable links; do not invent procedures or claim access to restricted manuals.\n$recentContext\nRequest: $rawInput"
                         previousResearch != null && rawInput.length < 100 &&
                             !rawInput.contains("look up", ignoreCase = true) &&
                             !rawInput.contains("search for", ignoreCase = true) ->
