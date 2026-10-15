@@ -27,9 +27,50 @@ object AiConnectionSettings {
         })
         val keyStore = com.assistant.core.services.ApiKeyStore(activity)
         val geminiKey = field("Gemini API key (Google AI Studio)", "unused", true).apply { setText(keyStore.read()) }
-        val geminiModel = field("Gemini model", "gemini_model").apply {
-            if (text.isBlank()) setText("gemini-3.5-flash-lite")
+        fields.addView(TextView(activity).apply { text = "Gemini AI model" })
+        val geminiModel = EditText(activity).apply {
+            setSingleLine(true)
+            isFocusable = false
+            isClickable = true
+            setText(gatewayPrefs.getString("gemini_model", "gemini-3.5-flash-lite"))
+            contentDescription = "Choose Gemini AI model"
+            hint = "Tap to choose a model"
+            fields.addView(this)
         }
+        val modelOptions = listOf(
+            "gemini-2.5-flash-lite" to "Fastest budget choice for simple requests",
+            "gemini-2.5-flash" to "Balanced speed, reasoning and cost",
+            "gemini-2.5-pro" to "Deeper reasoning and complex technical questions",
+            "gemini-3-flash-preview" to "Newer Flash model; availability may vary",
+            "gemini-3-pro-preview" to "Advanced reasoning; availability may vary",
+            "Custom model ID…" to "Enter another model available to your API key"
+        )
+        geminiModel.setOnClickListener {
+            val labels = modelOptions.map { (id, description) -> "$id\\n$description" }.toTypedArray()
+            ThemedDialogBuilder(activity).setTitle("Choose Gemini model")
+                .setSingleChoiceItems(labels, modelOptions.indexOfFirst { it.first == geminiModel.text.toString() }) { picker, index ->
+                    val chosen = modelOptions[index].first
+                    picker.dismiss()
+                    if (chosen == "Custom model ID…") {
+                        val custom = EditText(activity).apply {
+                            setSingleLine(true)
+                            hint = "e.g. gemini-2.5-flash"
+                            setText(geminiModel.text)
+                        }
+                        ThemedDialogBuilder(activity).setTitle("Custom Gemini model ID")
+                            .setView(custom)
+                            .setNegativeButton("Cancel", null)
+                            .setPositiveButton("Use") { _, _ ->
+                                val value = custom.text.toString().trim()
+                                if (Regex("[a-zA-Z0-9._-]+").matches(value)) geminiModel.setText(value)
+                            }.show()
+                    } else geminiModel.setText(chosen)
+                }.setNegativeButton("Cancel", null).show()
+        }
+        fields.addView(TextView(activity).apply {
+            text = "Models vary by API key, region and availability. Selection changes both conversation and Google Search grounding; unsupported models will return a provider error."
+            textSize = 12f
+        })
         val endpoint = field("Optional gateway HTTPS URL ending in /chat", "endpoint")
         val token = field("Gateway token", "gateway_token", true)
         val deviceLocation = SwitchMaterial(activity).apply {
