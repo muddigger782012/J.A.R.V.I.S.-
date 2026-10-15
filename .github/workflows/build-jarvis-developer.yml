@@ -1,0 +1,31 @@
+name: Build Jarvis Developer (isolated)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/jarvis-developer]
+    paths:
+      - 'developer/**'
+      - 'settings.gradle'
+      - 'build.gradle'
+      - '.github/workflows/build-jarvis-developer.yml'
+permissions:
+  contents: read
+jobs:
+  developer-debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Build standalone Developer APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon :developer:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-debug-APK
+          path: developer/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
