@@ -77,12 +77,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view developer-latest >/dev/null 2>&1; then
+            PREVIOUS_SOURCE=$(gh release view developer-latest --json targetCommitish --jq .targetCommitish)
+            test -n "$PREVIOUS_SOURCE"
             mkdir -p "$RUNNER_TEMP/developer-previous"
             if gh release download developer-latest -p Jarvis-Developer.apk -D "$RUNNER_TEMP/developer-previous"; then
               if ! gh release view developer-previous >/dev/null 2>&1; then
-                gh release create developer-previous --target "$GITHUB_SHA" --prerelease --title 'Jarvis Developer previous signed APK' --notes 'Backup only. Android version downgrade is normally blocked; use a recovery rebuild instead.'
+                gh release create developer-previous --target "$PREVIOUS_SOURCE" --prerelease --title 'Jarvis Developer previous signed APK' --notes 'Backup only. Android version downgrade is normally blocked; use a recovery rebuild instead.'
               fi
               gh release upload developer-previous "$RUNNER_TEMP/developer-previous/Jarvis-Developer.apk" --clobber
+              gh release edit developer-previous --target "$PREVIOUS_SOURCE" --notes "Previous published Developer source commit: $PREVIOUS_SOURCE. Rebuild this SHA via the workflow recovery_sha input; do not install an APK downgrade."
             else
               echo 'Could not preserve previous APK; refusing to replace update channel.'
               exit 1
