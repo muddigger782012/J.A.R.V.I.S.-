@@ -1026,7 +1026,16 @@ class HybridAssistantService(
             return
         }
         val local = handleUserInput(rawInput)
-        val unresolved = local.text.startsWith("I don't understand that locally yet.")
+        val manualRetrieval = Regex(
+            "(?i)\\b(?:technical|service|repair|shop|workshop|operator)\\s+manual\\b|technical documentation|service documentation"
+        ).containsMatchIn(rawInput) && listOf("pull up", "find", "locate", "get me", "show me", "look up", "search", "retrieve").any {
+            rawInput.contains(it, ignoreCase = true)
+        }
+        val unsupportedManualReply = manualRetrieval &&
+            local.actionResult == null &&
+            (local.text.contains("cannot access", ignoreCase = true) ||
+                local.text.contains("cannot retrieve", ignoreCase = true))
+        val unresolved = local.text.startsWith("I don't understand that locally yet.") || unsupportedManualReply
         if (unresolved && !RoutineProposal.isCreationRequest(rawInput) && OnlineAnswers.isWeather(rawInput)) {
             Thread {
                 val response = directOnlineClient.weather(rawInput)
@@ -1084,6 +1093,12 @@ class HybridAssistantService(
                         callback(HybridAssistantReply(ChatSearchResults.encode(rawInput, valid.items,
                             answer, valid.searchSuggestions)))
                     } else {
+                        if (isManualRequest) {
+                            val response = "I couldn't retrieve a verified manual link from the online search. I won't invent a document or service procedure. Try again when research connectivity is available."
+                            remember(rawInput, response)
+                            callback(HybridAssistantReply(response))
+                            return@Thread
+                        }
                         val cloud = directOnlineClient.assistant(rawInput, getConversationSnapshot(),
                             ContextualAction.aiContext(assistantMemory))
                         val response = proposeCloudAction(rawInput, cloud.lessonJson) ?: cloud.reply
