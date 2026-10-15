@@ -7,7 +7,17 @@ object SearchReadableText {
     fun format(raw: String): Result {
         val output = StringBuilder()
         val emphasis = mutableListOf<Emphasis>()
+        var codeFence = false
         raw.take(12000).lines().forEach { original ->
+            if (original.trimStart().startsWith("```")) {
+                codeFence = !codeFence
+                return@forEach
+            }
+            if (codeFence) {
+                if (output.isNotEmpty()) output.append('\n')
+                output.append(original.trimEnd())
+                return@forEach
+            }
             var line = original.trimEnd()
             val heading = Regex("^\\s{0,3}#{1,6}\\s+").find(line)
             if (heading != null) line = line.substring(heading.range.last + 1)
