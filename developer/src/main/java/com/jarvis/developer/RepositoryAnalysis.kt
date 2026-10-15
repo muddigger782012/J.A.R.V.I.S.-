@@ -226,8 +226,12 @@ object RepositoryAnalysis {
         return Query(primary, primary.flatMap { related[it].orEmpty() }.map(::normalize).toSet() - primary)
     }
     private fun pathScore(path: String, query: Query): Double {
-        val tokens = terms(path)
-        return tokens.intersect(query.primary).size * 5.0 + tokens.intersect(query.expanded).size * 1.5
+        val basename = terms(path.substringAfterLast('/'))
+        val directories = terms(path.substringBeforeLast('/', "")) - basename
+        // Package/scope words occur in almost every path (e.g. "assistant"). A matching
+        // declaration filename is much stronger evidence than a shared directory segment.
+        return basename.intersect(query.primary).size * 5.0 + basename.intersect(query.expanded).size * 1.5 +
+            directories.intersect(query.primary).size * 0.25 + directories.intersect(query.expanded).size * 0.1
     }
     private fun sourcePriority(path: String): Int = when {
         "/src/main/" in path -> 0
@@ -244,7 +248,11 @@ object RepositoryAnalysis {
             name == "Application" || name.endsWith("Application") -> 4.0
             else -> 0.0
         }
-        return pathScore(path, query) + if (sourcePriority(path) < 2) entryPoint else 0.0
+        val priority = sourcePriority(path)
+        val supportWeight = when (priority) { 3 -> 0.25; 2 -> 0.65; else -> 1.0 }
+        // Test filenames share generic words such as "test" with diagnostic requests. Reserve
+        // the bounded read session for production evidence before supporting examples/docs.
+        return (pathScore(path, query) + if (priority < 2) entryPoint else 0.0) * supportWeight
     }
     private fun document(source: SourceFile, text: String): Document {
         val lines = text.lines()

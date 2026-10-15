@@ -165,7 +165,7 @@ class RepositoryAnalysisTest {
         val file = plan.files.first { it.path == "${core}services/HybridAssistantService.kt" }
         assertTrue(file.symbols.any { it.name == "history" })
         assertTrue(file.dependencies.any { "${core}services/LiveChatStore.kt" in it.resolvedPaths })
-        assertTrue(file.likelyImpact.contains("state ownership"))
+        assertTrue(file.likelyImpact.contains("state ownership", ignoreCase = true))
         assertTrue(plan.files.any { it.path == "${core}MainActivity.kt" })
         assertAuditable(plan)
     }
@@ -201,6 +201,33 @@ class RepositoryAnalysisTest {
             }
             assertTrue("Relevant implementation must survive a bounded production reader", plan.files.any { it.path.endsWith(expected) })
             assertTrue(plan.inspectedPaths.indexOfFirst { it.endsWith(expected) } < 61)
+        }
+    }
+
+    @Test fun sharedPackageWordsAndGenericTestNamesCannotStarveRelevantImplementation() {
+        val sources = (1..80).associate { index ->
+            "app/src/main/java/com/assistant/core/Alphabet$index.kt" to
+                "package com.assistant.core\nclass Alphabet$index { val unrelated = $index }"
+        }.toMutableMap()
+        sources += (1..80).associate { index ->
+            "app/src/test/java/com/assistant/core/GenericTest$index.kt" to
+                "package com.assistant.core\nclass GenericTest$index { fun test() = Unit }"
+        }
+        sources["app/src/main/java/com/assistant/core/services/HybridAssistantService.kt"] =
+            "package com.assistant.core.services\nclass HybridAssistantService { val conversationHistory = ArrayDeque<String>(); fun conversationReply() = Unit }"
+        sources["app/src/main/java/com/assistant/core/services/IntelligenceOverview.kt"] =
+            "package com.assistant.core.services\nclass IntelligenceOverview { fun testProviderConnection() = Unit }"
+        listOf(
+            "Keep context separate for each chat and prevent delayed assistant replies in a different conversation" to "HybridAssistantService.kt",
+            "Diagnose AI connectivity and provider connection tests" to "IntelligenceOverview.kt"
+        ).forEach { (task, expected) ->
+            var reads = 0
+            val plan = RepositoryAnalysis.analyze(task, inventory(sources)) { path ->
+                check(++reads <= 61) { "Production reader budget exhausted" }
+                sources.getValue(path)
+            }
+            assertTrue("Shared directories and test names must not hide relevant source", plan.files.any { it.path.endsWith(expected) })
+            assertTrue(plan.inspectedPaths.indexOfFirst { it.endsWith(expected) } in 0..60)
         }
     }
 

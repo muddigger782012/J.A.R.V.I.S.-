@@ -99,6 +99,14 @@ class RepositoryAcceptanceTest {
             assertTrue("Session budget must disclose incomplete context", plan.limitations.any { it.contains("64-request") && it.contains("incomplete") })
         }
         assertEquals("Inventory count must report actual approved source files", before.size, plan.inventoryCount)
+        if (!plan.files.map { it.path }.containsAll(requiredFiles)) {
+            // Failure evidence stays metadata-only: never print retrieved code or credential values.
+            println("Acceptance revision: $commit")
+            println("Required file GET coverage: ${requiredFiles.associateWith { it in fixture.sourceReads }}")
+            println("Planned source paths: ${plan.files.map { it.path }}")
+            println("Source GET order: ${fixture.sourceReads}")
+            println("Resolved dependency paths: ${plan.files.flatMap { it.dependencies }.flatMap { it.resolvedPaths }.distinct()}")
+        }
         assertTrue("Core task files missing from the proposed plan: $requiredFiles", plan.files.map { it.path }.containsAll(requiredFiles))
         assertTrue("Analysis must explain its lexical/bounded limitations", plan.limitations.isNotEmpty())
         assertTrue("Relevant source declarations were not identified", plan.files.flatMap { it.symbols }.any { it.name in declarationNames })
