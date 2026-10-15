@@ -97,6 +97,50 @@ jobs:
           JARVIS_SIGNING_KEY_ALIAS: ${{ secrets.JARVIS_SIGNING_KEY_ALIAS }}
           JARVIS_SIGNING_KEY_PASSWORD: ${{ secrets.JARVIS_SIGNING_KEY_PASSWORD }}
         run: bash gradlew --no-daemon assembleRelease
+      - name: Verify and stage main-only phone candidate
+        if: github.ref == 'refs/heads/codex/separate-update-channels' && steps.signing.outputs.configured == 'true'
+        env:
+          JARVIS_BETA_GEMINI_API_KEY: ${{ secrets.JARVIS_BETA_GEMINI_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_beta_configuration.py --build-config app/build/generated/source/buildConfig/release/com/assistant/core/BuildConfig.java app/build/outputs/apk/release/*.apk
+          for apk in app/build/outputs/apk/release/*.apk; do
+            python3 scripts/verify_bundled_voice_apk.py "$apk" --absent
+          done
+          prior="$RUNNER_TEMP/jarvis-phone-prior"
+          phone_stage="$RUNNER_TEMP/jarvis-phone-stage"
+          mkdir -p "$prior/updates"
+          curl --fail --location --retry 3 --output "$prior/original.apk" https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/artifacts/app-debug.apk
+          git fetch origin main
+          if git cat-file -e 'origin/main:updates/jarvis.json' 2>/dev/null; then
+            git show 'origin/main:updates/jarvis.json' > "$prior/updates/jarvis.json"
+          fi
+          python3 scripts/stage_update_channels.py --original-dir app/build/outputs/apk/release --previous-original "$prior/original.apk" --previous-metadata-dir "$prior/updates" --source-commit "$GITHUB_SHA" --version-code '${{ github.run_number }}' --output "$phone_stage" --aapt "$ANDROID_HOME/build-tools/34.0.0/aapt" --apksigner "$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          cd "$phone_stage/releases/jarvis"
+          sha256sum Jarvis.apk > Jarvis.apk.sha256.txt
+      - name: Upload public main-only phone candidate
+        if: github.ref == 'refs/heads/codex/separate-update-channels' && steps.signing.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-phone-test-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/jarvis-phone-stage/releases/jarvis/Jarvis.apk
+            ${{ runner.temp }}/jarvis-phone-stage/releases/jarvis/Jarvis.apk.sha256.txt
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
+      - name: Publish direct main-only phone test download
+        if: github.ref == 'refs/heads/codex/separate-update-channels' && steps.signing.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate_tag='jarvis-phone-${{ github.run_number }}'
+          gh release create "$candidate_tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false --title 'Jarvis 3.5.${{ github.run_number }} phone test' --notes 'Signed Jarvis phone-test candidate. Install over the existing Jarvis application and verify retained data and voice behavior. Physical-device acceptance is pending. Stable update channels and Beta distribution are unchanged.'
+          gh release upload "$candidate_tag" "$RUNNER_TEMP/jarvis-phone-stage/releases/jarvis/Jarvis.apk" "$RUNNER_TEMP/jarvis-phone-stage/releases/jarvis/Jarvis.apk.sha256.txt" --repo "$GITHUB_REPOSITORY"
+          echo 'Phone test APK: https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/jarvis-phone-${{ github.run_number }}/Jarvis.apk' >> "$GITHUB_STEP_SUMMARY"
       - name: Check existing Beta credential availability
         id: beta
         if: steps.signing.outputs.configured == 'true'
@@ -222,4 +266,4 @@ jobs:
         shell: bash
         run: |
           rm -f -- "$RUNNER_TEMP/jarvis-release.jks"
-          rm -rf -- "$RUNNER_TEMP/jarvis-update-stage" app/build
+          rm -rf -- "$RUNNER_TEMP/jarvis-update-stage" "$RUNNER_TEMP/jarvis-phone-stage" app/build

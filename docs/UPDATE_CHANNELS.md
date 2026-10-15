@@ -128,7 +128,7 @@ workflow run with a higher version code. Re-running the same Actions run number
 cannot complete publication because staging correctly rejects the already served
 version. Do not weaken the monotonic-version check to recover a partial publish.
 
-## Encrypted signed candidates before publication
+## Signed phone candidates before publication
 
 The existing **Build Jarvis APK** workflow also accepts pushes from this
 repository's exact trusted branch `codex/separate-update-channels`. This candidate
@@ -145,8 +145,23 @@ run receives a higher code, so it can update a candidate installed during testin
 Re-running an old workflow run does not allocate a newer version code.
 
 This repository is public, so ordinary Actions artifacts are downloadable by
-other signed-in readers. Candidate mode uploads only an OpenSSL CMS encrypted
-bundle, retained for three days. The checked-in
+other signed-in readers. After signed main compilation, candidate mode verifies
+that main contains no Beta credential or bundled voice archive, then runs
+original-only signed staging against the current public main APK and metadata.
+This checks the permanent signer, increasing version, all three supported ABIs
+and universal legacy size budget. It uploads only the universal `Jarvis.apk` and
+`Jarvis.apk.sha256.txt` as the public `Jarvis-phone-test-<N>` Actions artifact,
+retained for three days. This provides a smaller main-only download for manual
+phone testing before the full Beta/bridge build finishes. It is a public test
+distribution; it does not replace the stable main APK or update pointers. The
+same verified APK and checksum are also published in a `jarvis-phone-<N>`
+prerelease for direct phone downloads. It is explicitly marked as a prerelease
+and not the latest release; its tag targets the exact candidate source commit.
+These test assets are immutable: rerunning an existing number cannot overwrite
+them. Device acceptance is still pending when the test link first becomes available.
+
+Beta and bridge APKs remain available only inside the OpenSSL CMS encrypted
+candidate bundle, also retained for three days. The checked-in
 `.github/candidate-recipient.pem` contains only the public recipient certificate;
 the matching private decryption key stays outside Git and CI. Only its holder can
 decrypt the candidate bundle. Beta's existing embedded provider credential remains
@@ -160,11 +175,12 @@ receipt for audit. Per-ABI APKs remain covered by staging checks but are omitted
 from this compact testing bundle. The workflow removes its signing file and
 plaintext staging/build outputs after upload, including on failure.
 
-Only main may upload the ordinary Jarvis/Beta APK artifacts or run the publisher.
-Candidate runs create no releases and change no public APK assets, tags, metadata
-or legacy pointers. This minimal addition retains the existing single job's
-`contents: write` token; main-only workflow conditions and the publisher's
-repository/main checks guard publication.
+Only main may upload the ordinary release Jarvis/Beta APK artifacts or run the
+publisher. Candidates may create only the separately labelled main phone-test
+prerelease described above; they change no stable release APK assets, tags,
+metadata or legacy pointers. This minimal addition retains the
+existing single job's `contents: write` token; main-only workflow conditions and
+the publisher's repository/main checks guard publication.
 
 After decryption and integrity verification, these candidates support manual
 same-signer installation over historical APKs to check data retention, runtime
