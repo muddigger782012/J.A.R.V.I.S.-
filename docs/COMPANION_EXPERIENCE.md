@@ -35,3 +35,15 @@ Make one recognizable companion available across rooms, offices, mobile devices 
 
 ### Product separation and sequencing
 The personal edition may use advanced local automation agents and permissions unsuitable for general app stores. Commercial editions must meet platform and privacy policies. Both should share portable assistant intelligence, identity, conversation protocol and validated capabilities, not require a complete rewrite. Initial focus: stabilize Android; prototype supported Google/home interoperability; build Windows 10 agent; evaluate secure Windows 7 agent; validate commercial multi-room experience.
+
+## Personal Jarvis as primary digital interface and supervised developer (2026-10-14)
+Owner priority: Jarvis should become the default place to chat, search/research, manage authorized device tasks, and request software development across personal Android, Windows 10/7 and supported Google appliances.
+
+Five integrated capability tracks:
+1. Conversational AI with context, persona, voice/text continuity and transparent model/provider fallback.
+2. Search/research with source attribution, rich media where licensed/supported, clear distinction between retrieved facts and generated answers.
+3. Permissioned device operations through per-device agents, visible status, safe action confirmations and auditable logs.
+4. Coding agent able to inspect repositories, draft changes, run sandboxed tests/builds, and prepare signed releases using existing CI; secrets must not be embedded in APKs.
+5. Supervised self-improvement: detect issues and propose patches, but require explicit owner approval for privileged changes, merges, releases, installs and permission expansion. Preserve stable rollback channels and avoid uncontrolled recursive code modification.
+
+Sequence: stabilize chat and search; unify assistant tool routing and context; establish secure device-agent contracts; add bounded code-agent workflows through GitHub CI; then cross-device orchestration and validated self-improvement loops. Track task success, latency, operating costs, regression rate and user trust. Do not claim features are implemented until tested.
