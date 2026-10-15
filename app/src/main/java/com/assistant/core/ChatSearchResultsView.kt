@@ -71,7 +71,7 @@ object ChatSearchResultsView {
             else if (ChatSearchResults.safeUrl(item.url)) activity.startActivity(Intent(activity, SearchBrowserActivity::class.java)
                 .putExtra(SearchBrowserActivity.EXTRA_URL, item.url))
         }
-        val sources = message.items.filter { it.kind != "image" }
+        val sources = message.items.filter { it.kind != "image" && ChatSearchResults.safeUrl(it.url) }
         root.addView(label(message.query, 12f, true).apply { setPadding(0, 0, 0, dp(10)) })
         val formatted = message.answer?.let(SearchReadableText::format)
         if (formatted != null) {
@@ -80,7 +80,7 @@ object ChatSearchResultsView {
                 text.setSpan(StyleSpan(Typeface.BOLD), it.start, it.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
             Regex("\\[(\\d+)]").findAll(formatted.text).forEach { match ->
-                val source = match.groupValues[1].toIntOrNull()?.let { sources.take(5).getOrNull(it - 1) } ?: return@forEach
+                val source = match.groupValues[1].toIntOrNull()?.let { sources.getOrNull(it - 1) } ?: return@forEach
                 text.setSpan(object : ClickableSpan() {
                     override fun onClick(widget: View) { open(source) }
                     override fun updateDrawState(ds: TextPaint) {
