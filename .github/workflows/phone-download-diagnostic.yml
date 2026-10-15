@@ -1,0 +1,81 @@
+name: Verify Jarvis phone download
+on:
+  push:
+    branches: [codex/phone-download-diagnostic]
+    paths: ['.github/workflows/phone-download-diagnostic.yml']
+permissions:
+  contents: write
+jobs:
+  verify:
+    if: github.repository == 'muddigger782012/J.A.R.V.I.S.-' && github.ref == 'refs/heads/codex/phone-download-diagnostic'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Download the public APK completely
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/phone-download"
+          curl --fail --silent --show-error --location --retry 3 --connect-timeout 20 --max-time 300 --dump-header "$RUNNER_TEMP/phone-download/headers.txt" --output "$RUNNER_TEMP/phone-download/Jarvis.apk" --write-out 'HTTP %{http_code}; bytes %{size_download}; type %{content_type}\n' https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/jarvis-phone-397/Jarvis.apk
+          curl --fail --silent --show-error --location --retry 3 --connect-timeout 20 --max-time 120 --output "$RUNNER_TEMP/phone-download/checksum.txt" https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/jarvis-phone-397/Jarvis.apk.sha256.txt
+      - name: Verify downloaded bytes and create identical APK ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob, hashlib, json, os, re, subprocess, zipfile
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'phone-download'
+          apk=root/'Jarvis.apk'
+          expected='c7f3e07a9cc72fea234ab1f0982523481ff9ff6ecd6d8545ef64016142030cbb'
+          assert apk.stat().st_size==56502153, 'Downloaded APK size mismatch'
+          assert hashlib.file_digest(apk.open('rb'),'sha256').hexdigest()==expected, 'Downloaded APK SHA256 mismatch'
+          assert (root/'checksum.txt').read_text().strip()==expected+'  Jarvis.apk', 'Published checksum mismatch'
+          with zipfile.ZipFile(apk) as archive:
+              assert archive.testzip() is None, 'APK ZIP CRC failure'
+          sdk=os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT')
+          tools=sorted(Path(sdk).glob('build-tools/*/apksigner')) if sdk else []
+          assert tools, 'Android signature tools unavailable'
+          tool=tools[-1]
+          certificates=subprocess.run([str(tool),'verify','--print-certs',str(apk)],check=True,capture_output=True,text=True).stdout
+          signers=re.findall(r'Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F:]+)',certificates)
+          assert [s.replace(':','').lower() for s in signers]==['93a2f2031692f947440f4cfd874a166609cd2735eeda28e60904da64e8245790'], 'Permanent signer mismatch'
+          badging=subprocess.run([str(tool.parent/'aapt'),'dump','badging',str(apk)],check=True,capture_output=True,text=True).stdout
+          assert re.search(r"^package: name='com.assistant.core' versionCode='397' versionName='3.5.397'",badging,re.M), 'APK identity mismatch'
+          safe_headers=[]
+          for line in (root/'headers.txt').read_text().splitlines():
+              if line.startswith('HTTP/') or line.split(':',1)[0].lower() in {'content-type','content-length','content-disposition','content-encoding','accept-ranges','cache-control'}:
+                  safe_headers.append(line)
+          print(json.dumps({'downloadVerified':True,'sizeBytes':apk.stat().st_size,'sha256':expected,'signerVerified':True,'package':'com.assistant.core','versionCode':397,'headers':safe_headers}))
+          output=root/'Jarvis-3.5.397.zip'
+          with zipfile.ZipFile(output,'w',compression=zipfile.ZIP_STORED) as archive:
+              archive.write(apk,'Jarvis.apk')
+              archive.write(root/'checksum.txt','Jarvis.apk.sha256.txt')
+          with zipfile.ZipFile(output) as archive, archive.open('Jarvis.apk') as source:
+              assert archive.testzip() is None
+              assert hashlib.file_digest(source,'sha256').hexdigest()==expected, 'ZIP changed APK bytes'
+          print('Verified ZIP contains the identical signed Jarvis APK')
+          PY
+      - name: Upload separate ZIP download alternative
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/muddigger782012/J.A.R.V.I.S.-/releases/tags/jarvis-phone-397 > "$RUNNER_TEMP/phone-download/release.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          data=json.loads((Path(os.environ['RUNNER_TEMP'])/'phone-download/release.json').read_text())
+          assert data['tag_name']=='jarvis-phone-397' and data['prerelease'] and not data['draft']
+          assert data['target_commitish']=='15424f69853b66602024e0ba67358637b68960d4'
+          apk=next(a for a in data['assets'] if a['name']=='Jarvis.apk')
+          assert apk['size']==56502153 and apk['digest']=='sha256:c7f3e07a9cc72fea234ab1f0982523481ff9ff6ecd6d8545ef64016142030cbb'
+          PY
+          gh release upload jarvis-phone-397 "$RUNNER_TEMP/phone-download/Jarvis-3.5.397.zip" --repo muddigger782012/J.A.R.V.I.S.-
+          echo 'ZIP alternative: https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/jarvis-phone-397/Jarvis-3.5.397.zip' >> "$GITHUB_STEP_SUMMARY"
