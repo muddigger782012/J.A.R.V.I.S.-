@@ -33,6 +33,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.recovery_sha || github.sha }}
+          fetch-depth: 0
+      - name: Verify recovery SHA belongs to Developer history
+        if: github.event_name == 'workflow_dispatch' && inputs.recovery_sha != ''
+        env:
+          RECOVERY_SHA: ${{ inputs.recovery_sha }}
+        run: |
+          git fetch origin feature/jarvis-developer
+          git cat-file -e "${RECOVERY_SHA}^{commit}" || { echo 'Recovery commit not found'; exit 1; }
+          git merge-base --is-ancestor "$RECOVERY_SHA" origin/feature/jarvis-developer || {
+            echo 'Recovery commit must be an ancestor of the isolated Developer branch.'
+            exit 1
+          }
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
