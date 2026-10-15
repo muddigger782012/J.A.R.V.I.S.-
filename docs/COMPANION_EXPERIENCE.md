@@ -47,3 +47,8 @@ Five integrated capability tracks:
 5. Supervised self-improvement: detect issues and propose patches, but require explicit owner approval for privileged changes, merges, releases, installs and permission expansion. Preserve stable rollback channels and avoid uncontrolled recursive code modification.
 
 Sequence: stabilize chat and search; unify assistant tool routing and context; establish secure device-agent contracts; add bounded code-agent workflows through GitHub CI; then cross-device orchestration and validated self-improvement loops. Track task success, latency, operating costs, regression rate and user trust. Do not claim features are implemented until tested.
+
+## Superseding priority clarification (2026-10-14)
+**The personal all-purpose Jarvis is the purpose of the project, not a stepping stone to commercialization.** Primary goal: a dependable, personally useful AI for chat, research/search, authorized device control, coding and supervised self-improvement on the owner's devices. Everything else—including consumer companion rollout, multi-room appliances, additional platforms, dedicated hardware and monetization—is secondary and must not displace work on that core goal.
+
+Decision rule for new tasks: prioritize measurable improvements to (1) intelligence/conversation, (2) search/knowledge, (3) personal device autonomy, and (4) code development/testing/controlled self-improvement. Only schedule commercial/expansion work when it directly supports these or core capabilities are stable. Retain safety, privacy, rollback and owner approval for privileged changes.
