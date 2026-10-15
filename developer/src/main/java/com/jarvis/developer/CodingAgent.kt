@@ -130,7 +130,20 @@ ${context.take(12000)}
                         val state = run.optString("status")
                         result = "Commit ${commit.take(8)}: $state / ${run.optString("conclusion")}\n${run.optString("html_url")}"
                         update(result)
-                        if (state == "completed") break
+                        if (state == "completed") {
+                            val runId = run.getLong("id")
+                            val jobs = api("GET", "https://api.github.com/repos/$REPO/actions/runs/$runId/jobs?per_page=100", githubToken).optJSONArray("jobs") ?: JSONArray()
+                            val failures = mutableListOf<String>()
+                            for (i in 0 until jobs.length()) {
+                                val steps = jobs.getJSONObject(i).optJSONArray("steps") ?: JSONArray()
+                                for (j in 0 until steps.length()) {
+                                    val step = steps.getJSONObject(j)
+                                    if (step.optString("conclusion") == "failure") failures.add(step.optString("name"))
+                                }
+                            }
+                            if (failures.isNotEmpty()) result += "\nFailed steps: " + failures.joinToString("; ")
+                            break
+                        }
                     }
                 }
                 update(result + "\nReview the commit and build before approving any release.")
