@@ -24,3 +24,14 @@ A single recognizable, personable AI companion accessible wherever the user goes
 - Disable memory/sync/proactive behavior and verify the assistant honors the settings across endpoints.
 
 Prioritize measured reliability, retention and user trust before broadening device support. Product integrations are conditional on OS and vendor policies.
+
+## Definitive owner goals: personal and commercial (2026-10-14)
+
+### Personal Jarvis: autonomous device operator
+Prioritize the user's actual fleet: Android devices, Windows 10 and Windows 7 computers, and Google Nest appliances. Target the deepest **authorized and technically supported** automation available on each device: Android apps/actions and accessibility where permitted; Windows file/program/workflow control through local agents; smart-home routines through supported Google Home/Matter/Home Assistant paths. Windows 7 is end-of-support: isolate legacy agents and never weaken authentication/TLS or expose insecure remote control. Nest devices do not generally allow replacement of their native wake-word assistant. Device agents must enforce least privilege, per-device capabilities, visible action logs, revocable access and confirmation for destructive, financial or security-sensitive actions. Never promise unrestricted OS access.
+
+### Commercial Jarvis: an indispensable companion
+Make one recognizable companion available across rooms, offices, mobile devices and supported appliances. Prioritize effortless onboarding, natural conversation, consistent personality, opted-in continuity, family/office account separation, reliability and accessibility. Evaluate multi-room/home and office subscriptions only after validating demand and cloud/service margins. Start on existing hardware; consider branded speakers only after pilots prove retention and hardware economics.
+
+### Product separation and sequencing
+The personal edition may use advanced local automation agents and permissions unsuitable for general app stores. Commercial editions must meet platform and privacy policies. Both should share portable assistant intelligence, identity, conversation protocol and validated capabilities, not require a complete rewrite. Initial focus: stabilize Android; prototype supported Google/home interoperability; build Windows 10 agent; evaluate secure Windows 7 agent; validate commercial multi-room experience.
