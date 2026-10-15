@@ -72,7 +72,7 @@ jobs:
           path: ${{ runner.temp }}/Jarvis-Developer.apk
           if-no-files-found: error
       - name: Preserve previous signed Developer release
-        if: github.ref == 'refs/heads/feature/jarvis-developer'
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -89,7 +89,7 @@ jobs:
             fi
           fi
       - name: Publish isolated prerelease update
-        if: github.ref == 'refs/heads/feature/jarvis-developer'
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
