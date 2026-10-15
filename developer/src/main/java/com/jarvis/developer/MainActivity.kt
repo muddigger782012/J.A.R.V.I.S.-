@@ -30,7 +30,18 @@ class MainActivity : Activity() {
         val previousCode = health.getInt("last_started_version", -1)
         val previousConfirmed = health.getInt("confirmed_version", -1)
         val pendingReview = previousCode != currentCode || previousConfirmed != currentCode
-        health.edit().putInt("last_started_version", currentCode).apply()
+        val now = System.currentTimeMillis()
+        val lastLaunch = health.getLong("last_launch_ms", 0L)
+        val lastLaunchVersion = health.getInt("last_launch_version", -1)
+        val quickRestart = lastLaunchVersion == currentCode && lastLaunch > 0 &&
+            now >= lastLaunch && now - lastLaunch < 120_000L
+        val restarts = if (previousConfirmed != currentCode && quickRestart)
+            (health.getInt("quick_restarts", 0) + 1).coerceAtMost(10) else 0
+        val recoveryWarning = restarts >= 3 && previousConfirmed != currentCode
+        health.edit().putInt("last_started_version", currentCode)
+            .putInt("last_launch_version", currentCode)
+            .putLong("last_launch_ms", now)
+            .putInt("quick_restarts", restarts).apply()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 28, 28, 28)
@@ -88,15 +99,17 @@ class MainActivity : Activity() {
         root.addView(updates)
         val recoveryStatus = TextView(this).apply {
             setTextColor(0xFFE9F3FA.toInt())
-            text = if (pendingReview) "Version $currentCode is awaiting your health confirmation." else
+            text = if (recoveryWarning) "WARNING: $restarts rapid launches on unconfirmed version $currentCode. Review recovery before coding or updating." else if (pendingReview) "Version $currentCode is awaiting your health confirmation." else
                 "Version $currentCode was confirmed working on this device."
         }
         root.addView(recoveryStatus)
         val confirmHealthy = Button(this).apply { text = "Confirm this version works" }
         root.addView(confirmHealthy)
         confirmHealthy.setOnClickListener {
-            health.edit().putInt("confirmed_version", currentCode).apply()
+            health.edit().putInt("confirmed_version", currentCode).putInt("quick_restarts", 0).apply()
             recoveryStatus.text = "Version $currentCode confirmed working locally."
+            iconTest.isEnabled = true
+            updates.isEnabled = true
         }
         val recovery = Button(this).apply { text = "Recovery / rebuild previous version" }
         root.addView(recovery)
@@ -115,6 +128,11 @@ class MainActivity : Activity() {
         }
         val iconTest = Button(this).apply { text = "Generate icon code, commit and check build" }
         root.addView(iconTest)
+        if (recoveryWarning) {
+            iconTest.isEnabled = false
+            updates.isEnabled = false
+            status.text = "Recovery mode: AI edits and updates paused until this version is confirmed working."
+        }
         iconTest.setOnClickListener {
             iconTest.isEnabled = false
             CodingAgent.run(provider.selectedItem.toString(), key.text.toString().trim(),
