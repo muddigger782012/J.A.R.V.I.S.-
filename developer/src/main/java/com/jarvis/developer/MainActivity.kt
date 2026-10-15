@@ -1,6 +1,7 @@
 package com.jarvis.developer
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
@@ -55,6 +56,9 @@ class MainActivity : Activity() {
         }
         val model = field("Model ID (default: gpt-4.1-mini)")
         val prompt = field("Describe the code or change you need", true)
+        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            prompt.setText(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
+        }
         val output = TextView(this).apply {
             setTextColor(0xFFE9F3FA.toInt())
             setTextIsSelectable(true)
