@@ -11,6 +11,7 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.assistant.core.services.ChatSearchResults
 import com.assistant.core.services.SearchMedia
 import com.assistant.core.services.SearchRouter
 
@@ -105,6 +106,7 @@ object SearchMediaViews {
     }
 
     private fun open(activity: Activity, url: String) {
+        if (!ChatSearchResults.safeUrl(url)) return
         runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
             .onFailure { android.widget.Toast.makeText(activity, "No browser available", android.widget.Toast.LENGTH_SHORT).show() }
     }

@@ -67,6 +67,7 @@ object ChatSearchResultsView {
             setOnClickListener { block() }
         }
         fun open(item: SearchRouter.Result) {
+            if (!ChatSearchResults.safeUrl(item.url)) return
             if (item.kind == "video") SearchMediaViews.play(activity, item)
             else if (ChatSearchResults.safeUrl(item.url)) activity.startActivity(Intent(activity, SearchBrowserActivity::class.java)
                 .putExtra(SearchBrowserActivity.EXTRA_URL, item.url))
@@ -80,7 +81,8 @@ object ChatSearchResultsView {
                 text.setSpan(StyleSpan(Typeface.BOLD), it.start, it.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
             Regex("\\[(\\d+)]").findAll(formatted.text).forEach { match ->
-                val source = match.groupValues[1].toIntOrNull()?.let { sources.take(5).getOrNull(it - 1) } ?: return@forEach
+                val source = match.groupValues[1].toIntOrNull()?.let { sources.getOrNull(it - 1) } ?: return@forEach
+                if (!ChatSearchResults.safeUrl(source.url)) return@forEach
                 text.setSpan(object : ClickableSpan() {
                     override fun onClick(widget: View) { open(source) }
                     override fun updateDrawState(ds: TextPaint) {
@@ -99,7 +101,7 @@ object ChatSearchResultsView {
                 Toast.makeText(activity, "Answer copied", Toast.LENGTH_SHORT).show()
             })
         }
-        if (message.kind == "image") {
+        if (message.items.any { it.kind == "image" }) {
             val images = message.items.filter { it.kind == "image" }
             if (images.isNotEmpty()) root.addView(SearchMediaViews.images(activity, images))
         }
@@ -123,9 +125,10 @@ object ChatSearchResultsView {
                     })
                     val excerpt = SearchReadableText.excerpt(item.description)
                     if (excerpt.isNotBlank()) addView(label(excerpt, 13f, true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
-                    isFocusable = true; isClickable = true
-                    contentDescription = "Open source ${index + 1}: ${item.title}"
-                    setOnClickListener { open(item) }
+                    val validSource = ChatSearchResults.safeUrl(item.url)
+                    isFocusable = validSource; isClickable = validSource
+                    contentDescription = if (validSource) "Open source ${index + 1}: ${item.title}" else "Unavailable source ${index + 1}: ${item.title}"
+                    if (validSource) setOnClickListener { open(item) }
                 })
             }
             val toggle = action("Sources · ${sources.size} ${if (expanded) "▴" else "▾"}", "Show or hide ${sources.size} search sources") { }
