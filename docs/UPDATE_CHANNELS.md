@@ -128,6 +128,52 @@ workflow run with a higher version code. Re-running the same Actions run number
 cannot complete publication because staging correctly rejects the already served
 version. Do not weaken the monotonic-version check to recover a partial publish.
 
+## Encrypted signed candidates before publication
+
+The existing **Build Jarvis APK** workflow also accepts pushes from this
+repository's exact trusted branch `codex/separate-update-channels`. This candidate
+mode uses the same permanent signing key, production runtime and KWS assets,
+existing Beta credential, voice packaging checks and signed staging validation as
+main. Both signing and Beta credentials are mandatory for candidates; missing
+credentials fail the run rather than producing incomplete or unsigned candidates.
+Main retains its existing optional-secret behavior.
+
+Main and candidate builds share this workflow's run-number sequence. For code
+`N`, original/full Beta use `N` and the bridge uses `N-1`; staging still requires
+an increase over the actual published APKs and channel metadata. A later new main
+run receives a higher code, so it can update a candidate installed during testing.
+Re-running an old workflow run does not allocate a newer version code.
+
+This repository is public, so ordinary Actions artifacts are downloadable by
+other signed-in readers. Candidate mode uploads only an OpenSSL CMS encrypted
+bundle, retained for three days. The checked-in
+`.github/candidate-recipient.pem` contains only the public recipient certificate;
+the matching private decryption key stays outside Git and CI. Only its holder can
+decrypt the candidate bundle. Beta's existing embedded provider credential remains
+extractable from the decrypted APK, so decrypted files require the same controlled
+handling as other Beta builds.
+
+Encryption first validates the complete signed stage, then packages the universal
+`Jarvis.apk`, `Beta.apk` and `Beta-bridge.apk` for all three supported ABIs, a
+`candidate.json` integrity receipt, copied channel metadata and the source-stage
+receipt for audit. Per-ABI APKs remain covered by staging checks but are omitted
+from this compact testing bundle. The workflow removes its signing file and
+plaintext staging/build outputs after upload, including on failure.
+
+Only main may upload the ordinary Jarvis/Beta APK artifacts or run the publisher.
+Candidate runs create no releases and change no public APK assets, tags, metadata
+or legacy pointers. This minimal addition retains the existing single job's
+`contents: write` token; main-only workflow conditions and the publisher's
+repository/main checks guard publication.
+
+After decryption and integrity verification, these candidates support manual
+same-signer installation over historical APKs to check data retention, runtime
+behavior and Android installation. Copied channel manifests still point to public
+stable downloads, not candidate files. Candidate builds therefore do not establish
+the old Update-button download flow or raw-Beta → bridge → full-Beta in-app chain;
+those require matching downloads and separate device acceptance. No production
+publication or release-readiness is implied by a successful candidate build.
+
 ## Historical installations and the Beta bridge
 
 Inspection on 2026-10-14 found main release `3.5.394`, complete Beta `3.5.394-beta`,

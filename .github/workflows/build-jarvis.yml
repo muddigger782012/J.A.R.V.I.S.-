@@ -1,7 +1,7 @@
 name: Build Jarvis APK
 on:
   push:
-    branches: [main]
+    branches: [main, codex/separate-update-channels]
     paths-ignore:
       - 'artifacts/**'
       - 'updates/**'
@@ -13,13 +13,30 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
-    if: github.ref == 'refs/heads/main'
+    if: github.repository == 'muddigger782012/J.A.R.V.I.S.-' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/codex/separate-update-channels')
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Require existing production credentials for encrypted candidates
+        if: github.ref == 'refs/heads/codex/separate-update-channels'
+        shell: bash
+        env:
+          JARVIS_SIGNING_KEY_B64: ${{ secrets.JARVIS_SIGNING_KEY_B64 }}
+          JARVIS_SIGNING_STORE_PASSWORD: ${{ secrets.JARVIS_SIGNING_STORE_PASSWORD }}
+          JARVIS_SIGNING_KEY_PASSWORD: ${{ secrets.JARVIS_SIGNING_KEY_PASSWORD }}
+          JARVIS_SIGNING_KEY_ALIAS: ${{ secrets.JARVIS_SIGNING_KEY_ALIAS }}
+          JARVIS_BETA_GEMINI_API_KEY: ${{ secrets.JARVIS_BETA_GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          for required in JARVIS_SIGNING_KEY_B64 JARVIS_SIGNING_STORE_PASSWORD JARVIS_SIGNING_KEY_PASSWORD JARVIS_SIGNING_KEY_ALIAS JARVIS_BETA_GEMINI_API_KEY; do
+            if [ -z "${!required}" ]; then
+              echo '::error::Encrypted candidates require the existing production signing and Beta credentials; no candidate was built.'
+              exit 1
+            fi
+          done
       - name: Extract Jarvis project ZIP if present
         shell: bash
         run: |
@@ -168,14 +185,14 @@ jobs:
           fi
           python3 scripts/stage_update_channels.py --original-dir app/build/outputs/apk/release --previous-original "$prior/original.apk" --previous-metadata-dir "$prior/updates" --source-commit "$GITHUB_SHA" --version-code '${{ github.run_number }}' --output "$RUNNER_TEMP/jarvis-update-stage" --aapt "$ANDROID_HOME/build-tools/34.0.0/aapt" --apksigner "$ANDROID_HOME/build-tools/34.0.0/apksigner" "${beta_args[@]}"
       - name: Upload verified APK artifact
-        if: steps.signing.outputs.configured == 'true'
+        if: github.ref == 'refs/heads/main' && steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Jarvis-release-APK
           path: ${{ runner.temp }}/jarvis-update-stage/releases/jarvis/*.apk
           if-no-files-found: error
       - name: Upload verified Beta APK artifact
-        if: steps.beta.outputs.configured == 'true'
+        if: github.ref == 'refs/heads/main' && steps.beta.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Beta-release-APK
@@ -183,8 +200,26 @@ jobs:
           compression-level: 0
           retention-days: 3
           if-no-files-found: error
+      - name: Encrypt compact verified candidate bundle
+        if: github.ref == 'refs/heads/codex/separate-update-channels' && steps.signing.outputs.configured == 'true' && steps.beta.outputs.configured == 'true'
+        run: python3 scripts/encrypt_candidate.py --stage "$RUNNER_TEMP/jarvis-update-stage" --source-commit "$GITHUB_SHA" --recipient .github/candidate-recipient.pem --output "$RUNNER_TEMP/jarvis-candidate.cms"
+      - name: Upload encrypted candidate only
+        if: github.ref == 'refs/heads/codex/separate-update-channels' && steps.signing.outputs.configured == 'true' && steps.beta.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-encrypted-candidate-${{ github.run_number }}
+          path: ${{ runner.temp }}/jarvis-candidate.cms
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
       - name: Publish verified channels and preserve legacy updater paths
-        if: steps.signing.outputs.configured == 'true'
+        if: github.ref == 'refs/heads/main' && steps.signing.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/publish_update_channels.py --stage "${{ runner.temp }}/jarvis-update-stage" --source-commit "$GITHUB_SHA"
+      - name: Remove signing material and plaintext build outputs
+        if: always()
+        shell: bash
+        run: |
+          rm -f -- "$RUNNER_TEMP/jarvis-release.jks"
+          rm -rf -- "$RUNNER_TEMP/jarvis-update-stage" app/build
