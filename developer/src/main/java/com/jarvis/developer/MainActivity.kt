@@ -63,6 +63,39 @@ class MainActivity : Activity() {
         val send = Button(this).apply { text = "Ask coding assistant" }
         root.addView(send)
         root.addView(output)
+
+        val plans = Button(this).apply { text = "Read approved development plans" }
+        root.addView(plans)
+        val builds = Button(this).apply { text = "Check Developer build status" }
+        root.addView(builds)
+        plans.setOnClickListener {
+            status.text = "Reading GitHub plans..."
+            thread {
+                try {
+                    val approved = GithubPlans.listPlans().map { it to GithubPlans.plan(it) }
+                        .filter { (_, body) -> Regex("(?im)^Status:\\s*approved\\s*$").containsMatchIn(body) }
+                    runOnUiThread {
+                        output.text = if (approved.isEmpty()) "No approved plans found." else
+                            approved.joinToString("\n\n") { (name, body) -> "$name\n\n$body" }
+                        status.text = "Plans loaded"
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread { status.text = "Plan lookup failed"; output.text = e.message }
+                }
+            }
+        }
+        builds.setOnClickListener {
+            status.text = "Checking GitHub Actions..."
+            thread {
+                try {
+                    val result = GithubPlans.latestBuild()
+                    runOnUiThread { output.text = result; status.text = "Build status loaded" }
+                } catch (e: Exception) {
+                    runOnUiThread { status.text = "Build lookup failed"; output.text = e.message }
+                }
+            }
+        }
+
         send.setOnClickListener {
             val apiKey = key.text.toString().trim()
             val task = prompt.text.toString().trim()
