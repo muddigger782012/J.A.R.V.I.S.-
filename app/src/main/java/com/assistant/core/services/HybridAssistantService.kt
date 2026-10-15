@@ -39,6 +39,7 @@ class HybridAssistantService(
     private var lastContactTarget: String? = null
     private var personalityTurn = 0
     private val history = ArrayDeque<Pair<String, String>>()
+    private var lastResearchQuery: String? = null
     private val androidAssistant = AndroidAssistantService(systemService.context())
     private val learningStore = IntentLearningStore(systemService.context())
     private val directOnlineClient = DirectOnlineClient(systemService.context())
@@ -1051,18 +1052,26 @@ class HybridAssistantService(
             return
         }
         if (directOnlineClient.hasGeminiKey()) {
-            val researchDecision = ConversationalResearchPolicy.decide(rawInput, online = true)
+            val previousResearch = synchronized(this) { lastResearchQuery }
+            val researchDecision = ConversationalResearchPolicy.decide(rawInput, online = true,
+                previousResearchQuery = previousResearch)
             if (researchDecision == ConversationalResearchPolicy.Decision.RESEARCH &&
                 !RoutineProposal.isCreationRequest(rawInput)) {
                 Thread {
-                    val grounded = runCatching { directOnlineClient.groundedSearch(rawInput, "web") }.getOrNull()
+                    val contextualQuery = if (previousResearch != null &&
+                        rawInput.length < 100 &&
+                        !rawInput.contains("look up", ignoreCase = true) &&
+                        !rawInput.contains("search for", ignoreCase = true))
+                        "$previousResearch. Follow-up question: $rawInput" else rawInput
+                    val grounded = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }.getOrNull()
                     val valid = grounded?.takeIf { result ->
-                        result.query == rawInput && !result.answer.isNullOrBlank() &&
+                        result.query == contextualQuery && !result.answer.isNullOrBlank() &&
                             result.items.any { item -> item.title.isNotBlank() && ChatSearchResults.safeUrl(item.url) }
                     }
                     if (valid != null) {
                         val answer = valid.answer.orEmpty()
                         remember(rawInput, answer)
+                        synchronized(this) { lastResearchQuery = contextualQuery.take(300) }
                         callback(HybridAssistantReply(ChatSearchResults.encode(rawInput, valid.items,
                             answer, valid.searchSuggestions)))
                     } else {
