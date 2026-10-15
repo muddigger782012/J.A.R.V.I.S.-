@@ -26,6 +26,21 @@ class ConversationalResearchPolicyTest {
             ConversationalResearchPolicy.decide("What is the fuel tank capacity for this machine?", online = true))
     }
 
+    @Test fun manualRetrievalTriggersGroundedResearch() {
+        assertEquals(ConversationalResearchPolicy.Decision.RESEARCH,
+            ConversationalResearchPolicy.decide("Pull up the technical manual for me", online = true))
+        assertEquals(ConversationalResearchPolicy.Decision.RESEARCH,
+            ConversationalResearchPolicy.decide("Find the John Deere 450J service manual", online = true))
+    }
+
+    @Test fun manualRetrievalRespectsOfflineAndDeviceCommands() {
+        assertEquals(ConversationalResearchPolicy.Decision.ANSWER_LOCALLY,
+            ConversationalResearchPolicy.decide("Pull up the technical manual for me", online = false))
+        assertEquals(ConversationalResearchPolicy.Decision.ANSWER_LOCALLY,
+            ConversationalResearchPolicy.decide("Pull up the technical manual for me",
+                online = true, deviceCommand = true))
+    }
+
     @Test fun followUpUsesPreviousResearchSubject() {
         assertEquals(ConversationalResearchPolicy.Decision.RESEARCH,
             ConversationalResearchPolicy.decide("How much does it hold?", online = true,
