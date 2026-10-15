@@ -38,6 +38,46 @@ object CodingAgent {
             return JSONObject(raw)
         } finally { c.disconnect() }
     }
+    private fun failureLog(runId: Long, token: String): String {
+        val endpoint = "https://api.github.com/repos/$REPO/actions/runs/$runId/logs"
+        val connection = URL(endpoint).openConnection() as HttpURLConnection
+        connection.connectTimeout = 15000
+        connection.readTimeout = 30000
+        connection.setRequestProperty("Authorization", "Bearer $token")
+        connection.setRequestProperty("Accept", "application/vnd.github+json")
+        connection.setRequestProperty("User-Agent", "JarvisDeveloper-Agent")
+        try {
+            if (connection.responseCode !in 200..299) return "Build log download unavailable"
+            val matches = ArrayList<String>()
+            var total = 0
+            java.util.zip.ZipInputStream(connection.inputStream).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    if (entry.isDirectory) continue
+                    val bytes = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(4096)
+                    while (true) {
+                        val n = zip.read(buffer)
+                        if (n < 0) break
+                        total += n
+                        if (total > 3_000_000) break
+                        bytes.write(buffer, 0, n)
+                    }
+                    val lines = bytes.toString("UTF-8").lines()
+                    for (line in lines) {
+                        if (Regex("(?i)(^|\\s)(error:|failure:|failed|unresolved reference|e: file:|exception:)").containsMatchIn(line)) {
+                            matches.add(line.take(350))
+                            if (matches.size >= 15) break
+                        }
+                    }
+                    if (total > 3_000_000 || matches.size >= 15) break
+                }
+            }
+            return matches.joinToString("\\n").ifBlank { "No concise compiler error lines found; inspect workflow logs." }
+        } catch (e: Exception) {
+            return "Build logs unavailable: " + (e.message ?: "unknown error").take(100)
+        } finally { connection.disconnect() }
+    }
     private fun read(token: String, path: String): Pair<String, String> {
         val j = api("GET", "https://api.github.com/repos/$REPO/contents/$path?ref=$BRANCH", token)
         val bytes = Base64.decode(j.getString("content").replace("\n", ""), Base64.DEFAULT)
@@ -141,7 +181,7 @@ ${context.take(12000)}
                                     if (step.optString("conclusion") == "failure") failures.add(step.optString("name"))
                                 }
                             }
-                            if (failures.isNotEmpty()) result += "\nFailed steps: " + failures.joinToString("; ")
+                            if (failures.isNotEmpty()) result += "\nFailed steps: " + failures.joinToString("; ") + "\nError excerpts:\n" + failureLog(runId, githubToken)
                             break
                         }
                     }
