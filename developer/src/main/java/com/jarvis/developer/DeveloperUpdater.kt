@@ -35,6 +35,10 @@ object DeveloperUpdater {
                     ?: throw IllegalStateException("No Developer APK in the release")
                 val url = apk.getString("browser_download_url")
                 val releaseVersion = response.optString("name")
+                val releaseTag = response.optString("tag_name")
+                if (releaseTag != "developer-latest") {
+                    throw IllegalStateException("Unexpected Developer release tag")
+                }
                 activity.runOnUiThread {
                     android.app.AlertDialog.Builder(activity)
                         .setTitle("Jarvis Developer update")
