@@ -16,6 +16,15 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Ensure reproducible Android verification tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -n "$sdk_root"
+          if [ ! -x "$sdk_root/build-tools/34.0.0/apksigner" ] || [ ! -x "$sdk_root/build-tools/34.0.0/aapt" ]; then
+            sdkmanager --sdk_root="$sdk_root" 'build-tools;34.0.0'
+          fi
       - name: Download the public APK completely
         shell: bash
         run: |
@@ -28,7 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import glob, hashlib, json, os, re, subprocess, zipfile
+          import hashlib, json, os, re, subprocess, zipfile
           from pathlib import Path
           root=Path(os.environ['RUNNER_TEMP'])/'phone-download'
           apk=root/'Jarvis.apk'
@@ -39,11 +48,14 @@ jobs:
           with zipfile.ZipFile(apk) as archive:
               assert archive.testzip() is None, 'APK ZIP CRC failure'
           sdk=os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT')
-          tools=sorted(Path(sdk).glob('build-tools/*/apksigner')) if sdk else []
-          assert tools, 'Android signature tools unavailable'
-          tool=tools[-1]
+          assert sdk, 'Android SDK location unavailable'
+          tool=Path(sdk)/'build-tools/34.0.0/apksigner'
+          assert tool.is_file(), 'Pinned Android signature tool unavailable'
+          print('Android signature tool:',tool,flush=True)
           certificates=subprocess.run([str(tool),'verify','--print-certs',str(apk)],check=True,capture_output=True,text=True).stdout
+          print('Public APK signing certificates:\n'+certificates,flush=True)
           signers=re.findall(r'Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F:]+)',certificates)
+          print('Parsed APK certificate SHA-256 digests:',repr(signers),flush=True)
           assert [s.replace(':','').lower() for s in signers]==['93a2f2031692f947440f4cfd874a166609cd2735eeda28e60904da64e8245790'], 'Permanent signer mismatch'
           badging=subprocess.run([str(tool.parent/'aapt'),'dump','badging',str(apk)],check=True,capture_output=True,text=True).stdout
           assert re.search(r"^package: name='com.assistant.core' versionCode='397' versionName='3.5.397'",badging,re.M), 'APK identity mismatch'
