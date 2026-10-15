@@ -72,6 +72,9 @@ class MainActivity : Activity() {
         root.addView(plans)
         val builds = Button(this).apply { text = "Check Developer build status" }
         root.addView(builds)
+        val updates = Button(this).apply { text = "Check for Developer updates" }
+        root.addView(updates)
+        updates.setOnClickListener { DeveloperUpdater.check(this) { message -> status.text = message } }
         plans.setOnClickListener {
             status.text = "Reading GitHub plans..."
             thread {
