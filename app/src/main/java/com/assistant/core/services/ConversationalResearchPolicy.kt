@@ -8,7 +8,8 @@ package com.assistant.core.services
 object ConversationalResearchPolicy {
     enum class Decision { ANSWER_LOCALLY, OFFER_RESEARCH, RESEARCH }
 
-    fun decide(message: String, online: Boolean, deviceCommand: Boolean = false,\n        previousResearchQuery: String? = null): Decision {
+    fun decide(message: String, online: Boolean, deviceCommand: Boolean = false,
+        previousResearchQuery: String? = null): Decision {
         val query = message.trim().lowercase()
         if (!online || deviceCommand || query.isBlank()) return Decision.ANSWER_LOCALLY
         if (query.startsWith("call ") || query.startsWith("text ") ||
