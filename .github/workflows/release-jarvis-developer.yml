@@ -177,6 +177,20 @@ jobs:
               exit 1
             fi
           fi
+      - name: Verify previous backup matches prior release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view developer-latest >/dev/null 2>&1; then
+            mkdir -p "$RUNNER_TEMP/developer-backup-check"
+            gh release download developer-previous -p Jarvis-Developer.apk -D "$RUNNER_TEMP/developer-backup-check"
+            cmp "$RUNNER_TEMP/developer-previous/Jarvis-Developer.apk" "$RUNNER_TEMP/developer-backup-check/Jarvis-Developer.apk" || {
+              echo "::error::Previous release backup does not match the APK being replaced."
+              exit 1
+            }
+            echo "Previous signed Developer APK backup verified."
+          fi
       - name: Publish isolated prerelease update
         if: github.event_name == 'workflow_dispatch'
         env:
