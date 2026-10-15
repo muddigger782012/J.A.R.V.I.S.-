@@ -17,7 +17,10 @@ object ConversationalResearchPolicy {
             query.startsWith("turn on ") || query.startsWith("turn off ")) return Decision.ANSWER_LOCALLY
         val researchCues = listOf("latest ", "current ", "recent ", "this week",
             "look up", "search for", "find sources", "verify ", "source for ")
-        if (researchCues.any { query.contains(it) } ||\n            (Regex("\\btoday\\b").containsMatchIn(query) &&\n                listOf("news", "price", "weather", "announcement", "release", "updates").any { query.contains(it) }))\n            return Decision.RESEARCH
+        if (researchCues.any { query.contains(it) } ||
+            (Regex("\\btoday\\b").containsMatchIn(query) &&
+                listOf("news", "price", "weather", "announcement", "release", "updates").any { query.contains(it) }))
+            return Decision.RESEARCH
         val technicalCues = listOf("fault code", "torque spec", "wiring diagram",
             "part number", "service manual", "fuel tank capacity", "fluid capacity")
         return if (technicalCues.any { query.contains(it) }) Decision.OFFER_RESEARCH
