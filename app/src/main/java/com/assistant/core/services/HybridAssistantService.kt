@@ -1027,7 +1027,7 @@ class HybridAssistantService(
         }
         val local = handleUserInput(rawInput)
         val manualRetrieval = Regex(
-            "(?i)\\b(?:technical|service|repair|shop|workshop|operator|operators|operator[’\x27]s)\\s+manual\\b|technical documentation|service documentation"
+            "(?i)\\b(?:technical|service|repair|shop|workshop|operator|operators|operator[’']s)\\s+manual\\b|technical documentation|service documentation"
         ).containsMatchIn(rawInput) && listOf("pull up", "find", "locate", "get me", "show me", "look up", "search", "retrieve").any {
             rawInput.contains(it, ignoreCase = true)
         }
@@ -1068,7 +1068,7 @@ class HybridAssistantService(
                 !RoutineProposal.isCreationRequest(rawInput)) {
                 Thread {
                     val isManualRequest = Regex(
-                        "(?i)\\b(?:technical|service|repair|shop|workshop|operator|operators|operator[’\x27]s)\\s+manual\\b|technical documentation|service documentation"
+                        "(?i)\\b(?:technical|service|repair|shop|workshop|operator|operators|operator[’']s)\\s+manual\\b|technical documentation|service documentation"
                     ).containsMatchIn(rawInput)
                     val recentContext = if (isManualRequest && previousResearch == null)
                         getConversationSnapshot(limit = 3).take(1200) else ""
