@@ -15,15 +15,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check repository theme contract
+        run: python3 scripts/check_ui_theme.py
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v4
-      - name: Build standalone Developer APK
+      - name: Test codebase awareness and build standalone Developer APK
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon :developer:assembleDebug
+          ./gradlew --no-daemon :developer:testDebugUnitTest :developer:assembleDebug
+      - name: Upload Developer unit-test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-unit-test-results
+          path: developer/build/test-results/testDebugUnitTest/
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: Jarvis-Developer-debug-APK

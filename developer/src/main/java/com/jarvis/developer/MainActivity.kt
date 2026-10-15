@@ -128,6 +128,75 @@ class MainActivity : Activity() {
         val githubToken = field("GitHub fine-grained token (not saved)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
+        val repositoryInfo = TextView(this).apply {
+            text = "Codebase awareness: read-only inventory, source browsing and task plans. No AI key required; GitHub token is optional for public source."
+        }
+        root.addView(repositoryInfo)
+        val sourcePath = field("Source path or directory prefix (blank lists all allowed sources)")
+        val sourceRange = field("Source line range, up to 200 lines").apply { setText("1-120") }
+        val inventoryButton = Button(this).apply { text = "Browse source inventory (read-only)" }
+        val sourceButton = Button(this).apply { text = "Read source lines (read-only)" }
+        val analyzeButton = Button(this).apply { text = "Analyze task and preview file plan (read-only)" }
+        listOf(inventoryButton, sourceButton, analyzeButton).forEach { root.addView(it) }
+        var repositorySnapshot: RepositoryAnalysis.Inventory? = null
+        fun repositoryRead(label: String, operation: () -> Pair<RepositoryAnalysis.Inventory, String>) {
+            listOf(inventoryButton, sourceButton, analyzeButton).forEach { it.isEnabled = false }
+            status.text = label
+            thread(name = "DeveloperRepositoryRead") {
+                try {
+                    val (snapshot, report) = operation()
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed) {
+                            repositorySnapshot = snapshot
+                            output.text = report
+                            status.text = "Read-only preview complete at ${snapshot.commitSha.take(12)}"
+                        }
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed) {
+                            status.text = "Repository preview failed"
+                            output.text = e.message?.take(500) ?: "Repository read unavailable."
+                        }
+                    }
+                } finally {
+                    runOnUiThread {
+                        listOf(inventoryButton, sourceButton, analyzeButton).forEach { it.isEnabled = true }
+                    }
+                }
+            }
+        }
+        inventoryButton.setOnClickListener {
+            val token = githubToken.text.toString().trim()
+            val prefix = sourcePath.text.toString().trim()
+            repositoryRead("Reading pinned source inventory...") {
+                val snapshot = RepositoryIntelligence.inventory(token)
+                snapshot to RepositoryBrowser.inventory(snapshot, prefix)
+            }
+        }
+        sourceButton.setOnClickListener {
+            val token = githubToken.text.toString().trim()
+            val path = sourcePath.text.toString().trim()
+            val range = sourceRange.text.toString().trim()
+            val selectedSnapshot = repositorySnapshot
+            repositoryRead("Reading source at the selected commit...") {
+                val snapshot = selectedSnapshot ?: RepositoryIntelligence.inventory(token)
+                val source = RepositoryIntelligence.readSource(token, snapshot, path)
+                snapshot to RepositoryBrowser.source(snapshot, path, source, range)
+            }
+        }
+        analyzeButton.setOnClickListener {
+            val token = githubToken.text.toString().trim()
+            val task = prompt.text.toString().trim()
+            if (task.isBlank()) {
+                status.text = "Enter a task to analyze."
+                return@setOnClickListener
+            }
+            repositoryRead("Inspecting bounded source context and dependencies...") {
+                val (snapshot, plan) = RepositoryIntelligence.analyzeSnapshot(token, task)
+                snapshot to RepositoryAnalysis.render(plan)
+            }
+        }
         root.addView(iconTest)
         if (recoveryWarning) {
             iconTest.isEnabled = false

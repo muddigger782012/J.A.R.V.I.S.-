@@ -3,7 +3,24 @@
 Status: approved product plan; **not** an assertion of implemented functionality. Owner-approved direction: an AI developer that can improve Jarvis and build other applications while protecting a known-good release.
 
 
-## Verified delivery status — 2026-10-15
+## Phase 1 delivery status — recovery deferred by owner
+
+On 2026-10-15 the owner explicitly instructed: "Skip the recovery and start phase one." Recovery remains **unverified**; the historical evidence below is retained. This authorization permits Phase 1 implementation and tests on `feature/jarvis-developer`. It does not authorize publishing, installation, credential changes, release promotion, or marking recovery complete.
+
+Phase 1 implementation is now present for CI validation:
+
+- GET-only, allowlisted source inventory across Developer, selected Jarvis sources/resources and shared docs, pinned to a full commit SHA; verified UTF-8 bytes, Git blob IDs, response budgets, redirect denial and credential-file exclusions.
+- Source browsing with path/prefix selection, bounded line ranges, recognized credential redaction, and commit/blob/line citations.
+- Bounded lexical Kotlin/Java declarations, imports, same-package type references, module-aware Android resource references and Gradle module/artifact references. Unresolved/ambiguous references and incomplete scans remain explicit.
+- Relevant source retrieval and file-plan previews with reasons, candidate behavior changes, likely impact, source excerpts and uncertainty. Analysis uses no model/provider call and offers no write operation.
+- Developer UI actions for inventory, source browsing and analysis, independent of the existing icon-editing action. Normal Jarvis/Beta source, package identities, credentials configuration, signing and update channels are untouched.
+- JVM tests for transport boundaries, source browsing, analysis limits/dependencies, and the five representative tasks against the real immutable Actions checkout. The isolated Developer workflow runs unit tests, theme-contract source checks and debug assembly; the existing release workflow remains unchanged.
+
+**Validation status: pending the first CI run for this implementation; no device/emulator or live on-device GitHub verification claimed.** Local Kotlin/Gradle tooling and the shell network proxy are unavailable, so Android compilation and executable unit results must come from Actions. The older `sumOf` implementation has been replaced; passing compilation is not assumed. Recovery failures are a deferred release blocker, not evidence against a source-only Phase 1 acceptance result.
+
+Known limits: lexical analysis does not prove runtime/transitive behavior; scans cap files/bytes and network sessions cap requests/time; unauthenticated GitHub access may hit rate limits. Reported plans require review. No patches, commits, builds, releases or installations are performed by a read-only analysis request.
+
+## Historical recovery-gate audit — 2026-10-15
 
 **Recovery prerequisite: BLOCKED. Phase 1: partial source helper only; acceptance NOT MET.** Audit source: [`993c6666e7b8dd7773702c1f2a8d111949115bee`](https://github.com/muddigger782012/J.A.R.V.I.S.-/commit/993c6666e7b8dd7773702c1f2a8d111949115bee), branch `feature/jarvis-developer`. No Phase 1 implementation changes were made during this audit because the required backup/recovery checks failed. The evidence below distinguishes existing source, historical CI, and work still pending. Estimates remain relative to recovery verification.
 

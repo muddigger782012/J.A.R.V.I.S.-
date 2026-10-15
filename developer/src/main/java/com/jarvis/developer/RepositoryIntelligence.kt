@@ -1,94 +1,277 @@
 package com.jarvis.developer
 
-import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.Closeable
+import java.io.InputStream
 import java.net.HttpURLConnection
-import java.net.URLEncoder
+import java.net.URI
 import java.net.URL
+import java.net.URLEncoder
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
+import java.security.MessageDigest
+import java.util.Base64
 
-/**
- * Phase 1 repository discovery. Read-only by construction: no GitHub write methods.
- * This produces a bounded inventory and evidence-based file suggestions before coding.
- */
+/** Repository analysis has a GET-only transport and never invokes the coding/provider layer. */
 object RepositoryIntelligence {
     private const val REPOSITORY = "muddigger782012/J.A.R.V.I.S.-"
     private const val BRANCH = "feature/jarvis-developer"
+    private const val API = "https://api.github.com/repos/$REPOSITORY"
+    internal const val MAX_SOURCE_BYTES = 200_000
+    internal const val MAX_TREE_BYTES = 2_000_000
+    internal const val MAX_SESSION_REQUESTS = 64
+    internal const val MAX_SESSION_MILLIS = 180_000L
     private const val MAX_FILES = 2500
-    private const val MAX_RESULTS = 20
+    private const val MAX_NODES = 10_000
+    private val shaPattern = Regex("[a-fA-F0-9]{40}")
 
-    data class SourceFile(val path: String, val sha: String, val size: Long)
-    data class FileMatch(val file: SourceFile, val score: Int, val reasons: List<String>)
-    data class Inventory(val files: List<SourceFile>, val truncated: Boolean, val commitSha: String)
+    /** The only network operation available to the analysis engine. */
+    internal fun interface GetTransport {
+        fun get(url: String, token: String): GetResponse
+    }
 
-    private fun getJson(url: String, token: String): JSONObject {
+    internal class GetResponse(
+        val status: Int,
+        val contentLength: Long,
+        val finalUrl: String,
+        val body: InputStream,
+        private val disconnect: () -> Unit = {}
+    ) : Closeable {
+        override fun close() {
+            try { body.close() } finally { disconnect() }
+        }
+    }
+
+    private val http = GetTransport { url, token ->
+        requireApiUrl(url)
         val connection = URL(url).openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
-        connection.connectTimeout = 15000
-        connection.readTimeout = 30000
-        connection.setRequestProperty("Accept", "application/vnd.github+json")
-        connection.setRequestProperty("User-Agent", "JarvisDeveloper-ReadOnly")
-        if (token.isNotBlank()) connection.setRequestProperty("Authorization", "Bearer $token")
         try {
+            connection.requestMethod = "GET"
+            connection.instanceFollowRedirects = false
+            connection.doOutput = false
+            connection.useCaches = false
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 30_000
+            connection.setRequestProperty("Accept", "application/vnd.github+json")
+            connection.setRequestProperty("User-Agent", "JarvisDeveloper-ReadOnly")
+            connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+            if (token.isNotBlank()) connection.setRequestProperty("Authorization", "Bearer $token")
             val status = connection.responseCode
-            val body = (if (status in 200..299) connection.inputStream else connection.errorStream)
-                ?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) error("Repository read failed (HTTP $status)")
-            return JSONObject(body)
-        } finally {
+            // Do not read server error bodies, which can reflect credentials or unrelated content.
+            val stream = if (status in 200..299) connection.inputStream else ByteArrayInputStream(byteArrayOf())
+            GetResponse(status, connection.contentLengthLong, connection.url.toString(), stream) {
+                connection.disconnect()
+            }
+        } catch (_: Exception) {
             connection.disconnect()
+            // Network exceptions may contain request URLs; provide a stable, non-sensitive error.
+            throw IllegalStateException("Repository GET failed")
         }
     }
 
-    /** Lists source paths at one immutable commit; rejects truncated GitHub trees. */
-    fun inventory(token: String): Inventory {
-        val branch = URLEncoder.encode(BRANCH, "UTF-8")
-        val ref = getJson("https://api.github.com/repos/$REPOSITORY/git/ref/heads/$branch", token)
-        val sha = ref.getJSONObject("object").getString("sha")
-        require(sha.matches(Regex("[a-fA-F0-9]{40}"))) { "Invalid repository revision" }
-        val tree = getJson("https://api.github.com/repos/$REPOSITORY/git/trees/$sha?recursive=1", token)
-        val truncated = tree.optBoolean("truncated", false)
-        val nodes = tree.optJSONArray("tree") ?: JSONArray()
-        val files = ArrayList<SourceFile>()
-        for (index in 0 until nodes.length()) {
-            val node = nodes.getJSONObject(index)
-            if (node.optString("type") != "blob") continue
-            val path = node.optString("path")
-            if (!path.startsWith("developer/") || !path.matches(Regex("[A-Za-z0-9_./-]+"))) continue
-            files.add(SourceFile(path, node.optString("sha"), node.optLong("size", 0)))
-            if (files.size > MAX_FILES) error("Developer source inventory exceeds safety limit")
+    fun inventory(token: String): RepositoryAnalysis.Inventory = Reader(http).inventory(token)
+
+    fun readSource(token: String, inventory: RepositoryAnalysis.Inventory, path: String): String =
+        Reader(http).readSource(token, inventory, path)
+
+    fun analyze(token: String, task: String): RepositoryAnalysis.AnalysisPlan = analyzeSnapshot(token, task).second
+
+    fun analyzeSnapshot(token: String, task: String): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> =
+        Reader(http).analyzeSnapshot(token, task)
+
+    /** Injectable for deterministic JVM tests; it exposes neither write methods nor arbitrary hosts. */
+    internal class Reader(
+        private val transport: GetTransport,
+        private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 }
+    ) {
+        private val startedAt = nowMillis()
+        private var requestCount = 0
+        private var stoppedReason: String? = null
+
+        fun inventory(token: String): RepositoryAnalysis.Inventory {
+            val encodedBranch = URLEncoder.encode(BRANCH, "UTF-8")
+            val ref = getJson("$API/git/ref/heads/$encodedBranch", token, 64_000)
+            require(ref.getString("ref") == "refs/heads/$BRANCH") { "Unexpected repository reference" }
+            val refObject = ref.getJSONObject("object")
+            require(refObject.getString("type") == "commit") { "Repository reference is not a commit" }
+            val commitSha = validSha(refObject.getString("sha"))
+            // Resolve the immutable commit's tree, rather than trusting a moving branch/tree alias.
+            val commit = getJson("$API/git/commits/$commitSha", token, 64_000)
+            require(validSha(commit.getString("sha")) == commitSha) { "Commit identity mismatch" }
+            val treeSha = validSha(commit.getJSONObject("tree").getString("sha"))
+            val tree = getJson("$API/git/trees/$treeSha?recursive=1", token, MAX_TREE_BYTES)
+            require(validSha(tree.getString("sha")) == treeSha) { "Tree identity mismatch" }
+            require(tree.get("truncated") == false) { "GitHub returned a truncated tree; inventory is incomplete" }
+            val nodes = tree.getJSONArray("tree")
+            require(nodes.length() <= MAX_NODES) { "Repository tree exceeds safety limit" }
+            val files = ArrayList<RepositoryAnalysis.SourceFile>()
+            val seenPaths = HashSet<String>()
+            for (index in 0 until nodes.length()) {
+                val node = nodes.getJSONObject(index)
+                val path = node.getString("path")
+                require(validPath(path) && seenPaths.add(path)) { "Invalid or duplicate repository path" }
+                val sha = validSha(node.getString("sha"))
+                val type = node.getString("type")
+                val mode = node.getString("mode")
+                when (type) {
+                    "tree" -> require(mode == "040000") { "Invalid repository tree mode" }
+                    "commit" -> require(mode == "160000") { "Invalid submodule mode" }
+                    "blob" -> {
+                        require(mode in setOf("100644", "100755", "120000")) { "Invalid repository blob mode" }
+                        val size = nonnegativeSize(node)
+                        // Symlinks, large files and unapproved scopes are never offered for browsing.
+                        if (mode != "120000" && size <= MAX_SOURCE_BYTES && allowedSource(path)) {
+                            files.add(RepositoryAnalysis.SourceFile(path, sha, size))
+                            require(files.size <= MAX_FILES) { "Source inventory exceeds safety limit" }
+                        }
+                    }
+                    else -> error("Invalid repository tree entry type")
+                }
+            }
+            return RepositoryAnalysis.Inventory(files.sortedBy { it.path }, false, commitSha)
         }
-        require(!truncated) { "GitHub returned a truncated tree; cannot provide a complete inventory" }
-        return Inventory(files.sortedBy { it.path }, false, sha)
+
+        fun readSource(token: String, inventory: RepositoryAnalysis.Inventory, path: String): String {
+            val commitSha = validSha(inventory.commitSha)
+            require(!inventory.truncated) { "Cannot read from a truncated inventory" }
+            require(allowedSource(path)) { "Path is outside approved source scopes" }
+            val matches = inventory.files.filter { it.path == path }
+            require(matches.size == 1) { "File is not uniquely present in the pinned inventory" }
+            val file = matches.single()
+            val blobSha = validSha(file.sha)
+            require(file.size in 0..MAX_SOURCE_BYTES.toLong()) { "File exceeds read limit" }
+            val encodedPath = path.split('/').joinToString("/") { URLEncoder.encode(it, "UTF-8") }
+            val json = getJson("$API/contents/$encodedPath?ref=$commitSha", token, 350_000)
+            require(json.getString("type") == "file" && json.getString("path") == path) { "Unexpected source response" }
+            require(validSha(json.getString("sha")) == blobSha) { "Source blob identity mismatch" }
+            require(nonnegativeSize(json) == file.size) { "Source size differs from inventory" }
+            require(json.getString("encoding") == "base64") { "Unsupported source encoding" }
+            val content = json.getString("content")
+            require(content.length <= 280_000) { "Encoded source exceeds read limit" }
+            // GitHub wraps base64 with newlines. Do not use MIME decoding, which ignores arbitrary garbage.
+            val compact = content.replace("\n", "").replace("\r", "")
+            val expectedEncodedSize = ((file.size + 2) / 3 * 4).toInt()
+            require(compact.length == expectedEncodedSize && compact.matches(Regex("[A-Za-z0-9+/]*={0,2}"))) {
+                "Invalid bounded source encoding"
+            }
+            val decoded = Base64.getDecoder().decode(compact)
+            require(decoded.size.toLong() == file.size && decoded.size <= MAX_SOURCE_BYTES) { "Source exceeds read limit" }
+            require(decoded.none { it == 0.toByte() }) { "Binary source content is not permitted" }
+            val digest = MessageDigest.getInstance("SHA-1")
+            digest.update("blob ${decoded.size}\u0000".toByteArray(Charsets.UTF_8))
+            val actualSha = digest.digest(decoded).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            require(actualSha == blobSha) { "Source bytes do not match the pinned Git blob" }
+            return strictUtf8(decoded)
+        }
+
+        fun analyze(token: String, task: String): RepositoryAnalysis.AnalysisPlan {
+            return analyzeSnapshot(token, task).second
+        }
+
+        fun analyzeSnapshot(token: String, task: String): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> {
+            require(task.isNotBlank() && task.length <= 4_000) { "Task must contain 1–4,000 characters" }
+            val inventory = inventory(token)
+            val plan = RepositoryAnalysis.analyze(task, inventory) { path -> readSource(token, inventory, path) }
+            val reason = stoppedReason
+            return inventory to if (reason == null) plan else plan.copy(limitations = plan.limitations + reason)
+        }
+
+        private fun stop(reason: String): Nothing {
+            stoppedReason = reason
+            error(reason)
+        }
+
+        private fun checkTimeBudget() {
+            stoppedReason?.let { error(it) }
+            if (nowMillis() - startedAt >= MAX_SESSION_MILLIS) {
+                stop("Repository reads stopped at the 3-minute session budget; retrieved context is incomplete.")
+            }
+        }
+
+        private fun getJson(url: String, token: String, limit: Int): JSONObject {
+            requireApiUrl(url)
+            checkTimeBudget()
+            if (requestCount >= MAX_SESSION_REQUESTS) {
+                stop("Repository reads stopped at the 64-request session limit; retrieved context is incomplete.")
+            }
+            requestCount++
+            return transport.get(url, token).use { response ->
+                requireApiUrl(response.finalUrl)
+                require(response.finalUrl == url) { "Repository redirects are not permitted" }
+                if (response.status in setOf(401, 403, 429)) {
+                    stop("Repository reads stopped after HTTP ${response.status}; check read access or rate limits before retrying.")
+                }
+                require(response.status in 200..299) { "Repository read failed (HTTP ${response.status})" }
+                require(response.contentLength in -1..limit.toLong()) { "Repository response exceeds read limit" }
+                val output = ByteArrayOutputStream(minOf(8192, limit))
+                val buffer = ByteArray(8192)
+                var count = 0
+                while (true) {
+                    // An active socket retains its bounded read timeout; no subsequent read starts after expiry.
+                    checkTimeBudget()
+                    // Read at most the remaining budget plus one byte, before growing the output.
+                    val read = response.body.read(buffer, 0, minOf(buffer.size, limit - count + 1))
+                    if (read == -1) break
+                    require(read > 0) { "Repository stream made no progress" }
+                    count += read
+                    require(count <= limit) { "Repository response exceeds read limit" }
+                    output.write(buffer, 0, read)
+                }
+                JSONObject(strictUtf8(output.toByteArray()))
+            }
+        }
     }
 
-    /** Heuristic candidate ranking only; it does not assert that a file is a dependency. */
-    fun suggestFiles(task: String, inventory: Inventory): List<FileMatch> {
-        val words = task.lowercase().split(Regex("[^a-z0-9]+"))
-            .filter { it.length >= 3 }.distinct().take(25)
-        if (words.isEmpty()) return emptyList()
-        return inventory.files.mapNotNull { file ->
-            val path = file.path.lowercase()
-            val base = path.substringAfterLast('/')
-            val reasons = words.filter { word -> base.contains(word) || path.split('/').any { it.contains(word) } }
-            if (reasons.isEmpty()) null else FileMatch(file, reasons.sumOf { if (base.contains(it)) 3 else 1 }, reasons)
-        }.sortedWith(compareByDescending<FileMatch> { it.score }.thenBy { it.file.path })
-            .take(MAX_RESULTS)
+    internal fun requireApiUrl(value: String) {
+        val uri = URI(value)
+        require(uri.scheme == "https" && uri.host == "api.github.com" && uri.port == -1 &&
+            uri.rawUserInfo == null && uri.rawFragment == null && uri.rawPath.startsWith("/repos/$REPOSITORY/")) {
+            "Repository reads must stay on the approved GitHub API origin"
+        }
     }
 
-    /** Fetches one bounded Developer-owned source file at the inventory's pinned commit. */
-    fun readSource(token: String, inventory: Inventory, path: String): String {
-        val file = inventory.files.firstOrNull { it.path == path }
-            ?: error("File not present in the pinned Developer inventory")
-        require(file.size in 0..200_000) { "File exceeds read limit" }
-        val encodedPath = path.split('/').joinToString("/") { URLEncoder.encode(it, "UTF-8") }
-        val json = getJson(
-            "https://api.github.com/repos/$REPOSITORY/contents/$encodedPath?ref=${inventory.commitSha}",
-            token
-        )
-        require(json.optString("sha") == file.sha) { "File changed since inventory" }
-        require(json.optString("encoding") == "base64") { "Unsupported GitHub file encoding" }
-        val decoded = android.util.Base64.decode(json.getString("content"), android.util.Base64.DEFAULT)
-        require(decoded.size <= 200_000) { "Source exceeds read limit" }
-        return String(decoded, Charsets.UTF_8)
+    private fun validSha(value: String): String {
+        require(shaPattern.matches(value)) { "Invalid immutable Git identity" }
+        return value.lowercase()
     }
+
+    private fun validPath(path: String): Boolean = path.length in 1..512 &&
+        path.matches(Regex("[A-Za-z0-9_./-]+")) &&
+        path.split('/').none { it.isEmpty() || it == "." || it == ".." }
+
+    internal fun allowedSource(path: String): Boolean {
+        if (!validPath(path) || path.split('/').any { it.startsWith('.') }) return false
+        val protectedNames = listOf("secret", "credential", "keystore", "signing")
+        if (path.split('/').dropLast(1).any { component ->
+                protectedNames.any { component.lowercase().contains(it) }
+            }) return false
+        val file = path.substringAfterLast('/').lowercase()
+        if (file.contains("secret") || file.contains("credential") || file.contains("keystore") ||
+            file.contains("signing") || file == "google-services.json" || file == "local.properties") return false
+        if (path in setOf("AGENTS.md", "README.md", "developer/AGENTS.md", "developer/DEVELOPMENT_ROADMAP.md",
+                "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts",
+                "app/build.gradle", "app/build.gradle.kts", "developer/build.gradle", "developer/build.gradle.kts",
+                "gradle/libs.versions.toml", "gradle/wrapper/gradle-wrapper.properties")) return true
+        if (path.startsWith("docs/") && path.endsWith(".md")) return true
+        if (path in setOf("app/src/main/AndroidManifest.xml", "developer/src/main/AndroidManifest.xml")) return true
+        if (Regex("(?:developer|app)/src/(?:main|test|androidTest)/java/(?:[A-Za-z0-9_/-]+)\\.(?:kt|java)").matches(path)) {
+            return path.startsWith("developer/src/") || Regex("app/src/(?:main|test|androidTest)/java/com/assistant/core/.*").matches(path)
+        }
+        return Regex("(?:developer|app)/src/main/res/(?:layout|menu|drawable|values|xml)(?:-[A-Za-z0-9_-]+)?/[A-Za-z0-9_-]+\\.xml").matches(path)
+    }
+
+    private fun nonnegativeSize(json: JSONObject): Long {
+        val value = json.get("size")
+        require(value is Number) { "Missing source size" }
+        val size = value.toString().toLongOrNull() ?: error("Invalid source size")
+        require(size >= 0) { "Invalid source size" }
+        return size
+    }
+
+    private fun strictUtf8(bytes: ByteArray): String = Charsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(bytes)).toString()
 }
