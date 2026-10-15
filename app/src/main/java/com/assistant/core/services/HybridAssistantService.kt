@@ -1055,7 +1055,7 @@ class HybridAssistantService(
             if (researchDecision == ConversationalResearchPolicy.Decision.RESEARCH &&
                 !RoutineProposal.isCreationRequest(rawInput)) {
                 Thread {
-                    val contextualQuery = if (previousResearch != null &&\n                        rawInput.length < 100 && !rawInput.contains("look up", ignoreCase = true) &&\n                        !rawInput.contains("search for", ignoreCase = true))\n                        "$previousResearch. Follow-up question: $rawInput" else rawInput\n                    val grounded = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }.getOrNull()
+                    val contextualQuery = if (previousResearch != null &&\n                        researchDecision == ConversationalResearchPolicy.Decision.RESEARCH &&\n                        rawInput.length < 100 && !rawInput.contains("look up", ignoreCase = true) &&\n                        !rawInput.contains("search for", ignoreCase = true))\n                        "$previousResearch. Follow-up question: $rawInput" else rawInput\n                    val grounded = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }.getOrNull()
                     val valid = grounded?.takeIf { result ->
                         result.query == contextualQuery && !result.answer.isNullOrBlank() &&
                             result.items.any { item -> item.title.isNotBlank() && ChatSearchResults.safeUrl(item.url) }
