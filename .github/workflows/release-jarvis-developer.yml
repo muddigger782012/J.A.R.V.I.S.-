@@ -71,6 +71,18 @@ jobs:
           name: Jarvis-Developer-signed-release-candidate
           path: ${{ runner.temp }}/Jarvis-Developer.apk
           if-no-files-found: error
+      - name: Verify release write access
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PERMISSION=$(gh api repos/"$GITHUB_REPOSITORY"/actions/permissions/workflow 2>/dev/null || true)
+          echo "Release promotion requires repository Actions workflow permission: Read and write."
+          echo "If a release request returns HTTP 403, enable Settings > Actions > General > Workflow permissions > Read and write permissions."
+          gh api repos/"$GITHUB_REPOSITORY"/releases?per_page=1 >/dev/null || {
+            echo "::error::Cannot access releases with the workflow token. Check repository Actions permissions."
+            exit 1
+          }
       - name: Preserve previous signed Developer release
         if: github.event_name == 'workflow_dispatch'
         env:
