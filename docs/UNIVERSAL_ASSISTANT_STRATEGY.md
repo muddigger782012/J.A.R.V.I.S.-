@@ -31,3 +31,11 @@ Define portable contracts for user identity, conversation/context, AI routing, m
 5. Evaluate proprietary smart speakers and dedicated hardware with evidence from pilots.
 
 Every PR should document relevant platform impact, operating cost, security/privacy implications and user-facing compatibility.
+
+## Owner-approved platform priority (2026-10-14)
+1. **Android phones and tablets** are the primary application and release target.
+2. **Google home appliances and ecosystem** are co-primary for reach: Google Home/Nest devices, supported Google Home automations and Matter/Home Assistant bridges. Research supported integrations first; do not claim Jarvis can replace Nest firmware, built-in wake words or proprietary assistants.
+3. **Windows desktop** follows Android/Google, prioritizing Windows 10/11; Windows 7/8.1 remains a secure reduced-feature feasibility target.
+4. Apple, web, other smart speakers and dedicated hardware remain secondary or enabling channels. Web may still be used early as a low-cost technical bridge when useful.
+
+Allocate roadmap and engineering effort accordingly. Maintain one shared Jarvis intelligence and cross-device identity, and prioritize measurable reliability, user reach, unit economics and maintenance burden over unsupported parity promises.
