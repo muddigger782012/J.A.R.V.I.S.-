@@ -35,6 +35,7 @@ class MainActivity : Activity() {
         val lastLaunchVersion = health.getInt("last_launch_version", -1)
         val quickRestart = lastLaunchVersion == currentCode && lastLaunch > 0 &&
             now >= lastLaunch && now - lastLaunch < 120_000L
+        // A short relaunch is only a warning signal; it cannot establish that Android crashed.
         val restarts = if (previousConfirmed != currentCode && quickRestart)
             (health.getInt("quick_restarts", 0) + 1).coerceAtMost(10) else 0
         val recoveryWarning = restarts >= 3 && previousConfirmed != currentCode
@@ -99,7 +100,7 @@ class MainActivity : Activity() {
         root.addView(updates)
         val recoveryStatus = TextView(this).apply {
             setTextColor(0xFFE9F3FA.toInt())
-            text = if (recoveryWarning) "WARNING: $restarts rapid launches on unconfirmed version $currentCode. Review recovery before coding or updating." else if (pendingReview) "Version $currentCode is awaiting your health confirmation." else
+            text = if (recoveryWarning) "WARNING: $restarts rapid launches on unconfirmed version $currentCode. This may be normal relaunching, not necessarily a crash. Review recovery before coding or updating." else if (pendingReview) "Version $currentCode is awaiting your health confirmation." else
                 "Version $currentCode was confirmed working on this device."
         }
         root.addView(recoveryStatus)
