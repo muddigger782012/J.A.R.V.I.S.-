@@ -82,6 +82,7 @@ object ChatSearchResultsView {
             }
             Regex("\\[(\\d+)]").findAll(formatted.text).forEach { match ->
                 val source = match.groupValues[1].toIntOrNull()?.let { sources.getOrNull(it - 1) } ?: return@forEach
+                if (!ChatSearchResults.safeUrl(source.url)) return@forEach
                 text.setSpan(object : ClickableSpan() {
                     override fun onClick(widget: View) { open(source) }
                     override fun updateDrawState(ds: TextPaint) {
