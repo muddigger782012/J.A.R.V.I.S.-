@@ -26,6 +26,23 @@ class ConversationalResearchPolicyTest {
             ConversationalResearchPolicy.decide("What is the fuel tank capacity for this machine?", online = true))
     }
 
+    @Test fun followUpUsesPreviousResearchSubject() {
+        assertEquals(ConversationalResearchPolicy.Decision.RESEARCH,
+            ConversationalResearchPolicy.decide("How much does it hold?", online = true,
+                previousResearchQuery = "John Deere 450J fuel tank"))
+    }
+
+    @Test fun followUpWithoutSubjectDoesNotTriggerResearch() {
+        assertEquals(ConversationalResearchPolicy.Decision.ANSWER_LOCALLY,
+            ConversationalResearchPolicy.decide("How much does it hold?", online = true))
+    }
+
+    @Test fun deviceCommandWinsOverResearchHistory() {
+        assertEquals(ConversationalResearchPolicy.Decision.ANSWER_LOCALLY,
+            ConversationalResearchPolicy.decide("Open settings", online = true,
+                previousResearchQuery = "John Deere 450J fuel tank"))
+    }
+
     @Test fun ordinaryChatStaysLocal() {
         assertEquals(ConversationalResearchPolicy.Decision.ANSWER_LOCALLY,
             ConversationalResearchPolicy.decide("Explain why diesel engines use turbos", online = true))
