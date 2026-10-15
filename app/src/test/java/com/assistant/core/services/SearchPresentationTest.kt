@@ -51,4 +51,8 @@ class SearchPresentationTest {
         assertEquals("Before\n**not bold**\n- not a list\nAfter", formatted.text)
         assertTrue(formatted.emphasis.isEmpty())
     }
+    @Test fun stripsHtmlMarkupWithoutRenderingIt() {
+        val result = SearchReadableText.format("Read <b>instructions</b> [1].")
+        assertEquals("Read instructions [1].", result.text)
+    }
 }
