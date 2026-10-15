@@ -47,6 +47,19 @@ jobs:
             [[ "$RECOVERY_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'Invalid recovery SHA'; exit 1; }
           fi
           echo "sha=$RECOVERY_SHA" >> "$GITHUB_OUTPUT"
+      - name: Record selected Developer source
+        env:
+          SOURCE_SHA: ${{ steps.recovery.outputs.sha || github.sha }}
+        run: |
+          echo "Developer source commit: $SOURCE_SHA"
+          echo "Workflow run: $GITHUB_RUN_NUMBER"
+          echo "Recovery selected: ${{ steps.recovery.outputs.sha != '' }}"
+          {
+            echo "### Developer build provenance"
+            echo "- Source: \`$SOURCE_SHA\`"
+            echo "- Run: \`$GITHUB_RUN_NUMBER\`"
+            echo "- Recovery: \`${{ steps.recovery.outputs.sha != '' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Validate recovery source
         env:
           RECOVERY_SHA: ${{ steps.recovery.outputs.sha }}
