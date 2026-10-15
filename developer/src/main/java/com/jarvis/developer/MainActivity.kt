@@ -85,7 +85,7 @@ class MainActivity : Activity() {
         val output = TextView(this).apply {
             setTextColor(0xFFE9F3FA.toInt())
             setTextIsSelectable(true)
-            text = "Responses will appear here. GitHub writing and autonomous builds are not yet connected."
+            text = "Coding responses appear here. Approved icon edits can be committed to the isolated Developer branch and checked against GitHub Actions."
         }
         val send = Button(this).apply { text = "Ask coding assistant" }
         root.addView(send)
