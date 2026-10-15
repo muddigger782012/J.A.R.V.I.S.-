@@ -33,7 +33,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
-          RECOVERY_SHA: ${{ steps.recovery.outputs.sha }}
+          RECOVERY_SHA: ${{ inputs.recovery_sha }}
           RECOVER_PREVIOUS: ${{ inputs.recover_previous }}
         run: |
           if [ "$RECOVER_PREVIOUS" = "true" ] && [ -n "$RECOVERY_SHA" ]; then
@@ -49,7 +49,7 @@ jobs:
           echo "sha=$RECOVERY_SHA" >> "$GITHUB_OUTPUT"
       - name: Validate recovery source
         env:
-          RECOVERY_SHA: ${{ inputs.recovery_sha }}
+          RECOVERY_SHA: ${{ steps.recovery.outputs.sha }}
         run: |
           if [ -n "$RECOVERY_SHA" ]; then
             [[ "$RECOVERY_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'Invalid recovery SHA'; exit 1; }
@@ -61,7 +61,7 @@ jobs:
       - name: Verify recovery SHA belongs to Developer history
         if: github.event_name == 'workflow_dispatch' && steps.recovery.outputs.sha != ''
         env:
-          RECOVERY_SHA: ${{ inputs.recovery_sha }}
+          RECOVERY_SHA: ${{ steps.recovery.outputs.sha }}
         run: |
           git fetch origin feature/jarvis-developer
           git cat-file -e "${RECOVERY_SHA}^{commit}" || { echo 'Recovery commit not found'; exit 1; }
