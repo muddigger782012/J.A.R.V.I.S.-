@@ -103,6 +103,7 @@ class MainActivity : Activity() {
                 "Version $currentCode was confirmed working on this device."
         }
         root.addView(recoveryStatus)
+        val iconTest = Button(this).apply { text = "Generate icon code, commit and check build" }
         val confirmHealthy = Button(this).apply { text = "Confirm this version works" }
         root.addView(confirmHealthy)
         confirmHealthy.setOnClickListener {
@@ -126,7 +127,6 @@ class MainActivity : Activity() {
         val githubToken = field("GitHub fine-grained token (not saved)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
-        val iconTest = Button(this).apply { text = "Generate icon code, commit and check build" }
         root.addView(iconTest)
         if (recoveryWarning) {
             iconTest.isEnabled = false
