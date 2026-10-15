@@ -145,48 +145,61 @@ ${context.take(12000)}
             try {
                 require(aiKey.isNotBlank() && githubToken.isNotBlank() && task.isNotBlank()) { "Provide AI key, GitHub token and task." }
                 require(task.contains("icon", true) || task.contains("reactor", true)) { "Initial coding scope: launcher icon only." }
-                update("Reading Developer icon and original Arc Reactor source...")
-                val (sha, existing) = read(githubToken, ICON)
                 val (_, source) = read(githubToken, "app/src/main/java/com/assistant/core/ArcReactorView.kt")
-                update("Asking $provider to produce a source edit...")
-                val edited = generate(provider, aiKey, model, task, existing, source)
-                require(edited != existing) { "No change produced" }
-                update("Committing model-generated Developer icon source...")
-                val body = JSONObject()
-                    .put("message", "feat(developer): agent-generated launcher icon update")
-                    .put("branch", BRANCH).put("sha", sha)
-                    .put("content", Base64.encodeToString(edited.toByteArray(), Base64.NO_WRAP))
-                val commit = api("PUT", "https://api.github.com/repos/$REPO/contents/$ICON", githubToken, body)
-                    .getJSONObject("commit").getString("sha")
-                update("Committed ${commit.take(8)}. Waiting for Developer CI...")
-                val url = "https://api.github.com/repos/$REPO/actions/workflows/$BUILD/runs?branch=$BRANCH&per_page=10"
-                var result = "Build pending. Commit: $commit"
-                for (attempt in 0 until 24) {
-                    Thread.sleep(10000)
-                    val runs = api("GET", url, githubToken).optJSONArray("workflow_runs") ?: JSONArray()
-                    val run = (0 until runs.length()).map { runs.getJSONObject(it) }
-                        .firstOrNull { it.optString("head_sha") == commit }
-                    if (run != null) {
+                val url = "https://api.github.com/repos/$REPO/actions/workflows/$BUILD/runs?branch=$BRANCH&per_page=15"
+                var feedback = ""
+                for (attempt in 1..3) {
+                    update("Attempt $attempt/3: reading current Developer icon...")
+                    val (sha, existing) = read(githubToken, ICON)
+                    val instructions = if (feedback.isBlank()) task else "$task\nRepair the prior failed build. Compiler diagnostics:\n$feedback"
+                    val edited = generate(provider, aiKey, model, instructions, existing, source)
+                    require(edited != existing) { "AI returned unchanged source" }
+                    val body = JSONObject().put("message", "fix(developer): agent icon attempt $attempt/3")
+                        .put("branch", BRANCH).put("sha", sha)
+                        .put("content", Base64.encodeToString(edited.toByteArray(), Base64.NO_WRAP))
+                    val commit = api("PUT", "https://api.github.com/repos/$REPO/contents/$ICON", githubToken, body)
+                        .getJSONObject("commit").getString("sha")
+                    update("Attempt $attempt committed ${commit.take(8)}. Waiting for signed CI...")
+                    var completed = false
+                    for (poll in 0 until 30) {
+                        Thread.sleep(10000)
+                        val runs = api("GET", url, githubToken).optJSONArray("workflow_runs") ?: JSONArray()
+                        val run = (0 until runs.length()).map { runs.getJSONObject(it) }
+                            .firstOrNull { it.optString("head_sha") == commit } ?: continue
                         val state = run.optString("status")
-                        result = "Commit ${commit.take(8)}: $state / ${run.optString("conclusion")}\n${run.optString("html_url")}"
-                        update(result)
-                        if (state == "completed") {
-                            val runId = run.getLong("id")
-                            val jobs = api("GET", "https://api.github.com/repos/$REPO/actions/runs/$runId/jobs?per_page=100", githubToken).optJSONArray("jobs") ?: JSONArray()
-                            val failures = mutableListOf<String>()
-                            for (i in 0 until jobs.length()) {
-                                val steps = jobs.getJSONObject(i).optJSONArray("steps") ?: JSONArray()
-                                for (j in 0 until steps.length()) {
-                                    val step = steps.getJSONObject(j)
-                                    if (step.optString("conclusion") == "failure") failures.add(step.optString("name"))
-                                }
-                            }
-                            if (failures.isNotEmpty()) result += "\nFailed steps: " + failures.joinToString("; ") + "\nError excerpts:\n" + failureLog(runId, githubToken)
-                            break
+                        if (state != "completed") continue
+                        completed = true
+                        val runId = run.getLong("id")
+                        val conclusion = run.optString("conclusion")
+                        if (conclusion == "success") {
+                            update("Signed build succeeded on attempt $attempt. Commit: $commit\n" +
+                                run.optString("html_url") + "\nCheck Developer updates after release publishing completes.")
+                            return@thread
                         }
+                        val jobs = api("GET", "https://api.github.com/repos/$REPO/actions/runs/$runId/jobs?per_page=100", githubToken)
+                            .optJSONArray("jobs") ?: JSONArray()
+                        val failures = mutableListOf<String>()
+                        for (i in 0 until jobs.length()) {
+                            val steps = jobs.getJSONObject(i).optJSONArray("steps") ?: JSONArray()
+                            for (j in 0 until steps.length()) {
+                                val step = steps.getJSONObject(j)
+                                if (step.optString("conclusion") == "failure") failures.add(step.optString("name"))
+                            }
+                        }
+                        feedback = ("Failed steps: " + failures.joinToString("; ") + "\n" + failureLog(runId, githubToken)).take(4000)
+                        update("Attempt $attempt failed.\n$feedback")
+                        break
+                    }
+                    if (!completed) {
+                        update("Build status timed out; stopping to avoid duplicate edits. Commit: $commit")
+                        return@thread
+                    }
+                    if (feedback.contains("unavailable", ignoreCase = true) && attempt < 3) {
+                        update("Insufficient compiler diagnostics; stopping automatic retries.")
+                        return@thread
                     }
                 }
-                update(result + "\nReview the commit and build before approving any release.")
+                update("Three attempts exhausted. Review CI logs before proceeding.")
             } catch (e: Exception) { update("Coding task failed: ${e.message}") }
         }
     }
