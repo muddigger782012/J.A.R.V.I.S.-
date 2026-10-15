@@ -185,6 +185,5 @@ jobs:
           if ! gh release view developer-latest >/dev/null 2>&1; then
             gh release create developer-latest --target "$GITHUB_SHA" --prerelease --title "Jarvis Developer 0.1.${{ github.run_number }}" --notes "Independent Developer signed APK"
           fi
-          gh release edit developer-latest --target "${{ steps.recovery.outputs.sha || github.sha }}" --title "Jarvis Developer 0.1.${{ github.run_number }}" --notes "Developer source ${{ steps.recovery.outputs.sha || github.sha }}. Version 0.1.${{ github.run_number }}. Recovery build: ${{ steps.recovery.outputs.sha != '' }}."
           gh release upload developer-latest "$RUNNER_TEMP/Jarvis-Developer.apk" --clobber
           gh release edit developer-latest --target "${{ steps.recovery.outputs.sha || github.sha }}" --title "Jarvis Developer 0.1.${{ github.run_number }}" --notes "Developer source ${{ steps.recovery.outputs.sha || github.sha }}. Version 0.1.${{ github.run_number }}. Recovery build: ${{ steps.recovery.outputs.sha != '' }}."
