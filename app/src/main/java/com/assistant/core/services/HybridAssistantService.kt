@@ -38,7 +38,8 @@ class HybridAssistantService(
     private var pendingShellCommand: String? = null
     private var lastContactTarget: String? = null
     private var personalityTurn = 0
-    private val history = ArrayDeque<Pair<String, String>>()\n    private var lastResearchQuery: String? = null
+    private val history = ArrayDeque<Pair<String, String>>()
+    private var lastResearchQuery: String? = null
     private val androidAssistant = AndroidAssistantService(systemService.context())
     private val learningStore = IntentLearningStore(systemService.context())
     private val directOnlineClient = DirectOnlineClient(systemService.context())
@@ -289,7 +290,9 @@ class HybridAssistantService(
             val assessment = CapabilityRequestReview.assess(entry.text) { label ->
                 androidAssistant.resolveLearnableApp(label)?.takeIf { androidAssistant.canLaunchApp(it.first) }
             }
-            return HybridAssistantReply(CapabilityRequestReview.render(entry, assessment) + "\n\n" + trialEvidence.render(entry, assessment.definition))
+            return HybridAssistantReply(CapabilityRequestReview.render(entry, assessment) + "
+
+" + trialEvidence.render(entry, assessment.definition))
         }
         CapabilityDiscovery.trial(userInput)?.let { description ->
             val entry = capabilityRequests.findReference(description)
@@ -427,7 +430,9 @@ class HybridAssistantService(
         if (normalized == "list routines" || normalized == "show routines") {
             val routines = routineRegistry.listSummaries()
             val response = if (routines.isEmpty()) "No approved routines are stored on this device."
-                else "Approved routines (showing up to 10):\n${routines.joinToString("\n")}"
+                else "Approved routines (showing up to 10):
+${routines.joinToString("
+")}"
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -904,7 +909,8 @@ class HybridAssistantService(
             ?: WebSearchCommand.videoFollowupQuery(userInput, history.lastOrNull()?.first))?.let { query ->
             val url = android.net.Uri.parse("https://www.google.com/search").buildUpon()
                 .appendQueryParameter("tbm", "vid").appendQueryParameter("q", query).build()
-            val response = "Video search ready: $query\n$url"
+            val response = "Video search ready: $query
+$url"
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -917,7 +923,10 @@ class HybridAssistantService(
             val url = android.net.Uri.parse("https://www.google.com/search")
                 .buildUpon().appendQueryParameter("tbm", "isch")
                 .appendQueryParameter("q", query).build()
-            val response = "Image search ready: $query\\n$url".replace("\\n", "\n")
+            val response = "Image search ready: $query\
+$url".replace("\
+", "
+")
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -926,7 +935,10 @@ class HybridAssistantService(
             ?: WebSearchCommand.downloadFollowupQuery(userInput, history.lastOrNull()?.first))?.let { query ->
             val url = android.net.Uri.parse("https://www.google.com/search")
                 .buildUpon().appendQueryParameter("q", query).build()
-            val response = "Web search ready: $query\\n$url".replace("\\n", "\n")
+            val response = "Web search ready: $query\
+$url".replace("\
+", "
+")
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -1005,7 +1017,8 @@ class HybridAssistantService(
         routineConfirmations.consume("")
         Thread {
             val response = directOnlineClient.gemini(question, getConversationSnapshot(), attachments)
-            remember(question + "\nAttachments: " + attachments.joinToString { it.name }, response)
+            remember(question + "
+Attachments: " + attachments.joinToString { it.name }, response)
             callback(HybridAssistantReply(response))
         }.start()
     }
@@ -1051,11 +1064,18 @@ class HybridAssistantService(
             return
         }
         if (directOnlineClient.hasGeminiKey()) {
-            val previousResearch = synchronized(this) { lastResearchQuery }\n            val researchDecision = ConversationalResearchPolicy.decide(rawInput, online = true,\n                previousResearchQuery = previousResearch)
+            val previousResearch = synchronized(this) { lastResearchQuery }
+            val researchDecision = ConversationalResearchPolicy.decide(rawInput, online = true,
+                previousResearchQuery = previousResearch)
             if (researchDecision == ConversationalResearchPolicy.Decision.RESEARCH &&
                 !RoutineProposal.isCreationRequest(rawInput)) {
                 Thread {
-                    val contextualQuery = if (previousResearch != null &&\n                        researchDecision == ConversationalResearchPolicy.Decision.RESEARCH &&\n                        rawInput.length < 100 && !rawInput.contains("look up", ignoreCase = true) &&\n                        !rawInput.contains("search for", ignoreCase = true))\n                        "$previousResearch. Follow-up question: $rawInput" else rawInput\n                    val grounded = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }.getOrNull()
+                    val contextualQuery = if (previousResearch != null &&
+                        researchDecision == ConversationalResearchPolicy.Decision.RESEARCH &&
+                        rawInput.length < 100 && !rawInput.contains("look up", ignoreCase = true) &&
+                        !rawInput.contains("search for", ignoreCase = true))
+                        "$previousResearch. Follow-up question: $rawInput" else rawInput
+                    val grounded = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }.getOrNull()
                     val valid = grounded?.takeIf { result ->
                         result.query == contextualQuery && !result.answer.isNullOrBlank() &&
                             result.items.any { item -> item.title.isNotBlank() && ChatSearchResults.safeUrl(item.url) }
@@ -1285,8 +1305,11 @@ class HybridAssistantService(
 
     @Synchronized
     fun getConversationSnapshot(limit: Int = 8): String {
-        return history.filterNot { it.second.startsWith("I don’t understand that locally yet.") || it.second.startsWith("I don't understand that locally yet.") }.takeLast(limit).joinToString(separator = "\n\n") { (user, assistant) ->
-            "You: $user\nJ.A.R.V.I.S.: $assistant"
+        return history.filterNot { it.second.startsWith("I don’t understand that locally yet.") || it.second.startsWith("I don't understand that locally yet.") }.takeLast(limit).joinToString(separator = "
+
+") { (user, assistant) ->
+            "You: $user
+J.A.R.V.I.S.: $assistant"
         }
     }
 
