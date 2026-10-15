@@ -117,7 +117,7 @@ class MainActivity : Activity() {
         recovery.setOnClickListener {
             android.app.AlertDialog.Builder(this)
                 .setTitle("Jarvis Developer recovery")
-                .setMessage("Installed version: $currentCode\\nLast locally confirmed version: ${if (previousConfirmed >= 0) previousConfirmed.toString() else "none"}\\n\\nTo recover from a bad update, open the GitHub workflow, choose Run workflow, and enter a verified working commit SHA in recovery_sha. The signed rebuild gets a new version code so Android can install it. This does not automatically roll back or bypass Android installation approval.")
+                .setMessage("Installed version: $currentCode\\nLast locally confirmed version: ${if (previousConfirmed >= 0) previousConfirmed.toString() else "none"}\\n\\nTo recover from a bad update, open the GitHub workflow, choose Run workflow, and enter a verified working commit SHA in recovery_sha. The signed rebuild gets a new version code so Android can install it. Previous signed APK: https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/tag/developer-previous. This does not automatically roll back or bypass Android installation approval.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Open recovery workflow") { _, _ ->
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(
