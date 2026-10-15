@@ -53,6 +53,19 @@ class HybridAssistantService(
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
+        // Connection facts must come from the host, before learned aliases or AI persona replies.
+        if (AiConnectionStatus.isQuestion(userInput)) {
+            routineConfirmations.consume("")
+            volumeConfirmations.consume("")
+            deviceLearningSession.consume(userInput)
+            preferenceConfirmations.consume("")
+            pendingPrompt = PendingPrompt.NONE
+            pendingShellCommand = null
+            pendingLearningReset = false
+            val response = AiConnectionStatus.render(AiConnectionStatusReader.read(systemService.context()))
+            remember(userInput, response)
+            return HybridAssistantReply(response)
+        }
         val geminiFailure = GeminiFailureMemory(systemService.context())
         if (geminiFailure.shouldAnswer(userInput)) {
             routineConfirmations.consume("")
@@ -1454,3 +1467,4 @@ class HybridAssistantService(
         return normalized in setOf("yes", "confirm", "confirm reboot", "confirm command", "do it", "sure")
     }
 }
+

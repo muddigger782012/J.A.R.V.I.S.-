@@ -5,8 +5,40 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.Instant
+import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLHandshakeException
 
 class OnlineAnswersTest {
+    @Test fun transportFailuresExposeOnlyClassifiedEvidenceWithoutExceptionMessages() {
+        val secret = "SECRET_KEY private prompt https://private.example"
+        val malformed = runCatching { JSONObject("<html>$secret</html>") }.exceptionOrNull() as Exception
+        val failures = listOf(
+            UnknownHostException(secret) to GeminiFailureKind.DNS,
+            SocketTimeoutException(secret) to GeminiFailureKind.TIMEOUT,
+            SSLHandshakeException(secret) to GeminiFailureKind.TLS,
+            ConnectException(secret) to GeminiFailureKind.CONNECTION,
+            IOException(secret) to GeminiFailureKind.CONNECTION,
+            malformed to GeminiFailureKind.INVALID_RESPONSE,
+            IllegalArgumentException(secret) to GeminiFailureKind.UNKNOWN
+        )
+        for ((error, expected) in failures) {
+            assertEquals(expected, GeminiFailureKind.from(error))
+            val reply = OnlineAnswers.geminiTransportError(error)
+            assertTrue(reply.contains(expected.diagnostic))
+            assertFalse(reply.contains("SECRET_KEY"))
+            assertFalse(reply.contains("private prompt"))
+            assertFalse(reply.contains("https://"))
+            assertFalse(reply.contains("attachment"))
+        }
+        val responseError = OnlineAnswers.geminiTransportError(malformed)
+        assertTrue(responseError.contains("response was received"))
+        assertFalse(responseError.contains("couldn't connect"))
+        assertFalse(responseError.contains("Check your internet"))
+    }
+
     @Test fun fiveDayForecastIncludesAllFiveCalendarDays() {
         val periods = JSONArray()
         for (day in 10..16) {
@@ -48,3 +80,4 @@ class OnlineAnswersTest {
         assertEquals("Answer", OnlineAnswers.geminiText(json))
     }
 }
+

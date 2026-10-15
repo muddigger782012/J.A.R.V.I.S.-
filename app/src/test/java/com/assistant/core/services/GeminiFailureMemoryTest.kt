@@ -6,6 +6,29 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GeminiFailureMemoryTest {
+    @Test fun typedFailuresRemainSanitizedAndOldConnectionRecordsStillExplainUnknownCause() {
+        var raw: String? = null
+        val memory = GeminiFailureMemory({ raw }, { raw = it; true }, { 1000 })
+        for (kind in GeminiFailureKind.values()) {
+            assertTrue(memory.record(0, null, kind))
+            assertEquals(kind.name, JSONObject(raw!!).getString("category"))
+            assertTrue(memory.explain().contains(kind.diagnostic))
+            assertTrue(memory.explain().contains(kind.explanation))
+            assertTrue(memory.explain().contains("not a live outage check"))
+        }
+        raw = """{"code":0,"status":"","reasons":[],"created":1000}"""
+        assertTrue(memory.explain().contains("can't tell"))
+        raw = """{"code":0,"status":"","reasons":[],"category":"SECRET_KEY https://private.example","created":1000}"""
+        assertTrue(memory.explain().contains("can't tell"))
+        assertFalse(memory.explain().contains("SECRET_KEY"))
+        assertFalse(memory.explain().contains("https://"))
+
+        assertTrue(memory.record(503, JSONObject("""{"error":{"status":"UNAVAILABLE"}}"""), GeminiFailureKind.DNS))
+        assertFalse(JSONObject(raw!!).has("category"))
+        assertTrue(memory.explain().contains("HTTP 503, UNAVAILABLE"))
+        assertFalse(memory.explain().contains(GeminiFailureKind.DNS.diagnostic))
+    }
+
     @Test fun naturalRepairFollowupsUseRecentFailureWithoutRevivingStaleOrMissingContext() {
         var raw: String? = null
         var clock = 1000L
@@ -72,3 +95,4 @@ class GeminiFailureMemoryTest {
         assertFalse(GeminiFailureMemory.isQuestion("why did Gemini fail and open Chrome"))
     }
 }
+
