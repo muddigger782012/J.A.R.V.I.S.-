@@ -14,6 +14,8 @@ object SearchReadableText {
             line = line.replace(Regex("^\\s*[-*+]\\s+"), "• ")
                 .replace(Regex("!?\\[([^]\\n]+)]\\([^\\n)]*\\)"), "$1")
                 .replace(Regex("`([^`\\n]+)`"), "$1")
+                .replace(Regex("^\\s{0,3}(\\d{1,3})[.)]\\s+"), "$1. ")
+                .replace(Regex("^\\s*>\\s+"), "│ ")
             if (line.isBlank() && (output.isEmpty() || output.endsWith("\n"))) return@forEach
             if (output.isNotEmpty()) output.append('\n')
             val start = output.length
