@@ -125,9 +125,10 @@ object ChatSearchResultsView {
                     })
                     val excerpt = SearchReadableText.excerpt(item.description)
                     if (excerpt.isNotBlank()) addView(label(excerpt, 13f, true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
-                    isFocusable = true; isClickable = true
-                    contentDescription = "Open source ${index + 1}: ${item.title}"
-                    setOnClickListener { open(item) }
+                    val validSource = ChatSearchResults.safeUrl(item.url)
+                    isFocusable = validSource; isClickable = validSource
+                    contentDescription = if (validSource) "Open source ${index + 1}: ${item.title}" else "Unavailable source ${index + 1}: ${item.title}"
+                    if (validSource) setOnClickListener { open(item) }
                 })
             }
             val toggle = action("Sources · ${sources.size} ${if (expanded) "▴" else "▾"}", "Show or hide ${sources.size} search sources") { }
