@@ -67,6 +67,7 @@ object ChatSearchResultsView {
             setOnClickListener { block() }
         }
         fun open(item: SearchRouter.Result) {
+            if (!ChatSearchResults.safeUrl(item.url)) return
             if (item.kind == "video") SearchMediaViews.play(activity, item)
             else if (ChatSearchResults.safeUrl(item.url)) activity.startActivity(Intent(activity, SearchBrowserActivity::class.java)
                 .putExtra(SearchBrowserActivity.EXTRA_URL, item.url))
