@@ -32,7 +32,7 @@ jobs:
         id: recovery
         if: github.event_name == 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.JARVIS_DEVELOPER_RELEASE_TOKEN || github.token }}
           RECOVERY_SHA: ${{ inputs.recovery_sha }}
           RECOVER_PREVIOUS: ${{ inputs.recover_previous }}
         run: |
@@ -124,12 +124,12 @@ jobs:
       - name: Verify release write access
         if: github.event_name == 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.JARVIS_DEVELOPER_RELEASE_TOKEN || github.token }}
         run: |
-          echo "Release promotion requires repository Actions workflow permission: Read and write."
-          echo "If a release request returns HTTP 403, enable Settings > Actions > General > Workflow permissions > Read and write permissions."
+          echo "Release promotion requires a token with repository Contents: read/write."
+          echo "If GitHub defaults the workflow token to read-only, configure JARVIS_DEVELOPER_RELEASE_TOKEN as a fine-grained repository token with Contents: read/write."
           gh api "repos/$GITHUB_REPOSITORY/releases?per_page=1" >/dev/null || {
-            echo "::error::Cannot access releases with the workflow token. Check repository Actions permissions."
+            echo "::error::Cannot access releases. Check JARVIS_DEVELOPER_RELEASE_TOKEN and repository Actions permissions."
             exit 1
           }
       - name: Record signed APK checksum
@@ -144,7 +144,7 @@ jobs:
       - name: Validate previous release recovery metadata
         if: github.event_name == 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.JARVIS_DEVELOPER_RELEASE_TOKEN || github.token }}
         run: |
           if gh release view developer-latest >/dev/null 2>&1; then
             PREVIOUS_SOURCE=$(gh release view developer-latest --json targetCommitish --jq .targetCommitish)
@@ -160,7 +160,7 @@ jobs:
       - name: Preserve previous signed Developer release
         if: github.event_name == 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.JARVIS_DEVELOPER_RELEASE_TOKEN || github.token }}
         run: |
           if gh release view developer-latest >/dev/null 2>&1; then
             PREVIOUS_SOURCE=$(gh release view developer-latest --json targetCommitish --jq .targetCommitish)
@@ -180,7 +180,7 @@ jobs:
       - name: Verify previous backup matches prior release
         if: github.event_name == 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.JARVIS_DEVELOPER_RELEASE_TOKEN || github.token }}
         run: |
           if gh release view developer-latest >/dev/null 2>&1; then
             mkdir -p "$RUNNER_TEMP/developer-backup-check"
@@ -194,7 +194,7 @@ jobs:
       - name: Publish isolated prerelease update
         if: github.event_name == 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.JARVIS_DEVELOPER_RELEASE_TOKEN || github.token }}
         run: |
           if ! gh release view developer-latest >/dev/null 2>&1; then
             gh release create developer-latest --target "${{ steps.recovery.outputs.sha || github.sha }}" --prerelease --title "Jarvis Developer 0.1.${{ github.run_number }}" --notes "Independent Developer signed APK"
