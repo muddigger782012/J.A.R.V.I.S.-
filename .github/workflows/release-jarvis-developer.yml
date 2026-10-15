@@ -95,6 +95,22 @@ jobs:
             echo "::error::Cannot access releases with the workflow token. Check repository Actions permissions."
             exit 1
           }
+      - name: Validate previous release recovery metadata
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view developer-latest >/dev/null 2>&1; then
+            PREVIOUS_SOURCE=$(gh release view developer-latest --json targetCommitish --jq .targetCommitish)
+            if ! [[ "$PREVIOUS_SOURCE" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "::error::Previous release does not record a full immutable source commit SHA. Refusing promotion to protect rollback."
+              exit 1
+            fi
+            git cat-file -e "${PREVIOUS_SOURCE}^{commit}" || {
+              echo "::error::Previous release source commit is unavailable."
+              exit 1
+            }
+          fi
       - name: Preserve previous signed Developer release
         if: github.event_name == 'workflow_dispatch'
         env:
