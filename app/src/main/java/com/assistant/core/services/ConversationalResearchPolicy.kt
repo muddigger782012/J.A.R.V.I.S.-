@@ -16,6 +16,15 @@ object ConversationalResearchPolicy {
             query.startsWith("open ") || query.startsWith("set ") ||
             query.startsWith("navigate ") || query.startsWith("remind me") ||
             query.startsWith("turn on ") || query.startsWith("turn off ")) return Decision.ANSWER_LOCALLY
+        // Explicit requests to retrieve documentation are research, not merely an offer.
+        // This also handles follow-ups such as "pull up the technical manual for me".
+        val documentationRequests = listOf("technical manual", "service manual",
+            "repair manual", "shop manual", "operator manual", "workshop manual",
+            "technical documentation", "service documentation", "service procedure")
+        val retrievalVerbs = listOf("pull up", "find", "locate", "get me", "show me",
+            "look up", "search", "download", "retrieve", "access", "open the")
+        if (documentationRequests.any { query.contains(it) } &&
+            retrievalVerbs.any { query.contains(it) }) return Decision.RESEARCH
         val followUp = listOf("how much does it hold", "what is its capacity",
             "what about that", "what about its", "is that correct", "can you verify that",
             "what is the part number", "what does the manual say")
