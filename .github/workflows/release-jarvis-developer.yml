@@ -132,6 +132,15 @@ jobs:
             echo "::error::Cannot access releases with the workflow token. Check repository Actions permissions."
             exit 1
           }
+      - name: Record signed APK checksum
+        run: |
+          SHA256=$(sha256sum "$RUNNER_TEMP/Jarvis-Developer.apk" | cut -d ' ' -f 1)
+          echo "Signed APK SHA-256: $SHA256"
+          {
+            echo "### Signed APK integrity"
+            echo "- SHA-256: \`$SHA256\`"
+            echo "- Artifact: \`Jarvis-Developer-signed-release-candidate\`"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Validate previous release recovery metadata
         if: github.event_name == 'workflow_dispatch'
         env:
