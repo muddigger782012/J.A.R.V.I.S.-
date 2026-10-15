@@ -4,6 +4,7 @@ package com.assistant.core.services
 object SearchReadableText {
     data class Emphasis(val start: Int, val end: Int)
     data class Result(val text: String, val emphasis: List<Emphasis>)
+    private val htmlTags = Regex("<[^>\\n]{1,160}>")
     fun format(raw: String): Result {
         val output = StringBuilder()
         val emphasis = mutableListOf<Emphasis>()
@@ -18,7 +19,7 @@ object SearchReadableText {
                 output.append(original.trimEnd())
                 return@forEach
             }
-            var line = original.trimEnd()
+            var line = original.trimEnd().replace(htmlTags, "")
             val heading = Regex("^\\s{0,3}#{1,6}\\s+").find(line)
             if (heading != null) line = line.substring(heading.range.last + 1)
             line = line.replace(Regex("^\\s*[-*+]\\s+"), "• ")
