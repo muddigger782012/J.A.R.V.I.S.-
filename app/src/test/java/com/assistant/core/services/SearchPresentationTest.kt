@@ -46,4 +46,9 @@ class SearchPresentationTest {
         assertFalse(result.text.contains("javascript:"))
         assertTrue(result.text.contains("[1]"))
     }
+    @Test fun fencedCodePreservesLiteralMarkdown() {
+        val formatted = SearchReadableText.format("Before\n```kotlin\n**not bold**\n- not a list\n```\nAfter")
+        assertEquals("Before\n**not bold**\n- not a list\nAfter", formatted.text)
+        assertTrue(formatted.emphasis.isEmpty())
+    }
 }
