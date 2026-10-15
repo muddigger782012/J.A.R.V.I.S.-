@@ -274,7 +274,7 @@ class HybridAssistantService(
         }
         if (ConfirmationWords.isConfirmation(userInput)) {
             pendingLearningReset = false
-            return HybridAssistantReply("No action is awaiting yes/no approval. State the action you want, such as 'open Chrome'. Nothing was changed.")
+            return HybridAssistantReply("I don't understand that locally yet. No device action is pending; interpret this reply using the preceding conversation.")
         }
         // Discovery controls are local. Requested features never enter AI history or learning.
         if (CapabilityDiscovery.isHelp(userInput)) return HybridAssistantReply(CapabilityDiscovery.help())
