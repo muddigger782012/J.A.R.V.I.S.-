@@ -4,6 +4,7 @@ on:
     branches: [feature/jarvis-developer]
     paths:
       - 'developer/**'
+      - 'docs/development-plans/developer-build-request.md'
       - 'settings.gradle'
       - 'build.gradle'
       - '.github/workflows/release-jarvis-developer.yml'
