@@ -14,6 +14,11 @@ on:
         description: 'Optional previously verified Developer commit SHA to rebuild as a newer APK'
         required: false
         type: string
+      recover_previous:
+        description: 'Rebuild the previous published Developer source (no SHA needed)'
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: write
 concurrency:
@@ -23,6 +28,25 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve approved recovery source
+        id: recovery
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECOVERY_SHA: ${{ steps.recovery.outputs.sha }}
+          RECOVER_PREVIOUS: ${{ inputs.recover_previous }}
+        run: |
+          if [ "$RECOVER_PREVIOUS" = "true" ] && [ -n "$RECOVERY_SHA" ]; then
+            echo "::error::Select either recover_previous or recovery_sha, not both."
+            exit 1
+          fi
+          if [ "$RECOVER_PREVIOUS" = "true" ]; then
+            RECOVERY_SHA=$(gh release view developer-previous --json targetCommitish --jq .targetCommitish)
+          fi
+          if [ -n "$RECOVERY_SHA" ]; then
+            [[ "$RECOVERY_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'Invalid recovery SHA'; exit 1; }
+          fi
+          echo "sha=$RECOVERY_SHA" >> "$GITHUB_OUTPUT"
       - name: Validate recovery source
         env:
           RECOVERY_SHA: ${{ inputs.recovery_sha }}
@@ -32,10 +56,10 @@ jobs:
           fi
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.recovery_sha || github.sha }}
+          ref: ${{ steps.recovery.outputs.sha || github.sha }}
           fetch-depth: 0
       - name: Verify recovery SHA belongs to Developer history
-        if: github.event_name == 'workflow_dispatch' && inputs.recovery_sha != ''
+        if: github.event_name == 'workflow_dispatch' && steps.recovery.outputs.sha != ''
         env:
           RECOVERY_SHA: ${{ inputs.recovery_sha }}
         run: |
@@ -140,4 +164,4 @@ jobs:
             gh release create developer-latest --target "$GITHUB_SHA" --prerelease --title "Jarvis Developer 0.1.${{ github.run_number }}" --notes "Independent Developer signed APK"
           fi
           gh release upload developer-latest "$RUNNER_TEMP/Jarvis-Developer.apk" --clobber
-          gh release edit developer-latest --target "${{ inputs.recovery_sha || github.sha }}" --title "Jarvis Developer 0.1.${{ github.run_number }}" --notes "Developer source ${{ inputs.recovery_sha || github.sha }}. Version 0.1.${{ github.run_number }}. Recovery build: ${{ inputs.recovery_sha != '' }}."
+          gh release edit developer-latest --target "${{ steps.recovery.outputs.sha || github.sha }}" --title "Jarvis Developer 0.1.${{ github.run_number }}" --notes "Developer source ${{ steps.recovery.outputs.sha || github.sha }}. Version 0.1.${{ github.run_number }}. Recovery build: ${{ steps.recovery.outputs.sha != '' }}."
