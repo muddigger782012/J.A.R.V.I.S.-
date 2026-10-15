@@ -16,7 +16,7 @@ object CodingAgent {
     private const val REPO = "muddigger782012/J.A.R.V.I.S.-"
     private const val BRANCH = "feature/jarvis-developer"
     private const val ICON = "developer/src/main/res/drawable/developer_icon.xml"
-    private const val BUILD = "build-jarvis-developer.yml"
+    private const val BUILD = "release-jarvis-developer.yml"
     private fun api(method: String, url: String, token: String? = null, payload: JSONObject? = null): JSONObject {
         val c = URL(url).openConnection() as HttpURLConnection
         c.requestMethod = method
@@ -93,6 +93,11 @@ ${context.take(12000)}
         require(cleaned.contains("<vector") && cleaned.contains("</vector>")) { "Invalid vector XML response" }
         require(!cleaned.contains("<!DOCTYPE", ignoreCase = true) && !cleaned.contains("<!ENTITY", ignoreCase = true)) { "Unsafe XML" }
         require(cleaned.length <= 32000) { "Generated XML too large" }
+        val parser = android.util.Xml.newPullParser()
+        parser.setInput(cleaned.reader())
+        var event = parser.next()
+        while (event != org.xmlpull.v1.XmlPullParser.START_TAG && event != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) event = parser.next()
+        require(event == org.xmlpull.v1.XmlPullParser.START_TAG && parser.name == "vector") { "Expected vector drawable XML" }
         return cleaned
     }
     fun run(provider: String, aiKey: String, model: String, githubToken: String, task: String, update: (String) -> Unit) {
