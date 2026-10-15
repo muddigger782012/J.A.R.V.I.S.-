@@ -2,6 +2,7 @@ package com.jarvis.developer
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
@@ -24,6 +25,12 @@ import kotlin.concurrent.thread
 class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val health = getSharedPreferences("developer_health", MODE_PRIVATE)
+        val currentCode = BuildConfig.VERSION_CODE
+        val previousCode = health.getInt("last_started_version", -1)
+        val previousConfirmed = health.getInt("confirmed_version", -1)
+        val pendingReview = previousCode != currentCode || previousConfirmed != currentCode
+        health.edit().putInt("last_started_version", currentCode).apply()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 28, 28, 28)
@@ -79,6 +86,30 @@ class MainActivity : Activity() {
         root.addView(builds)
         val updates = Button(this).apply { text = "Check for Developer updates" }
         root.addView(updates)
+        val recoveryStatus = TextView(this).apply {
+            setTextColor(0xFFE9F3FA.toInt())
+            text = if (pendingReview) "Version $currentCode is awaiting your health confirmation." else
+                "Version $currentCode was confirmed working on this device."
+        }
+        root.addView(recoveryStatus)
+        val confirmHealthy = Button(this).apply { text = "Confirm this version works" }
+        root.addView(confirmHealthy)
+        confirmHealthy.setOnClickListener {
+            health.edit().putInt("confirmed_version", currentCode).apply()
+            recoveryStatus.text = "Version $currentCode confirmed working locally."
+        }
+        val recovery = Button(this).apply { text = "Recovery / rebuild previous version" }
+        root.addView(recovery)
+        recovery.setOnClickListener {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Jarvis Developer recovery")
+                .setMessage("Installed version: $currentCode\\nLast locally confirmed version: ${if (previousConfirmed >= 0) previousConfirmed.toString() else "none"}\\n\\nTo recover from a bad update, open the GitHub workflow, choose Run workflow, and enter a verified working commit SHA in recovery_sha. The signed rebuild gets a new version code so Android can install it. This does not automatically roll back or bypass Android installation approval.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Open recovery workflow") { _, _ ->
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(
+                        "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/workflows/release-jarvis-developer.yml")))
+                }.show()
+        }
         val githubToken = field("GitHub fine-grained token (not saved)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
