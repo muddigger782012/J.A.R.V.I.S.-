@@ -1051,6 +1051,30 @@ class HybridAssistantService(
             return
         }
         if (directOnlineClient.hasGeminiKey()) {
+            val researchDecision = ConversationalResearchPolicy.decide(rawInput, online = true)
+            if (researchDecision == ConversationalResearchPolicy.Decision.RESEARCH &&
+                !RoutineProposal.isCreationRequest(rawInput)) {
+                Thread {
+                    val grounded = runCatching { directOnlineClient.groundedSearch(rawInput, "web") }.getOrNull()
+                    val valid = grounded?.takeIf { result ->
+                        result.query == rawInput && !result.answer.isNullOrBlank() &&
+                            result.items.any { item -> item.title.isNotBlank() && ChatSearchResults.safeUrl(item.url) }
+                    }
+                    if (valid != null) {
+                        val answer = valid.answer.orEmpty()
+                        remember(rawInput, answer)
+                        callback(HybridAssistantReply(ChatSearchResults.encode(rawInput, valid.items,
+                            answer, valid.searchSuggestions)))
+                    } else {
+                        val cloud = directOnlineClient.assistant(rawInput, getConversationSnapshot(),
+                            ContextualAction.aiContext(assistantMemory))
+                        val response = proposeCloudAction(rawInput, cloud.lessonJson) ?: cloud.reply
+                        remember(rawInput, response)
+                        callback(HybridAssistantReply(response))
+                    }
+                }.start()
+                return
+            }
             Thread {
                 val cloud = directOnlineClient.assistant(rawInput, getConversationSnapshot(), ContextualAction.aiContext(assistantMemory))
                 val response = proposeCloudAction(rawInput, cloud.lessonJson) ?: cloud.reply
