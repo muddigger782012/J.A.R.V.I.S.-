@@ -41,7 +41,7 @@ jobs:
             exit 1
           fi
           if [ "$RECOVER_PREVIOUS" = "true" ]; then
-            RECOVERY_SHA=$(gh release view developer-previous --json targetCommitish --jq .targetCommitish)
+            RECOVERY_SHA=$(gh release view developer-previous --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish)
           fi
           if [ -n "$RECOVERY_SHA" ]; then
             [[ "$RECOVERY_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'Invalid recovery SHA'; exit 1; }
