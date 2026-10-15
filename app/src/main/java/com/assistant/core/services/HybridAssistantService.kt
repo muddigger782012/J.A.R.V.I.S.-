@@ -290,9 +290,7 @@ class HybridAssistantService(
             val assessment = CapabilityRequestReview.assess(entry.text) { label ->
                 androidAssistant.resolveLearnableApp(label)?.takeIf { androidAssistant.canLaunchApp(it.first) }
             }
-            return HybridAssistantReply(CapabilityRequestReview.render(entry, assessment) + "
-
-" + trialEvidence.render(entry, assessment.definition))
+            return HybridAssistantReply(CapabilityRequestReview.render(entry, assessment) + "\n\n" + trialEvidence.render(entry, assessment.definition))
         }
         CapabilityDiscovery.trial(userInput)?.let { description ->
             val entry = capabilityRequests.findReference(description)
@@ -430,9 +428,7 @@ class HybridAssistantService(
         if (normalized == "list routines" || normalized == "show routines") {
             val routines = routineRegistry.listSummaries()
             val response = if (routines.isEmpty()) "No approved routines are stored on this device."
-                else "Approved routines (showing up to 10):
-${routines.joinToString("
-")}"
+                else "Approved routines (showing up to 10):\n${routines.joinToString("\n")}"
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -909,8 +905,7 @@ ${routines.joinToString("
             ?: WebSearchCommand.videoFollowupQuery(userInput, history.lastOrNull()?.first))?.let { query ->
             val url = android.net.Uri.parse("https://www.google.com/search").buildUpon()
                 .appendQueryParameter("tbm", "vid").appendQueryParameter("q", query).build()
-            val response = "Video search ready: $query
-$url"
+            val response = "Video search ready: $query\n$url"
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -923,10 +918,7 @@ $url"
             val url = android.net.Uri.parse("https://www.google.com/search")
                 .buildUpon().appendQueryParameter("tbm", "isch")
                 .appendQueryParameter("q", query).build()
-            val response = "Image search ready: $query\
-$url".replace("\
-", "
-")
+            val response = "Image search ready: $query\\n$url".replace("\\n", "\n")
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -935,10 +927,7 @@ $url".replace("\
             ?: WebSearchCommand.downloadFollowupQuery(userInput, history.lastOrNull()?.first))?.let { query ->
             val url = android.net.Uri.parse("https://www.google.com/search")
                 .buildUpon().appendQueryParameter("q", query).build()
-            val response = "Web search ready: $query\
-$url".replace("\
-", "
-")
+            val response = "Web search ready: $query\\n$url".replace("\\n", "\n")
             remember(userInput, response)
             return HybridAssistantReply(response)
         }
@@ -1017,8 +1006,7 @@ $url".replace("\
         routineConfirmations.consume("")
         Thread {
             val response = directOnlineClient.gemini(question, getConversationSnapshot(), attachments)
-            remember(question + "
-Attachments: " + attachments.joinToString { it.name }, response)
+            remember(question + "\nAttachments: " + attachments.joinToString { it.name }, response)
             callback(HybridAssistantReply(response))
         }.start()
     }
@@ -1071,8 +1059,8 @@ Attachments: " + attachments.joinToString { it.name }, response)
                 !RoutineProposal.isCreationRequest(rawInput)) {
                 Thread {
                     val contextualQuery = if (previousResearch != null &&
-                        researchDecision == ConversationalResearchPolicy.Decision.RESEARCH &&
-                        rawInput.length < 100 && !rawInput.contains("look up", ignoreCase = true) &&
+                        rawInput.length < 100 &&
+                        !rawInput.contains("look up", ignoreCase = true) &&
                         !rawInput.contains("search for", ignoreCase = true))
                         "$previousResearch. Follow-up question: $rawInput" else rawInput
                     val grounded = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }.getOrNull()
@@ -1083,6 +1071,7 @@ Attachments: " + attachments.joinToString { it.name }, response)
                     if (valid != null) {
                         val answer = valid.answer.orEmpty()
                         remember(rawInput, answer)
+                        synchronized(this) { lastResearchQuery = contextualQuery.take(300) }
                         callback(HybridAssistantReply(ChatSearchResults.encode(rawInput, valid.items,
                             answer, valid.searchSuggestions)))
                     } else {
@@ -1305,11 +1294,8 @@ Attachments: " + attachments.joinToString { it.name }, response)
 
     @Synchronized
     fun getConversationSnapshot(limit: Int = 8): String {
-        return history.filterNot { it.second.startsWith("I don’t understand that locally yet.") || it.second.startsWith("I don't understand that locally yet.") }.takeLast(limit).joinToString(separator = "
-
-") { (user, assistant) ->
-            "You: $user
-J.A.R.V.I.S.: $assistant"
+        return history.filterNot { it.second.startsWith("I don’t understand that locally yet.") || it.second.startsWith("I don't understand that locally yet.") }.takeLast(limit).joinToString(separator = "\n\n") { (user, assistant) ->
+            "You: $user\nJ.A.R.V.I.S.: $assistant"
         }
     }
 
