@@ -1,0 +1,13 @@
+# Jarvis Developer Phase 3: persisted task planning
+
+Status: approved
+
+The owner continued the six-phase build after Phase 2 passed source/CI acceptance. Implement Phase 3 on feature/jarvis-developer. Recovery remains deferred and unverified; this authorizes implementation and tests, not publication, installation, credential changes or main merges.
+
+Build a bounded deterministic planner from immutable read-only analysis and an explicit Developer file allowlist. Decompose tasks into analysis, dependency-ordered implementation groups, validation and evidence review; group source dependency cycles instead of creating an impossible queue. Keep source SHA, original task, analysis ID and edit scope immutable. Allow queue descriptions, dependency order and decision notes to be edited, invalidating affected progress where needed. Treat saved completion as a user report, never proof of tests, signing or remote writes.
+
+Persist versioned, checksummed metadata in Developer-private no-backup storage using synced temporary files and mandatory atomic replacement. Bound plan/text/history/file sizes, reject recognized credential literals, validate every read/write, preserve append-only decisions, and reject lost updates or corrupt state without silently replacing it. Store no API credentials, source excerpts, patch contents or write approvals. Interrupted running steps recover as blocked and paused until explicitly acknowledged.
+
+Add inline native controls for saved plans, progress, ordered steps, notes, pause/resume, edits and checkpoint recovery. Preparing an implementation step may only fill the existing Phase 2 input fields, pin its original source SHA and invalidate prior diff approval. It must not call a provider or write GitHub. A moved development branch requires a fresh plan or an explicit switch to a manual task. Queue changes must not race an active patch operation. Protect planner/checkpoint control source from Phase 2 self-modification.
+
+Validate two sessions against actual immutable checkout source and Git blob identities, separate fresh store instances, saved scope/queue/decisions and interrupted-step recovery. Confirm repository source remains unchanged and ephemeral approved proposals are not serialized. Retain all Phase 1/2 acceptance tests, theme checks, debug assembly and the unchanged signed-candidate workflow. Record test/build/commit evidence and distinguish JVM/storage integration from device, live-provider and Android transport verification. Phase 4 autonomous debugging/retries, Phase 5 promotion/self-development and Phase 6 scaffolding remain pending.

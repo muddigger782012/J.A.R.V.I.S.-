@@ -19,6 +19,16 @@ import kotlin.concurrent.thread
 
 /** Inline, explicit review/approval controls. Attaching this view performs no network operation. */
 object PatchWorkbench {
+    /** Transfers reviewed queue scope into a fresh preview; it carries no write approval. */
+    class Handle internal constructor(
+        private val prepareAction: (String, String, List<String>, String) -> Boolean,
+        private val invalidateAction: () -> Boolean
+    ) {
+        fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String): Boolean =
+            prepareAction(taskId, task, paths, baseCommitSha)
+        fun invalidate(): Boolean = invalidateAction()
+    }
+
     fun attach(
         activity: Activity,
         root: LinearLayout,
@@ -30,7 +40,7 @@ object PatchWorkbench {
         output: TextView,
         status: TextView,
         canWrite: () -> Boolean
-    ) {
+    ): Handle {
         val context = root.context
         root.addView(TextView(context).apply {
             text = "Scoped coding engine — preview, review and approve"
@@ -52,6 +62,12 @@ object PatchWorkbench {
                 InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         }
         root.addView(allowedPaths)
+        val queuedSource = TextView(context).apply {
+            text = "Manual coding task: a new preview reads the current development branch."
+        }
+        root.addView(queuedSource)
+        val manual = Button(context).apply { text = "Use manual task and clear queued source pin" }
+        root.addView(manual)
         val preview = Button(context).apply { text = "Generate scoped multi-file diff preview" }
         root.addView(preview)
         val review = TextView(context).apply {
@@ -78,6 +94,9 @@ object PatchWorkbench {
 
         var busy = false
         var revision = 0L
+        var plannedBaseCommitSha: String? = null
+        var queuedContextNeedsRefresh = false
+        var settingQueuedInputs = false
         var proposal: PatchEngine.Proposal? = null
         var proposalMetadata: Metadata? = null
         var proposalReport: String? = null
@@ -97,7 +116,8 @@ object PatchWorkbench {
             val rawPaths = allowedPaths.text.toString()
             return Metadata(rawId.trim(), rawTask.trim(), providerName, selectedModel,
                 rawPaths.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList(),
-                fingerprint(listOf(rawId, rawTask, providerName, rawModel, rawPaths)))
+                fingerprint(listOf(rawId, rawTask, providerName, rawModel, rawPaths,
+                    plannedBaseCommitSha.orEmpty())), plannedBaseCommitSha)
         }
         fun current(): Boolean {
             val candidate = proposal ?: return false
@@ -108,6 +128,7 @@ object PatchWorkbench {
         fun refresh() {
             val exact = current()
             preview.isEnabled = !busy
+            manual.isEnabled = !busy && plannedBaseCommitSha != null
             approve.isEnabled = !busy && exact
             commit.isEnabled = !busy && exact && approve.isChecked
             ci.isEnabled = !busy && lastCommit != null
@@ -125,12 +146,19 @@ object PatchWorkbench {
             }
             refresh()
         }
-        val changes = object : TextWatcher {
+        fun inputChanges(changesScope: Boolean) = object : TextWatcher {
             override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(text: Editable?) { invalidate() }
+            override fun afterTextChanged(text: Editable?) {
+                if (changesScope && plannedBaseCommitSha != null && !settingQueuedInputs) {
+                    queuedContextNeedsRefresh = true
+                    queuedSource.text = "Queued task or scope changed. Prepare the selected step again, or explicitly clear the source pin for a manual task.\nPinned source: $plannedBaseCommitSha"
+                }
+                invalidate()
+            }
         }
-        listOf(taskId, task, model, allowedPaths).forEach { it.addTextChangedListener(changes) }
+        listOf(taskId, task, allowedPaths).forEach { it.addTextChangedListener(inputChanges(true)) }
+        model.addTextChangedListener(inputChanges(false))
         var selectedProvider = provider.selectedItem?.toString().orEmpty()
         val priorSelectionListener = provider.onItemSelectedListener
         provider.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -149,6 +177,13 @@ object PatchWorkbench {
             }
         }
         approve.setOnCheckedChangeListener { _, _ -> refresh() }
+        fun clearQueuedSource() {
+            plannedBaseCommitSha = null
+            queuedContextNeedsRefresh = false
+            queuedSource.text = "Manual coding task: a new preview reads the current development branch."
+            invalidate()
+        }
+        manual.setOnClickListener { if (!busy) clearQueuedSource() }
 
         preview.setOnClickListener {
             val frozen = metadata()
@@ -156,6 +191,8 @@ object PatchWorkbench {
             val token = githubToken.text.toString().trim()
             // Reject protected paths before the first repository or provider request.
             val invalid = when {
+                queuedContextNeedsRefresh ->
+                    "The queued context changed. Prepare the selected step again, or explicitly switch to a manual task."
                 !frozen.taskId.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,47}")) ->
                     "Use a task ID of 1–48 letters, digits, hyphens or underscores."
                 frozen.task.isBlank() || frozen.task.length > 12_000 ->
@@ -185,6 +222,11 @@ object PatchWorkbench {
                 var stage = "pinned repository inventory"
                 try {
                     val inventory = RepositoryIntelligence.inventory(token)
+                    if (frozen.expectedBaseCommitSha != null &&
+                        inventory.commitSha != frozen.expectedBaseCommitSha) {
+                        stage = "queued source revision change"
+                        error("Queued source changed; create a new plan from fresh analysis")
+                    }
                     stage = "explicit source retrieval"
                     val indexed = inventory.files.associateBy { it.path }
                     val sources = frozen.allowedPaths.map { path ->
@@ -228,7 +270,9 @@ object PatchWorkbench {
                                 review.text = "The task or source scope changed while previewing. Generate a fresh preview."
                                 status.text = "Stale preview discarded"
                             } else {
-                                review.text = "Preview stopped during $failedStage. Check the explicit file scope, source access, provider key/model and source limits before trying a new preview. No repository write was requested."
+                                review.text = if (failedStage == "queued source revision change")
+                                    "The development branch moved after this plan was created. Create a new plan from fresh analysis, or explicitly switch to a manual task. The old plan's scope and decisions remain saved. No provider call or repository write was requested."
+                                else "Preview stopped during $failedStage. Check the explicit file scope, source access, provider key/model and source limits before trying a new preview. No repository write was requested."
                                 status.text = "Scoped diff preview unavailable"
                             }
                         }
@@ -357,6 +401,44 @@ object PatchWorkbench {
             }
         }
         refresh()
+        return Handle(prepareAction = { id, description, paths, base ->
+            val safe = id.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,47}")) &&
+                description.isNotBlank() && description.length <= 12_000 &&
+                paths.size in 1..PatchEngine.MAX_FILES && paths.distinct().size == paths.size &&
+                paths.all(PatchEngine::allowedPath) && base.matches(Regex("[a-f0-9]{40}")) &&
+                (listOf(id, description) + paths).all {
+                    RepositoryRedaction.line(it) == it && !it.contains("PRIVATE KEY-----") &&
+                        it.none { char -> char == '\u0000' || char == '\u007f' ||
+                            (char < ' ' && char !in "\n\r\t") }
+                }
+            if (busy || !safe) false else {
+                invalidate()
+                settingQueuedInputs = true
+                try {
+                    taskId.setText(id)
+                    task.setText(description)
+                    allowedPaths.setText(paths.joinToString("\n"))
+                } finally { settingQueuedInputs = false }
+                // Text watchers may invalidate old queue state while fields change. Pin only
+                // after every field has been filled, so those synchronous callbacks cannot unpin it.
+                plannedBaseCommitSha = base
+                queuedContextNeedsRefresh = false
+                queuedSource.text = "Queued task source: $base\nA moved development branch requires a new plan and fresh diff review. No approval was restored."
+                review.text = "Queued scope loaded. Generate a fresh diff, review every change and approve it explicitly."
+                status.text = "Queued step prepared for a new diff; no provider call or Git write requested"
+                refresh()
+                true
+            }
+        }, invalidateAction = {
+            if (busy) false else {
+                invalidate()
+                if (plannedBaseCommitSha != null) {
+                    queuedContextNeedsRefresh = true
+                    queuedSource.text = "Queued context changed. Prepare the selected step again, or explicitly clear the source pin for a manual task.\nPinned source: $plannedBaseCommitSha"
+                }
+                true
+            }
+        })
     }
 
     private data class Metadata(
@@ -365,7 +447,8 @@ object PatchWorkbench {
         val provider: String,
         val model: String,
         val allowedPaths: List<String>,
-        val fingerprint: String
+        val fingerprint: String,
+        val expectedBaseCommitSha: String?
     )
 
     private fun fingerprint(parts: List<String>): String {

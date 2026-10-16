@@ -3,6 +3,14 @@
 Status: approved product plan; **not** an assertion of implemented functionality. Owner-approved direction: an AI developer that can improve Jarvis and build other applications while protecting a known-good release.
 
 
+## Phase 3 implementation status — 2026-10-16
+
+The owner instructed continuation after Phase 2 source/CI acceptance. Phase 3 implementation is in progress on `feature/jarvis-developer`; recovery remains deferred and unverified. No publication, installation, credential changes or main merge is authorized.
+
+Source work covers deterministic decomposition from read-only analysis into dependency-ordered scoped steps, bounded editable queues and decision history, versioned checksummed atomic local checkpoints, interrupted-step recovery, and an inline progress view. Preparing a queued implementation step transfers only scope/task metadata into a fresh Phase 2 diff preview with its immutable source pin; it restores no approval or remote execution. New planning/control files are protected against Phase 2 self-modification.
+
+Executable validation is pending. Acceptance requires two sessions against actual checkout source and Git blob identities, preserving scope/decisions/edits through reopen and interruption recovery, rejecting stale/corrupt saves, and leaving repository source unchanged. Existing Phase 1/2 tests and debug/theme/signed-candidate checks must remain passing. Device, live-provider and Android HTTP verification remain separate. Phases 4–6 remain pending.
+
 ## Phase 2 implementation status — 2026-10-16
 
 The owner authorized Phase 2 after Phase 1 completed. Recovery remains unverified and its prior 403/401/backup evidence stays below; this continuation authorizes source implementation and tests, not release promotion, publication, installation, credential changes or main merges.

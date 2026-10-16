@@ -197,9 +197,10 @@ class MainActivity : Activity() {
                 snapshot to RepositoryAnalysis.render(plan)
             }
         }
-        PatchWorkbench.attach(this, root, prompt, key, provider, model, githubToken, output, status) {
+        val patchWorkbench = PatchWorkbench.attach(this, root, prompt, key, provider, model, githubToken, output, status) {
             health.getInt("confirmed_version", -1) == currentCode
         }
+        TaskPlanningWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         root.addView(iconTest)
         if (recoveryWarning) {
             iconTest.isEnabled = false

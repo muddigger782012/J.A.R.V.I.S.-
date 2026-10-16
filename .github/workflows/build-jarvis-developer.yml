@@ -40,6 +40,13 @@ jobs:
           name: Jarvis-Developer-phase2-reviewed-proposal
           path: developer/build/reports/phase2-acceptance/
           if-no-files-found: warn
+      - name: Upload Phase 3 checkpoint acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-phase3-checkpoint-evidence
+          path: developer/build/reports/phase3-acceptance/
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: Jarvis-Developer-debug-APK
