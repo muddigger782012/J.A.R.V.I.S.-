@@ -2,7 +2,7 @@ name: Build Jarvis Developer (isolated)
 on:
   workflow_dispatch:
   push:
-    branches: [feature/jarvis-developer]
+    branches: [feature/jarvis-developer, 'feature/jarvis-developer-task/**']
     paths:
       - 'developer/**'
       - 'settings.gradle'
@@ -32,6 +32,13 @@ jobs:
         with:
           name: Jarvis-Developer-unit-test-results
           path: developer/build/test-results/testDebugUnitTest/
+          if-no-files-found: warn
+      - name: Upload reviewed Phase 2 acceptance proposal
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-phase2-reviewed-proposal
+          path: developer/build/reports/phase2-acceptance/
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:

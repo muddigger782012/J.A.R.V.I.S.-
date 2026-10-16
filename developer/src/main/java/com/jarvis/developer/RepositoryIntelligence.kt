@@ -256,8 +256,8 @@ object RepositoryIntelligence {
                 "gradle/libs.versions.toml", "gradle/wrapper/gradle-wrapper.properties")) return true
         if (path.startsWith("docs/") && path.endsWith(".md")) return true
         if (path in setOf("app/src/main/AndroidManifest.xml", "developer/src/main/AndroidManifest.xml")) return true
-        if (Regex("(?:developer|app)/src/(?:main|test|androidTest)/java/(?:[A-Za-z0-9_/-]+)\\.(?:kt|java)").matches(path)) {
-            return path.startsWith("developer/src/") || Regex("app/src/(?:main|test|androidTest)/java/com/assistant/core/.*").matches(path)
+        if (Regex("(?:developer|app)/src/(?:main|test|androidTest)/(?:java|kotlin)/(?:[A-Za-z0-9_/-]+)\\.(?:kt|java)").matches(path)) {
+            return path.startsWith("developer/src/") || Regex("app/src/(?:main|test|androidTest)/(?:java|kotlin)/com/assistant/core/.*").matches(path)
         }
         return Regex("(?:developer|app)/src/main/res/(?:layout|menu|drawable|values|xml)(?:-[A-Za-z0-9_-]+)?/[A-Za-z0-9_-]+\\.xml").matches(path)
     }

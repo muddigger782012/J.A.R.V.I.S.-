@@ -3,6 +3,21 @@
 Status: approved product plan; **not** an assertion of implemented functionality. Owner-approved direction: an AI developer that can improve Jarvis and build other applications while protecting a known-good release.
 
 
+## Phase 2 implementation status — 2026-10-16
+
+The owner authorized Phase 2 after Phase 1 completed. Recovery remains unverified and its prior 403/401/backup evidence stays below; this continuation authorizes source implementation and tests, not release promotion, publication, installation, credential changes or main merges.
+
+Phase 2 is implemented in source and **pending executable validation**:
+
+- Scoped multi-file Gemini/OpenAI proposal adapters receive only explicit edit-scope source at one immutable base SHA. Keys stay in memory/headers; generation cannot write GitHub. Provider calls, response grammar, time and byte budgets are bounded.
+- The pure patch engine validates Kotlin/Java, XML and constrained static Gradle dependency edits; denies protected safety/update/signing/credential paths, secrets, execution hooks, deletions, renames and unsupported scope. It verifies original Git blob identities and renders a complete bounded diff without hidden clipping.
+- Proposal IDs bind task/provider/model, exact scope, baseline contents, summary and replacement bytes. The UI requires review of that exact diff and explicit approval; edited inputs invalidate previews and approvals. Writes retain the existing local health-confirmation gate.
+- The publisher revalidates approval and fresh base head/full tree/preimages, creates one complete Git tree/commit, and creates only a new sibling `feature/jarvis-developer-task/<task-id>-<proposal-id>` ref. It cannot overwrite a branch, merge, publish, install or dispatch signing. Failures stop without automatic write retries.
+- Task branches run only the isolated read-only-permission debug test/build workflow. CI reporting filters exact workflow, branch and commit SHA and does not infer signing or publication from debug success. The existing signed-candidate/release workflow is unchanged.
+- A two-file review-summary feature is prepared for acceptance using actual checkout bytes and Git blob hashes, first with a modeled GitHub protocol and explicit approval, then through a separately reviewed live connected-GitHub task branch and CI. Test evidence must distinguish those paths from live model/device operation.
+
+Validation is pending the first source checkpoint. Existing Phase 1 tests are retained. Limits include conservative protected-path/execution rules, no deletion/rename, static Gradle dependency edits only, no persisted task/approval state, no automatic retries or release promotion, and no device/live model claim. Existing explicitly invoked icon proof-of-concept remains separate from this new reviewed multi-file flow. Later phases remain pending.
+
 ## Phase 1 delivery status — recovery deferred by owner
 
 On 2026-10-15 the owner explicitly instructed: "Skip the recovery and start phase one." Recovery remains **unverified**; the historical evidence below is retained. This authorization permits Phase 1 implementation and tests on `feature/jarvis-developer`. It does not authorize publishing, installation, credential changes, release promotion, or marking recovery complete.

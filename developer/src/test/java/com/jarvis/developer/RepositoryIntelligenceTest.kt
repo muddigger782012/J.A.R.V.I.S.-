@@ -83,6 +83,8 @@ class RepositoryIntelligenceTest {
 
     @Test fun inventoryOnlyOffersApprovedSmallRegularSourceFiles() {
         val safePaths = listOf(path, "app/src/main/java/com/assistant/core/MainActivity.kt",
+            "developer/src/main/kotlin/com/jarvis/developer/Feature.kt",
+            "app/src/main/kotlin/com/assistant/core/Feature.kt",
             "app/src/main/res/layout/activity_appearances.xml", "app/src/main/AndroidManifest.xml",
             "developer/DEVELOPMENT_ROADMAP.md", "docs/UI_THEMING.md", "developer/build.gradle")
         val denied = listOf("developer/local.properties", "developer/src/main/res/values/secrets.xml",
