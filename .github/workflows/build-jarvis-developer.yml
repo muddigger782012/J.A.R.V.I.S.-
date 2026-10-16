@@ -26,6 +26,42 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon :developer:testDebugUnitTest :developer:assembleDebug
+      - name: Record bounded acceptance evidence in CI logs
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, xml.etree.ElementTree as ET
+          results = pathlib.Path('developer/build/test-results/testDebugUnitTest')
+          files = sorted(results.glob('TEST-*.xml'))
+          assert 0 < len(files) <= 50, 'Expected bounded JUnit XML evidence'
+          assert sum(p.stat().st_size for p in files) <= 2_000_000, 'JUnit evidence exceeds budget'
+          totals = dict.fromkeys(('tests', 'failures', 'errors', 'skipped'), 0)
+          suites, cases = [], []
+          for path in files:
+              data = path.read_bytes()
+              suite = ET.fromstring(data)
+              counts = {key: int(suite.attrib[key]) for key in totals}
+              assert all(value >= 0 for value in counts.values())
+              children = suite.findall('testcase')
+              assert counts['tests'] == len(children), 'JUnit count mismatch'
+              for key in totals:
+                  totals[key] += counts[key]
+              suites.append(dict(name=suite.attrib['name'], sha256=hashlib.sha256(data).hexdigest(), **counts))
+              for case in children:
+                  state = next((name for name in ('failure', 'error', 'skipped') if case.find(name) is not None), 'passed')
+                  cases.append(dict(suite=suite.attrib['name'], name=case.attrib['name'], result=state))
+          summary = dict(sourceCommit=os.environ['GITHUB_SHA'], totals=totals, suites=suites, cases=cases)
+          encoded = json.dumps(summary, separators=(',', ':'))
+          assert len(encoded.encode()) <= 100_000, 'JUnit summary exceeds log budget'
+          print('JARVIS_JUNIT_SUMMARY=' + encoded)
+          evidence = pathlib.Path('developer/build/reports/phase3-acceptance/two-session-evidence.json')
+          assert evidence.is_file() and evidence.stat().st_size <= 64_000, 'Expected bounded Phase 3 evidence'
+          data = evidence.read_bytes()
+          decoded = json.loads(data)
+          assert decoded['baseCommitSha'] == os.environ['GITHUB_SHA'], 'Phase 3 source revision mismatch'
+          print('JARVIS_PHASE3_EVIDENCE_SHA256=' + hashlib.sha256(data).hexdigest())
+          print('JARVIS_PHASE3_EVIDENCE=' + json.dumps(decoded, separators=(',', ':')))
+          PY
       - name: Upload Developer unit-test evidence
         if: always()
         uses: actions/upload-artifact@v4
