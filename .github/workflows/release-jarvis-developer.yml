@@ -10,6 +10,11 @@ on:
       - '.github/workflows/release-jarvis-developer.yml'
   workflow_dispatch:
     inputs:
+      defer_recovery:
+        description: 'Owner-approved publication with recovery verification deferred'
+        required: false
+        type: boolean
+        default: false
       recovery_sha:
         description: 'Optional previously verified Developer commit SHA to rebuild as a newer APK'
         required: false
@@ -142,7 +147,7 @@ jobs:
             echo "- Artifact: \`Jarvis-Developer-signed-release-candidate\`"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Validate previous release recovery metadata
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && !inputs.defer_recovery
         env:
           GH_TOKEN: ${{ secrets.JARVIS_DEVELOPER_RELEASE_TOKEN || github.token }}
         run: |
@@ -158,7 +163,7 @@ jobs:
             }
           fi
       - name: Preserve previous signed Developer release
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && !inputs.defer_recovery
         env:
           GH_TOKEN: ${{ secrets.JARVIS_DEVELOPER_RELEASE_TOKEN || github.token }}
         run: |
@@ -178,7 +183,7 @@ jobs:
             fi
           fi
       - name: Verify previous backup matches prior release
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && !inputs.defer_recovery
         env:
           GH_TOKEN: ${{ secrets.JARVIS_DEVELOPER_RELEASE_TOKEN || github.token }}
         run: |
@@ -200,4 +205,4 @@ jobs:
             gh release create developer-latest --target "${{ steps.recovery.outputs.sha || github.sha }}" --prerelease --title "Jarvis Developer 0.1.${{ github.run_number }}" --notes "Independent Developer signed APK"
           fi
           gh release upload developer-latest "$RUNNER_TEMP/Jarvis-Developer.apk" --clobber
-          gh release edit developer-latest --target "${{ steps.recovery.outputs.sha || github.sha }}" --title "Jarvis Developer 0.1.${{ github.run_number }}" --notes "Developer source ${{ steps.recovery.outputs.sha || github.sha }}. Version 0.1.${{ github.run_number }}. Recovery build: ${{ steps.recovery.outputs.sha != '' }}."
+          gh release edit developer-latest --target "${{ steps.recovery.outputs.sha || github.sha }}" --title "Jarvis Developer 0.1.${{ github.run_number }}" --notes "Developer source ${{ steps.recovery.outputs.sha || github.sha }}. Version 0.1.${{ github.run_number }}. Recovery build: ${{ steps.recovery.outputs.sha != '' }}. Recovery verification deferred by owner: ${{ inputs.defer_recovery }}."
