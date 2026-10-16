@@ -157,7 +157,10 @@ class PatchEngineTest {
 
     @Test fun rejectsRecognizedSecretsBeforePromptAndBeforeDiff() {
         val secret = "ghp_" + "x".repeat(30)
+        rejects("credential") { PatchEngine.validateRequest(request().copy(taskId = secret)) }
         rejects("credential") { PatchEngine.validateRequest(request().copy(task = "Use $secret")) }
+        val secretPath = "developer/src/main/java/com/jarvis/developer/$secret.kt"
+        rejects("credential") { PatchEngine.validateRequest(request(listOf(secretPath), listOf(null))) }
         rejects("credential") { PatchEngine.validateRequest(request(listOf(sourcePath), listOf(original + "// $secret\n"))) }
         rejects("credential") { PatchEngine.parse(request(), json(sourcePath to changed + "val apiKey = \"not-a-real-key\"\n")) }
         rejects("credential") { PatchEngine.parse(request(), json(sourcePath to changed, summary = secret)) }
@@ -250,6 +253,8 @@ class PatchEngineTest {
     @Test(timeout = 10_000) fun largeBlankRunsHaveBoundedPackageValidationAndDiffCost() {
         val before = original + "\n".repeat(190_000)
         rejects("comparison budget") { PatchEngine.parse(request(originals = listOf(before)), json(sourcePath to before.replace("= 1", "= 2"))) }
+        val nearMiss = "package com.jarvis.developer" + " ".repeat(190_000) + "!\nclass TaskFileSummary\n"
+        rejects("package") { PatchEngine.parse(request(), json(sourcePath to nearMiss)) }
     }
 
     @Test(timeout = 10_000) fun largeCredentialKeywordWhitespaceNearMissHasBoundedCost() {

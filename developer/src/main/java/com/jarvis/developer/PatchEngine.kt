@@ -65,7 +65,7 @@ object PatchEngine {
     private val execution = Regex(
         "(?i)\\b(?:Runtime|ProcessBuilder|DexClassLoader|URLClassLoader|ScriptEngineManager|MethodHandles|ClassLoader|javaClass|getClass|exec|execve|spawn|load|loadLibrary|getDeclaredMethod|getDeclaredField|getDeclaredConstructor|getMethod|getField|getConstructor|forName|invoke|newInstance)\\b|\\b(?-i:Class)\\b|\\b(?:java\\s*\\.\\s*lang\\s*\\.\\s*reflect|kotlin\\s*\\.\\s*reflect|javax\\s*\\.\\s*script)\\b|::[ \\t]*class\\b|\\\\u[0-9a-f]{4}"
     )
-    private val packageLine = Regex("(?m)^[ \\t]*package[ \\t]+([A-Za-z_][A-Za-z0-9_.]*)[ \\t]*;?[ \\t]*\\r?$")
+    private val packageLine = Regex("(?m)^[ \\t]*+package[ \\t]++([A-Za-z_][A-Za-z0-9_.]*+)[ \\t]*+;?[ \\t]*+\\r?$")
     private val dependencyLine = Regex("[ \\t]*(?:implementation|api|compileOnly|runtimeOnly|testImplementation|androidTestImplementation|debugImplementation|releaseImplementation)(?:[ \\t]+([\"'])[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.+,-]+\\1|[ \\t]*\\([ \\t]*([\"'])[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.+,-]+\\2[ \\t]*\\))[ \\t]*\\r?")
 
     fun allowedPath(path: String): Boolean {
@@ -85,12 +85,14 @@ object PatchEngine {
         require(request.task.isNotBlank() && request.task.length <= 12_000) { "Task is empty or too large" }
         require(request.provider.matches(Regex("[A-Za-z][A-Za-z0-9 ._-]{0,63}"))) { "Invalid provider" }
         require(request.model.matches(Regex("[A-Za-z0-9][A-Za-z0-9._/-]{0,119}"))) { "Invalid model" }
+        safeText(request.taskId)
         safeText(request.task)
         safeText(request.provider)
         safeText(request.model)
         require(request.allowedPaths.size in 1..MAX_FILES) { "Scope must contain 1..$MAX_FILES files" }
         require(request.allowedPaths.distinct().size == request.allowedPaths.size) { "Duplicate allowed path" }
         require(request.allowedPaths.all(::allowedPath)) { "Path is outside Developer patch allowlist" }
+        request.allowedPaths.forEach(::safeText)
         require(request.sources.size == request.allowedPaths.size && request.sources.map { it.path }.toSet() == request.allowedPaths.toSet()) { "Complete exact source scope is required" }
         require(request.sources.map { it.path }.distinct().size == request.sources.size) { "Duplicate source path" }
         var total = 0

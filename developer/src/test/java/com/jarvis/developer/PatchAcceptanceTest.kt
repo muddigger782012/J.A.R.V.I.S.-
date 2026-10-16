@@ -47,7 +47,7 @@ class PatchAcceptanceTest {
             assertTrue(proposal.edits.single { it.path == TEST }.content.contains("countsGradleScriptsBeforeKotlinAndHandlesMixedCase"))
             assertTrue(request.sources.all { source ->
                 source.sha == gitBlob(Files.readAllBytes(fixture.root.resolve(source.path))) &&
-                    source.content == Files.readString(fixture.root.resolve(source.path))
+                    source.content == Files.readAllBytes(fixture.root.resolve(source.path)).toString(Charsets.UTF_8)
             })
 
             val api = ModeledGitApi(request, before)
@@ -187,13 +187,14 @@ class PatchAcceptanceTest {
                 .put("ci", "Modeled SHA-bound CI protocol response; not a passing real build")
                 .put("liveWriteStatus", "Requires separate complete diff review before any live task-branch commit")
                 .put("reruns", "After feature integration, only reviewed-source comments refresh; protocol coverage is not another feature delivery"))
-        Files.writeString(reports.resolve("ready-proposal.json"), json.toString(2) + "\n")
-        Files.writeString(reports.resolve("review.diff"), proposal.diff)
-        Files.writeString(reports.resolve("modeled-protocol.json"), JSONObject()
+        Files.write(reports.resolve("ready-proposal.json"), (json.toString(2) + "\n").toByteArray(Charsets.UTF_8))
+        Files.write(reports.resolve("review.diff"), proposal.diff.toByteArray(Charsets.UTF_8))
+        val protocol = JSONObject()
             .put("evidenceType", "modeled protocol only; no live GitHub writes or CI result")
             .put("calls", JSONArray(api.calls.map { JSONObject().put("method", it.method).put("path", it.path) }))
             .put("proposalId", proposal.id).put("baseCommitSha", request.baseCommitSha)
-            .put("modeledCommitSha", api.createdCommitSha).put("modeledTreeSha", api.createdTreeSha).toString(2) + "\n")
+            .put("modeledCommitSha", api.createdCommitSha).put("modeledTreeSha", api.createdTreeSha).toString(2) + "\n"
+        Files.write(reports.resolve("modeled-protocol.json"), protocol.toByteArray(Charsets.UTF_8))
     }
 
     private data class Call(val method: String, val path: String)
