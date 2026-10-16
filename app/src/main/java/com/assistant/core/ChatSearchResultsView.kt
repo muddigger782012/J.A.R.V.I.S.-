@@ -73,7 +73,22 @@ object ChatSearchResultsView {
                 .putExtra(SearchBrowserActivity.EXTRA_URL, item.url))
         }
         val sources = message.items.filter { it.kind != "image" }
-        root.addView(label(message.query, 12f, true).apply { setPadding(0, 0, 0, dp(10)) })
+        root.addView(label(
+            when (message.kind) {
+                "image" -> "IMAGE RESULTS"
+                "video" -> "VIDEO RESULTS"
+                else -> "WEB RESEARCH"
+            }, 11f, true
+        ).apply {
+            setTypeface(typeface, Typeface.BOLD)
+            letterSpacing = 0.08f
+            setPadding(0, 0, 0, dp(4))
+        })
+        root.addView(label(message.query, 12f, true).apply {
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, 0, 0, dp(10))
+        })
         val formatted = message.answer?.let(SearchReadableText::format)
         if (formatted != null) {
             val text = SpannableString(formatted.text)
