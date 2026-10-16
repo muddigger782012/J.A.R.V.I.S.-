@@ -821,7 +821,8 @@ class HybridAssistantService(
                 val response = "I need Contacts permission before I can look up $target. Please allow Contacts access for J.A.R.V.I.S., then try again."
                 remember(userInput, response); return HybridAssistantReply(response)
             }
-            val number = directNumber ?: androidAssistant.resolveContactPhone(target)
+            val contactMatch = if (directNumber == null) androidAssistant.resolveContactPhoneMatch(target) else null
+            val number = directNumber ?: contactMatch?.number
             val dialOnly = normalized.startsWith("dial ")
             if (!dialOnly && number != null && !androidAssistant.hasCallPermission()) {
                 val response = "Phone permission is required to place calls. Open J.A.R.V.I.S. Permissions, grant Phone access, then say call $target again."
@@ -832,6 +833,7 @@ class HybridAssistantService(
             val response = when {
                 ok && dialOnly -> "Opening the dialer for $target."
                 ok -> "Starting the call to $target."
+                number == null && contactMatch?.status == ContactNameMatcher.MatchStatus.AMBIGUOUS -> "I found multiple possible numbers for $target. Please specify the exact contact and number; I won't guess who to call."
                 number == null -> "I couldn't find $target in your contacts with a phone number."
                 else -> "Android couldn't start the call. Check Phone permission and your phone app."
             }
