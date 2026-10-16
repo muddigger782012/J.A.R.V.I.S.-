@@ -1083,17 +1083,17 @@ class HybridAssistantService(
                 Thread {
                     val isManualRequest = Regex(
                         "(?i)\\b(?:technical|service|repair|shop|workshop|operator|operators|operator[’']s)\\s+manual\\b|technical documentation|service documentation"
-                    ).containsMatchIn(rawInput)
-                    val recentContext = if (isManualRequest && previousResearch == null)
-                        getConversationSnapshot(limit = 3).take(1200) else ""
+                    ).containsMatchIn(resolvedInput)
+                    val recentContext = if (isManualRequest && (previousResearch == null || manualConfirmation))
+                        getConversationSnapshot(limit = 5).take(1200) else ""
                     val contextualQuery = when {
                         isManualRequest && recentContext.isNotBlank() ->
-                            "Using the conversation context below, identify the equipment and find its official technical manual or authorized documentation. Provide verifiable links; do not invent procedures or claim access to restricted manuals.\n$recentContext\nRequest: $rawInput"
-                        previousResearch != null && rawInput.length < 100 &&
-                            !rawInput.contains("look up", ignoreCase = true) &&
-                            !rawInput.contains("search for", ignoreCase = true) ->
-                            "$previousResearch. Follow-up question: $rawInput"
-                        else -> rawInput
+                            "Using the conversation context below, identify the equipment and find its official technical manual or authorized documentation. Provide verifiable links; do not invent procedures or claim access to restricted manuals.\n$recentContext\nRequest: $resolvedInput"
+                        previousResearch != null && resolvedInput.length < 100 &&
+                            !resolvedInput.contains("look up", ignoreCase = true) &&
+                            !resolvedInput.contains("search for", ignoreCase = true) ->
+                            "$previousResearch. Follow-up question: $resolvedInput"
+                        else -> resolvedInput
                     }
                     val searchAttempt = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }
                     val grounded = searchAttempt.getOrNull()
