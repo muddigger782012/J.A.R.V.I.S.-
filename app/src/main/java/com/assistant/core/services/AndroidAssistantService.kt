@@ -59,17 +59,7 @@ class AndroidAssistantService(private val context: Context) {
                 }
             }
         }.orEmpty()
-        val normalized = ContactNameMatcher.normalize(name)
-        if (normalized.isBlank()) return null
-        // Only unambiguous normalized names are dialed. Never guess among
-        // multiple distinct contacts or use fuzzy phonetic matches for calls.
-        val exactMatches = candidates.filter { ContactNameMatcher.normalize(it.first) == normalized }
-        val matches = if (exactMatches.isNotEmpty()) exactMatches else candidates.filter {
-            ContactNameMatcher.normalize(it.first).split(' ').contains(normalized)
-        }
-        return matches.map { it.first }.distinct().singleOrNull()?.let { selectedName ->
-            matches.firstOrNull { it.first == selectedName }?.second
-        }
+        return ContactNameMatcher.uniquePhoneFor(name, candidates)
     }
 
     fun lastMissedCall(): String {
