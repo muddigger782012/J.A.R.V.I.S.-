@@ -1025,7 +1025,21 @@ class HybridAssistantService(
             }.start()
             return
         }
-        val local = handleUserInput(rawInput)
+        // Resolve a short affirmative reply against an immediately preceding manual-verification offer.
+        // Never infer a serial number or an equipment-specific procedure from the offer.
+        val priorTurn = synchronized(this) { history.lastOrNull() }
+        val manualConfirmation = rawInput.trim().lowercase() in setOf(
+            "yes", "yes please", "please", "sure", "go ahead", "please do", "do it"
+        ) && priorTurn?.second?.let { reply ->
+            reply.contains("shall i verify", ignoreCase = true) &&
+                reply.contains("manual", ignoreCase = true)
+        } == true
+        val resolvedInput = if (manualConfirmation) {
+            "Find and verify the official service manual for the equipment in the preceding conversation. " +
+                "Check any serial-number applicability against official documentation; if no serial number was provided, ask for it. " +
+                "Do not invent manual links or equipment-specific service procedures."
+        } else rawInput
+        val local = handleUserInput(resolvedInput)
         val manualRetrieval = Regex(
             "(?i)\\b(?:technical|service|repair|shop|workshop|operator|operators|operator[’']s)\\s+manual\\b|technical documentation|service documentation"
         ).containsMatchIn(rawInput) && listOf("pull up", "find", "locate", "get me", "show me", "look up", "search", "retrieve").any {
@@ -1035,7 +1049,7 @@ class HybridAssistantService(
             local.actionResult == null &&
             (local.text.contains("cannot access", ignoreCase = true) ||
                 local.text.contains("cannot retrieve", ignoreCase = true))
-        val unresolved = local.text.startsWith("I don't understand that locally yet.") || unsupportedManualReply || (manualRetrieval && local.actionResult == null)
+        val unresolved = local.text.startsWith("I don't understand that locally yet.") || unsupportedManualReply || manualConfirmation || (manualRetrieval && local.actionResult == null)
         if (unresolved && !RoutineProposal.isCreationRequest(rawInput) && OnlineAnswers.isWeather(rawInput)) {
             Thread {
                 val response = directOnlineClient.weather(rawInput)
@@ -1062,24 +1076,24 @@ class HybridAssistantService(
         }
         if (directOnlineClient.hasGeminiKey()) {
             val previousResearch = synchronized(this) { lastResearchQuery }
-            val researchDecision = ConversationalResearchPolicy.decide(rawInput, online = true,
+            val researchDecision = ConversationalResearchPolicy.decide(resolvedInput, online = true,
                 previousResearchQuery = previousResearch)
             if (researchDecision == ConversationalResearchPolicy.Decision.RESEARCH &&
                 !RoutineProposal.isCreationRequest(rawInput)) {
                 Thread {
                     val isManualRequest = Regex(
                         "(?i)\\b(?:technical|service|repair|shop|workshop|operator|operators|operator[’']s)\\s+manual\\b|technical documentation|service documentation"
-                    ).containsMatchIn(rawInput)
-                    val recentContext = if (isManualRequest && previousResearch == null)
-                        getConversationSnapshot(limit = 3).take(1200) else ""
+                    ).containsMatchIn(resolvedInput)
+                    val recentContext = if (isManualRequest && (previousResearch == null || manualConfirmation))
+                        getConversationSnapshot(limit = 5).take(1200) else ""
                     val contextualQuery = when {
                         isManualRequest && recentContext.isNotBlank() ->
-                            "Using the conversation context below, identify the equipment and find its official technical manual or authorized documentation. Provide verifiable links; do not invent procedures or claim access to restricted manuals.\n$recentContext\nRequest: $rawInput"
-                        previousResearch != null && rawInput.length < 100 &&
-                            !rawInput.contains("look up", ignoreCase = true) &&
-                            !rawInput.contains("search for", ignoreCase = true) ->
-                            "$previousResearch. Follow-up question: $rawInput"
-                        else -> rawInput
+                            "Using the conversation context below, identify the equipment and find its official technical manual or authorized documentation. Provide verifiable links; do not invent procedures or claim access to restricted manuals.\n$recentContext\nRequest: $resolvedInput"
+                        previousResearch != null && resolvedInput.length < 100 &&
+                            !resolvedInput.contains("look up", ignoreCase = true) &&
+                            !resolvedInput.contains("search for", ignoreCase = true) ->
+                            "$previousResearch. Follow-up question: $resolvedInput"
+                        else -> resolvedInput
                     }
                     val searchAttempt = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }
                     val grounded = searchAttempt.getOrNull()
