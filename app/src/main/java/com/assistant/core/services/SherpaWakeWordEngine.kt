@@ -34,6 +34,7 @@ class SherpaWakeWordEngine(
 
     @Volatile private var running = false
     @Volatile private var stalled = false
+    private var lastDecodeDurationMs = 0L
     private val watchdog = Handler(Looper.getMainLooper())
 
     fun hasLiveWorker(): Boolean = worker?.isAlive == true
@@ -178,6 +179,7 @@ class SherpaWakeWordEngine(
         } finally {
             watchdog.removeCallbacks(timeout)
         }
+        lastDecodeDurationMs = SystemClock.elapsedRealtime() - started
         if (stalled) error("Native decode returned after timeout")
         if (label == "self-test") {
             onStatus("Sherpa native decode self-test passed in ${SystemClock.elapsedRealtime() - started} ms.")
@@ -228,7 +230,7 @@ class SherpaWakeWordEngine(
                 if (now - lastReportAt >= 3000L) {
                     val pct = (peakSinceReport * 100 / 32767).coerceIn(0, 100)
                     stage("sherpa-audio-running-peak-$pct")
-                    onStatus("Sherpa audio active: peak $pct%, chunks $chunks; waiting for '$wakePhrase'.")
+                    onStatus("Sherpa audio active: peak $pct%, chunks $chunks, last decode ${lastDecodeDurationMs}ms; waiting for '$wakePhrase'.")
                     peakSinceReport = 0
                     chunks = 0
                     lastReportAt = now
@@ -256,7 +258,7 @@ class SherpaWakeWordEngine(
                     if (totalChunks <= 20) onStatus("Sherpa native decode completed at chunk $totalChunks.")
                     val keyword = kws.getResult(onlineStream).keyword
                     if (keyword.isNotBlank()) {
-                        onStatus("Sherpa detected keyword '$keyword'.")
+                        onStatus("Sherpa detected keyword '$keyword' after $totalChunks audio buffers (last decode ${lastDecodeDurationMs}ms).")
                         running = false
                         detected = true
                         return
