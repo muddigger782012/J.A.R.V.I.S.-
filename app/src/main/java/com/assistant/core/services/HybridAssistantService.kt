@@ -1081,7 +1081,8 @@ class HybridAssistantService(
                             "$previousResearch. Follow-up question: $rawInput"
                         else -> rawInput
                     }
-                    val grounded = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }.getOrNull()
+                    val searchAttempt = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }
+                    val grounded = searchAttempt.getOrNull()
                     val valid = grounded?.takeIf { result ->
                         result.query == contextualQuery && !result.answer.isNullOrBlank() &&
                             result.items.any { item -> item.title.isNotBlank() && ChatSearchResults.safeUrl(item.url) }
@@ -1094,7 +1095,14 @@ class HybridAssistantService(
                             answer, valid.searchSuggestions)))
                     } else {
                         if (isManualRequest) {
-                            val response = "I couldn't retrieve a verified manual link from the online search. I won't invent a document or service procedure. Try again when research connectivity is available."
+                            val diagnostic = when ((searchAttempt.exceptionOrNull() as? SearchProviderFailure)?.kind) {
+                                SearchProviderFailure.Kind.RATE_LIMIT -> "The search provider reported a rate or quota limit."
+                                SearchProviderFailure.Kind.AUTHENTICATION -> "The search provider rejected authentication. Check the Gemini API key."
+                                SearchProviderFailure.Kind.UNAVAILABLE -> "The search provider is unavailable or rejected the configured model. Check the selected Gemini model."
+                                null -> if (searchAttempt.isFailure) "The online search request failed. Check network access and Gemini settings."
+                                    else "The search returned no verifiable source citations. Try a different Gemini model or a more specific manual search."
+                            }
+                            val response = "$diagnostic I won't invent a manual link or equipment-specific procedure."
                             remember(rawInput, response)
                             callback(HybridAssistantReply(response))
                             return@Thread
