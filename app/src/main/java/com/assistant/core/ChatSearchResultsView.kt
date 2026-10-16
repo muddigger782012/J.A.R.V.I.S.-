@@ -73,7 +73,22 @@ object ChatSearchResultsView {
                 .putExtra(SearchBrowserActivity.EXTRA_URL, item.url))
         }
         val sources = message.items.filter { it.kind != "image" }
-        root.addView(label(message.query, 12f, true).apply { setPadding(0, 0, 0, dp(10)) })
+        root.addView(label(
+            when (message.kind) {
+                "image" -> "IMAGE RESULTS"
+                "video" -> "VIDEO RESULTS"
+                else -> "WEB RESEARCH"
+            }, 11f, true
+        ).apply {
+            setTypeface(typeface, Typeface.BOLD)
+            letterSpacing = 0.08f
+            setPadding(0, 0, 0, dp(4))
+        })
+        root.addView(label(message.query, 12f, true).apply {
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, 0, 0, dp(10))
+        })
         val formatted = message.answer?.let(SearchReadableText::format)
         if (formatted != null) {
             val text = SpannableString(formatted.text)
@@ -137,6 +152,23 @@ object ChatSearchResultsView {
                 rows.visibility = if (expanded) View.VISIBLE else View.GONE
                 toggle.text = "Sources · ${sources.size} ${if (expanded) "▴" else "▾"}"
                 toggle.contentDescription = (if (expanded) "Hide" else "Show") + " ${sources.size} search sources"
+            }
+            if (!expanded) {
+                val preview = sources.take(2).joinToString("  •  ") {
+                    Uri.parse(it.url).host?.removePrefix("www.").orEmpty()
+                }
+                root.addView(label(preview, 12f, true).apply {
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
+                    setPadding(0, dp(2), 0, dp(4))
+                    setOnClickListener {
+                        expanded = true
+                        rows.visibility = View.VISIBLE
+                        toggle.text = "Sources · ${sources.size} ▴"
+                    }
+                    isClickable = true
+                    contentDescription = "Show sources from $preview"
+                })
             }
             root.addView(toggle)
             root.addView(rows)
