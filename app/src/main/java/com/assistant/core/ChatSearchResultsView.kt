@@ -138,6 +138,23 @@ object ChatSearchResultsView {
                 toggle.text = "Sources · ${sources.size} ${if (expanded) "▴" else "▾"}"
                 toggle.contentDescription = (if (expanded) "Hide" else "Show") + " ${sources.size} search sources"
             }
+            if (!expanded) {
+                val preview = sources.take(2).joinToString("  •  ") {
+                    Uri.parse(it.url).host?.removePrefix("www.").orEmpty()
+                }
+                root.addView(label(preview, 12f, true).apply {
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
+                    setPadding(0, dp(2), 0, dp(4))
+                    setOnClickListener {
+                        expanded = true
+                        rows.visibility = View.VISIBLE
+                        toggle.text = "Sources · ${sources.size} ▴"
+                    }
+                    isClickable = true
+                    contentDescription = "Show sources from $preview"
+                })
+            }
             root.addView(toggle)
             root.addView(rows)
         }
