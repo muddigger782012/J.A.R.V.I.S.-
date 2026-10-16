@@ -46,13 +46,29 @@ class AndroidAssistantService(private val context: Context) {
     fun resolveContactPhone(name: String): String? {
         if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
         val projection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-        val selection = ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " LIKE ?"
-        val args = arrayOf("%${name.trim()}%")
-        return context.contentResolver.query(
-            ContactsContract.CommonDataKinds.Phone.CONTENT_URI, projection, selection, args, null
+        val candidates = context.contentResolver.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI, projection, null, null, null
         )?.use { cursor ->
-            if (!cursor.moveToFirst()) null
-            else cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER))
+            val numberIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            val nameIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+            buildList {
+                while (cursor.moveToNext()) {
+                    val displayName = cursor.getString(nameIndex) ?: continue
+                    val number = cursor.getString(numberIndex) ?: continue
+                    if (number.isNotBlank()) add(displayName to number)
+                }
+            }
+        }.orEmpty()
+        val normalized = ContactNameMatcher.normalize(name)
+        if (normalized.isBlank()) return null
+        // Only unambiguous normalized names are dialed. Never guess among
+        // multiple distinct contacts or use fuzzy phonetic matches for calls.
+        val exactMatches = candidates.filter { ContactNameMatcher.normalize(it.first) == normalized }
+        val matches = if (exactMatches.isNotEmpty()) exactMatches else candidates.filter {
+            ContactNameMatcher.normalize(it.first).split(' ').contains(normalized)
+        }
+        return matches.map { it.first }.distinct().singleOrNull()?.let { selectedName ->
+            matches.firstOrNull { it.first == selectedName }?.second
         }
     }
 
