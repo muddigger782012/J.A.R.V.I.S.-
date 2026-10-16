@@ -34,4 +34,18 @@ class ContactNameMatcherTest {
             "Alex Jones" to "555-0102"
         )))
     }
+
+    @Test fun ambiguousPhoneMatchReportsReason() {
+        val result = ContactNameMatcher.matchPhone("Key Dog", listOf(
+            "Keydawg" to "555-0101",
+            "Keydawg" to "555-0102"
+        ))
+        assertEquals(ContactNameMatcher.MatchStatus.AMBIGUOUS, result.status)
+        assertNull(result.number)
+    }
+
+    @Test fun missingContactIsNotAmbiguous() {
+        val result = ContactNameMatcher.matchPhone("Key Dog", listOf("Someone Else" to "555-0101"))
+        assertEquals(ContactNameMatcher.MatchStatus.NOT_FOUND, result.status)
+    }
 }
