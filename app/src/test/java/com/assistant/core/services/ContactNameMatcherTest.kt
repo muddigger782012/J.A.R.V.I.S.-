@@ -48,4 +48,13 @@ class ContactNameMatcherTest {
         val result = ContactNameMatcher.resolve("Key Dog", listOf("Other" to "555-0101"))
         assertEquals(ContactNameMatcher.MatchStatus.NOT_FOUND, result.status)
     }
+
+    @Test fun spokenFreddyMatchesSavedFreddie() {
+        assertEquals(ContactNameMatcher.normalize("Freddie"), ContactNameMatcher.normalize("Freddy"))
+        assertEquals("555-0101", ContactNameMatcher.uniquePhoneFor("Freddy", listOf("Freddie" to "555-0101")))
+    }
+
+    @Test fun fredIsNotSilentlyAssumedToBeFreddie() {
+        assertNull(ContactNameMatcher.uniquePhoneFor("Fred", listOf("Freddie" to "555-0101")))
+    }
 }

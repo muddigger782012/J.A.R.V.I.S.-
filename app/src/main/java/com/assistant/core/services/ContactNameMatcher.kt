@@ -13,6 +13,7 @@ object ContactNameMatcher {
             .replace(Regex("\\s+"), " ")
             .replace(Regex("\\bkey dog\\b"), "keydawg")
             .replace(Regex("\\bkey dawg\\b"), "keydawg")
+            .replace(Regex("\\bfreddy\\b"), "freddie")
 
     enum class MatchStatus { FOUND, NOT_FOUND, AMBIGUOUS }
     data class MatchResult(val status: MatchStatus, val number: String? = null)
