@@ -9,7 +9,17 @@ object WebSearchCommand {
         ).matchEntire(input.trim())?.groupValues?.get(1)
         val suffix = Regex("""^(?:please\s+)?search\s+(?:the\s+)?web\s+for\s+(.+?)\s+videos?$""", RegexOption.IGNORE_CASE)
             .matchEntire(input.trim())?.groupValues?.get(1)
-        return (direct ?: suffix ?: videoTitleRequest(input))?.trim()?.trimEnd('.', '?', '!')?.trim()?.takeIf { it.length in 2..300 }
+        return (direct ?: suffix ?: musicVideoRequest(input) ?: videoTitleRequest(input))?.trim()?.trimEnd('.', '?', '!')?.trim()?.takeIf { it.length in 2..300 }
+    }
+
+    /** Recognize conversational music-video requests before the general AI fallback. */
+    private fun musicVideoRequest(input: String): String? {
+        val match = Regex(
+            """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:find|show|get|search\s+for|locate)\s+(?:me\s+)?(?:(?:a|the)\s+)?music\s+videos?\s+(?:by|from|for|of)\s+(.+)$""",
+            RegexOption.IGNORE_CASE
+        ).matchEntire(input.trim()) ?: return null
+        val artist = match.groupValues[1].trim().trimEnd('.', '?', '!').trim()
+        return artist.takeIf { it.length in 2..260 }?.let { "$it music video" }
     }
 
     /** A play request with an explicit video target opens search results, not autoplay. */
