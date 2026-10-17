@@ -41,6 +41,7 @@ MAX_APK = 64 * 1024 * 1024
 MAX_ZIP = MAX_APK + 1024 * 1024
 ARTIFACT_NAMES = {"candidate": "Jarvis-Developer-unsigned-candidate", "recovery": "Jarvis-Developer-unsigned-recovery"}
 INPUT_NAMES = {"candidate": {"candidate-unsigned.apk", "tests.json"}, "recovery": {"recovery-unsigned.apk"}}
+CURRENT_STAGE = "startup"
 
 
 class AuditFailure(Exception):
@@ -50,6 +51,13 @@ class AuditFailure(Exception):
 def require(condition, message):
     if not condition:
         raise AuditFailure(message)
+
+
+def checkpoint(name):
+    # Call sites supply fixed controller labels, never remote text or paths.
+    global CURRENT_STAGE
+    CURRENT_STAGE = name
+    print("JARVIS_CANDIDATE_AUDIT_STAGE=" + name, flush=True)
 
 
 def unique_object(pairs):
@@ -151,7 +159,7 @@ class GitHubRead:
                 except (urllib.error.URLError, ValueError):
                     raise AuditFailure("Signed download failed") from None
             else:
-                raise AuditFailure("GitHub read failed") from None
+                raise AuditFailure("GitHub read failed HTTP " + str(int(error.code))) from None
         except (urllib.error.URLError, ValueError):
             raise AuditFailure("GitHub read failed") from None
         with response:
@@ -389,31 +397,49 @@ def extract_inputs(data, directory, kind):
         raise AuditFailure("Invalid bounded artifact ZIP") from None
 
 
-def download_inputs(api, directory):
-    run_id = int(os.environ["GITHUB_RUN_ID"])
-    attempt = int(os.environ["GITHUB_RUN_ATTEMPT"])
+def download_inputs(api, directory, identity=None):
+    identity = os.environ if identity is None else identity
+    run_id = int(identity["GITHUB_RUN_ID"])
+    attempt = int(identity["GITHUB_RUN_ATTEMPT"])
     require(run_id > 0 and attempt > 0, "Invalid run identity")
+    checkpoint("unsigned-run")
     run = api.get(f"/repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}")
-    require(run.get("id") == run_id and run.get("run_attempt") == attempt and run.get("head_sha") == os.environ["GITHUB_SHA"] and run.get("head_branch") == BRANCH and run.get("path") == ".github/workflows/evaluate-jarvis-developer.yml", "Unsigned run identity mismatch")
+    require(run.get("id") == run_id and run.get("run_attempt") == attempt and run.get("head_sha") == identity["GITHUB_SHA"] and run.get("head_branch") == BRANCH and run.get("path") == ".github/workflows/evaluate-jarvis-developer.yml", "Unsigned run identity mismatch")
     seen = set()
     for kind in ("candidate", "recovery"):
         # These IDs and digests come directly from the separate trusted upload
         # step outputs through needs.*, never an untrusted artifact name search.
-        raw_id = os.environ[kind.upper() + "_ARTIFACT_ID"]
-        expected_digest = os.environ[kind.upper() + "_ARTIFACT_DIGEST"]
+        raw_id = identity[kind.upper() + "_ARTIFACT_ID"]
+        expected_digest = identity[kind.upper() + "_ARTIFACT_DIGEST"]
         require(re.fullmatch(r"[1-9][0-9]{0,18}", raw_id) is not None and HASH.fullmatch(expected_digest) is not None, "Missing trusted artifact output")
         artifact_id = int(raw_id)
         require(artifact_id not in seen, "Distinct unsigned artifacts required")
         seen.add(artifact_id)
+        checkpoint(kind + "-artifact-metadata")
         item = api.get(f"/repos/{REPO}/actions/artifacts/{artifact_id}")
         require(type(item.get("id")) is int and item["id"] == artifact_id and item.get("name") == ARTIFACT_NAMES[kind] + "-attempt-" + str(attempt) and item.get("expired") is False, "Unexpected exact unsigned artifact")
         require(type(item.get("size_in_bytes")) is int and 0 < item["size_in_bytes"] <= MAX_ZIP, "Invalid artifact metadata")
         workflow = item.get("workflow_run", {})
-        require(workflow.get("id") == run_id and workflow.get("head_sha") == os.environ["GITHUB_SHA"] and workflow.get("head_branch") == BRANCH, "Artifact source mismatch")
+        require(workflow.get("id") == run_id and workflow.get("head_sha") == identity["GITHUB_SHA"] and workflow.get("head_branch") == BRANCH, "Artifact source mismatch")
         require(item.get("digest") == "sha256:" + expected_digest, "Artifact digest metadata mismatch")
+        checkpoint(kind + "-artifact-download")
         data = api.get(f"/repos/{REPO}/actions/artifacts/{artifact_id}/zip", limit=MAX_ZIP, binary=True)
         require(hashlib.sha256(data).hexdigest() == expected_digest, "Artifact digest mismatch")
+        checkpoint(kind + "-artifact-extract")
         extract_inputs(data, directory, kind)
+
+
+def probe_unsigned(args):
+    # Explicit historical identity: never rewrite the executing controller's
+    # GITHUB_SHA or run environment, and never inspect/execute/sign APK contents.
+    require(SHA.fullmatch(args.source_sha) is not None, "Immutable probe source SHA required")
+    output = Path(args.directory)
+    output.mkdir(parents=True, exist_ok=False)
+    identity = dict(GITHUB_RUN_ID=str(args.run_id), GITHUB_RUN_ATTEMPT=str(args.run_attempt), GITHUB_SHA=args.source_sha,
+                    CANDIDATE_ARTIFACT_ID=args.candidate_artifact_id, CANDIDATE_ARTIFACT_DIGEST=args.candidate_artifact_digest,
+                    RECOVERY_ARTIFACT_ID=args.recovery_artifact_id, RECOVERY_ARTIFACT_DIGEST=args.recovery_artifact_digest)
+    download_inputs(GitHubRead(os.environ["GH_TOKEN"]), output, identity)
+    print("JARVIS_CANDIDATE_UNSIGNED_PROBE=VERIFIED", flush=True)
 
 
 def evaluate(candidate, baseline, backup, rebuild, tests, source):
@@ -447,18 +473,22 @@ def sign_apk(source, target, key, alias, command=fixed_command):
 def sign(args):
     output = Path(args.directory)
     output.mkdir(parents=True, exist_ok=True)
+    checkpoint("controller-source")
     require(os.environ["GITHUB_REF"] == "refs/heads/" + BRANCH and git(["rev-parse", "HEAD"], args.controller) == os.environ["GITHUB_SHA"], "Trusted controller source mismatch")
     api = GitHubRead(os.environ["GH_TOKEN"])
     inputs = output / "inputs"
     inputs.mkdir()
     download_inputs(api, inputs)
+    checkpoint("published-baseline")
     baseline = release_apk(api, "developer-latest", output)
     require(baseline is not None, "Published baseline unavailable")
     require(baseline["sourceCommitSha"] == os.environ["RECOVERY_SHA"] and baseline["apkSha256"] == os.environ["BASELINE_APK_SHA256"], "Published baseline changed during evaluation")
     candidate_sha = os.environ["CANDIDATE_SHA"]
     candidate_branch = os.environ["CANDIDATE_BRANCH"]
+    checkpoint("source-scope")
     source = validate_source(args.controller, candidate_sha, candidate_branch, baseline["sourceCommitSha"])
     backup = None
+    checkpoint("previous-backup")
     try:
         prior = release_apk(api, "developer-previous", output)
         if prior is not None:
@@ -466,15 +496,18 @@ def sign(args):
     except AuditFailure:
         # Missing/unverifiable backup is retained as BLOCKED, never converted to pass.
         backup = dict(**baseline, verified=False)
+    checkpoint("unsigned-apk-identities")
     candidate_unsigned = inspect_apk(inputs / "candidate-unsigned.apk", candidate_sha, signed=False)
     recovery_unsigned = inspect_apk(inputs / "recovery-unsigned.apk", baseline["sourceCommitSha"], signed=False)
     require(candidate_unsigned["versionCode"] == int(os.environ["CANDIDATE_VERSION"]) and recovery_unsigned["versionCode"] == int(os.environ["RECOVERY_VERSION"]), "Unsigned version mismatch")
     require(recovery_unsigned["versionCode"] > candidate_unsigned["versionCode"] > baseline["versionCode"], "Higher-version recovery required")
+    checkpoint("candidate-test-counts")
     test_data = decode_json((inputs / "tests.json").read_bytes())
     require(set(test_data) == {"sourceCommitSha", "passed", "tests", "failures", "errors", "skipped", "lintErrors", "lintWarnings"} and test_data.pop("sourceCommitSha") == candidate_sha, "Candidate test source mismatch")
     require(type(test_data["passed"]) is bool and all(type(test_data[key]) is int and 0 <= test_data[key] <= 10_000 for key in test_data if key != "passed"), "Invalid test counts")
     key = output / "permanent-signing-key.jks"
     try:
+        checkpoint("permanent-signing-key")
         require(all(os.environ.get(name) for name in ("KEY_B64", "STORE_PASS", "KEY_PASS", "KEY_ALIAS")), "Permanent signing configuration unavailable")
         try:
             material = base64.b64decode(os.environ["KEY_B64"], validate=True)
@@ -486,14 +519,17 @@ def sign(args):
             handle.write(material)
         del material
         for label in ("candidate", "recovery"):
+            checkpoint(label + "-fixed-signing")
             sign_apk(inputs / (label + "-unsigned.apk"), output / (label + ".apk"), key, os.environ["KEY_ALIAS"])
     finally:
         key.unlink(missing_ok=True)
+    checkpoint("signed-apk-identities")
     candidate = inspect_apk(output / "candidate.apk", candidate_sha)
     candidate.pop("sourceCommitSha")
     candidate.update(commitSha=candidate_sha, branch=candidate_branch, controllerCommitSha=os.environ["GITHUB_SHA"],
                      controllerBranch=BRANCH, runId=int(os.environ["GITHUB_RUN_ID"]), runAttempt=int(os.environ["GITHUB_RUN_ATTEMPT"]))
     rebuild = dict(**inspect_apk(output / "recovery.apk", baseline["sourceCommitSha"]), verified=True)
+    checkpoint("evaluation-evidence")
     evidence = evaluate(candidate, baseline, backup, rebuild, test_data, source)
     data = encoded(evidence)
     require(len(data) <= 32_000, "Candidate evidence exceeds budget")
@@ -518,15 +554,28 @@ def main():
         command = sub.add_parser(name)
         command.add_argument("--checkout", required=True)
         command.add_argument("--directory", required=True)
+    command = sub.add_parser("probe-unsigned")
+    command.add_argument("--directory", required=True)
+    command.add_argument("--run-id", required=True, type=int)
+    command.add_argument("--run-attempt", required=True, type=int)
+    command.add_argument("--source-sha", required=True)
+    for kind in ("candidate", "recovery"):
+        command.add_argument("--" + kind + "-artifact-id", required=True)
+        command.add_argument("--" + kind + "-artifact-digest", required=True)
     args = parser.parse_args()
     try:
         if args.action.startswith("collect-"):
             collect(args, args.action.removeprefix("collect-"))
         else:
-            {"resolve": resolve, "sign": sign}[args.action](args)
-    except (AuditFailure, KeyError, ValueError, UnicodeError, OSError, ET.ParseError):
+            {"resolve": resolve, "sign": sign, "probe-unsigned": probe_unsigned}[args.action](args)
+    except AuditFailure as error:
+        # AuditFailure messages are fixed controller constants (or numeric HTTP
+        # status); they never contain tool stderr, paths, URLs or remote bodies.
+        print("Candidate validation stopped: stage=" + CURRENT_STAGE + "; " + str(error), file=sys.stderr)
+        return 1
+    except (KeyError, ValueError, UnicodeError, OSError, ET.ParseError):
         # No traceback, tool stderr, token, signed redirect, key path or raw API body.
-        print("Candidate validation stopped: fixed audit check failed.", file=sys.stderr)
+        print("Candidate validation stopped: stage=" + CURRENT_STAGE + "; fixed audit check failed.", file=sys.stderr)
         return 1
     return 0
 

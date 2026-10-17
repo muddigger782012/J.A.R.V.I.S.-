@@ -1,0 +1,29 @@
+name: Probe fixed Developer unsigned artifacts (read only)
+on:
+  push:
+    branches: ['feature/jarvis-developer-probe/**']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  probe:
+    name: Verify prior unsigned artifact bytes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify fixed run and exact uploaded artifact identities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 developer/tools/candidate_audit.py probe-unsigned \
+            --directory "$RUNNER_TEMP/unsigned-probe" \
+            --run-id 39033614272 --run-attempt 1 \
+            --source-sha d1fd99e7a51738c492c44c150c334a91e327d948 \
+            --candidate-artifact-id 12100793399 \
+            --candidate-artifact-digest 7052325e27741d65d72d5f3cdf3abb84062ff38c548aec9a67df50fa95deb206 \
+            --recovery-artifact-id 12101177120 \
+            --recovery-artifact-digest 58f53ae8f080c1e459b0c8bb69467492301c4eff157235ed3933cae05b04d43a
