@@ -85,6 +85,8 @@ class PatchEngineTest {
             "developer/src/main/java/com/jarvis/developer/TaskPlanningWorkbench.kt",
             "developer/src/main/java/com/jarvis/developer/BuildFeedback.kt", "developer/src/main/java/com/jarvis/developer/BuildDiagnostics.kt",
             "developer/src/main/java/com/jarvis/developer/RepairEngine.kt", "developer/src/main/java/com/jarvis/developer/RepairWorkbench.kt",
+            "developer/src/main/java/com/jarvis/developer/CandidateEvaluation.kt", "developer/src/main/java/com/jarvis/developer/CandidateFeedback.kt",
+            "developer/src/main/java/com/jarvis/developer/SelfDevelopment.kt", "developer/src/main/java/com/jarvis/developer/SelfDevelopmentWorkbench.kt",
             "developer/src/main/java/com/jarvis/developer/GithubPlans.kt", "developer/src/main/java/com/jarvis/developer/ModelAdapter.kt",
             "developer/src/main/java/com/jarvis/developer/UpdateChannel.kt", "developer/src/main/java/com/jarvis/developer/SigningConfig.kt",
             "developer/src/main/java/com/jarvis/developer/A%2fB.kt", "developer/src/main/java/com/jarvis/developer/A\\B.kt")) {

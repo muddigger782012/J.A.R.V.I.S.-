@@ -202,6 +202,7 @@ class MainActivity : Activity() {
         }
         TaskPlanningWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         RepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        SelfDevelopmentWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         root.addView(iconTest)
         if (recoveryWarning) {
             iconTest.isEnabled = false

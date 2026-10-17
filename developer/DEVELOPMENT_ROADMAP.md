@@ -2,6 +2,14 @@
 
 Status: approved product plan; **not** an assertion of implemented functionality. Owner-approved direction: an AI developer that can improve Jarvis and build other applications while protecting a known-good release.
 
+## Phase 5 implementation status — 2026-10-17
+
+The owner instructed Phase 5 after verified Phase 4 head `ed06f178fbbfa0e2fbd96469f9a3dbd8ff3607b8`. Source implementation and build-only validation are in progress on `feature/jarvis-developer`. Publication, backup release creation, installation and main merges remain separate approval gates. Existing Jarvis/Beta behavior, credential configuration, signing identity and update channels must be preserved.
+
+**Recovery blocker independently rechecked:** `developer-latest` release 413391078 records immutable source `213d202a198da00f71acc750fcb20ac7a38e0924`, version 0.1.53, APK asset 648057019 (1,645,395 bytes, GitHub-reported SHA-256 `e1826417d32a2ad4c591a1580a4b184f0e06b79ef4200233990144ddf1af6969`). Both the `developer-previous` release and tag returned **404** again. Current release notes explicitly say recovery verification was deferred by the owner. The earlier 403/401 failures below are historical; this read does not establish release-write authorization or a fix. A metadata digest is not a verified byte backup. **Full Phase 5 acceptance remains NOT MET** until actual preservation and recovery checks pass; source-only development does not waive this promotion gate.
+
+Planned implementation: cited bounded self-improvement suggestions, fresh Phase 2 diff approval and sibling branches, strict baseline/candidate regression comparison, a trusted build-only candidate/recovery workflow with secret-free compilation and separate APK signing, bounded exact-controller feedback, and fail-closed single-use metadata promotion review. Existing baseline tests and controller/signing/update/workflow code remain outside self-development edit scope. No automatic promotion, publication or installation is introduced. Tests, real candidate/recovery evidence, changed paths and remaining limits will be recorded after validation. Phase 6 has not started.
+
 ## Phase 4 implementation status — 2026-10-17
 
 The owner instructed continuation with Phase 4 after Phase 3. **Phase 4 source/CI acceptance: MET** at corrected implementation source `e1c04b8d5915346299c909cb2933b3068c28336b` on `feature/jarvis-developer`, based on final Phase 3 source `4d876a0eea1f074a98436d00fba79a762be0c33e`. Recovery remains deferred and unverified; its historical backup/403/401 evidence below is preserved. This continuation authorizes implementation and validation, without publication, installation, credential changes, update-channel changes or main merges. Phase 5 has not started.
