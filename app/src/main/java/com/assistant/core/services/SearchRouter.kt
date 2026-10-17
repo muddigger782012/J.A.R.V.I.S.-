@@ -22,10 +22,10 @@ class SearchRouter(private val providers: List<Provider>) {
     }
 
     fun failureMessage(response: Response, kind: String): String = when {
-        SearchProviderFailure.Kind.RATE_LIMIT in response.failures -> "Search is temporarily rate-limited. Automatic search is unavailable right now. You can open the query in your default browser or try again later."
-        SearchProviderFailure.Kind.AUTHENTICATION in response.failures -> "A search provider rejected its credentials or access. Check search settings, then retry. You can also open the query in your default browser."
-        response.failures.isNotEmpty() -> "Search providers couldn't return results. Check your connection and retry, or open the query in your default browser."
-        else -> "No $kind results were returned for this query. Try a broader query or open it in your default browser."
+        SearchProviderFailure.Kind.RATE_LIMIT in response.failures -> "Search is temporarily rate-limited. Automatic search is unavailable right now. You can open the query in Jarvis's embedded browser or try again later."
+        SearchProviderFailure.Kind.AUTHENTICATION in response.failures -> "A search provider rejected its credentials or access. Check search settings, then retry. You can also open the query in Jarvis's embedded browser."
+        response.failures.isNotEmpty() -> "Search providers couldn't return results. Check your connection and retry, or open the query in Jarvis's embedded browser."
+        else -> "No $kind results were returned for this query. Try a broader query or open it in Jarvis's embedded browser."
     }
 
     companion object {
