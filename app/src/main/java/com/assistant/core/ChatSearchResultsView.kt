@@ -133,7 +133,7 @@ object ChatSearchResultsView {
                     setPadding(dp(10), dp(8), dp(10), dp(8)); minimumHeight = dp(48)
                     layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }
                     addView(label("${index + 1}  •  ${Uri.parse(item.url).host?.removePrefix("www.")}  ↗", 12f, true))
-                    if (message.kind == "video" && item.thumbnail != null) addView(SearchMediaViews.thumbnail(activity, item, 140))
+                    if (item.kind == "video" && item.thumbnail != null) addView(SearchMediaViews.thumbnail(activity, item, 140))
                     addView(label(SearchReadableText.format(item.title).text, 15f).apply {
                         setTypeface(typeface, Typeface.BOLD); maxLines = 2; ellipsize = TextUtils.TruncateAt.END
                         setPadding(0, dp(4), 0, dp(4))
