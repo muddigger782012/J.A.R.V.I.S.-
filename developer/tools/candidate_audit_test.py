@@ -322,6 +322,7 @@ class CandidateAuditTest(unittest.TestCase):
             self.assertNotIn("secrets.", build)
             self.assertNotIn("actions/cache", build)
             self.assertIn("steps.upload.outputs.artifact-id", build)
+            self.assertIn("--init-script ../controller/developer/tools/unsigned.init.gradle", build)
         self.assertNotIn("path: candidate", signing)
         self.assertNotIn("path: recovery", signing)
         self.assertNotIn("bash ./gradlew", signing)

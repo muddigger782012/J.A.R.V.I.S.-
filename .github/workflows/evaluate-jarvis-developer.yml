@@ -94,7 +94,7 @@ jobs:
           GRADLE_USER_HOME: ${{ runner.temp }}/candidate-gradle
         run: |
           python3 scripts/check_ui_theme.py
-          bash ./gradlew --no-daemon :developer:testDebugUnitTest :developer:lintDebug :developer:assembleRelease
+          bash ./gradlew --no-daemon --init-script ../controller/developer/tools/unsigned.init.gradle :developer:testDebugUnitTest :developer:lintDebug :developer:assembleRelease
       - name: Check unchanged source and collect bounded fixed inputs
         env:
           CANDIDATE_SHA: ${{ needs.resolve.outputs.candidate_sha }}
@@ -143,7 +143,7 @@ jobs:
           DEVELOPER_VERSION_CODE: ${{ needs.resolve.outputs.recovery_version }}
           DEVELOPER_VERSION_NAME: recovery.${{ needs.resolve.outputs.recovery_version }}
           GRADLE_USER_HOME: ${{ runner.temp }}/recovery-gradle
-        run: bash ./gradlew --no-daemon :developer:assembleRelease
+        run: bash ./gradlew --no-daemon --init-script ../controller/developer/tools/unsigned.init.gradle :developer:assembleRelease
       - name: Collect independently built recovery input
         env:
           RECOVERY_SHA: ${{ needs.resolve.outputs.recovery_sha }}

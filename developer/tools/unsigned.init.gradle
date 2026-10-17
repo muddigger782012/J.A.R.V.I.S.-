@@ -1,0 +1,15 @@
+// Build-only controller override. This trusted init script runs in the separate
+// secret-free candidate/recovery jobs; permanent-key signing happens afterward.
+gradle.beforeProject { project ->
+    if (project.path == ':developer') {
+        project.pluginManager.withPlugin('com.android.application') {
+            project.extensions.getByName('androidComponents').finalizeDsl { androidDsl ->
+                def releaseType = androidDsl.buildTypes.findByName('release')
+                if (releaseType == null) {
+                    throw new GradleException('Expected Developer release build type')
+                }
+                releaseType.signingConfig = null
+            }
+        }
+    }
+}

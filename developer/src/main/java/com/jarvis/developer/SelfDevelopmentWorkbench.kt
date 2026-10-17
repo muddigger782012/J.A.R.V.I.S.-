@@ -85,7 +85,7 @@ object SelfDevelopmentWorkbench {
             listOf<View>(taskId, goal, scope, analyze, stage, baselineBranch, baselineSha, baselineRun,
                 readBaseline, candidateBranch, candidateSha, candidateRun, readCandidate, controllerSha,
                 signedRun, readSigned, evaluate, dashboard, confirmation, approve, confirm).forEach(container::addView)
-            container.addView(label("Read baseline CI, candidate CI and the separately completed evaluation workflow explicitly. Passing compilation is not recovery verification. Missing, mismatched or unverifiable previous-release bytes, immutable source, signer identity or higher-version recovery blocks promotion. Recording an approved request retains metadata only in this screen; it does not publish, install, merge, dispatch a workflow or restore any approval after restart."))
+            container.addView(label("Read baseline CI, candidate CI and the separately completed evaluation workflow explicitly. Passing compilation is not recovery verification. Missing, mismatched or unverifiable previous-release bytes, immutable source, signer identity or higher-version recovery blocks promotion. Evidence describes its recorded controller run: the five-minute review expiry does not refresh a moving release channel. Before actual promotion, independently revalidate current latest/previous APK bytes, immutable source and signer identity. An approved request retains metadata only in this screen and has no action authority; it does not publish, install, merge, dispatch a workflow or restore any approval after restart."))
             inputs.forEach(::watch)
             approve.setOnCheckedChangeListener { _, _ -> refresh() }
             analyze.setOnClickListener { analyzeSource() }

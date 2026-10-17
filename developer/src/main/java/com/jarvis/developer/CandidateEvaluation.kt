@@ -194,6 +194,7 @@ object CandidateEvaluation {
         append("Baseline CI: ${review.baselineReportFingerprint}\nCandidate CI: ${review.candidateReportFingerprint}\n")
         append("Review: ${review.fingerprint}\nExpires: ${review.deadlineAtMillis}\n")
         review.blockers.forEach { append("Blocked: $it\n") }
+        append("Evidence describes the recorded controller run. The five-minute review expiry does not refresh a moving release channel. Before actual promotion, independently revalidate current latest/previous APK bytes, immutable source and signer identity.\n")
         append("This is source/CI evidence. Device installation, device verification and publication are separate approvals.")
     }
 
@@ -206,7 +207,8 @@ object CandidateEvaluation {
         append("APK: ${request.candidate.apkSha256} ${request.candidate.apkBytes}\nPackage/version: ${request.candidate.packageName} ${request.candidate.versionCode}\nSigner: ${request.candidate.signerSha256}\n")
         append("Known good: ${artifactSummary(request.baseline)}\nRecovery: ${artifactSummary(request.recovery)}\n")
         append("Baseline CI: ${request.baselineReportFingerprint}\nCandidate CI: ${request.candidateReportFingerprint}\nConfirmed: ${request.confirmedAtMillis}\n")
-        append("No publication or installation was performed or authorized by this metadata object.")
+        append("Evidence describes the recorded controller run; five-minute review expiry does not refresh a moving release channel. Actual promotion requires independent revalidation of current latest/previous APK bytes, immutable source and signer identity.\n")
+        append("This metadata object has no action authority. No publication or installation was performed or authorized by it.")
     }
 
     private fun artifactSummary(facts: ArtifactFacts): String = "${facts.sourceCommitSha}; ${facts.packageName}/${facts.versionCode}; ${facts.apkSha256}/${facts.apkBytes} bytes; signer ${facts.signerSha256}"
