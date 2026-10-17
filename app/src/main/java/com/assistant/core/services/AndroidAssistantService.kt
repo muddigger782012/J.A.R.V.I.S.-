@@ -43,8 +43,10 @@ class AndroidAssistantService(private val context: Context) {
     fun navigate(destination: String): Boolean =
         launch(Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(destination))))
 
-    fun resolveContactPhone(name: String): String? {
-        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
+    fun resolveContactPhone(name: String): String? = resolveContact(name).number
+
+    fun resolveContact(name: String): ContactNameMatcher.MatchResult {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return ContactNameMatcher.MatchResult(ContactNameMatcher.MatchStatus.NOT_FOUND)
         val projection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
         val candidates = context.contentResolver.query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI, projection, null, null, null
@@ -59,7 +61,7 @@ class AndroidAssistantService(private val context: Context) {
                 }
             }
         }.orEmpty()
-        return ContactNameMatcher.uniquePhoneFor(name, candidates)
+        return ContactNameMatcher.resolve(name, candidates)
     }
 
     fun lastMissedCall(): String {
