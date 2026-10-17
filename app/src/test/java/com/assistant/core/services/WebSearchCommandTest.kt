@@ -86,4 +86,12 @@ class WebSearchCommandTest {
         assertNull(WebSearchCommand.videoFollowupQuery("Install it instead", previous))
         assertNull(WebSearchCommand.videoQuery("Play " + "x".repeat(301) + " video"))
     }
+    @Test fun explicitMusicLookupRoutesToSearchWithoutCapturingContacts() {
+        assertEquals("Saving Abel Addicted song", WebSearchCommand.musicQuery("Find me the song Saving Abel Addicted"))
+        assertEquals("Saving Abel song", WebSearchCommand.musicQuery("Find music by Saving Abel"))
+        assertNull(WebSearchCommand.musicQuery("Find me Saving Abel Addicted"))
+        assertNull(WebSearchCommand.musicQuery("Call Freddie"))
+        assertNull(WebSearchCommand.musicQuery("Find me the song"))
+    }
+
 }
