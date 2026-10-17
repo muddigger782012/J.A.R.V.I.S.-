@@ -1,0 +1,96 @@
+name: Audit or preserve Jarvis Developer recovery backup
+on:
+  push:
+    branches: [feature/jarvis-developer]
+    paths:
+      - 'developer/tools/developer_backup*'
+      - 'developer/tools/candidate_audit.py'
+      - '.github/workflows/preserve-jarvis-developer-backup.yml'
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: 'Exact 40-character published source SHA from the fresh read-only backup audit'
+        required: true
+        type: string
+      approved_apk_sha256:
+        description: 'Exact 64-character SHA-256 of the published APK bytes from the fresh audit'
+        required: true
+        type: string
+      approve_backup:
+        description: 'Explicitly approve creation of the missing developer-previous backup ONLY'
+        required: true
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: developer-previous-preservation
+  cancel-in-progress: false
+jobs:
+  audit:
+    name: Read-only published backup audit
+    if: github.ref == 'refs/heads/feature/jarvis-developer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check fixed backup helper contracts
+        run: python3 -m unittest discover -s developer/tools -p 'developer_backup_test.py' -v
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Install fixed Android verification tools
+        run: sdkmanager 'build-tools;34.0.0'
+      - name: Inspect actual current and previous APK bytes without writes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 developer/tools/developer_backup.py audit --controller . --directory "$RUNNER_TEMP/backup-audit"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Jarvis-Developer-backup-readonly-plan-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/backup-audit/backup-plan.json
+          if-no-files-found: error
+          retention-days: 14
+  preserve-approved-backup:
+    name: Preserve exact approved published APK only
+    needs: audit
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feature/jarvis-developer' && inputs.approve_backup == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      # Trusted controller only. No candidate code, build, signing or installer.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Install fixed Android verification tools
+        run: sdkmanager 'build-tools;34.0.0'
+      - name: Freshly verify approval and preserve missing backup without overwriting
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVED_SOURCE_SHA: ${{ inputs.approved_source_sha }}
+          APPROVED_APK_SHA256: ${{ inputs.approved_apk_sha256 }}
+          APPROVE_BACKUP: ${{ inputs.approve_backup }}
+        run: python3 developer/tools/developer_backup.py preserve --controller . --directory "$RUNNER_TEMP/backup-preservation"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Jarvis-Developer-backup-preservation-result-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/backup-preservation/backup-plan.json
+          if-no-files-found: error
+          retention-days: 14

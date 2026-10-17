@@ -18,7 +18,9 @@ jobs:
       - name: Check repository theme contract
         run: python3 scripts/check_ui_theme.py
       - name: Test candidate and recovery evidence policy
-        run: python3 -m unittest discover -s developer/tools -p 'candidate_*_test.py' -v
+        run: |
+          python3 -m unittest discover -s developer/tools -p 'candidate_*_test.py' -v
+          python3 -m unittest discover -s developer/tools -p 'developer_backup_test.py' -v
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

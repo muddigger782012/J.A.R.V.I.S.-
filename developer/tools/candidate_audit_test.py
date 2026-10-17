@@ -8,6 +8,7 @@ import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+import urllib.error
 import zipfile
 
 import candidate_audit as audit
@@ -153,6 +154,81 @@ class CandidateAuditTest(unittest.TestCase):
             audit.download_inputs(SimpleNamespace(get=get), self.root)
         self.assertEqual(len(calls), 5)
         self.assertEqual({path.name for path in self.root.iterdir()}, audit.INPUT_NAMES["candidate"] | audit.INPUT_NAMES["recovery"])
+
+    def test_real_http_adapter_handles_exact_metadata_and_unauthenticated_storage_redirect(self):
+        environment, values = self.artifact_protocol()
+        requests = []
+        payloads = {}
+
+        class Response(io.BytesIO):
+            status = 200
+
+        def open_request(request, timeout):
+            requests.append(request)
+            if request.full_url.startswith("https://api.github.com"):
+                path = request.full_url.removeprefix("https://api.github.com")
+                value = values[path]
+                if isinstance(value, bytes):
+                    location = "https://productionresultssa1.blob.core.windows.net/fixed/" + str(len(payloads)) + "?signed=hidden"
+                    payloads[location] = value
+                    raise urllib.error.HTTPError(request.full_url, 302, "remote-text-hidden", {"Location": location}, None)
+                return Response(audit.encoded(value))
+            self.assertIsNone(request.get_header("Authorization"))
+            return Response(payloads[request.full_url])
+
+        api = audit.GitHubRead("modeled-token-must-stay-at-api")
+        api.opener = SimpleNamespace(open=open_request)
+        audit.download_inputs(api, self.root, environment)
+        self.assertEqual(len(requests), 7)
+        self.assertEqual(api.requests, 5)
+        self.assertTrue(all(request.get_header("Authorization") == "Bearer modeled-token-must-stay-at-api"
+                            for request in requests if request.full_url.startswith("https://api.github.com")))
+
+    def test_http_errors_report_only_fixed_text_and_numeric_status(self):
+        api = audit.GitHubRead("modeled-token")
+
+        def forbidden(request, timeout):
+            raise urllib.error.HTTPError(request.full_url + "?sensitive=hidden", 403, "secret remote body", {}, None)
+
+        api.opener = SimpleNamespace(open=forbidden)
+        with self.assertRaises(audit.AuditFailure) as caught:
+            api.get(f"/repos/{audit.REPO}/actions/artifacts/100")
+        self.assertEqual(str(caught.exception), "GitHub read failed HTTP 403")
+
+    def test_binary_rest_accept_media_types_distinguish_actions_zip_from_release_asset(self):
+        api = audit.GitHubRead("modeled-token")
+        paths = ((f"/repos/{audit.REPO}/actions/artifacts/100/zip", "application/vnd.github+json"),
+                 (f"/repos/{audit.REPO}/releases/assets/200", "application/octet-stream"))
+
+        class Response(io.BytesIO):
+            status = 200
+
+        for path, expected in paths:
+            calls = []
+
+            def open_request(request, timeout):
+                calls.append(request)
+                if request.get_header("Accept") != expected:
+                    raise urllib.error.HTTPError(request.full_url, 415, "unsupported remote media body", {}, None)
+                return Response(b"modeled-raw-binary-content")
+
+            api.opener = SimpleNamespace(open=open_request)
+            with self.subTest(path=path):
+                self.assertEqual(api.get(path, binary=True), b"modeled-raw-binary-content")
+                self.assertEqual(calls[0].get_header("Accept"), expected)
+        with self.assertRaises(audit.AuditFailure):
+            api.get(f"/repos/{audit.REPO}/actions/runs/12", binary=True)
+
+    def test_probe_uses_explicit_old_identity_without_overwriting_current_controller(self):
+        identity, _ = self.artifact_protocol()
+        args = SimpleNamespace(directory=self.root / "probe", run_id=12, run_attempt=2, source_sha=SHA,
+                               candidate_artifact_id="100", candidate_artifact_digest=identity["CANDIDATE_ARTIFACT_DIGEST"],
+                               recovery_artifact_id="101", recovery_artifact_digest=identity["RECOVERY_ARTIFACT_DIGEST"])
+        with patch.dict(os.environ, {"GITHUB_SHA": OTHER, "GITHUB_RUN_ID": "99", "GH_TOKEN": "modeled-token"}), patch.object(audit, "download_inputs") as download:
+            audit.probe_unsigned(args)
+            self.assertEqual(os.environ["GITHUB_SHA"], OTHER)
+            self.assertEqual(os.environ["GITHUB_RUN_ID"], "99")
+            self.assertEqual(download.call_args.args[2], identity)
 
     def test_stale_attempt_wrong_source_name_id_digest_expiry_and_corrupt_bytes_rejected(self):
         for field, value in (("id", 102), ("name", "Jarvis-Developer-unsigned-candidate-attempt-1"),
