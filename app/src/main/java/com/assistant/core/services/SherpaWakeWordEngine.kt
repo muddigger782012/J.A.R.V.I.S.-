@@ -18,6 +18,7 @@ import com.k2fsa.sherpa.onnx.OnlineModelConfig
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import kotlin.concurrent.thread
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 class SherpaWakeWordEngine(
     private val context: Context,
@@ -190,6 +191,9 @@ class SherpaWakeWordEngine(
         val buffer = ShortArray(1600)
         var chunks = 0
         var peakSinceReport = 0
+        var sumSquaresSinceReport = 0.0
+        var samplesSinceReport = 0L
+        var lowSignalReports = 0
         var lastReportAt = System.currentTimeMillis()
         var totalChunks = 0
         var detected = false
@@ -220,6 +224,11 @@ class SherpaWakeWordEngine(
                 if (totalChunks == 0) onStatus("Sherpa received first microphone audio buffer.")
                 var peak = 0
                 for (i in 0 until n) {
+                    val normalized = buffer[i].toDouble() / 32768.0
+                    sumSquaresSinceReport += normalized * normalized
+                }
+                samplesSinceReport += n
+                for (i in 0 until n) {
                     val level = abs(buffer[i].toInt())
                     if (level > peak) peak = level
                 }
@@ -229,9 +238,15 @@ class SherpaWakeWordEngine(
                 val now = System.currentTimeMillis()
                 if (now - lastReportAt >= 3000L) {
                     val pct = (peakSinceReport * 100 / 32767).coerceIn(0, 100)
-                    stage("sherpa-audio-running-peak-$pct")
-                    onStatus("Sherpa audio active: peak $pct%, chunks $chunks, last decode ${lastDecodeDurationMs}ms; waiting for '$wakePhrase'.")
+                    val rmsPct = if (samplesSinceReport == 0L) 0 else
+                        (sqrt(sumSquaresSinceReport / samplesSinceReport) * 100).toInt().coerceIn(0, 100)
+                    lowSignalReports = if (pct < 2) lowSignalReports + 1 else 0
+                    stage("sherpa-audio-running-peak-$pct-rms-$rmsPct")
+                    val warning = if (lowSignalReports >= 3) " Low microphone signal for 9+ seconds; check microphone access and distance." else ""
+                    onStatus("Sherpa audio active: peak $pct%, RMS $rmsPct%, chunks $chunks, last decode ${lastDecodeDurationMs}ms; waiting for '$wakePhrase'." + warning)
                     peakSinceReport = 0
+                    sumSquaresSinceReport = 0.0
+                    samplesSinceReport = 0L
                     chunks = 0
                     lastReportAt = now
                 }
