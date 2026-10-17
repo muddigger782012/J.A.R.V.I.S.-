@@ -20,7 +20,8 @@ class LiveSpeechCapture(private val context: Context) {
         runCatching { previous?.destroy() }
     }
     fun listen(preferOffline: Boolean, onPartial: (String) -> Unit, onResult: (String) -> Unit, onError: (Int) -> Unit,
-               onDeviceOnly: Boolean = false, useProfileHints: Boolean = true) {
+               onDeviceOnly: Boolean = false, useProfileHints: Boolean = true,
+               onHypotheses: (List<Pair<String, Float>>) -> Unit = {}) {
         stop()
         val current = generation
         val available = if (onDeviceOnly) android.os.Build.VERSION.SDK_INT >= 31 &&
@@ -44,7 +45,12 @@ class LiveSpeechCapture(private val context: Context) {
                 }
                 override fun onResults(results: Bundle?) {
                     if (current != generation) return
-                    val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().trim()
+                    val candidates = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
+                        .mapIndexed { index, text -> text.trim() to
+                            (results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)?.getOrNull(index) ?: -1f) }
+                        .filter { it.first.isNotBlank() }.distinctBy { it.first }.take(5)
+                    val text = candidates.firstOrNull()?.first.orEmpty()
+                    if (candidates.isNotEmpty()) onHypotheses(candidates)
                     stop()
                     if (text.isBlank()) onError(SpeechRecognizer.ERROR_NO_MATCH) else onResult(text)
                 }
@@ -58,7 +64,7 @@ class LiveSpeechCapture(private val context: Context) {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                 VoiceRecognitionHints.apply(context, this, useProfileHints)
             })
         } catch (_: Exception) { stop(); onError(SpeechRecognizer.ERROR_CLIENT) }
