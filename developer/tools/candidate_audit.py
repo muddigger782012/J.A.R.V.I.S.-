@@ -139,8 +139,14 @@ class GitHubRead:
         require(path.startswith(f"/repos/{REPO}/"), "Unexpected GitHub endpoint")
         self.requests += 1
         require(self.requests <= 24, "GitHub read budget exhausted")
+        release_asset = re.fullmatch(r"/repos/" + re.escape(REPO) + r"/releases/assets/[1-9][0-9]*", path) is not None
+        artifact_zip = re.fullmatch(r"/repos/" + re.escape(REPO) + r"/actions/artifacts/[1-9][0-9]*/zip", path) is not None
+        require(not binary or release_asset or artifact_zip, "Unexpected binary GitHub endpoint")
+        # REST media type and response decoding are separate: Actions ZIP
+        # requests require GitHub JSON Accept even though their body is bytes;
+        # release asset content requires octet-stream to request the APK bytes.
         headers = {"Authorization": "Bearer " + self.token, "X-GitHub-Api-Version": "2022-11-28",
-                   "Accept": "application/octet-stream" if binary else "application/vnd.github+json"}
+                   "Accept": "application/octet-stream" if binary and release_asset else "application/vnd.github+json"}
         request = urllib.request.Request("https://api.github.com" + path, headers=headers, method="GET")
         try:
             response = self.opener.open(request, timeout=45)
@@ -156,6 +162,8 @@ class GitHubRead:
                 # Signed storage requests deliberately carry NO authorization.
                 try:
                     response = self.opener.open(urllib.request.Request(location, method="GET"), timeout=45)
+                except urllib.error.HTTPError as download_error:
+                    raise AuditFailure("Signed download failed HTTP " + str(int(download_error.code))) from None
                 except (urllib.error.URLError, ValueError):
                     raise AuditFailure("Signed download failed") from None
             else:
