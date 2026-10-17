@@ -188,8 +188,8 @@ object RepairEngine {
         current(session)
         time(session.gate, session.deadlineAtMillis, nowMillis)
         if (session.stopReason != null) return@synchronized Assessment(session, false, false, session.stopReason!!)
-        val attempt = session.attempts.lastOrNull()
-        require(attempt?.outcome == "AWAITING_CI") { "There is no committed repair awaiting CI" }
+        val attempt = requireNotNull(session.attempts.lastOrNull()) { "There is no committed repair awaiting CI" }
+        require(attempt.outcome == "AWAITING_CI") { "There is no committed repair awaiting CI" }
         BuildDiagnostics.validateReport(report)
         if (report.commitSha != attempt.commitSha || report.branch != attempt.branch) {
             session.gate.stopped = "CI evidence does not match the exact repair commit and branch"

@@ -68,6 +68,15 @@ jobs:
           assert decoded['actualExecutionCheckoutSha'] == os.environ['GITHUB_SHA'], 'Phase 4 source revision mismatch'
           print('JARVIS_PHASE4_EVIDENCE_SHA256=' + hashlib.sha256(data).hexdigest())
           print('JARVIS_PHASE4_EVIDENCE=' + json.dumps(decoded, separators=(',', ':')))
+          lint = pathlib.Path('developer/build/reports/lint-results-debug.xml')
+          assert lint.is_file() and lint.stat().st_size <= 2_000_000, 'Expected bounded lint XML evidence'
+          data = lint.read_bytes()
+          issues = ET.fromstring(data).findall('issue')
+          errors = sum(issue.attrib.get('severity') in ('Error', 'Fatal') for issue in issues)
+          warnings = sum(issue.attrib.get('severity') == 'Warning' for issue in issues)
+          print('JARVIS_LINT_SUMMARY=' + json.dumps(dict(sourceCommit=os.environ['GITHUB_SHA'],
+              sha256=hashlib.sha256(data).hexdigest(), errors=errors, warnings=warnings), separators=(',', ':')))
+          assert errors == 0, 'Lint errors remain'
           PY
       - name: Upload Developer unit-test evidence
         if: always()
