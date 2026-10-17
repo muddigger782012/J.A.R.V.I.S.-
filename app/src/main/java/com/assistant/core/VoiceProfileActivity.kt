@@ -168,7 +168,13 @@ class VoiceProfileActivity : ThemedActivity() {
         val groups = entries.groupBy { "${it.language} • ${if (it.mode == "device") "on device" else "default"} • ${if (it.hinted) "hints supplied" else "no hints"}" }
         label(R.id.voiceProfileScore).text = if (entries.isEmpty()) "No approved practice yet." else
             "Approved attempts: ${entries.size} (most recent ${VoiceProfileStore.LIMIT} retained). Exact matches ignore case and punctuation. These are practice scores, not overall command accuracy.\n\n" +
-            groups.entries.joinToString("\n") { (group, trials) -> "$group: ${trials.count { it.matched }}/${trials.size} matched" }
+            groups.entries.joinToString("\n") { (group, trials) ->
+                val words = trials.sumOf { it.referenceWords }
+                val errors = trials.sumOf { it.wordErrors }
+                val wer = if (words == 0) 0.0 else 100.0 * errors / words
+                "$group: ${trials.count { it.matched }}/${trials.size} exact; " +
+                    "word error rate ${"%.1f".format(Locale.US, wer)}% ($errors edits / $words reference words)"
+            }
         refreshEntries()
     }
     private fun refreshEntries() {
