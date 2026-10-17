@@ -293,4 +293,50 @@ class RepositoryIntelligenceTest {
         fails { RepositoryIntelligence.Reader(fake).analyzeSnapshot("", "x".repeat(4_001)) }
         assertTrue(fake.requests.isEmpty())
     }
+
+    @Test fun taskBranchInventoryPinsRepairSourceAndSubsequentReadsStayAtItsCommit() {
+        val taskBranch = "feature/jarvis-developer-task/repair-012345abcdef"
+        val taskRef = "$api/git/ref/heads/feature%2Fjarvis-developer-task%2Frepair-012345abcdef"
+        val fake = fixture()
+        fake.json(taskRef, JSONObject().put("ref", "refs/heads/$taskBranch")
+            .put("object", JSONObject().put("type", "commit").put("sha", commit)))
+        val reader = RepositoryIntelligence.Reader(fake)
+        val inventory = reader.inventory("", taskBranch)
+        fake.json(taskRef, JSONObject().put("ref", "refs/heads/$taskBranch")
+            .put("object", JSONObject().put("type", "commit").put("sha", "c".repeat(40))))
+        assertEquals(String(source), reader.readSource("", inventory, path))
+        assertEquals(listOf(taskRef, commitUrl(), treeUrl(), sourceUrl()), fake.requests)
+        assertEquals(4, fake.closed)
+        fake.json(taskRef, JSONObject().put("ref", "refs/heads/$taskBranch")
+            .put("object", JSONObject().put("type", "commit").put("sha", commit)))
+        val (_, plan) = RepositoryIntelligence.Reader(fake).analyzeSnapshot("", "MainActivity source", taskBranch)
+        assertEquals(commit, plan.commitSha)
+        assertEquals(taskRef, fake.requests[4])
+    }
+
+    @Test fun branchScopeIsCheckedBeforeNetworkAndReturnedRefMustMatchRequestedTaskBranch() {
+        val fake = Fixture()
+        for (branch in listOf("main", "beta", "feature/jarvis-developer/task/a",
+            "feature/jarvis-developer-task/a-ABCDEF123456", "feature/jarvis-developer-task/../a-012345abcdef",
+            "feature/jarvis-developer?other=1", "feature%2Fjarvis-developer")) {
+            fails("branch") { RepositoryIntelligence.Reader(fake).inventory("", branch) }
+        }
+        assertTrue(fake.requests.isEmpty())
+        val taskBranch = "feature/jarvis-developer-task/repair-012345abcdef"
+        val taskRef = "$api/git/ref/heads/feature%2Fjarvis-developer-task%2Frepair-012345abcdef"
+        fake.json(taskRef, JSONObject().put("ref", "refs/heads/feature/jarvis-developer")
+            .put("object", JSONObject().put("type", "commit").put("sha", commit)))
+        fails("Unexpected repository reference") { RepositoryIntelligence.Reader(fake).inventory("", taskBranch) }
+        assertEquals(1, fake.requests.size)
+        assertEquals(1, fake.closed)
+    }
+
+    @Test fun analysisEndpointAllowlistRejectsWritesMovingContentsAndOtherBranches() {
+        for (url in listOf("$api/git/refs", "$api/git/ref/heads/main", "$api/git/ref/heads/feature/jarvis-developer",
+            "$api/releases", "$api/actions/runs/17", "$api/contents/$path?ref=feature%2Fjarvis-developer",
+            "$api/contents/developer/local.properties?ref=$commit", "$api/git/trees/$treeSha?recursive=1&extra=1")) {
+            fails("scoped read-only") { RepositoryIntelligence.requireApiUrl(url) }
+        }
+        for (url in listOf(refUrl(), commitUrl(), treeUrl(), sourceUrl())) RepositoryIntelligence.requireApiUrl(url)
+    }
 }

@@ -19,13 +19,21 @@ import kotlin.concurrent.thread
 
 /** Inline, explicit review/approval controls. Attaching this view performs no network operation. */
 object PatchWorkbench {
+    interface RepairObserver {
+        fun committed(ticket: RepairEngine.Ticket, result: PatchPublisher.CommitResult)
+        fun failed(ticket: RepairEngine.Ticket, stage: String)
+    }
+
     /** Transfers reviewed queue scope into a fresh preview; it carries no write approval. */
     class Handle internal constructor(
-        private val prepareAction: (String, String, List<String>, String) -> Boolean,
+        private val prepareAction: (String, String, List<String>, String, String) -> Boolean,
+        private val repairAction: (RepairEngine.Ticket, RepairObserver) -> Boolean,
         private val invalidateAction: () -> Boolean
     ) {
-        fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String): Boolean =
-            prepareAction(taskId, task, paths, baseCommitSha)
+        fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
+            baseBranch: String = "feature/jarvis-developer"): Boolean =
+            prepareAction(taskId, task, paths, baseCommitSha, baseBranch)
+        fun prepareRepair(ticket: RepairEngine.Ticket, observer: RepairObserver): Boolean = repairAction(ticket, observer)
         fun invalidate(): Boolean = invalidateAction()
     }
 
@@ -95,6 +103,8 @@ object PatchWorkbench {
         var busy = false
         var revision = 0L
         var plannedBaseCommitSha: String? = null
+        var plannedBaseBranch = "feature/jarvis-developer"
+        var activeRepair: Pair<RepairEngine.Ticket, RepairObserver>? = null
         var queuedContextNeedsRefresh = false
         var settingQueuedInputs = false
         var proposal: PatchEngine.Proposal? = null
@@ -117,7 +127,7 @@ object PatchWorkbench {
             return Metadata(rawId.trim(), rawTask.trim(), providerName, selectedModel,
                 rawPaths.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList(),
                 fingerprint(listOf(rawId, rawTask, providerName, rawModel, rawPaths,
-                    plannedBaseCommitSha.orEmpty())), plannedBaseCommitSha)
+                    plannedBaseCommitSha.orEmpty(), plannedBaseBranch)), plannedBaseCommitSha, plannedBaseBranch)
         }
         fun current(): Boolean {
             val candidate = proposal ?: return false
@@ -146,10 +156,23 @@ object PatchWorkbench {
             }
             refresh()
         }
+        fun closeRepairContext() {
+            queuedContextNeedsRefresh = true
+            queuedSource.text = "The reserved repair attempt is closed. Prepare a fresh bounded attempt, or explicitly clear the source pin for a manual task.\nPinned source: $plannedBaseBranch @ $plannedBaseCommitSha"
+        }
+        fun failRepair(repair: Pair<RepairEngine.Ticket, RepairObserver>?, stage: String) {
+            if (repair == null || activeRepair !== repair) return
+            activeRepair = null
+            closeRepairContext()
+            try { repair.second.failed(repair.first, stage) } catch (_: Exception) {
+                status.text = "Repair audit unavailable; stop and review the session manually."
+            }
+        }
         fun inputChanges(changesScope: Boolean) = object : TextWatcher {
             override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(text: Editable?) {
+                if (!settingQueuedInputs) failRepair(activeRepair, "approval")
                 if (changesScope && plannedBaseCommitSha != null && !settingQueuedInputs) {
                     queuedContextNeedsRefresh = true
                     queuedSource.text = "Queued task or scope changed. Prepare the selected step again, or explicitly clear the source pin for a manual task.\nPinned source: $plannedBaseCommitSha"
@@ -166,19 +189,24 @@ object PatchWorkbench {
                 val selected = provider.selectedItem?.toString().orEmpty()
                 if (selected != selectedProvider) {
                     selectedProvider = selected
+                    failRepair(activeRepair, "approval")
                     invalidate()
                 }
                 priorSelectionListener?.onItemSelected(parent, view, position, id)
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {
                 selectedProvider = ""
+                failRepair(activeRepair, "approval")
                 invalidate()
                 priorSelectionListener?.onNothingSelected(parent)
             }
         }
         approve.setOnCheckedChangeListener { _, _ -> refresh() }
         fun clearQueuedSource() {
+            failRepair(activeRepair, "approval")
             plannedBaseCommitSha = null
+            plannedBaseBranch = "feature/jarvis-developer"
+            activeRepair = null
             queuedContextNeedsRefresh = false
             queuedSource.text = "Manual coding task: a new preview reads the current development branch."
             invalidate()
@@ -212,6 +240,13 @@ object PatchWorkbench {
                 status.text = invalid
                 return@setOnClickListener
             }
+            val repair = activeRepair
+            try { repair?.first?.claimPreview(System.currentTimeMillis()) } catch (_: Exception) {
+                failRepair(repair, "preview")
+                invalidate()
+                status.text = "This repair preview was already used, expired or stopped. Review the repair session before preparing another attempt."
+                return@setOnClickListener
+            }
             invalidate()
             val startedRevision = revision
             busy = true
@@ -221,7 +256,7 @@ object PatchWorkbench {
             thread(name = "DeveloperPatchPreview") {
                 var stage = "pinned repository inventory"
                 try {
-                    val inventory = RepositoryIntelligence.inventory(token)
+                    val inventory = RepositoryIntelligence.inventory(token, frozen.baseBranch)
                     if (frozen.expectedBaseCommitSha != null &&
                         inventory.commitSha != frozen.expectedBaseCommitSha) {
                         stage = "queued source revision change"
@@ -236,7 +271,7 @@ object PatchWorkbench {
                             RepositoryIntelligence.readSource(token, inventory, path))
                     }
                     val request = PatchEngine.Request(frozen.taskId, frozen.task, inventory.commitSha,
-                        frozen.allowedPaths, sources, frozen.provider, frozen.model)
+                        frozen.allowedPaths, sources, frozen.provider, frozen.model, frozen.baseBranch)
                     stage = "source scope validation"
                     PatchEngine.validateRequest(request)
                     stage = "selected AI provider proposal"
@@ -249,9 +284,11 @@ object PatchWorkbench {
                             if (revision != startedRevision || metadata() != frozen) {
                                 review.text = "The preview completed after its task, provider, model or source scope changed. Its result was discarded; generate a new preview."
                                 status.text = "Stale preview discarded; no repository write requested"
+                                failRepair(repair, "preview")
                             } else if (generated.id in attemptedProposalIds) {
                                 review.text = "This exact proposal has already had a commit attempt. Check its task branch before proceeding. Use a new task ID and fresh review for a separate attempt."
                                 status.text = "Previously consumed approval cannot be reused"
+                                failRepair(repair, "preview")
                             } else {
                                 proposal = generated
                                 proposalMetadata = frozen
@@ -271,10 +308,16 @@ object PatchWorkbench {
                                 status.text = "Stale preview discarded"
                             } else {
                                 review.text = if (failedStage == "queued source revision change")
-                                    "The development branch moved after this plan was created. Create a new plan from fresh analysis, or explicitly switch to a manual task. The old plan's scope and decisions remain saved. No provider call or repository write was requested."
+                                    "The pinned source branch moved after this task was prepared. Create a new plan from fresh analysis, or explicitly switch to a manual task. The old plan's scope and decisions remain saved. No provider call or repository write was requested."
                                 else "Preview stopped during $failedStage. Check the explicit file scope, source access, provider key/model and source limits before trying a new preview. No repository write was requested."
                                 status.text = "Scoped diff preview unavailable"
                             }
+                            val outcome = when (failedStage) {
+                                "selected AI provider proposal" -> "provider"
+                                "complete diff validation" -> "preview"
+                                else -> "source"
+                            }
+                            failRepair(repair, outcome)
                         }
                     }
                 } finally {
@@ -305,12 +348,16 @@ object PatchWorkbench {
             val approved = try {
                 // Approval binds the current checkbox, frozen inputs and complete fingerprint.
                 check(metadata() == frozen && review.text.toString() == proposalReport)
-                PatchEngine.approve(selected, selected.id)
+                PatchEngine.approve(selected, selected.id).also { approval ->
+                    activeRepair?.first?.claimCommit(approval, System.currentTimeMillis())
+                }
             } catch (_: Exception) {
+                failRepair(activeRepair, "approval")
                 invalidate()
                 status.text = "The exact diff could not be approved. Generate and review a fresh preview."
                 return@setOnClickListener
             }
+            val repair = activeRepair
             attemptedProposalIds.add(selected.id)
             proposal = null
             proposalMetadata = null
@@ -329,6 +376,13 @@ object PatchWorkbench {
                             review.text = report
                             output.text = commitAudit(result) + "\nCI has not been checked."
                             status.text = "Task branch committed; CI status is unverified"
+                            repair?.let { pair ->
+                                activeRepair = null
+                                closeRepairContext()
+                                try { pair.second.committed(pair.first, result) } catch (_: Exception) {
+                                    status.text = "Commit created; repair audit unavailable. Verify the recorded task branch before further work."
+                                }
+                            }
                         }
                     }
                 } catch (failure: Exception) {
@@ -343,6 +397,7 @@ object PatchWorkbench {
                                 "\n\nCOMMIT ATTEMPT STOPPED\n$detail\nApproval was consumed. Unreferenced objects or a task branch may exist; check GitHub before a separate attempt. Rollback is not assumed and no retry will run automatically."
                             output.text = "Task: ${selected.request.taskId}\nBase SHA: ${selected.request.baseCommitSha}\nProposal: ${selected.id}\nExpected branch: ${PatchEngine.branchName(selected)}\n$detail\nApproval consumed; inspect GitHub before a new attempt."
                             status.text = "Commit stopped; review the recorded outcome before proceeding"
+                            failRepair(repair, "commit")
                         }
                     }
                 } finally {
@@ -362,6 +417,7 @@ object PatchWorkbench {
                 return@setOnClickListener
             }
             // Checking a build replaces any later preview, so its old approval is invalidated.
+            failRepair(activeRepair, "approval")
             invalidate()
             busy = true
             refresh()
@@ -400,41 +456,50 @@ object PatchWorkbench {
                 }
             }
         }
-        refresh()
-        return Handle(prepareAction = { id, description, paths, base ->
+        fun prepareInputs(id: String, description: String, paths: List<String>, base: String,
+            sourceBranch: String): Boolean {
             val safe = id.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,47}")) &&
                 description.isNotBlank() && description.length <= 12_000 &&
                 paths.size in 1..PatchEngine.MAX_FILES && paths.distinct().size == paths.size &&
                 paths.all(PatchEngine::allowedPath) && base.matches(Regex("[a-f0-9]{40}")) &&
-                (listOf(id, description) + paths).all {
+                BuildDiagnostics.validBranch(sourceBranch) &&
+                (listOf(id, description, sourceBranch) + paths).all {
                     RepositoryRedaction.line(it) == it && !it.contains("PRIVATE KEY-----") &&
                         it.none { char -> char == '\u0000' || char == '\u007f' ||
                             (char < ' ' && char !in "\n\r\t") }
                 }
-            if (busy || !safe) false else {
-                invalidate()
-                settingQueuedInputs = true
-                try {
-                    taskId.setText(id)
-                    task.setText(description)
-                    allowedPaths.setText(paths.joinToString("\n"))
-                } finally { settingQueuedInputs = false }
-                // Text watchers may invalidate old queue state while fields change. Pin only
-                // after every field has been filled, so those synchronous callbacks cannot unpin it.
-                plannedBaseCommitSha = base
-                queuedContextNeedsRefresh = false
-                queuedSource.text = "Queued task source: $base\nA moved development branch requires a new plan and fresh diff review. No approval was restored."
-                review.text = "Queued scope loaded. Generate a fresh diff, review every change and approve it explicitly."
-                status.text = "Queued step prepared for a new diff; no provider call or Git write requested"
-                refresh()
+            if (busy || !safe) return false
+            failRepair(activeRepair, "approval")
+            invalidate()
+            settingQueuedInputs = true
+            try {
+                taskId.setText(id)
+                task.setText(description)
+                allowedPaths.setText(paths.joinToString("\n"))
+            } finally { settingQueuedInputs = false }
+            // Pin after synchronous text watchers run; every preview checks this exact branch/SHA.
+            plannedBaseCommitSha = base
+            plannedBaseBranch = sourceBranch
+            queuedContextNeedsRefresh = false
+            queuedSource.text = "Queued task source: $sourceBranch @ $base\nA moved source branch requires fresh analysis and diff review. No approval was restored."
+            review.text = "Queued scope loaded. Generate a fresh diff, review every change and approve it explicitly."
+            status.text = "Queued step prepared for a new diff; no provider call or Git write requested"
+            refresh()
+            return true
+        }
+        refresh()
+        return Handle(prepareAction = ::prepareInputs, repairAction = { ticket, observer ->
+            if (prepareInputs(ticket.taskId, ticket.task, ticket.scope, ticket.baseCommitSha, ticket.baseBranch)) {
+                activeRepair = ticket to observer
                 true
-            }
+            } else false
         }, invalidateAction = {
+            // Callers own repair cancellation. Invalidating a preview alone cannot consume a ticket.
             if (busy) false else {
                 invalidate()
                 if (plannedBaseCommitSha != null) {
                     queuedContextNeedsRefresh = true
-                    queuedSource.text = "Queued context changed. Prepare the selected step again, or explicitly clear the source pin for a manual task.\nPinned source: $plannedBaseCommitSha"
+                    queuedSource.text = "Queued context changed. Prepare the selected step again, or explicitly clear the source pin for a manual task.\nPinned source: $plannedBaseBranch @ $plannedBaseCommitSha"
                 }
                 true
             }
@@ -448,7 +513,8 @@ object PatchWorkbench {
         val model: String,
         val allowedPaths: List<String>,
         val fingerprint: String,
-        val expectedBaseCommitSha: String?
+        val expectedBaseCommitSha: String?,
+        val baseBranch: String
     )
 
     private fun fingerprint(parts: List<String>): String {
@@ -465,6 +531,7 @@ object PatchWorkbench {
         val request = proposal.request
         append("Task: ").append(request.taskId).append('\n')
         append("Provider: ").append(request.provider).append(" / ").append(request.model).append('\n')
+        append("Source branch: ").append(request.baseBranch).append('\n')
         append("Base commit SHA: ").append(request.baseCommitSha).append('\n')
         append("Proposal SHA-256: ").append(proposal.id).append('\n')
         append("Input SHA-256: ").append(inputFingerprint).append('\n')
@@ -480,6 +547,7 @@ object PatchWorkbench {
         append("Task: ").append(result.taskId).append('\n')
         append("Provider: ").append(result.provider).append(" / ").append(result.model).append('\n')
         append("Proposal SHA-256: ").append(result.proposalId).append('\n')
+        append("Source branch: ").append(result.baseBranch).append('\n')
         append("Base commit SHA: ").append(result.baseCommitSha).append('\n')
         append("Task commit SHA: ").append(result.commitSha).append('\n')
         append("Task branch: ").append(result.branch).append('\n')

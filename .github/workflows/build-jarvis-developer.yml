@@ -22,10 +22,10 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v4
-      - name: Test codebase awareness and build standalone Developer APK
+      - name: Test, lint and build standalone Developer APK
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon :developer:testDebugUnitTest :developer:assembleDebug
+          ./gradlew --no-daemon :developer:testDebugUnitTest :developer:lintDebug :developer:assembleDebug
       - name: Record bounded acceptance evidence in CI logs
         if: always()
         run: |
@@ -61,6 +61,13 @@ jobs:
           assert decoded['baseCommitSha'] == os.environ['GITHUB_SHA'], 'Phase 3 source revision mismatch'
           print('JARVIS_PHASE3_EVIDENCE_SHA256=' + hashlib.sha256(data).hexdigest())
           print('JARVIS_PHASE3_EVIDENCE=' + json.dumps(decoded, separators=(',', ':')))
+          evidence = pathlib.Path('developer/build/reports/phase4-acceptance/seeded-repair-evidence.json')
+          assert evidence.is_file() and evidence.stat().st_size <= 64_000, 'Expected bounded Phase 4 evidence'
+          data = evidence.read_bytes()
+          decoded = json.loads(data)
+          assert decoded['actualExecutionCheckoutSha'] == os.environ['GITHUB_SHA'], 'Phase 4 source revision mismatch'
+          print('JARVIS_PHASE4_EVIDENCE_SHA256=' + hashlib.sha256(data).hexdigest())
+          print('JARVIS_PHASE4_EVIDENCE=' + json.dumps(decoded, separators=(',', ':')))
           PY
       - name: Upload Developer unit-test evidence
         if: always()
@@ -82,6 +89,20 @@ jobs:
         with:
           name: Jarvis-Developer-phase3-checkpoint-evidence
           path: developer/build/reports/phase3-acceptance/
+          if-no-files-found: warn
+      - name: Upload Phase 4 seeded repair evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-phase4-seeded-repair-evidence
+          path: developer/build/reports/phase4-acceptance/
+          if-no-files-found: warn
+      - name: Upload Developer lint evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-lint-results
+          path: developer/build/reports/lint-results-debug.*
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:

@@ -35,7 +35,8 @@ object PatchPublisher {
         val baseCommitSha: String,
         val commitSha: String,
         val branch: String,
-        val diff: String
+        val diff: String,
+        val baseBranch: String = BASE_BRANCH
     )
 
     enum class CiState { MISSING, QUEUED, RUNNING, PASSED, FAILED }
@@ -130,7 +131,7 @@ object PatchPublisher {
             var writesStarted = false
             var branchAttempted = false
             try {
-                require(head(token, BASE_BRANCH) == request.baseCommitSha) { "Base branch moved; regenerate and review the proposal" }
+                require(head(token, request.baseBranch) == request.baseCommitSha) { "Base branch moved; regenerate and review the proposal" }
                 val commit = call("GET", "/git/commits/${request.baseCommitSha}", token)
                 require(identity(commit) == request.baseCommitSha) { "Base commit identity mismatch" }
                 val baseTree = sha(commit.getJSONObject("tree").getString("sha"))
@@ -171,14 +172,14 @@ object PatchPublisher {
                     node.type == wanted.type && node.mode == wanted.mode && (node.type == "tree" || node.sha == wanted.sha)
                 }) { "Created tree differs from the approved file changes" }
                 val message = "Jarvis Developer: scoped task ${request.taskId}\n\n" +
-                    "Proposal: ${proposal.id}\nBase: ${request.baseCommitSha}\n" +
+                    "Proposal: ${proposal.id}\nBase: ${request.baseCommitSha}\nSource branch: ${request.baseBranch}\n" +
                     "Provider: ${auditLabel(request.provider)}\nModel: ${auditLabel(request.model)}"
                 val createdCommit = write(token, approved, "/git/commits", JSONObject().put("message", message)
                     .put("tree", treeSha).put("parents", JSONArray().put(request.baseCommitSha)))
                 val commitSha = identity(createdCommit)
                 validateCommit(createdCommit, commitSha, treeSha, request.baseCommitSha)
                 validateCommit(call("GET", "/git/commits/$commitSha", token), commitSha, treeSha, request.baseCommitSha)
-                require(head(token, BASE_BRANCH) == request.baseCommitSha) { "Base branch moved; task branch was not created" }
+                require(head(token, request.baseBranch) == request.baseCommitSha) { "Base branch moved; task branch was not created" }
                 stage = "new branch creation"
                 branchAttempted = true
                 val ref = write(token, approved, "/git/refs", JSONObject().put("ref", "refs/heads/$branch").put("sha", commitSha))
@@ -186,7 +187,7 @@ object PatchPublisher {
                 validateRef(ref, branch, commitSha)
                 require(head(token, branch) == commitSha) { "Task branch readback failed" }
                 return CommitResult(request.taskId, request.provider, request.model, proposal.id,
-                    proposal.edits.map { it.path }.sorted(), request.baseCommitSha, commitSha, branch, proposal.diff)
+                    proposal.edits.map { it.path }.sorted(), request.baseCommitSha, commitSha, branch, proposal.diff, request.baseBranch)
             } catch (failure: Exception) {
                 // Object creation can leave unreachable objects; a failed ref request can have an unknown outcome.
                 // Never retry or overwrite a ref automatically.
@@ -204,6 +205,7 @@ object PatchPublisher {
         fun ci(token: String, result: CommitResult): CiStatus {
             sha(result.baseCommitSha)
             sha(result.commitSha)
+            require(BuildDiagnostics.validBranch(result.baseBranch)) { "Invalid source branch" }
             require(result.taskId.matches(Regex("[a-zA-Z0-9][a-zA-Z0-9_-]{0,47}")) &&
                 result.proposalId.matches(Regex("[a-f0-9]{64}")) &&
                 result.branch == "feature/jarvis-developer-task/${result.taskId}-${result.proposalId.take(12)}") { "Invalid task build identity" }

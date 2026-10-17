@@ -83,6 +83,8 @@ class PatchEngineTest {
             "developer/src/main/java/com/jarvis/developer/PatchWorkbench.kt", "developer/src/main/java/com/jarvis/developer/RepositoryIntelligence.kt",
             "developer/src/main/java/com/jarvis/developer/TaskPlanner.kt", "developer/src/main/java/com/jarvis/developer/TaskPlanStore.kt",
             "developer/src/main/java/com/jarvis/developer/TaskPlanningWorkbench.kt",
+            "developer/src/main/java/com/jarvis/developer/BuildFeedback.kt", "developer/src/main/java/com/jarvis/developer/BuildDiagnostics.kt",
+            "developer/src/main/java/com/jarvis/developer/RepairEngine.kt", "developer/src/main/java/com/jarvis/developer/RepairWorkbench.kt",
             "developer/src/main/java/com/jarvis/developer/GithubPlans.kt", "developer/src/main/java/com/jarvis/developer/ModelAdapter.kt",
             "developer/src/main/java/com/jarvis/developer/UpdateChannel.kt", "developer/src/main/java/com/jarvis/developer/SigningConfig.kt",
             "developer/src/main/java/com/jarvis/developer/A%2fB.kt", "developer/src/main/java/com/jarvis/developer/A\\B.kt")) {
@@ -211,6 +213,36 @@ class PatchEngineTest {
         val alteredSource = original.replace("= 1", "= 0")
         val altered = result.request.copy(sources = listOf(PatchEngine.SourceFile(sourcePath, sha(alteredSource), alteredSource)))
         rejects("fingerprint") { PatchEngine.revalidate(PatchEngine.Proposal(altered, result.edits, result.summary, result.id, result.diff)) }
+    }
+
+    @Test fun proposalAndApprovalBindTheExactIsolatedSourceBranch() {
+        val result = proposal()
+        val firstBranch = "feature/jarvis-developer-task/failed-build-123456789abc"
+        val secondBranch = "feature/jarvis-developer-task/failed-build-abcdef012345"
+        val fromRepairBranch = PatchEngine.parse(result.request.copy(baseBranch = firstBranch), json(sourcePath to changed))
+        val fromAnotherBranch = PatchEngine.parse(result.request.copy(baseBranch = secondBranch), json(sourcePath to changed))
+        assertEquals("feature/jarvis-developer", result.request.baseBranch)
+        assertEquals(result.id, PatchEngine.parse(result.request.copy(baseBranch = "feature/jarvis-developer"), json(sourcePath to changed)).id)
+        assertEquals(result.diff, fromRepairBranch.diff)
+        assertNotEquals(result.id, fromRepairBranch.id)
+        assertNotEquals(fromRepairBranch.id, fromAnotherBranch.id)
+        assertNotEquals(PatchEngine.branchName(result), PatchEngine.branchName(fromRepairBranch))
+        PatchEngine.validateApproval(PatchEngine.approve(fromRepairBranch, fromRepairBranch.id))
+        rejects("fingerprint") {
+            PatchEngine.revalidate(PatchEngine.Proposal(fromRepairBranch.request.copy(baseBranch = secondBranch),
+                fromRepairBranch.edits, fromRepairBranch.summary, fromRepairBranch.id, fromRepairBranch.diff))
+        }
+        rejects("Exact") { PatchEngine.approve(fromRepairBranch, result.id) }
+    }
+
+    @Test fun sourceBranchRejectsMainTagsTraversalMalformedAndCredentialNames() {
+        val secretName = "ghp_" + "x".repeat(30)
+        for (branch in listOf("main", "master", "refs/tags/developer-latest", "refs/heads/feature/jarvis-developer",
+            "feature/jarvis-developer/../main", "feature/jarvis-developer-task/failed-build-123456789ab",
+            "feature/jarvis-developer-task/failed-build-123456789abc/extra",
+            "feature/jarvis-developer-task/$secretName-123456789abc")) {
+            rejects { PatchEngine.validateRequest(request().copy(baseBranch = branch)) }
+        }
     }
 
     @Test fun approvalRechecksMutationAndParserSnapshotsCallerLists() {

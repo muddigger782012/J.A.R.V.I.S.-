@@ -71,15 +71,15 @@ object RepositoryIntelligence {
         }
     }
 
-    fun inventory(token: String): RepositoryAnalysis.Inventory = Reader(http).inventory(token)
+    fun inventory(token: String, branch: String = BRANCH): RepositoryAnalysis.Inventory = Reader(http).inventory(token, branch)
 
     fun readSource(token: String, inventory: RepositoryAnalysis.Inventory, path: String): String =
         Reader(http).readSource(token, inventory, path)
 
-    fun analyze(token: String, task: String): RepositoryAnalysis.AnalysisPlan = analyzeSnapshot(token, task).second
+    fun analyze(token: String, task: String, branch: String = BRANCH): RepositoryAnalysis.AnalysisPlan = analyzeSnapshot(token, task, branch).second
 
-    fun analyzeSnapshot(token: String, task: String): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> =
-        Reader(http).analyzeSnapshot(token, task)
+    fun analyzeSnapshot(token: String, task: String, branch: String = BRANCH): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> =
+        Reader(http).analyzeSnapshot(token, task, branch)
 
     /** Injectable for deterministic JVM tests; it exposes neither write methods nor arbitrary hosts. */
     internal class Reader(
@@ -90,10 +90,11 @@ object RepositoryIntelligence {
         private var requestCount = 0
         private var stoppedReason: String? = null
 
-        fun inventory(token: String): RepositoryAnalysis.Inventory {
-            val encodedBranch = URLEncoder.encode(BRANCH, "UTF-8")
+        fun inventory(token: String, branch: String = BRANCH): RepositoryAnalysis.Inventory {
+            require(BuildDiagnostics.validBranch(branch)) { "Repository branch is outside isolated Developer scope" }
+            val encodedBranch = URLEncoder.encode(branch, "UTF-8")
             val ref = getJson("$API/git/ref/heads/$encodedBranch", token, 64_000)
-            require(ref.getString("ref") == "refs/heads/$BRANCH") { "Unexpected repository reference" }
+            require(ref.getString("ref") == "refs/heads/$branch") { "Unexpected repository reference" }
             val refObject = ref.getJSONObject("object")
             require(refObject.getString("type") == "commit") { "Repository reference is not a commit" }
             val commitSha = validSha(refObject.getString("sha"))
@@ -166,13 +167,13 @@ object RepositoryIntelligence {
             return strictUtf8(decoded)
         }
 
-        fun analyze(token: String, task: String): RepositoryAnalysis.AnalysisPlan {
-            return analyzeSnapshot(token, task).second
+        fun analyze(token: String, task: String, branch: String = BRANCH): RepositoryAnalysis.AnalysisPlan {
+            return analyzeSnapshot(token, task, branch).second
         }
 
-        fun analyzeSnapshot(token: String, task: String): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> {
+        fun analyzeSnapshot(token: String, task: String, branch: String = BRANCH): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> {
             require(task.isNotBlank() && task.length <= 4_000) { "Task must contain 1–4,000 characters" }
-            val inventory = inventory(token)
+            val inventory = inventory(token, branch)
             val plan = RepositoryAnalysis.analyze(task, inventory) { path -> readSource(token, inventory, path) }
             val reason = stoppedReason
             return inventory to if (reason == null) plan else plan.copy(limitations = plan.limitations + reason)
@@ -227,8 +228,26 @@ object RepositoryIntelligence {
     internal fun requireApiUrl(value: String) {
         val uri = URI(value)
         require(uri.scheme == "https" && uri.host == "api.github.com" && uri.port == -1 &&
-            uri.rawUserInfo == null && uri.rawFragment == null && uri.rawPath.startsWith("/repos/$REPOSITORY/")) {
+            uri.rawUserInfo == null && uri.rawFragment == null && value.startsWith(API + "/")) {
             "Repository reads must stay on the approved GitHub API origin"
+        }
+        val endpoint = value.removePrefix(API)
+        val refPrefix = "/git/ref/heads/"
+        val ref = if (endpoint.startsWith(refPrefix)) {
+            val encoded = endpoint.removePrefix(refPrefix)
+            try {
+                val branch = java.net.URLDecoder.decode(encoded, "UTF-8")
+                BuildDiagnostics.validBranch(branch) && URLEncoder.encode(branch, "UTF-8") == encoded
+            } catch (_: Exception) { false }
+        } else false
+        val source = if (endpoint.startsWith("/contents/")) {
+            val path = endpoint.removePrefix("/contents/").substringBefore("?ref=")
+            allowedSource(path) && endpoint == "/contents/$path?ref=${endpoint.substringAfter("?ref=", "")}" &&
+                endpoint.substringAfter("?ref=", "").matches(Regex("[a-f0-9]{40}"))
+        } else false
+        require(ref || source || endpoint.matches(Regex("/git/commits/[a-f0-9]{40}")) ||
+            endpoint.matches(Regex("/git/trees/[a-f0-9]{40}\\?recursive=1"))) {
+            "Repository operation is outside scoped read-only analysis"
         }
     }
 

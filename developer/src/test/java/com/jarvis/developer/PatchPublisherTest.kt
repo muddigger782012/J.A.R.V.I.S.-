@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import java.net.URLEncoder
 import java.security.MessageDigest
 import java.util.Base64
 
@@ -14,6 +15,7 @@ class PatchPublisherTest {
         val result = fixture.publisher().commit(TOKEN, fixture.approved)
         assertEquals(NEW_COMMIT, result.commitSha)
         assertEquals(BASE, result.baseCommitSha)
+        assertEquals("feature/jarvis-developer", result.baseBranch)
         assertEquals(fixture.proposal.id, result.proposalId)
         assertEquals(listOf(KOTLIN, XML).sorted(), result.paths)
         assertEquals(fixture.proposal.diff, result.diff)
@@ -41,6 +43,37 @@ class PatchPublisherTest {
         fixture.baseHead = OTHER
         assertFailure("base revision check") { fixture.publisher().commit(TOKEN, fixture.approved) }
         assertTrue(fixture.posts().isEmpty())
+    }
+
+    @Test fun repairSourceCreatesOnlyANewSiblingAndRetainsSourceBranchAttribution() {
+        val sourceBranch = "feature/jarvis-developer-task/failed-build-123456789abc"
+        val fixture = Fixture(sourceBranch = sourceBranch)
+        val result = fixture.publisher().commit(TOKEN, fixture.approved)
+        assertEquals(sourceBranch, result.baseBranch)
+        assertEquals(BASE, result.baseCommitSha)
+        assertNotEquals(sourceBranch, result.branch)
+        assertEquals(BASE, fixture.baseHead)
+        assertEquals(NEW_COMMIT, fixture.branchHead)
+        assertEquals(2, fixture.calls.count { it.method == "GET" && it.path == branchPath(sourceBranch) })
+        assertFalse(fixture.calls.any { it.path == branchPath("feature/jarvis-developer") })
+        assertTrue(fixture.calls.all { it.method == "GET" || (it.method == "POST" && it.path in setOf("/git/blobs", "/git/trees", "/git/commits", "/git/refs")) })
+        val commit = fixture.posts().single { it.path == "/git/commits" }.body!!
+        assertEquals(listOf(BASE), strings(commit.getJSONArray("parents")))
+        assertTrue(commit.getString("message").contains("Source branch: $sourceBranch"))
+        val refs = fixture.posts().filter { it.path == "/git/refs" }
+        assertEquals(1, refs.size)
+        assertEquals("refs/heads/${result.branch}", refs.single().body!!.getString("ref"))
+        assertEquals(NEW_COMMIT, refs.single().body!!.getString("sha"))
+    }
+
+    @Test fun movedRepairSourceStopsBeforeAnyWriteOrDefaultBranchRead() {
+        val sourceBranch = "feature/jarvis-developer-task/failed-build-123456789abc"
+        val fixture = Fixture(sourceBranch = sourceBranch)
+        fixture.baseHead = OTHER
+        assertFailure("base revision check") { fixture.publisher().commit(TOKEN, fixture.approved) }
+        assertTrue(fixture.posts().isEmpty())
+        assertEquals(listOf(branchPath(sourceBranch)), fixture.calls.map { it.path })
+        assertNull(fixture.branchHead)
     }
 
     @Test fun modifiedProposalInvalidatesApprovalBeforeAnyRequest() {
@@ -199,6 +232,14 @@ class PatchPublisherTest {
         assertEquals(PatchPublisher.CiState.RUNNING, fixture.publisher().ci(TOKEN, result).state)
     }
 
+    @Test fun ciRejectsInvalidRepairSourceProvenanceBeforeAnyRequest() {
+        val fixture = Fixture(sourceBranch = "feature/jarvis-developer-task/failed-build-123456789abc")
+        val result = fixture.publisher().commit(TOKEN, fixture.approved)
+        fixture.calls.clear()
+        assertFailure("Invalid source branch") { fixture.publisher().ci(TOKEN, result.copy(baseBranch = "main")) }
+        assertTrue(fixture.calls.isEmpty())
+    }
+
     @Test fun githubApiDeniesAllUnrelatedOrExistingRefWriteEndpoints() {
         listOf(
             "PATCH" to "/git/refs/heads/feature/jarvis-developer",
@@ -220,7 +261,7 @@ class PatchPublisherTest {
 
     private data class Call(val method: String, val path: String, val body: JSONObject?)
 
-    private class Fixture(creation: Boolean = false) {
+    private class Fixture(creation: Boolean = false, private val sourceBranch: String = "feature/jarvis-developer") {
         private val originals = linkedMapOf(
             KOTLIN to "package com.jarvis.developer\nobject PublisherExample { val enabled = false }\n",
             XML to "<resources><string name=\"publisher_example\">Before</string></resources>\n"
@@ -257,7 +298,7 @@ class PatchPublisherTest {
                 PatchEngine.SourceFile(path, content?.let { blob(it) }, content)
             }
             val request = PatchEngine.Request("publisher-test", "Make a bounded example improvement", BASE,
-                changes.keys.toList(), sources, "openai", "test-model")
+                changes.keys.toList(), sources, "openai", "test-model", sourceBranch)
             val edits = JSONArray()
             changes.forEach { (path, content) -> edits.put(JSONObject().put("path", path).put("content", content)) }
             proposal = PatchEngine.parse(request, JSONObject().put("summary", "Improve two scoped example sources").put("edits", edits).toString())
@@ -270,12 +311,13 @@ class PatchPublisherTest {
             calls.add(Call(method, path, payload?.let { JSONObject(it.toString()) }))
             failureMessage?.let { throw IllegalStateException(it) }
             when {
-                method == "GET" && path == "/git/ref/heads/feature%2Fjarvis-developer" -> {
+                method == "GET" && path == branchPath(sourceBranch) -> {
                     baseChecks++
                     if (moveBaseOnRecheck && baseChecks > 1) baseHead = OTHER
-                    ref("feature/jarvis-developer", baseHead)
+                    ref(sourceBranch, baseHead)
                 }
                 method == "GET" && path.startsWith("/git/ref/heads/") -> {
+                    assertEquals(branchPath(PatchEngine.branchName(proposal)), path)
                     val head = branchHead ?: throw PatchPublisher.ApiFailure(404)
                     ref(PatchEngine.branchName(proposal), if (wrongReadback && refCreated) OTHER else head)
                 }
@@ -324,6 +366,7 @@ class PatchPublisherTest {
         private const val KOTLIN = "developer/src/main/java/com/jarvis/developer/ExampleStatus.kt"
         private const val XML = "developer/src/main/res/values/example_status.xml"
         private const val NEW_FILE = "developer/src/main/java/com/jarvis/developer/newfeature/NewExample.kt"
+        private fun branchPath(branch: String) = "/git/ref/heads/${URLEncoder.encode(branch, "UTF-8")}"
         private fun blob(content: String): String {
             val bytes = content.toByteArray(Charsets.UTF_8)
             val digest = MessageDigest.getInstance("SHA-1")

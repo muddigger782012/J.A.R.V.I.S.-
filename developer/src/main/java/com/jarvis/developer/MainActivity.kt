@@ -201,6 +201,7 @@ class MainActivity : Activity() {
             health.getInt("confirmed_version", -1) == currentCode
         }
         TaskPlanningWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        RepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         root.addView(iconTest)
         if (recoveryWarning) {
             iconTest.isEnabled = false

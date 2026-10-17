@@ -25,7 +25,8 @@ object PatchEngine {
         val allowedPaths: List<String>,
         val sources: List<SourceFile>,
         val provider: String,
-        val model: String
+        val model: String,
+        val baseBranch: String = "feature/jarvis-developer"
     )
     data class Edit(val path: String, val content: String)
 
@@ -56,7 +57,7 @@ object PatchEngine {
     private val identifier = Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,47}")
     private val safePath = Regex("[A-Za-z0-9_./-]+")
     private val protectedName = Regex(
-        "(?i)(?:agent|patch|github|repository|taskplan|model|provider|transport|credential|secret|token|password|signing|keystore|updat|release|recovery|approval|publish|mainactivity|buildconfig|apikey|api_key|networksecurity)"
+        "(?i)(?:agent|patch|github|repository|taskplan|buildfeedback|builddiagnostic|repairengine|repairworkbench|model|provider|transport|credential|secret|token|password|signing|keystore|updat|release|recovery|approval|publish|mainactivity|buildconfig|apikey|api_key|networksecurity)"
     )
     private val knownSecret = Regex("\\b(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}|AIza[A-Za-z0-9_-]{20,})\\b|-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----")
     private val namedSecret = Regex("(?i)(?<![A-Za-z0-9_])(?:[A-Za-z0-9_]{0,120}(?:api[_-]?key|token|password|secret|authorization))[\"']?\\s*+(?::\\s*+[A-Za-z?]++)?\\s*+[=:]\\s*+[\"'][^\"'\\r\\n]++[\"']")
@@ -82,6 +83,7 @@ object PatchEngine {
     fun validateRequest(request: Request) {
         require(identifier.matches(request.taskId)) { "Invalid task ID" }
         require(gitSha.matches(request.baseCommitSha)) { "Full immutable base commit SHA is required" }
+        require(BuildDiagnostics.validBranch(request.baseBranch)) { "Source branch is outside the isolated Developer scope" }
         require(request.task.isNotBlank() && request.task.length <= 12_000) { "Task is empty or too large" }
         require(request.provider.matches(Regex("[A-Za-z][A-Za-z0-9 ._-]{0,63}"))) { "Invalid provider" }
         require(request.model.matches(Regex("[A-Za-z0-9][A-Za-z0-9._/-]{0,119}"))) { "Invalid model" }
@@ -89,6 +91,7 @@ object PatchEngine {
         safeText(request.task)
         safeText(request.provider)
         safeText(request.model)
+        safeText(request.baseBranch)
         require(request.allowedPaths.size in 1..MAX_FILES) { "Scope must contain 1..$MAX_FILES files" }
         require(request.allowedPaths.distinct().size == request.allowedPaths.size) { "Duplicate allowed path" }
         require(request.allowedPaths.all(::allowedPath)) { "Path is outside Developer patch allowlist" }
@@ -279,6 +282,10 @@ object PatchEngine {
         field(request.allowedPaths.size.toString()); request.allowedPaths.forEach { field(it) }
         field(request.sources.size.toString()); request.sources.forEach { field(it.path); field(it.sha); field(it.content) }
         field(summary); field(edits.size.toString()); edits.forEach { field(it.path); field(it.content) }
+        // Preserve existing default-branch proposal IDs while binding repair branch provenance.
+        if (request.baseBranch != "feature/jarvis-developer") {
+            field("source-branch"); field(request.baseBranch)
+        }
         return hex(digest.digest())
     }
 

@@ -134,6 +134,7 @@ object PatchModel {
         val context = JSONObject()
             .put("taskId", request.taskId).put("task", request.task)
             .put("baseCommitSha", request.baseCommitSha)
+            .put("baseBranch", request.baseBranch)
             .put("allowedPaths", JSONArray(request.allowedPaths))
             .put("sources", JSONArray(request.sources.map { source ->
                 JSONObject().put("path", source.path).put("sha", source.sha ?: JSONObject.NULL)

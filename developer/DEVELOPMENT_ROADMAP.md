@@ -2,6 +2,16 @@
 
 Status: approved product plan; **not** an assertion of implemented functionality. Owner-approved direction: an AI developer that can improve Jarvis and build other applications while protecting a known-good release.
 
+## Phase 4 implementation status — 2026-10-17
+
+The owner instructed continuation with Phase 4 after Phase 3. Source implementation is in progress on `feature/jarvis-developer`, based on `4d876a0eea1f074a98436d00fba79a762be0c33e`. Recovery remains deferred and unverified; its historical backup/403/401 evidence below is preserved. This task authorizes implementation and validation, without publication, installation, credential changes, update-channel changes or main merges.
+
+Implemented for CI validation: exact-source GET-only debug feedback, bounded redacted compiler/JUnit diagnostics, two-attempt/30-minute repair sessions, regression-baseline comparison, single-use repair tickets, source-branch-bound patch proposals and new sibling branch commits, and explicit native feedback/repair controls. Every correction requires a fresh preview, full diff review and exact approval through Phase 2. Optional Phase 3 notes retain metadata only. Missing evidence, repeated failures, regression coverage loss, infrastructure failures and uncertain writes stop the session. No automated write/retry or release flow is introduced.
+
+Validation pending: production diagnostics/transport/session tests, source-branch publisher protocol tests, actual seeded `javac`/Java behavior failures corrected in two bounded reviewed fixture attempts, all prior acceptance tests, theme checks, lint, debug assembly and the unchanged signed-candidate build. Fixture provider/CI envelopes/commit identities are explicitly modeled; actual Java compiler/check execution and unchanged analyzed checkout bytes are asserted. Device/instrumentation, live provider and Android HTTP transport, all-theme interaction, and recovery remain unverified. Source/CI acceptance is not claimed until those results are recorded here. Phase 5 has not started.
+
+Scope and planned evidence: production additions `BuildDiagnostics.kt`, `BuildFeedback.kt`, `RepairEngine.kt`, `RepairWorkbench.kt`; modifications to `RepositoryIntelligence.kt`, `PatchEngine.kt`, `PatchModel.kt`, `PatchPublisher.kt`, `PatchWorkbench.kt` and `MainActivity.kt`; corresponding tests including `RepairAcceptanceTest.kt`; isolated debug workflow evidence/lint steps; this roadmap and `docs/development-plans/developer-phase4-testing-debugging.md`. Normal Jarvis/Beta source, package IDs, credential/signing configuration, release workflow and update channels are unchanged by Phase 4.
+
 
 ## Phase 3 implementation status — 2026-10-16
 
