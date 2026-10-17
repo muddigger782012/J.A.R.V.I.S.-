@@ -57,4 +57,11 @@ class ContactNameMatcherTest {
     @Test fun fredIsNotSilentlyAssumedToBeFreddie() {
         assertNull(ContactNameMatcher.uniquePhoneFor("Fred", listOf("Freddie" to "555-0101")))
     }
+    @Test fun brettAndBrittAreSuggestionsNotAutomaticCallMatches() {
+        assertEquals("Brett", ContactNameMatcher.spokenAlternative("Britt"))
+        assertEquals("Britt", ContactNameMatcher.spokenAlternative("Brett"))
+        assertNull(ContactNameMatcher.uniquePhoneFor("Britt", listOf("Brett" to "555-0101")))
+        assertNull(ContactNameMatcher.spokenAlternative("Freddie"))
+    }
+
 }

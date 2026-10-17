@@ -32,6 +32,13 @@ object ContactNameMatcher {
         return MatchResult(MatchStatus.FOUND, matches.first { it.second.filter(Char::isDigit) == numbers.single() }.second)
     }
 
+    /** Suggest a known speech-recognition alternative without silently placing a call. */
+    fun spokenAlternative(name: String): String? = when (normalize(name)) {
+        "britt" -> "Brett"
+        "brett" -> "Britt"
+        else -> null
+    }
+
     /** Return a number only when all matching rows resolve to one phone number. */
     fun uniquePhoneFor(name: String, contacts: List<Pair<String, String>>): String? =
         resolve(name, contacts).number

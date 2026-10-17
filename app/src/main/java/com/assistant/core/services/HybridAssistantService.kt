@@ -834,7 +834,13 @@ class HybridAssistantService(
                 ok && dialOnly -> "Opening the dialer for $target."
                 ok -> "Starting the call to $target."
                 number == null && contactResult?.status == ContactNameMatcher.MatchStatus.AMBIGUOUS -> "I found more than one possible phone number or contact for $target. Please specify the exact contact and number in your Contacts app before calling."
-                number == null -> "I couldn't find $target in your contacts with a phone number."
+                number == null -> {
+                    val alternative = ContactNameMatcher.spokenAlternative(target)
+                    val possible = alternative?.let { androidAssistant.resolveContact(it) }
+                    if (possible?.status == ContactNameMatcher.MatchStatus.FOUND)
+                        "I heard $target, but found a contact named $alternative. Did you mean $alternative? Please say call $alternative to confirm."
+                    else "I couldn't find $target in your contacts with a phone number."
+                }
                 else -> "Android couldn't start the call. Check Phone permission and your phone app."
             }
             remember(userInput, response); return HybridAssistantReply(response)
