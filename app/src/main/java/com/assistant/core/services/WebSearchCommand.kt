@@ -47,7 +47,7 @@ object WebSearchCommand {
     /** Artist/title phrasing identifies a music lookup without guessing from arbitrary names. */
     fun titledMusicQuery(input: String): String? {
         val match = Regex(
-            """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:find|show|get|search\s+for|look\s+up)\s+(?:me\s+)?(?:(?:the|a)\s+)?(?:song|track)\s+(.+?)\s+by\s+(.+)$""",
+            """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:find|show|get|search\s+for|look\s+up)\s+(?:me\s+)?(?:(?:the|a)\s+)?(.+?)\s+by\s+(.+?)\s+(?:song|track)$""",
             RegexOption.IGNORE_CASE
         ).matchEntire(input.trim()) ?: return null
         val title = match.groupValues[1].trim()
