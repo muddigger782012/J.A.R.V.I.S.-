@@ -24,6 +24,16 @@ object WebSearchCommand {
             !Regex("(?i)^(?:a |the )?(?:link|url)\\b").containsMatchIn(it) }
     }
 
+    /** Search a named song only when the user explicitly says song or music. */
+    fun musicQuery(input: String): String? {
+        val match = Regex(
+            """^(?:please\\s+)?(?:can\\s+you\\s+|could\\s+you\\s+)?(?:find|show|get|search\\s+for|look\\s+up)\\s+(?:me\\s+)?(?:(?:the|a)\\s+)?(?:song|track|music)\\s+(?:called|named|by|from)?\\s*(.+)$""",
+            RegexOption.IGNORE_CASE
+        ).matchEntire(input.trim()) ?: return null
+        return match.groupValues[1].trim().trimEnd('.', '?', '!').trim()
+            .takeIf { it.length in 2..260 }?.let { "$it song" }
+    }
+
     fun isVideoLinkFollowup(input: String): Boolean = Regex(
         """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:find|show|get|send)\s+(?:me\s+)?(?:a\s+|the\s+)?(?:link|url)\s+(?:to|for)\s+(?:(?:the|that|this)\s+)?(?:video|clip)(?:\s+instead)?[.!?]*$""",
         RegexOption.IGNORE_CASE
