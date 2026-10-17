@@ -50,8 +50,8 @@ class LiveSpeechCapture(private val context: Context) {
                             (results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)?.getOrNull(index) ?: -1f) }
                         .filter { it.first.isNotBlank() }.distinctBy { it.first }.take(5)
                     val text = candidates.firstOrNull()?.first.orEmpty()
-                    if (candidates.isNotEmpty()) onHypotheses(candidates)
                     stop()
+                    if (candidates.isNotEmpty()) onHypotheses(candidates)
                     if (text.isBlank()) onError(SpeechRecognizer.ERROR_NO_MATCH) else onResult(text)
                 }
                 override fun onError(error: Int) {
