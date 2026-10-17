@@ -7,18 +7,23 @@ object TaskFileSummary {
         val files = paths.distinct().sorted()
         val counts = linkedMapOf("Kotlin" to 0, "Java" to 0, "XML" to 0, "Gradle" to 0, "Other" to 0)
         files.forEach { path ->
-            val name = path.substringAfterLast('/').lowercase(java.util.Locale.ROOT)
-            val type = when {
-                name.endsWith(".gradle") || name.endsWith(".gradle.kts") -> "Gradle"
-                name.endsWith(".kt") || name.endsWith(".kts") -> "Kotlin"
-                name.endsWith(".java") -> "Java"
-                name.endsWith(".xml") -> "XML"
-                else -> "Other"
-            }
+            val type = typeForPath(path)
             counts[type] = counts.getValue(type) + 1
         }
         val count = "${files.size} ${if (files.size == 1) "file" else "files"}"
         val types = "Types: " + counts.entries.joinToString(", ") { "${it.key} ${it.value}" }
         return (listOf(count, types) + files).joinToString("\n")
+    }
+
+    /** Classify the filename suffix independently of parent paths and display order. */
+    private fun typeForPath(path: String): String {
+        val name = path.substringAfterLast('/').lowercase(java.util.Locale.ROOT)
+        return when {
+            name.endsWith(".gradle") || name.endsWith(".gradle.kts") -> "Gradle"
+            name.endsWith(".kt") || name.endsWith(".kts") -> "Kotlin"
+            name.endsWith(".java") -> "Java"
+            name.endsWith(".xml") -> "XML"
+            else -> "Other"
+        }
     }
 }
