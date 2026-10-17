@@ -94,4 +94,11 @@ class WebSearchCommandTest {
         assertNull(WebSearchCommand.musicQuery("Find me the song"))
     }
 
+    @Test fun titledMusicSuffixDoesNotInterceptGeneralFindCommands() {
+        assertEquals("Addicted by Saving Abel song", WebSearchCommand.titledMusicQuery("Find me Addicted by Saving Abel song"))
+        assertNull(WebSearchCommand.titledMusicQuery("Find me Saving Abel Addicted"))
+        assertNull(WebSearchCommand.titledMusicQuery("Find me a contact by Freddie"))
+        assertNull(WebSearchCommand.titledMusicQuery("Find me a repair manual by Ford"))
+    }
+
 }

@@ -925,7 +925,7 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        (WebSearchCommand.query(userInput) ?: WebSearchCommand.musicQuery(userInput) ?: WebSearchCommand.currentInfoQuery(userInput)
+        (WebSearchCommand.query(userInput) ?: WebSearchCommand.musicQuery(userInput) ?: WebSearchCommand.titledMusicQuery(userInput) ?: WebSearchCommand.currentInfoQuery(userInput)
             ?: WebSearchCommand.downloadFollowupQuery(userInput, history.lastOrNull()?.first))?.let { query ->
             val url = android.net.Uri.parse("https://www.google.com/search")
                 .buildUpon().appendQueryParameter("q", query).build()

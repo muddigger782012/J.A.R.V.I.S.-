@@ -44,6 +44,19 @@ object WebSearchCommand {
             .takeIf { it.length in 2..260 }?.let { "$it song" }
     }
 
+    /** Artist/title phrasing identifies a music lookup without guessing from arbitrary names. */
+    fun titledMusicQuery(input: String): String? {
+        val match = Regex(
+            """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:find|show|get|search\s+for|look\s+up)\s+(?:me\s+)?(?:(?:the|a)\s+)?(.+?)\s+by\s+(.+?)\s+(?:song|track)$""",
+            RegexOption.IGNORE_CASE
+        ).matchEntire(input.trim()) ?: return null
+        val title = match.groupValues[1].trim()
+        val artist = match.groupValues[2].trim().trimEnd('.', '?', '!').trim()
+        if (title.length !in 2..120 || artist.length !in 2..120) return null
+        if (Regex("""(?i)\b(?:contact|number|phone|address|person|app|application|file|folder|document|photo|image|picture|video|clip)\b""").containsMatchIn(title)) return null
+        return "$title by $artist song"
+    }
+
     fun isVideoLinkFollowup(input: String): Boolean = Regex(
         """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:find|show|get|send)\s+(?:me\s+)?(?:a\s+|the\s+)?(?:link|url)\s+(?:to|for)\s+(?:(?:the|that|this)\s+)?(?:video|clip)(?:\s+instead)?[.!?]*$""",
         RegexOption.IGNORE_CASE
