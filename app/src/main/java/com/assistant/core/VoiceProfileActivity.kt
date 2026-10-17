@@ -129,14 +129,20 @@ class VoiceProfileActivity : ThemedActivity() {
                         true -> {
                             status("Listening. Say: $expected")
                             handler.postDelayed({ if (token == current) endCapture("No result arrived. Try again in a quiet place.") }, 20000L)
+                            var hypotheses = emptyList<Pair<String, Float>>()
                             capture.listen(true, { partial -> status("Hearing: $partial") }, { result ->
                                 endCapture("")
                                 heard = result
-                                label(R.id.voiceProfileHeard).text = "Heard: $result"
+                                val alternatives = hypotheses.drop(1).take(4).joinToString("\n") { (text, score) ->
+                                    "Alternative: $text" + if (score >= 0f) " (confidence ${"%.2f".format(Locale.US, score)})" else ""
+                                }
+                                label(R.id.voiceProfileHeard).text = "Heard: $result" +
+                                    if (alternatives.isBlank()) "" else "\n$alternatives"
                                 field(R.id.voiceProfileIntended).setText(expected)
                                 findViewById<View>(R.id.voiceProfileReview).visibility = View.VISIBLE
                                 status("Review the intended wording before approving. Nothing has been saved or run.")
-                            }, { error -> endCapture(errorMessage(error)) }, onDeviceOnly = device, useProfileHints = attemptHinted)
+                            }, { error -> endCapture(errorMessage(error)) }, onDeviceOnly = device, useProfileHints = attemptHinted,
+                                onHypotheses = { hypotheses = it })
                         }
                         false -> endCapture("The microphone is in use. End live chat or other practice before retrying.")
                         null -> if (++polls >= 30) endCapture("Wake listening did not release the microphone. Retry shortly.") else handler.postDelayed(this, 100L)
