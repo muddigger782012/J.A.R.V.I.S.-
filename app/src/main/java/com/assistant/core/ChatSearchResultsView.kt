@@ -69,9 +69,8 @@ object ChatSearchResultsView {
         fun open(item: SearchRouter.Result) {
             if (!ChatSearchResults.safeUrl(item.url)) return
             if (item.kind == "video") SearchMediaViews.play(activity, item)
-            else activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(item.url)).apply {
-                addCategory(Intent.CATEGORY_BROWSABLE)
-            })
+            else if (ChatSearchResults.safeUrl(item.url)) activity.startActivity(Intent(activity, SearchBrowserActivity::class.java)
+                .putExtra(SearchBrowserActivity.EXTRA_URL, item.url))
         }
         val sources = message.items.filter { it.kind != "image" }
         root.addView(label(
@@ -180,13 +179,11 @@ object ChatSearchResultsView {
             root.addView(toggle)
             root.addView(rows)
         }
-        actions.addView(icon(R.drawable.ic_search_open, "Open search in your default browser") {
+        actions.addView(icon(R.drawable.ic_search_open, "Open search in the embedded browser") {
             val url = Uri.parse("https://www.google.com/search").buildUpon().appendQueryParameter("q", message.query)
             if (message.kind == "image") url.appendQueryParameter("tbm", "isch")
             if (message.kind == "video") url.appendQueryParameter("tbm", "vid")
-            activity.startActivity(Intent(Intent.ACTION_VIEW, url.build()).apply {
-                addCategory(Intent.CATEGORY_BROWSABLE)
-            })
+            activity.startActivity(Intent(activity, SearchBrowserActivity::class.java).putExtra(SearchBrowserActivity.EXTRA_URL, url.build().toString()))
         })
         root.addView(actions)
         message.searchSuggestions?.let { root.addView(GroundedSearchSuggestionsView.create(activity, it)) }
