@@ -146,30 +146,36 @@ object ChatSearchResultsView {
                     if (validSource) setOnClickListener { open(item) }
                 })
             }
-            val toggle = action("Sources · ${sources.size} ${if (expanded) "▴" else "▾"}", "Show or hide ${sources.size} search sources") { }
+            val toggle = action("Sources · ${sources.size} ${if (expanded) "▴" else "▾"}",
+                "Show or hide ${sources.size} search sources") { }
+            val preview = label(sources.take(2).joinToString("  •  ") {
+                Uri.parse(it.url).host?.removePrefix("www.").orEmpty()
+            }, 12f, true).apply {
+                maxLines = 2
+                ellipsize = TextUtils.TruncateAt.END
+                setPadding(0, dp(2), 0, dp(4))
+                isClickable = true
+                isFocusable = true
+                contentDescription = "Expand search sources"
+            }
+            fun updateSourcesVisibility() {
+                rows.visibility = if (expanded) View.VISIBLE else View.GONE
+                preview.visibility = if (expanded) View.GONE else View.VISIBLE
+                toggle.text = "Sources · ${sources.size} ${if (expanded) "▴" else "▾"}"
+                toggle.contentDescription = (if (expanded) "Hide" else "Show") +
+                    " ${sources.size} search sources"
+                preview.contentDescription = "Show ${sources.size} search sources"
+            }
             toggle.setOnClickListener {
                 expanded = !expanded
-                rows.visibility = if (expanded) View.VISIBLE else View.GONE
-                toggle.text = "Sources · ${sources.size} ${if (expanded) "▴" else "▾"}"
-                toggle.contentDescription = (if (expanded) "Hide" else "Show") + " ${sources.size} search sources"
+                updateSourcesVisibility()
             }
-            if (!expanded) {
-                val preview = sources.take(2).joinToString("  •  ") {
-                    Uri.parse(it.url).host?.removePrefix("www.").orEmpty()
-                }
-                root.addView(label(preview, 12f, true).apply {
-                    maxLines = 2
-                    ellipsize = TextUtils.TruncateAt.END
-                    setPadding(0, dp(2), 0, dp(4))
-                    setOnClickListener {
-                        expanded = true
-                        rows.visibility = View.VISIBLE
-                        toggle.text = "Sources · ${sources.size} ▴"
-                    }
-                    isClickable = true
-                    contentDescription = "Show sources from $preview"
-                })
+            preview.setOnClickListener {
+                expanded = true
+                updateSourcesVisibility()
             }
+            updateSourcesVisibility()
+            root.addView(preview)
             root.addView(toggle)
             root.addView(rows)
         }
