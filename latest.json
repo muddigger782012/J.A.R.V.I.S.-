@@ -1,7 +1,8 @@
 {
   "packageName": "com.coastal.circuitkeyboard",
-  "versionCode": 15,
-  "versionName": "1.14",
-  "apkUrl": "https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/jarvis-keyboard-updates/Jarvis-Keyboard-1.14.apk",
-  "sha256": "288337592fa310ae528452eaae9de56d6ae3676ce608f1b8d24c08fa406dbef0"
+  "versionCode": 16,
+  "versionName": "1.15",
+  "apkUrl": "https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/jarvis-keyboard-updates/Jarvis-Keyboard-1.15.apk",
+  "sha256": "e794b209598fa2cf2ab48af29238d4d9178ba8d421125903bea1a46d8d2663b8",
+  "sizeBytes": 123584
 }
