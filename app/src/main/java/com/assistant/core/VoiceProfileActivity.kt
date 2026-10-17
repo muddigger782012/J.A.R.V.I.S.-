@@ -172,7 +172,7 @@ class VoiceProfileActivity : ThemedActivity() {
                 val words = trials.sumOf { it.referenceWords }
                 val errors = trials.sumOf { it.wordErrors }
                 val wer = if (words == 0) 0.0 else 100.0 * errors / words
-                "$group: ${trials.count { it.matched }}/${trials.size} exact; " +
+                "$group: ${trials.count { it.matched }}/${trials.size} matched; " +
                     "word error rate ${"%.1f".format(Locale.US, wer)}% ($errors edits / $words reference words)"
             }
         refreshEntries()
