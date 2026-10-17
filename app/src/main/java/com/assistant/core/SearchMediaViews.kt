@@ -43,9 +43,12 @@ object SearchMediaViews {
                 textSize = 12f
                 setTextColor(ThemePreferences.color(activity, R.color.jarvis_on_dark_muted))
             })
-            tile.isFocusable = true
-            tile.contentDescription = "Preview image: ${item.title}"
-            tile.setOnClickListener {
+            val validSource = ChatSearchResults.safeUrl(item.url)
+            tile.isFocusable = validSource
+            tile.isClickable = validSource
+            tile.contentDescription = if (validSource) "Preview image: ${item.title}"
+                else "Unavailable image source: ${item.title}"
+            if (validSource) tile.setOnClickListener {
                 val image = thumbnail(activity, item, 320)
                 image.scaleType = ImageView.ScaleType.FIT_CENTER
                 image.minimumHeight = dp(activity, 320)
