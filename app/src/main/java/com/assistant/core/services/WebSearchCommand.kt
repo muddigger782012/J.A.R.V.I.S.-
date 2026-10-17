@@ -27,7 +27,7 @@ object WebSearchCommand {
     /** Search a named song only when the user explicitly says song or music. */
     fun musicQuery(input: String): String? {
         val match = Regex(
-            """^(?:please\\s+)?(?:can\\s+you\\s+|could\\s+you\\s+)?(?:find|show|get|search\\s+for|look\\s+up)\\s+(?:me\\s+)?(?:(?:the|a)\\s+)?(?:song|track|music)\\s+(?:called|named|by|from)?\\s*(.+)$""",
+            """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:find|show|get|search\s+for|look\s+up)\s+(?:me\s+)?(?:(?:the|a)\s+)?(?:song|track|music)\s+(?:called|named|by|from)?\s*(.+)$""",
             RegexOption.IGNORE_CASE
         ).matchEntire(input.trim()) ?: return null
         return match.groupValues[1].trim().trimEnd('.', '?', '!').trim()
