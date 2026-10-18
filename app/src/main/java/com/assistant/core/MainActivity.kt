@@ -1549,6 +1549,27 @@ class MainActivity : ThemedActivity() {
                     linksClickable = true
                 }
             })
+            if (assistant && searchResults == null) {
+                val answerText = line.removePrefix("J.A.R.V.I.S.:").trimStart()
+                    .substringBefore("\nhttps://www.google.com/search?")
+                val copyAction = TextView(this).apply {
+                    text = "Copy answer"
+                    textSize = 12f
+                    minHeight = dp(48)
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(dp(8), dp(8), dp(8), dp(8))
+                    setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
+                    isClickable = true
+                    isFocusable = true
+                    contentDescription = "Copy this Jarvis answer"
+                    setOnClickListener {
+                        val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Jarvis answer", answerText))
+                        android.widget.Toast.makeText(this@MainActivity, "Answer copied", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+                card.addView(copyAction)
+            }
             if (searchResults != null) card.addView(ChatSearchResultsView.create(this, searchResults, conversationSessionId))
             if (assistant) {
                 val searchUrl = if (listOf("Web", "Image", "Video").any { line.startsWith("J.A.R.V.I.S.: $it search ready:") } && line.contains("\nhttps://www.google.com/search?"))
