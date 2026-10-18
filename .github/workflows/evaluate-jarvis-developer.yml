@@ -1,0 +1,27 @@
+name: Evaluate Jarvis Developer candidate (build only)
+
+# Register the manual form on the default branch. The complete controller stays
+# on feature/jarvis-developer; select that branch in the Run workflow form.
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: 'Full immutable candidate commit SHA (blank evaluates controller source only)'
+        required: false
+        type: string
+      candidate_branch:
+        description: 'Isolated source branch; task candidates require feature/jarvis-developer-task/<task>-<digest>'
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  select-developer-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require the isolated Developer controller
+        run: |
+          echo '::error::Select feature/jarvis-developer in the Run workflow branch menu. This registration stub cannot evaluate, sign, publish or install.'
+          exit 1
