@@ -10,6 +10,15 @@ class WakeCalibrationMetricsTest {
         assertNull(metrics.snapshot().detectionRatePercent)
     }
 
+    @Test fun restoredCountsAreValidated() {
+        val metrics = WakeCalibrationMetrics()
+        metrics.restore(7, 3)
+        assertEquals(10L, metrics.snapshot().attempts)
+        assertEquals(70.0, metrics.snapshot().detectionRatePercent!!, 0.00001)
+        assertThrows(IllegalArgumentException::class.java) { metrics.restore(-1, 0) }
+        assertEquals(10L, metrics.snapshot().attempts)
+    }
+
     @Test fun recordsOnlyExplicitAttemptsAndCanReset() {
         val metrics = WakeCalibrationMetrics()
         metrics.recordAttempt(true)
