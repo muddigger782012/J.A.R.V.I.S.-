@@ -26,7 +26,7 @@ import com.assistant.core.services.SearchRouter
 
 /** Answer-first search presentation. Source numbering follows the stored evidence order. */
 object ChatSearchResultsView {
-    fun create(activity: Activity, message: ChatSearchResults.Message): View {
+    fun create(activity: Activity, message: ChatSearchResults.Message, session: String): View {
         fun dp(value: Int) = (value * activity.resources.displayMetrics.density).toInt()
         val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         val actions = LinearLayout(activity).apply {
@@ -89,6 +89,12 @@ object ChatSearchResultsView {
             ellipsize = TextUtils.TruncateAt.END
             setPadding(0, 0, 0, dp(10))
         })
+        com.assistant.core.services.SearchCardPresentation.freshness(message.retrievedAt)?.let { value ->
+            root.addView(label(value, 12f, true).apply {
+                contentDescription = "$value. This is the retrieval time, not the source publication date."
+                setPadding(0, 0, 0, dp(8))
+            })
+        }
         val formatted = message.answer?.let(SearchReadableText::format)
         if (formatted != null) {
             val text = SpannableString(formatted.text)
@@ -121,7 +127,9 @@ object ChatSearchResultsView {
             if (images.isNotEmpty()) root.addView(SearchMediaViews.images(activity, images))
         }
         if (sources.isNotEmpty()) {
-            var expanded = message.kind == "video" || formatted == null
+            val state = activity.getSharedPreferences("jarvis_search_card_ui", Context.MODE_PRIVATE)
+            val stateKey = com.assistant.core.services.SearchCardPresentation.stateKey(session, message)
+            var expanded = state.getBoolean(stateKey, message.kind == "video" || formatted == null)
             val rows = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 visibility = if (expanded) View.VISIBLE else View.GONE
@@ -168,10 +176,12 @@ object ChatSearchResultsView {
             }
             toggle.setOnClickListener {
                 expanded = !expanded
+                state.edit().putBoolean(stateKey, expanded).apply()
                 updateSourcesVisibility()
             }
             preview.setOnClickListener {
                 expanded = true
+                state.edit().putBoolean(stateKey, true).apply()
                 updateSourcesVisibility()
             }
             updateSourcesVisibility()

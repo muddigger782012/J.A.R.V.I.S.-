@@ -1322,7 +1322,7 @@ class MainActivity : ThemedActivity() {
                     val search = coordinator.search(query, kind)
                     val items = search.items
                     if (items.isEmpty()) "J.A.R.V.I.S.: " + router.failureMessage(com.assistant.core.services.SearchRouter.Response(null, emptyList(), search.failures), kind)
-                    else com.assistant.core.services.ChatSearchResults.encode(query, items, search.answer, search.searchSuggestions, kind).also { rendered ->
+                    else com.assistant.core.services.ChatSearchResults.encode(query, items, search.answer, search.searchSuggestions, kind, retrievedAt = System.currentTimeMillis()).also { rendered ->
                         cache.edit().putString(cacheId, rendered)
                             .putLong(cacheId + "_at", System.currentTimeMillis()).apply()
                     }
@@ -1351,7 +1351,7 @@ class MainActivity : ThemedActivity() {
             val answer = runCatching {
                 com.assistant.core.services.SearchAiClient(this).answer(query, evidence.items)
             }.getOrNull() ?: return@Thread
-            val enriched = com.assistant.core.services.ChatSearchResults.encode(query, evidence.items, answer, kind = kind)
+            val enriched = com.assistant.core.services.ChatSearchResults.encode(query, evidence.items, answer, evidence.searchSuggestions, kind = kind, retrievedAt = evidence.retrievedAt)
             cache.edit().putString(cacheId, enriched).apply()
             runOnUiThread {
                 if (searchSession == conversationSessionId && !isDestroyed) {
@@ -1549,7 +1549,7 @@ class MainActivity : ThemedActivity() {
                     linksClickable = true
                 }
             })
-            if (searchResults != null) card.addView(ChatSearchResultsView.create(this, searchResults))
+            if (searchResults != null) card.addView(ChatSearchResultsView.create(this, searchResults, conversationSessionId))
             if (assistant) {
                 val searchUrl = if (listOf("Web", "Image", "Video").any { line.startsWith("J.A.R.V.I.S.: $it search ready:") } && line.contains("\nhttps://www.google.com/search?"))
                     Regex("""https://www\.google\.com/search\?[^\s<>]+""").find(line)?.value?.trimEnd('.', ',', ')', ']')
