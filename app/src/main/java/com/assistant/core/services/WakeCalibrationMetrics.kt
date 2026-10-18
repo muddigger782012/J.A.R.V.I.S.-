@@ -31,6 +31,6 @@ class WakeCalibrationMetrics {
     data class Snapshot(val detected: Int, val missed: Int) {
         val attempts: Long get() = detected.toLong() + missed.toLong()
         val detectionRatePercent: Double?
-            get() = if (attempts == 0) null else detected * 100.0 / attempts
+            get() = if (attempts == 0L) null else detected * 100.0 / attempts
     }
 }
