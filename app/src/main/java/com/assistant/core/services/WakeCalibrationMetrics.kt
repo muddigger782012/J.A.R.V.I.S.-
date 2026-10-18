@@ -11,7 +11,8 @@ class WakeCalibrationMetrics {
     private var missed = 0
 
     fun recordAttempt(wasDetected: Boolean) {
-        if (wasDetected) detected++ else missed++
+        if (wasDetected && detected < Int.MAX_VALUE) detected++
+        else if (!wasDetected && missed < Int.MAX_VALUE) missed++
     }
 
     fun snapshot(): Snapshot = Snapshot(detected, missed)
@@ -28,7 +29,7 @@ class WakeCalibrationMetrics {
     }
 
     data class Snapshot(val detected: Int, val missed: Int) {
-        val attempts: Int get() = detected + missed
+        val attempts: Long get() = detected.toLong() + missed.toLong()
         val detectionRatePercent: Double?
             get() = if (attempts == 0) null else detected * 100.0 / attempts
     }
