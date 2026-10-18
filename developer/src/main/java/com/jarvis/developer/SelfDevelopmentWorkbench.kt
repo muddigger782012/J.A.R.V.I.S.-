@@ -19,7 +19,29 @@ import kotlin.concurrent.thread
 object SelfDevelopmentWorkbench {
     fun attach(activity: Activity, root: LinearLayout, task: EditText, githubToken: EditText,
         output: TextView, status: TextView, patches: PatchWorkbench.Handle) {
-        Controller(activity, root, task, githubToken, output, status, patches).attach()
+        attach(activity, root, task, githubToken, output, status, patches, Services())
+    }
+
+    /** Internal instance dependencies keep widget/lifecycle tests off real transports. No write operation is exposed. */
+    internal class Services(
+        val analyze: (String, String) -> RepositoryAnalysis.AnalysisPlan = { token, goal ->
+            RepositoryIntelligence.analyzeSnapshot(token, goal).second
+        },
+        val readDebug: (String, String, String, Long?) -> BuildDiagnostics.Report = { token, branch, sha, run ->
+            BuildFeedback.read(token, branch, sha, run)
+        },
+        val readCandidate: (String, String, String, Long, String) -> CandidateEvaluation.Evidence =
+            { token, branch, sha, run, controller -> CandidateFeedback.read(token, branch, sha, run, controller) },
+        val worker: (String, () -> Unit) -> Unit = { name, operation ->
+            thread(name = name) { operation() }
+            Unit
+        },
+        val nowMillis: () -> Long = System::currentTimeMillis
+    )
+
+    internal fun attach(activity: Activity, root: LinearLayout, task: EditText, githubToken: EditText,
+        output: TextView, status: TextView, patches: PatchWorkbench.Handle, services: Services) {
+        Controller(activity, root, task, githubToken, output, status, patches, services).attach()
     }
 
     private class Controller(
@@ -29,7 +51,8 @@ object SelfDevelopmentWorkbench {
         private val githubToken: EditText,
         private val output: TextView,
         private val status: TextView,
-        private val patches: PatchWorkbench.Handle
+        private val patches: PatchWorkbench.Handle,
+        private val services: Services
     ) {
         private val context = root.context
         private val container = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -191,10 +214,9 @@ object SelfDevelopmentWorkbench {
             val token = githubToken.text.toString().trim()
             busy = true; refresh()
             status.text = "Reading immutable source for deterministic scoped self-development suggestions."
-            thread(name = "JarvisDeveloper-SelfAnalysis") {
+            services.worker("JarvisDeveloper-SelfAnalysis") {
                 val result = runCatching {
-                    val snapshot = RepositoryIntelligence.analyzeSnapshot(token, frozen.goal)
-                    SelfDevelopment.propose(frozen.id, snapshot.second, frozen.paths)
+                    SelfDevelopment.propose(frozen.id, services.analyze(token, frozen.goal), frozen.paths)
                 }
                 activity.runOnUiThread {
                     if (!alive()) return@runOnUiThread
@@ -240,8 +262,8 @@ object SelfDevelopmentWorkbench {
             val token = githubToken.text.toString().trim()
             busy = true; refresh()
             status.text = "Reading bounded exact-source debug CI feedback."
-            thread(name = "JarvisDeveloper-SelfDebugFeedback") {
-                val result = runCatching { BuildFeedback.read(token, frozen.branch, frozen.sha, frozen.runId) }
+            services.worker("JarvisDeveloper-SelfDebugFeedback") {
+                val result = runCatching { services.readDebug(token, frozen.branch, frozen.sha, frozen.runId) }
                 activity.runOnUiThread {
                     if (!alive()) return@runOnUiThread
                     busy = false
@@ -282,8 +304,8 @@ object SelfDevelopmentWorkbench {
             val token = githubToken.text.toString().trim()
             busy = true; refresh()
             status.text = "Reading candidate signing, backup integrity and recovery evidence without dispatching a workflow."
-            thread(name = "JarvisDeveloper-CandidateEvidence") {
-                val result = runCatching { CandidateFeedback.read(token, frozen.branch, frozen.sha, run, controller) }
+            services.worker("JarvisDeveloper-CandidateEvidence") {
+                val result = runCatching { services.readCandidate(token, frozen.branch, frozen.sha, run, controller) }
                 activity.runOnUiThread {
                     if (!alive()) return@runOnUiThread
                     busy = false
@@ -304,7 +326,7 @@ object SelfDevelopmentWorkbench {
             if (!begin()) return
             try {
                 val result = CandidateEvaluation.assess(baseline ?: error("Baseline required"),
-                    candidate ?: error("Candidate required"), evidence ?: error("Evidence required"), System.currentTimeMillis())
+                    candidate ?: error("Candidate required"), evidence ?: error("Evidence required"), services.nowMillis())
                 review = result
                 output.text = CandidateEvaluation.render(result)
                 status.text = if (result.eligible) "All evaluation gates passed. Review the exact fingerprint before approving metadata recording."
@@ -323,7 +345,7 @@ object SelfDevelopmentWorkbench {
             review = null
             approve.isChecked = false
             try {
-                val request = CandidateEvaluation.confirm(selected, exact, explicit, System.currentTimeMillis())
+                val request = CandidateEvaluation.confirm(selected, exact, explicit, services.nowMillis())
                 recordedAudit = CandidateEvaluation.audit(request)
                 output.text = recordedAudit
                 status.text = "Exact approved promotion request recorded as in-memory metadata only. No release, install, merge or workflow dispatch occurred."

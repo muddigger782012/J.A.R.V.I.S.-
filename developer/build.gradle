@@ -9,6 +9,7 @@ android {
         applicationId 'com.jarvis.developer'
         minSdk 26
         targetSdk 34
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         versionCode Integer.parseInt(System.getenv('DEVELOPER_VERSION_CODE') ?: '1')
         versionName System.getenv('DEVELOPER_VERSION_NAME') ?: '0.1.0'
     }
@@ -33,6 +34,7 @@ android {
     }
     kotlinOptions { jvmTarget = '17' }
     testOptions {
+        unitTests.includeAndroidResources = true
         unitTests.all {
             systemProperty 'jarvis.repositoryRoot', rootProject.projectDir.absolutePath
             // CI checks the immutable revision actually checked out by Actions.
@@ -47,5 +49,9 @@ dependencies {
     implementation 'androidx.core:core:1.13.1'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'
+    testImplementation 'org.robolectric:robolectric:4.12.2'
+    androidTestImplementation 'androidx.test:core:1.5.0'
+    androidTestImplementation 'androidx.test:runner:1.5.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
 }
 

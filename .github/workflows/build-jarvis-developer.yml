@@ -29,7 +29,7 @@ jobs:
       - name: Test, lint and build standalone Developer APK
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon :developer:testDebugUnitTest :developer:lintDebug :developer:assembleDebug
+          ./gradlew --no-daemon :developer:testDebugUnitTest :developer:lintDebug :developer:assembleDebug :developer:assembleDebugAndroidTest
       - name: Record bounded acceptance evidence in CI logs
         if: always()
         run: |
@@ -89,6 +89,33 @@ jobs:
               sha256=hashlib.sha256(data).hexdigest(), errors=errors, warnings=warnings), separators=(',', ':')))
           assert errors == 0, 'Lint errors remain'
           PY
+      - name: Record compiled debug app and device-test identities without installing
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, subprocess
+          tools = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools' / '34.0.0'
+          records = []
+          for directory, package in [('debug', 'com.jarvis.developer'), ('androidTest/debug', 'com.jarvis.developer.test')]:
+              apks = list((pathlib.Path('developer/build/outputs/apk') / directory).glob('*.apk'))
+              assert len(apks) == 1, 'Expected exactly one compiled APK per fixed directory'
+              apk = apks[0]
+              data = apk.read_bytes()
+              assert 0 < len(data) <= 64_000_000, 'Compiled APK exceeds budget'
+              badging = subprocess.check_output([str(tools / 'aapt'), 'dump', 'badging', str(apk)], text=True)
+              assert re.search(r"^package: name='" + re.escape(package) + "'", badging, re.M), 'Unexpected APK package'
+              signatures = subprocess.check_output([str(tools / 'apksigner'), 'verify', '--print-certs', str(apk)], text=True)
+              certs = re.findall(r'^Signer #[0-9]+ certificate SHA-256 digest: ([a-f0-9]{64})$', signatures, re.M)
+              assert len(certs) == 1, 'Expected one verified debug signer'
+              records.append(dict(packageName=package, bytes=len(data), apkSha256=hashlib.sha256(data).hexdigest(), signerSha256=certs[0]))
+          assert records[0]['signerSha256'] == records[1]['signerSha256'], 'App/test debug signers differ'
+          result = dict(schemaVersion=1, sourceCommit=os.environ['GITHUB_SHA'], installed=False, apks=records)
+          raw = json.dumps(result, sort_keys=True, separators=(',', ':')).encode()
+          output = pathlib.Path('developer/build/reports/device-validation/compiled-apks.json')
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_bytes(raw)
+          print('JARVIS_DEVICE_TEST_BUILD_SHA256=' + hashlib.sha256(raw).hexdigest())
+          print('JARVIS_DEVICE_TEST_BUILD=' + raw.decode())
+          PY
       - name: Upload Developer unit-test evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -135,4 +162,16 @@ jobs:
         with:
           name: Jarvis-Developer-debug-APK
           path: developer/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - name: Upload compiled device tests without installing
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-device-test-APK
+          path: developer/build/outputs/apk/androidTest/debug/*.apk
+          if-no-files-found: error
+      - name: Upload compiled device-test identity evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-device-test-build-evidence
+          path: developer/build/reports/device-validation/compiled-apks.json
           if-no-files-found: error
