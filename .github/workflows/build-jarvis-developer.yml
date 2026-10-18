@@ -13,6 +13,7 @@ permissions:
 jobs:
   developer-debug:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Check repository theme contract
@@ -87,6 +88,22 @@ jobs:
           warnings = sum(issue.attrib.get('severity') == 'Warning' for issue in issues)
           print('JARVIS_LINT_SUMMARY=' + json.dumps(dict(sourceCommit=os.environ['GITHUB_SHA'],
               sha256=hashlib.sha256(data).hexdigest(), errors=errors, warnings=warnings), separators=(',', ':')))
+          indexed = []
+          for issue in issues:
+              location = issue.find('location')
+              if location is None:
+                  continue
+              path = pathlib.Path(location.attrib.get('file', ''))
+              if path.is_absolute():
+                  try:
+                      path = path.relative_to(pathlib.Path.cwd())
+                  except ValueError:
+                      path = pathlib.Path(path.name)
+              indexed.append(dict(id=issue.attrib.get('id'), severity=issue.attrib.get('severity'),
+                  path=str(path), line=location.attrib.get('line')))
+          encoded = json.dumps(indexed, separators=(',', ':'))
+          assert len(indexed) <= 1_000 and len(encoded.encode()) <= 160_000, 'Lint index exceeds budget'
+          print('JARVIS_LINT_ISSUES=' + encoded)
           assert errors == 0, 'Lint errors remain'
           PY
       - name: Record compiled debug app and device-test identities without installing

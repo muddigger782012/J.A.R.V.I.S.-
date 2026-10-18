@@ -125,7 +125,7 @@ class DeveloperDeviceValidationTest {
                 field(activity, "Source path or directory prefix (blank lists all allowed sources)")
                     .setText("developer/")
                 status = views<TextView>(activity).single {
-                    it.text.toString() == "Standalone OpenAI coding client • Hybrid mode"
+                    it.text.toString() == "Local task plans loaded; no repository request was made."
                 }
                 output = views<TextView>(activity).single {
                     it.text.toString().startsWith("Coding responses appear here.")
@@ -134,11 +134,12 @@ class DeveloperDeviceValidationTest {
                 assertTrue(button(activity, "Browse source inventory (read-only)").performClick())
             }
 
-            val finished = completed.await(60, TimeUnit.SECONDS)
+            // Match the production reader's bounded three-minute session budget.
+            val finished = completed.await(180, TimeUnit.SECONDS)
 
             scenario.onActivity { activity ->
                 status.removeTextChangedListener(watcher)
-                assertTrue("Public inventory did not finish within 60 seconds", finished)
+                assertTrue("Public inventory did not finish within 180 seconds", finished)
                 val report = output.text.toString()
                 assertTrue("Public GET inventory failed: ${report.take(300)}",
                     report.startsWith("READ-ONLY SOURCE INVENTORY\n"))
