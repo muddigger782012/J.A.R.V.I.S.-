@@ -30,6 +30,11 @@ class VoiceProfileActivity : ThemedActivity() {
     private val store by lazy { VoiceProfileStore(filesDir) }
     private val capture by lazy { LiveSpeechCapture(this) }
     private val wakeMetrics = WakeCalibrationMetrics()
+    private val wakePreferences by lazy { getSharedPreferences("wake-practice", MODE_PRIVATE) }
+    private fun saveWakeScore() {
+        val result = wakeMetrics.snapshot()
+        wakePreferences.edit().putInt("detected", result.detected).putInt("missed", result.missed).apply()
+    }
     private var phraseIndex = 0
     private var token: String? = null
     private var heard = ""
@@ -82,14 +87,15 @@ class VoiceProfileActivity : ThemedActivity() {
                     else status("Unable to reset the profile. Please retry.")
                 }.show()
         }
+        wakeMetrics.restore(wakePreferences.getInt("detected", 0).coerceAtLeast(0), wakePreferences.getInt("missed", 0).coerceAtLeast(0))
         label(R.id.voiceWakeDetected).setOnClickListener {
-            wakeMetrics.recordAttempt(true); refreshWakeScore()
+            wakeMetrics.recordAttempt(true); saveWakeScore(); refreshWakeScore()
         }
         label(R.id.voiceWakeMissed).setOnClickListener {
-            wakeMetrics.recordAttempt(false); refreshWakeScore()
+            wakeMetrics.recordAttempt(false); saveWakeScore(); refreshWakeScore()
         }
         label(R.id.voiceWakeReset).setOnClickListener {
-            wakeMetrics.reset(); refreshWakeScore()
+            wakeMetrics.reset(); saveWakeScore(); refreshWakeScore()
         }
         refreshWakeScore()
         showPhrase(); refreshScore(); status("Tap Record phrase and speak naturally. Wake listening pauses only during each attempt.")
@@ -179,7 +185,7 @@ class VoiceProfileActivity : ThemedActivity() {
         val result = wakeMetrics.snapshot()
         val rate = result.detectionRatePercent?.let { "%.1f".format(Locale.US, it) + "%" } ?: "not measured"
         label(R.id.voiceWakePracticeScore).text =
-            "This screen only: ${result.detected} detected / ${result.missed} missed; detection rate $rate. Results reset when this screen is recreated."
+            "Saved on this device: ${result.detected} detected / ${result.missed} missed; detection rate $rate. Results are manually reported, not verified wake detections."
     }
     private fun refreshScore() {
         val entries = store.entries()
