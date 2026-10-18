@@ -1108,7 +1108,7 @@ class HybridAssistantService(
                         remember(rawInput, answer)
                         synchronized(this) { lastResearchQuery = contextualQuery.take(300) }
                         callback(HybridAssistantReply(ChatSearchResults.encode(rawInput, valid.items,
-                            answer, valid.searchSuggestions)))
+                            answer, valid.searchSuggestions, retrievedAt = System.currentTimeMillis())))
                     } else {
                         if (isManualRequest) {
                             val diagnostic = when ((searchAttempt.exceptionOrNull() as? SearchProviderFailure)?.kind) {
