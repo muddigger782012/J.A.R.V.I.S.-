@@ -1,0 +1,138 @@
+name: Build Jarvis Developer (isolated)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/jarvis-developer, 'feature/jarvis-developer-task/**']
+    paths:
+      - 'developer/**'
+      - 'settings.gradle'
+      - 'build.gradle'
+      - '.github/workflows/build-jarvis-developer.yml'
+permissions:
+  contents: read
+jobs:
+  developer-debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check repository theme contract
+        run: python3 scripts/check_ui_theme.py
+      - name: Test candidate and recovery evidence policy
+        run: |
+          python3 -m unittest discover -s developer/tools -p 'candidate_*_test.py' -v
+          python3 -m unittest discover -s developer/tools -p 'developer_backup_test.py' -v
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Test, lint and build standalone Developer APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon :developer:testDebugUnitTest :developer:lintDebug :developer:assembleDebug
+      - name: Record bounded acceptance evidence in CI logs
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, xml.etree.ElementTree as ET
+          results = pathlib.Path('developer/build/test-results/testDebugUnitTest')
+          files = sorted(results.glob('TEST-*.xml'))
+          assert 0 < len(files) <= 50, 'Expected bounded JUnit XML evidence'
+          assert sum(p.stat().st_size for p in files) <= 2_000_000, 'JUnit evidence exceeds budget'
+          totals = dict.fromkeys(('tests', 'failures', 'errors', 'skipped'), 0)
+          suites, cases = [], []
+          for path in files:
+              data = path.read_bytes()
+              suite = ET.fromstring(data)
+              counts = {key: int(suite.attrib[key]) for key in totals}
+              assert all(value >= 0 for value in counts.values())
+              children = suite.findall('testcase')
+              assert counts['tests'] == len(children), 'JUnit count mismatch'
+              for key in totals:
+                  totals[key] += counts[key]
+              suites.append(dict(name=suite.attrib['name'], sha256=hashlib.sha256(data).hexdigest(), **counts))
+              for case in children:
+                  state = next((name for name in ('failure', 'error', 'skipped') if case.find(name) is not None), 'passed')
+                  cases.append(dict(suite=suite.attrib['name'], name=case.attrib['name'], result=state))
+          summary = dict(sourceCommit=os.environ['GITHUB_SHA'], totals=totals, suites=suites, cases=cases)
+          encoded = json.dumps(summary, separators=(',', ':'))
+          assert len(encoded.encode()) <= 100_000, 'JUnit summary exceeds log budget'
+          print('JARVIS_JUNIT_SUMMARY=' + encoded)
+          evidence = pathlib.Path('developer/build/reports/phase3-acceptance/two-session-evidence.json')
+          assert evidence.is_file() and evidence.stat().st_size <= 64_000, 'Expected bounded Phase 3 evidence'
+          data = evidence.read_bytes()
+          decoded = json.loads(data)
+          assert decoded['baseCommitSha'] == os.environ['GITHUB_SHA'], 'Phase 3 source revision mismatch'
+          print('JARVIS_PHASE3_EVIDENCE_SHA256=' + hashlib.sha256(data).hexdigest())
+          print('JARVIS_PHASE3_EVIDENCE=' + json.dumps(decoded, separators=(',', ':')))
+          evidence = pathlib.Path('developer/build/reports/phase4-acceptance/seeded-repair-evidence.json')
+          assert evidence.is_file() and evidence.stat().st_size <= 64_000, 'Expected bounded Phase 4 evidence'
+          data = evidence.read_bytes()
+          decoded = json.loads(data)
+          assert decoded['actualExecutionCheckoutSha'] == os.environ['GITHUB_SHA'], 'Phase 4 source revision mismatch'
+          print('JARVIS_PHASE4_EVIDENCE_SHA256=' + hashlib.sha256(data).hexdigest())
+          print('JARVIS_PHASE4_EVIDENCE=' + json.dumps(decoded, separators=(',', ':')))
+          evidence = pathlib.Path('developer/build/reports/phase5-acceptance/self-development-evidence.json')
+          assert evidence.is_file() and evidence.stat().st_size <= 64_000, 'Expected bounded Phase 5 evidence'
+          data = evidence.read_bytes()
+          decoded = json.loads(data)
+          assert decoded['actualExecutionCheckoutSha'] == os.environ['GITHUB_SHA'], 'Phase 5 source revision mismatch'
+          print('JARVIS_PHASE5_EVIDENCE_SHA256=' + hashlib.sha256(data).hexdigest())
+          print('JARVIS_PHASE5_EVIDENCE=' + json.dumps(decoded, separators=(',', ':')))
+          lint = pathlib.Path('developer/build/reports/lint-results-debug.xml')
+          assert lint.is_file() and lint.stat().st_size <= 2_000_000, 'Expected bounded lint XML evidence'
+          data = lint.read_bytes()
+          issues = ET.fromstring(data).findall('issue')
+          errors = sum(issue.attrib.get('severity') in ('Error', 'Fatal') for issue in issues)
+          warnings = sum(issue.attrib.get('severity') == 'Warning' for issue in issues)
+          print('JARVIS_LINT_SUMMARY=' + json.dumps(dict(sourceCommit=os.environ['GITHUB_SHA'],
+              sha256=hashlib.sha256(data).hexdigest(), errors=errors, warnings=warnings), separators=(',', ':')))
+          assert errors == 0, 'Lint errors remain'
+          PY
+      - name: Upload Developer unit-test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-unit-test-results
+          path: developer/build/test-results/testDebugUnitTest/
+          if-no-files-found: warn
+      - name: Upload reviewed Phase 2 acceptance proposal
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-phase2-reviewed-proposal
+          path: developer/build/reports/phase2-acceptance/
+          if-no-files-found: warn
+      - name: Upload Phase 3 checkpoint acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-phase3-checkpoint-evidence
+          path: developer/build/reports/phase3-acceptance/
+          if-no-files-found: warn
+      - name: Upload Phase 4 seeded repair evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-phase4-seeded-repair-evidence
+          path: developer/build/reports/phase4-acceptance/
+          if-no-files-found: warn
+      - name: Upload Developer lint evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-lint-results
+          path: developer/build/reports/lint-results-debug.*
+          if-no-files-found: warn
+      - name: Upload Phase 5 controlled self-development evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-phase5-self-development-evidence
+          path: developer/build/reports/phase5-acceptance/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-debug-APK
+          path: developer/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
