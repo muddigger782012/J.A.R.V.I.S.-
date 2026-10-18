@@ -16,6 +16,12 @@ class WakeCalibrationMetrics {
 
     fun snapshot(): Snapshot = Snapshot(detected, missed)
 
+    fun restore(savedDetected: Int, savedMissed: Int) {
+        require(savedDetected >= 0 && savedMissed >= 0) { "Counts must be nonnegative" }
+        detected = savedDetected
+        missed = savedMissed
+    }
+
     fun reset() {
         detected = 0
         missed = 0
