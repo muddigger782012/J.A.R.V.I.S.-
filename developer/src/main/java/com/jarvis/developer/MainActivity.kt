@@ -11,14 +11,10 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import org.json.JSONArray
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import kotlin.concurrent.thread
 
 /**
- * Minimal independent OpenAI coding client.
+ * Independent Gemini/OpenAI coding client.
  * API key is kept only in memory and is never embedded in the APK or persisted.
  * This is API communication, NOT a connection to a ChatGPT conversation or Codex session.
  */
@@ -252,59 +248,38 @@ class MainActivity : Activity() {
         }
 
         send.setOnClickListener {
+            // Capture all widget state on the UI thread; a pending request owns this selection.
+            val providerName = provider.selectedItem.toString()
             val apiKey = key.text.toString().trim()
+            val modelName = model.text.toString().trim()
             val task = prompt.text.toString().trim()
             if (apiKey.isEmpty() || task.isEmpty()) {
                 status.text = "Enter an API key and task."
                 return@setOnClickListener
             }
-            send.isEnabled = false
-            status.text = "Connecting to OpenAI..."
-            thread {
+            val requestInputs = listOf(send, provider, key, model, prompt)
+            requestInputs.forEach { it.isEnabled = false }
+            status.text = "Connecting to $providerName..."
+            thread(name = "DeveloperCodingAssistant") {
                 try {
-                    val request = JSONObject()
-                        .put("model", model.text.toString().trim().ifBlank { "gpt-4.1-mini" })
-                        .put("instructions", "You are Jarvis Developer, a software engineering assistant. Provide actionable, correct code and clearly identify uncertainty. Never claim repository edits or builds unless tools actually performed them.")
-                        .put("input", task)
-                    val connection = (URL("https://api.openai.com/v1/responses").openConnection() as HttpURLConnection).apply {
-                        requestMethod = "POST"
-                        connectTimeout = 15000
-                        readTimeout = 90000
-                        doOutput = true
-                        setRequestProperty("Authorization", "Bearer $apiKey")
-                        setRequestProperty("Content-Type", "application/json")
-                    }
-                    try {
-                        connection.outputStream.use { it.write(request.toString().toByteArray(Charsets.UTF_8)) }
-                        val code = connection.responseCode
-                        val raw = (if (code in 200..299) connection.inputStream else connection.errorStream)
-                            ?.bufferedReader()?.use { it.readText() } ?: ""
-                        val result = if (code in 200..299) {
-                            val items = JSONObject(raw).optJSONArray("output") ?: JSONArray()
-                            buildString {
-                                for (i in 0 until items.length()) {
-                                    val parts = items.optJSONObject(i)?.optJSONArray("content") ?: continue
-                                    for (j in 0 until parts.length()) {
-                                        val text = parts.optJSONObject(j)?.optString("text").orEmpty()
-                                        if (text.isNotBlank()) append(text).append("\n")
-                                    }
-                                }
-                            }.ifBlank { "No text response returned." }
-                        } else "OpenAI HTTP $code: " + raw.take(700)
-                        runOnUiThread {
-                            output.text = result
-                            status.text = if (code in 200..299) "Response received" else "Request failed"
-                        }
-                    } finally {
-                        connection.disconnect()
-                    }
-                } catch (e: Exception) {
+                    val result = CodingAssistantProvider.ask(providerName, apiKey, modelName, task)
                     runOnUiThread {
-                        status.text = "Connection failed"
-                        output.text = e.message ?: "Unknown network error"
+                        if (!isFinishing && !isDestroyed) {
+                            output.text = result
+                            status.text = "Response received from $providerName"
+                        }
+                    }
+                } catch (_: Exception) {
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed) {
+                            status.text = "Coding assistant request failed"
+                            output.text = "Check the selected provider, API key, model and bounded request/output format."
+                        }
                     }
                 } finally {
-                    runOnUiThread { send.isEnabled = true }
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed) requestInputs.forEach { it.isEnabled = true }
+                    }
                 }
             }
         }
