@@ -19,6 +19,7 @@ import com.assistant.core.services.LiveSpeechCapture
 import com.assistant.core.services.VoiceForegroundService
 import com.assistant.core.services.VoicePracticeMicrophone
 import com.assistant.core.services.VoiceProfileStore
+import com.assistant.core.services.WakeCalibrationMetrics
 import com.google.android.material.switchmaterial.SwitchMaterial
 import java.util.Locale
 import java.util.UUID
@@ -28,6 +29,7 @@ class VoiceProfileActivity : ThemedActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private val store by lazy { VoiceProfileStore(filesDir) }
     private val capture by lazy { LiveSpeechCapture(this) }
+    private val wakeMetrics = WakeCalibrationMetrics()
     private var phraseIndex = 0
     private var token: String? = null
     private var heard = ""
@@ -80,6 +82,16 @@ class VoiceProfileActivity : ThemedActivity() {
                     else status("Unable to reset the profile. Please retry.")
                 }.show()
         }
+        label(R.id.voiceWakeDetected).setOnClickListener {
+            wakeMetrics.recordAttempt(true); refreshWakeScore()
+        }
+        label(R.id.voiceWakeMissed).setOnClickListener {
+            wakeMetrics.recordAttempt(false); refreshWakeScore()
+        }
+        label(R.id.voiceWakeReset).setOnClickListener {
+            wakeMetrics.reset(); refreshWakeScore()
+        }
+        refreshWakeScore()
         showPhrase(); refreshScore(); status("Tap Record phrase and speak naturally. Wake listening pauses only during each attempt.")
     }
     override fun onStart() { super.onStart(); visible = true }
@@ -162,6 +174,12 @@ class VoiceProfileActivity : ThemedActivity() {
         if (previous != null) runCatching { VoiceForegroundService.releasePractice(this, previous) }
         busy(false)
         if (message.isNotBlank()) status(message)
+    }
+    private fun refreshWakeScore() {
+        val result = wakeMetrics.snapshot()
+        val rate = result.detectionRatePercent?.let { "%.1f".format(Locale.US, it) + "%" } ?: "not measured"
+        label(R.id.voiceWakePracticeScore).text =
+            "This screen only: ${result.detected} detected / ${result.missed} missed; detection rate $rate. Results reset when this screen is recreated."
     }
     private fun refreshScore() {
         val entries = store.entries()
