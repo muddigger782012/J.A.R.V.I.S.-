@@ -1,0 +1,32 @@
+name: Audit or preserve Jarvis Developer recovery backup
+
+# Registration only. Actual read-only audit and separately approved preservation
+# remain in the complete workflow on feature/jarvis-developer.
+on:
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: 'Exact 40-character published source SHA from the fresh read-only backup audit'
+        required: true
+        type: string
+      approved_apk_sha256:
+        description: 'Exact 64-character SHA-256 of the published APK bytes from the fresh audit'
+        required: true
+        type: string
+      approve_backup:
+        description: 'Explicitly approve creation of the missing developer-previous backup ONLY'
+        required: true
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  select-developer-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require the isolated Developer controller
+        run: |
+          echo '::error::Select feature/jarvis-developer in the Run workflow branch menu. This registration stub cannot audit, preserve, publish or install.'
+          exit 1
