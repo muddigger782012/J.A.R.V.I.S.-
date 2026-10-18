@@ -1,7 +1,9 @@
 name: Validate Jarvis Developer on disposable Android emulators
 # Creating an approved-device branch is the installation action. Do not create
 # that ref until the owner has approved the reviewed source and emulator scope.
-# Ordinary Developer/task pushes only compile tests in the separate debug flow.
+# Ordinary Developer/task pushes only compile tests and run fake host contracts.
+# This version additionally changes disposable display/font/night/rotation settings
+# and kills only the fixed background Developer process to verify task restoration.
 on:
   push:
     branches: ['feature/jarvis-developer-device-approved/**']
@@ -41,7 +43,8 @@ jobs:
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
             chmod +x ./gradlew
-            ./gradlew --no-daemon :developer:connectedDebugAndroidTest
+            ./gradlew --no-daemon :developer:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.jarvis.developer.DeveloperDeviceValidationTest
+            python3 developer/tools/device_validation.py --serial emulator-5554 --source-sha "${{ github.sha }}" --output-directory "/tmp/jarvis-developer-native-api-${{ matrix.api }}"
       - name: Retain native device evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,5 +53,6 @@ jobs:
           path: |
             developer/build/outputs/androidTest-results/connected/
             developer/build/reports/androidTests/connected/
+            /tmp/jarvis-developer-native-api-${{ matrix.api }}/
           if-no-files-found: warn
           retention-days: 14
