@@ -197,6 +197,11 @@ class SherpaWakeWordEngine(
         var lastReportAt = System.currentTimeMillis()
         var totalChunks = 0
         var detected = false
+        var sessionPeak = 0
+        var sessionSumSquares = 0.0
+        var sessionSamples = 0L
+        var slowDecodeCount = 0
+        var maxDecodeMs = 0L
         try {
             // Exercise the exact native inference path before claiming the
             // microphone is listening. Silence is never treated as a wake event.
@@ -226,6 +231,8 @@ class SherpaWakeWordEngine(
                 for (i in 0 until n) {
                     val normalized = buffer[i].toDouble() / 32768.0
                     sumSquaresSinceReport += normalized * normalized
+                    sessionSumSquares += normalized * normalized
+                    sessionSamples++
                 }
                 samplesSinceReport += n
                 for (i in 0 until n) {
@@ -233,6 +240,7 @@ class SherpaWakeWordEngine(
                     if (level > peak) peak = level
                 }
                 if (peak > peakSinceReport) peakSinceReport = peak
+                if (peak > sessionPeak) sessionPeak = peak
                 chunks += 1
                 totalChunks += 1
                 val now = System.currentTimeMillis()
@@ -269,11 +277,15 @@ class SherpaWakeWordEngine(
                     stage("sherpa-worker-before-decode-$totalChunks")
                     if (totalChunks <= 20) onStatus("Sherpa decoder ready after $totalChunks audio chunks; entering native decode.")
                     decodeChecked(kws, onlineStream, "chunk-$totalChunks")
+                    if (lastDecodeDurationMs > maxDecodeMs) maxDecodeMs = lastDecodeDurationMs
+                    if (lastDecodeDurationMs >= 500L) slowDecodeCount++
                     stage("sherpa-worker-after-decode-$totalChunks")
                     if (totalChunks <= 20) onStatus("Sherpa native decode completed at chunk $totalChunks.")
                     val keyword = kws.getResult(onlineStream).keyword
                     if (keyword.isNotBlank()) {
-                        onStatus("Sherpa detected keyword '$keyword' after $totalChunks audio buffers (last decode ${lastDecodeDurationMs}ms).")
+                        val peakPct = (sessionPeak * 100 / 32767).coerceIn(0, 100)
+                        val rmsPct = if (sessionSamples == 0L) 0 else (sqrt(sessionSumSquares / sessionSamples) * 100).toInt().coerceIn(0, 100)
+                        onStatus("Sherpa detected keyword '$keyword' after $totalChunks audio buffers; session peak $peakPct%, RMS $rmsPct%, max decode ${maxDecodeMs}ms, slow decodes $slowDecodeCount (>=500ms).")
                         running = false
                         detected = true
                         return
