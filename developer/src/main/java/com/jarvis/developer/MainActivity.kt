@@ -501,6 +501,85 @@ class MainActivity : Activity() {
             model.text.clear()
             credentialStatus.text = "Saved connection removed from this device."
         }
+        // Model presets are suggestions, not a fixed list of provider entitlements.
+        val modelChoices = listOf(
+            "Automatic (recommended)",
+            "Gemini 2.5 Flash — fast everyday coding",
+            "Gemini 2.5 Pro — complex reasoning and architecture",
+            "Gemini 2.5 Flash-Lite — lightweight requests",
+            "Custom model ID"
+        )
+        val openAiChoices = listOf(
+            "Automatic (recommended)",
+            "GPT-4.1 mini — fast coding and explanations",
+            "GPT-4.1 — larger development tasks",
+            "GPT-4.1 nano — lightweight requests",
+            "Custom model ID"
+        )
+        val modelPickerTitle = TextView(this).apply {
+            text = "Choose an AI model"
+            textSize = 16f
+            setTextColor(getColor(R.color.developer_primary))
+        }
+        val modelDescription = TextView(this).apply {
+            setTextColor(getColor(R.color.developer_secondary))
+            textSize = 13f
+        }
+        val modelPicker = android.widget.Spinner(this)
+        val modelPickerIndex = settings.indexOfChild(model)
+        settings.addView(modelPickerTitle, modelPickerIndex)
+        settings.addView(modelPicker, modelPickerIndex + 1)
+        settings.addView(modelDescription, modelPickerIndex + 2)
+        var updatingModelPicker = false
+        fun refreshModelPicker() {
+            val gemini = provider.selectedItem.toString() == "Gemini"
+            val choices = if (gemini) modelChoices else openAiChoices
+            val selectedId = model.text.toString().trim()
+            val ids = if (gemini)
+                listOf("", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite")
+            else listOf("", "gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano")
+            updatingModelPicker = true
+            modelPicker.adapter = android.widget.ArrayAdapter(this,
+                android.R.layout.simple_spinner_dropdown_item, choices)
+            val match = ids.indexOf(selectedId)
+            modelPicker.setSelection(if (match >= 0) match else 4)
+            modelDescription.text = if (match == 0) "Jarvis selects the provider's default model." else
+                if (match == -1) "Custom model: enter the exact model ID below." else
+                    "Suggested use: ${choices[match].substringAfter(" — ", "automatic selection")}."
+            updatingModelPicker = false
+        }
+        modelPicker.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?,
+                position: Int, id: Long) {
+                if (updatingModelPicker) return
+                val gemini = provider.selectedItem.toString() == "Gemini"
+                val ids = if (gemini)
+                    listOf("", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite")
+                else listOf("", "gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano")
+                if (position < ids.size) model.setText(ids[position])
+                modelDescription.text = when (position) {
+                    0 -> "Recommended: automatically use the provider default."
+                    1 -> if (gemini) "Fast everyday coding, chat, and project planning."
+                         else "Fast coding assistance and beginner-friendly explanations."
+                    2 -> "More demanding coding, architecture, and reasoning tasks; may cost more."
+                    3 -> "Lightweight tasks, simple edits, and lower-cost requests."
+                    else -> "Enter a supported model ID in the field below."
+                }
+            }
+        }
+        provider.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?,
+                position: Int, id: Long) {
+                // Do not carry a Gemini model ID into an OpenAI request or vice versa.
+                val current = model.text.toString().trim()
+                if ((position == 0 && current.startsWith("gpt-")) ||
+                    (position == 1 && current.startsWith("gemini-"))) model.text.clear()
+                refreshModelPicker()
+            }
+        }
+        refreshModelPicker()
         // Plain-language introductions for every destination; advanced controls remain available.
         fun sectionIntro(container: LinearLayout, heading: String, description: String) {
             container.addView(TextView(this).apply {
