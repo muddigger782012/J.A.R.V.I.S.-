@@ -22,9 +22,17 @@ import kotlin.concurrent.thread
  */
 class MainActivity : Activity() {
     private var applicationWorkbench: ApplicationApprovalWorkbench.Handle? = null
+    private var activePage = 0
+    private var selectPage: ((Int) -> Unit)? = null
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt("developer_active_page", activePage)
+        super.onSaveInstanceState(outState)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        activePage = savedInstanceState?.getInt("developer_active_page", 0)?.coerceIn(0, 3) ?: 0
         val health = getSharedPreferences("developer_health", MODE_PRIVATE)
         val currentCode = BuildConfig.VERSION_CODE
         val previousCode = health.getInt("last_started_version", -1)
@@ -374,28 +382,35 @@ class MainActivity : Activity() {
                 visibility = View.GONE
             }
         }
+        val tabs = mutableListOf<Button>()
+        fun showPage(index: Int) {
+            activePage = index.coerceIn(0, pages.lastIndex)
+            pages.forEachIndexed { pageIndex, page ->
+                page.visibility = if (pageIndex == activePage) View.VISIBLE else View.GONE
+            }
+            tabs.forEachIndexed { tabIndex, button ->
+                button.isSelected = tabIndex == activePage
+                button.alpha = if (tabIndex == activePage) 1f else 0.72f
+                button.contentDescription = button.text.toString() +
+                    if (tabIndex == activePage) ", selected" else ""
+            }
+        }
+        selectPage = ::showPage
         fun tab(label: String, pageIndex: Int) = Button(this).apply {
             text = label
             textSize = 12f
             isAllCaps = false
-            setOnClickListener {
-                pages.forEachIndexed { index, page ->
-                    page.visibility = if (index == pageIndex) View.VISIBLE else View.GONE
-                }
-            }
+            setOnClickListener { showPage(pageIndex) }
+            tabs.add(this)
             navigation.addView(this, LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         }
-        createProject.setOnClickListener {
-            pages.forEachIndexed { index, page ->
-                page.visibility = if (index == 1) View.VISIBLE else View.GONE
-            }
-        }
+        createProject.setOnClickListener { showPage(1) }
         tab("Home", 0)
         tab("Projects", 1)
         tab("Tools", 2)
         tab("Settings", 3)
-        pages[0].visibility = View.VISIBLE
+        showPage(activePage)
         shell.addView(navigation)
         pages.forEach { page ->
             shell.addView(page, LinearLayout.LayoutParams(
@@ -410,6 +425,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        selectPage = null
         applicationWorkbench?.dispose()
         applicationWorkbench = null
         super.onDestroy()
