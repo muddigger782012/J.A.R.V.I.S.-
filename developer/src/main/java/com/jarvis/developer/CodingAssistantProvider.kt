@@ -62,7 +62,7 @@ object CodingAssistantProvider {
             connection.doOutput = true
             connection.useCaches = false
             connection.connectTimeout = 15_000
-            connection.readTimeout = 30_000
+            connection.readTimeout = 75_000
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
             connection.setRequestProperty("Accept", "application/json")
             request.headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
@@ -78,7 +78,7 @@ object CodingAssistantProvider {
         } catch (e: java.net.SocketTimeoutException) {
             deadline.cancel()
             connection.disconnect()
-            throw ProviderFailure("AI connection timed out. Check network access and retry.")
+            throw ProviderFailure("AI provider did not respond within the network timeout. Test the connection in Settings, then try a shorter request or another available model.")
         } catch (e: java.net.UnknownHostException) {
             deadline.cancel()
             connection.disconnect()
