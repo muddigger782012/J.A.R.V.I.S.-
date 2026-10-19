@@ -404,7 +404,7 @@ class MainActivity : Activity() {
         val pages = listOf(root, projects, advanced, settings).map { page ->
             ScrollView(this).apply {
                 addView(page)
-                fillViewport = true
+                isFillViewport = true
                 visibility = View.GONE
             }
         }
