@@ -70,15 +70,9 @@ class MainActivity : Activity() {
             }
             root.addView(this)
         }
-        // Keep the approved composite intact: lettering, reactor and border are one image.
-        // The nodpi asset retains its source pixels; FIT_CENTER preserves its 3:1 proportions.
-        root.addView(ImageView(this).apply {
-            setImageResource(R.drawable.developer_approved_header)
-            adjustViewBounds = true
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            imageTintList = null
-            contentDescription = "Approved J.A.R.V.I.S. Developer header"
-        }, LinearLayout.LayoutParams(
+        // The approved composite remains the only artwork source. Its lettering and border
+        // stay still; only the existing reactor annuli are animated.
+        root.addView(ApprovedReactorHeader(this), LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT))
         val status = TextView(this).apply {
