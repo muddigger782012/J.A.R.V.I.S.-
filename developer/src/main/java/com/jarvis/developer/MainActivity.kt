@@ -366,7 +366,7 @@ class MainActivity : Activity() {
             setTextColor(getColor(R.color.developer_primary))
         })
         projects.addView(TextView(this).apply {
-            text = "Create an Android app, backend service, or Windows starter. Review the generated files before exporting."
+            text = "Start a new project or continue working on one. Jarvis will guide you through each step."
             setTextColor(0xFFC6DDE5.toInt())
         })
         projectViews.forEach { widget ->
@@ -379,13 +379,53 @@ class MainActivity : Activity() {
             setBackgroundColor(getColor(R.color.developer_panel))
         }
         settings.addView(TextView(this).apply {
-            text = "Settings and connections"
+            text = "Settings"
             textSize = 22f
             setTextColor(getColor(R.color.developer_primary))
         })
         listOf(key, provider, model).forEach { widget ->
             (widget.parent as? android.view.ViewGroup)?.removeView(widget)
             settings.addView(widget)
+        }
+        // Plain-language introductions for every destination; advanced controls remain available.
+        fun sectionIntro(container: LinearLayout, heading: String, description: String) {
+            container.addView(TextView(this).apply {
+                text = heading
+                textSize = 23f
+                setTextColor(getColor(R.color.developer_primary))
+                setPadding(4, 12, 4, 6)
+            }, 0)
+            container.addView(TextView(this).apply {
+                text = description
+                textSize = 15f
+                setTextColor(getColor(R.color.developer_secondary))
+                setPadding(4, 0, 4, 18)
+            }, 1)
+        }
+        sectionIntro(advanced, "Assistant and development tools",
+            "Describe a change on Home to ask Jarvis for help. Here you can review code, check builds, and use advanced development tools.")
+        sectionIntro(settings, "Connect your AI",
+            "Choose Gemini or OpenAI, enter your API key, and optionally select a model. Your key is not saved on this device.")
+        // Keep complex repository, recovery, and approval controls accessible but collapsed by default.
+        val advancedChildren = (2 until advanced.childCount).map { advanced.getChildAt(it) }
+        advancedChildren.forEach { advanced.removeView(it) }
+        val advancedToggle = Button(this).apply {
+            text = "Show developer controls"
+            isAllCaps = false
+            setTextColor(getColor(R.color.developer_primary))
+            backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_panel))
+        }
+        advanced.addView(advancedToggle)
+        val advancedContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        advancedChildren.forEach { advancedContent.addView(it) }
+        advanced.addView(advancedContent)
+        advancedToggle.setOnClickListener {
+            val expanding = advancedContent.visibility != View.VISIBLE
+            advancedContent.visibility = if (expanding) View.VISIBLE else View.GONE
+            advancedToggle.text = if (expanding) "Hide developer controls" else "Show developer controls"
         }
         val shell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
