@@ -46,11 +46,11 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 28, 28, 28)
-            setBackgroundColor(0xFF08151D.toInt())
+            setBackgroundColor(getColor(R.color.developer_background))
         }
         fun field(hint: String, multiline: Boolean = false) = EditText(this).apply {
             this.hint = hint
-            setHintTextColor(0xFF9DAFBE.toInt())
+            setHintTextColor(getColor(R.color.developer_hint))
             setTextColor(0xFFFFFFFF.toInt())
             if (multiline) {
                 minLines = 3
@@ -80,12 +80,12 @@ class MainActivity : Activity() {
         title.text = "DEVELOPER"
         title.textSize = 18f
         title.letterSpacing = 0.22f
-        title.setTextColor(0xFF7EE8F7.toInt())
+        title.setTextColor(getColor(R.color.developer_primary))
         header.addView(title)
         root.addView(header)
         val status = TextView(this).apply {
             text = "Describe your idea, review changes, and build with confidence."
-            setTextColor(0xFFB8C7D3.toInt())
+            setTextColor(getColor(R.color.developer_secondary))
         }
         root.addView(status)
         val key = field("Selected provider API key (not saved)").apply {
@@ -102,7 +102,7 @@ class MainActivity : Activity() {
             prompt.setText(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
         }
         val output = TextView(this).apply {
-            setTextColor(0xFFE9F3FA.toInt())
+            setTextColor(getColor(R.color.developer_text))
             setTextIsSelectable(true)
             text = "Coding responses appear here. Approved icon edits can be committed to the isolated Developer branch and checked against GitHub Actions."
         }
@@ -117,7 +117,7 @@ class MainActivity : Activity() {
         val updates = Button(this).apply { text = "Check for Developer updates" }
         root.addView(updates)
         val recoveryStatus = TextView(this).apply {
-            setTextColor(0xFFE9F3FA.toInt())
+            setTextColor(getColor(R.color.developer_text))
             text = if (recoveryWarning) "WARNING: $restarts rapid launches on unconfirmed version $currentCode. This may be normal relaunching, not necessarily a crash. Review recovery before coding or updating." else if (pendingReview) "Version $currentCode is awaiting your health confirmation." else
                 "Version $currentCode was confirmed working on this device."
         }
@@ -312,7 +312,7 @@ class MainActivity : Activity() {
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(20, 12, 20, 20)
-            setBackgroundColor(0xFF10232D.toInt())
+            setBackgroundColor(getColor(R.color.developer_panel))
         }
         val advancedStart = root.indexOfChild(plans)
         while (root.childCount > advancedStart) {
@@ -323,12 +323,12 @@ class MainActivity : Activity() {
         val projects = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 20, 24, 24)
-            setBackgroundColor(0xFF08151D.toInt())
+            setBackgroundColor(getColor(R.color.developer_background))
         }
         projects.addView(TextView(this).apply {
             text = "My projects"
             textSize = 23f
-            setTextColor(0xFF75E9F7.toInt())
+            setTextColor(getColor(R.color.developer_primary))
         })
         projects.addView(TextView(this).apply {
             text = "Create an Android app, backend service, or Windows starter. Review the generated files before exporting."
@@ -341,12 +341,12 @@ class MainActivity : Activity() {
         val settings = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 20, 24, 24)
-            setBackgroundColor(0xFF10232D.toInt())
+            setBackgroundColor(getColor(R.color.developer_panel))
         }
         settings.addView(TextView(this).apply {
             text = "Settings and connections"
             textSize = 22f
-            setTextColor(0xFF75E9F7.toInt())
+            setTextColor(getColor(R.color.developer_primary))
         })
         listOf(key, provider, model).forEach { widget ->
             (widget.parent as? android.view.ViewGroup)?.removeView(widget)
@@ -354,7 +354,7 @@ class MainActivity : Activity() {
         }
         val shell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF08151D.toInt())
+            setBackgroundColor(getColor(R.color.developer_background))
         }
         val navigation = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
