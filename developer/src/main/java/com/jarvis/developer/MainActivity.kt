@@ -198,6 +198,17 @@ class MainActivity : Activity() {
             contentDescription = "Open Settings to enter your AI provider credentials"
         }
         root.addView(setupButton)
+        fun updateConnectionSetup() {
+            val saved = ProviderCredentialStore.load(this@MainActivity)
+            setupButton.text = if (saved == null) "Set up AI connection" else "Manage / test AI connection"
+            setupButton.contentDescription = if (saved == null)
+                "Open Settings to connect an AI provider"
+                else "Open Settings to test or change the saved AI connection"
+            setupHint.text = if (saved == null)
+                "Connect an AI provider in Settings to get started."
+                else "${saved.first} credentials saved on this device. Connection has not been verified in this session."
+        }
+        updateConnectionSetup()
         val key = field("Paste your API key here (not a model name)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
@@ -655,7 +666,7 @@ class MainActivity : Activity() {
                     ProviderCredentialStore.save(this, provider.selectedItem.toString(),
                         selectedKey, model.text.toString().trim())
                     credentialStatus.text = "Connection saved securely. You can now start a project."
-                    setupHint.text = "AI connection saved. Test your connection in Settings before starting a project."
+                    updateConnectionSetup()
                     status.text = "AI connection saved"
                 } catch (_: Exception) {
                     credentialStatus.text = "Unable to save securely. Check device security settings."
@@ -667,6 +678,7 @@ class MainActivity : Activity() {
             key.text.clear()
             model.text.clear()
             credentialStatus.text = "Saved connection removed from this device."
+            updateConnectionSetup()
         }
         // Model presets are suggestions, not a fixed list of provider entitlements.
         val modelChoices = listOf(
