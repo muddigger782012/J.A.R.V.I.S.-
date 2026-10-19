@@ -14,6 +14,7 @@ import android.widget.TextView
 import android.widget.ImageView
 import android.view.View
 import android.graphics.drawable.GradientDrawable
+import android.graphics.Typeface
 import kotlin.concurrent.thread
 
 /**
@@ -459,10 +460,16 @@ class MainActivity : Activity() {
             Button(this).apply {
                 text = label
                 textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                setPadding(24, 8, 12, 8)
                 isAllCaps = false
                 setTextColor(getColor(R.color.developer_text))
-                backgroundTintList = android.content.res.ColorStateList.valueOf(
-                    0xFF142F3B.toInt())
+                background = GradientDrawable().apply {
+                    setColor(0xFF142F3B.toInt())
+                    cornerRadius = 22f
+                    setStroke(2, 0xFF285563.toInt())
+                }
                 setOnClickListener {
                     if (action != null) action() else selectPage?.invoke(destination)
                 }
@@ -470,24 +477,25 @@ class MainActivity : Activity() {
         fun quickRow(first: Button, second: Button): LinearLayout =
             LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                addView(first, LinearLayout.LayoutParams(0, 88, 1f).apply {
+                setPadding(0, 0, 0, 12)
+                addView(first, LinearLayout.LayoutParams(0, 100, 1f).apply {
                     marginEnd = 6
                 })
-                addView(second, LinearLayout.LayoutParams(0, 88, 1f).apply {
+                addView(second, LinearLayout.LayoutParams(0, 100, 1f).apply {
                     marginStart = 6
                 })
             }
         root.addView(quickRow(
-            quickAction("Create an app", 1),
-            quickAction("My projects", 1)
+            quickAction("▣  Create an app", 1),
+            quickAction("▱  My projects", 1)
         ), root.indexOfChild(createProject))
         root.addView(quickRow(
-            quickAction("Improve Jarvis", 2) {
+            quickAction("⌁  Improve Jarvis", 2) {
                 selectPage?.invoke(2)
                 advancedContent.visibility = View.VISIBLE
                 advancedToggle.text = "Hide developer controls"
             },
-            quickAction("Build status", 2) {
+            quickAction("▤  Build status", 2) {
                 selectPage?.invoke(2)
                 advancedContent.visibility = View.VISIBLE
                 advancedToggle.text = "Hide developer controls"
