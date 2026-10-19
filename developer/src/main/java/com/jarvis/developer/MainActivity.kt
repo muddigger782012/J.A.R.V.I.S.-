@@ -407,6 +407,35 @@ class MainActivity : Activity() {
             "Describe a change on Home to ask Jarvis for help. Here you can review code, check builds, and use advanced development tools.")
         sectionIntro(settings, "Connect your AI",
             "Choose Gemini or OpenAI, enter your API key, and optionally select a model. Your key is not saved on this device.")
+        // Give every secondary screen the same rounded, readable Jarvis surfaces.
+        fun roundedSurface(color: Int = getColor(R.color.developer_panel)) =
+            GradientDrawable().apply {
+                setColor(color)
+                cornerRadius = 24f
+                setStroke(2, 0xFF285563.toInt())
+            }
+        listOf(projects, settings).forEach { page ->
+            page.setPadding(24, 24, 24, 32)
+        }
+        listOf(key, model, githubToken, sourcePath, sourceRange).forEach { input ->
+            input.setPadding(20, 18, 20, 18)
+            input.background = roundedSurface(0xFF112A35.toInt())
+            input.setSingleLine(input !== sourcePath && input !== sourceRange)
+        }
+        provider.setPadding(16, 12, 16, 12)
+        provider.background = roundedSurface(0xFF112A35.toInt())
+        // Match the same visual language in the guided Projects workbench.
+        projectViews.filterIsInstance<Button>().forEach { button ->
+            button.isAllCaps = false
+            button.setTextColor(getColor(R.color.developer_primary))
+            button.background = roundedSurface(0xFF112A35.toInt())
+        }
+        listOf(plans, builds, updates, recovery, inventoryButton, sourceButton,
+            analyzeButton, iconTest, confirmHealthy).forEach { button ->
+            button.isAllCaps = false
+            button.setTextColor(getColor(R.color.developer_primary))
+            button.background = roundedSurface(0xFF112A35.toInt())
+        }
         // Keep complex repository, recovery, and approval controls accessible but collapsed by default.
         val advancedChildren = (2 until advanced.childCount).map { advanced.getChildAt(it) }
         advancedChildren.forEach { advanced.removeView(it) }
