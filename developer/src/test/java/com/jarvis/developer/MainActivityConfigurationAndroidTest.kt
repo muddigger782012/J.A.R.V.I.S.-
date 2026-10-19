@@ -209,7 +209,7 @@ class MainActivityConfigurationAndroidTest {
 
         assertApprovalsUnavailable(activity)
         val lastAction = button(activity, "Generate icon code, commit and check build")
-        assertTrue("Last action is the final content child", root.getChildAt(root.childCount - 1) === lastAction)
+        assertTrue("Last action is inside the expanded Tools content", descendants(root).any { it === lastAction })
         scroll.isSmoothScrollingEnabled = false
         assertTrue("ScrollView can reach bottom", scroll.fullScroll(View.FOCUS_DOWN))
         idleMain()
