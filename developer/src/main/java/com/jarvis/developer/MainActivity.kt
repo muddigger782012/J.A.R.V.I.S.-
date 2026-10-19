@@ -124,7 +124,9 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(10) })
         root.addView(header)
         val status = TextView(this).apply {
-            text = "Your AI development assistant"\n            textSize = 13f\n            setPadding(dp(4), dp(8), 0, dp(6))
+            text = "Your AI development assistant"
+            textSize = 13f
+            setPadding(dp(4), dp(8), 0, dp(6))
             setTextColor(getColor(R.color.developer_secondary))
         }
         root.addView(status)
