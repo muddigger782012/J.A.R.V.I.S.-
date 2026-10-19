@@ -428,12 +428,172 @@ class ContractTests(unittest.TestCase):
 
     def test_failed_restore_is_failure_and_attempts_remaining_restores(self):
         adb = ConfigurationAdb(fail_instrument=True, restore_failure=True)
-        evidence = validation.execute(adb, SHA)
+        original_restore = validation.restore
+        with patch.object(validation, "restore", side_effect=lambda target, saved:
+                          original_restore(target, saved, sleeper=lambda _: None)):
+            evidence = validation.execute(adb, SHA)
         self.assertFalse(evidence["passed"])
         self.assertFalse(evidence["configurationRestored"])
-        self.assertEqual("configuration_restore_failed", evidence["failureReason"])
+        self.assertEqual("adb_command_timeout", evidence["failureReason"])
+        self.assertEqual({"reason": "adb_command_timeout", "phase": "native_profiles"},
+                         evidence["primaryFailure"])
+        self.assertEqual("configuration_restore_failed", evidence["cleanupFailures"][0]["reason"])
+        self.assertEqual(["size"], evidence["cleanupFailures"][0]["details"]["commandFailedSettingNames"])
         self.assertIn(("shell", "cmd", "uimode", "night", "auto"), adb.commands)
         self.assertTrue(evidence["uiXmlRemoved"])
+
+    def test_restore_waits_for_delayed_snapshot_convergence_without_repeating_commands(self):
+        adb = ConfigurationAdb()
+        saved = validation.snapshot(adb)
+        delayed = dict(saved, user_rotation="1")
+        adb.commands.clear()
+        sleeper = MagicMock()
+        with patch.object(validation, "snapshot", side_effect=(delayed, saved)) as snapshots:
+            details = validation.restore(adb, saved, sleeper=sleeper, clock=lambda: 10)
+        self.assertTrue(details["verified"])
+        self.assertEqual(2, details["snapshotAttempts"])
+        self.assertEqual({}, details["mismatchedSettings"])
+        self.assertEqual(2, snapshots.call_count)
+        self.assertEqual(6, len(adb.commands))
+        self.assertEqual(6, len(set(adb.commands)))
+        sleeper.assert_called_once_with(0.25)
+
+    def test_restore_persistent_mismatch_is_bounded_and_null_is_not_rotation_zero(self):
+        adb = ConfigurationAdb()
+        saved = validation.snapshot(adb)
+        saved["user_rotation"] = "null"
+        observed = dict(saved, user_rotation="0")
+        adb.commands.clear()
+        with patch.object(validation, "snapshot", return_value=observed) as snapshots, \
+                self.assertRaises(validation.ConfigurationRestoreError) as caught:
+            validation.restore(adb, saved, sleeper=lambda _: None, clock=lambda: 10)
+        details = caught.exception.details
+        self.assertFalse(details["verified"])
+        self.assertEqual(8, details["snapshotAttempts"])
+        self.assertEqual(8, snapshots.call_count)
+        self.assertEqual({"user_rotation": {"expected": None, "observed": "0"}},
+                         details["mismatchedSettings"])
+        self.assertEqual(6, len(adb.commands))
+        self.assertIn(("shell", "settings", "delete", "system", "user_rotation"), adb.commands)
+
+    def test_restore_retries_only_snapshot_reads_after_transient_parse_failure(self):
+        adb = ConfigurationAdb()
+        saved = validation.snapshot(adb)
+        adb.commands.clear()
+        with patch.object(validation, "snapshot", side_effect=(
+                validation.ValidationError("unsupported_display_snapshot"), saved)):
+            details = validation.restore(adb, saved, sleeper=lambda _: None, clock=lambda: 10)
+        self.assertTrue(details["verified"])
+        self.assertEqual(2, details["snapshotAttempts"])
+        self.assertNotIn("snapshotFailureReason", details)
+        self.assertEqual(6, len(adb.commands))
+
+    def test_restore_snapshot_settling_has_separate_time_budget(self):
+        adb = ConfigurationAdb()
+        saved = validation.snapshot(adb)
+        adb.deadline = 100
+        observed_deadlines = []
+
+        def observe(target):
+            observed_deadlines.append(target.deadline)
+            return saved
+
+        with patch.object(validation, "snapshot", side_effect=observe):
+            validation.restore(adb, saved, sleeper=lambda _: None, clock=lambda: 10)
+        self.assertEqual([14], observed_deadlines)
+        self.assertEqual(100, adb.deadline)
+
+    def test_native_assertion_diagnostics_allow_only_fixed_category_and_exact_test_frames(self):
+        text = ("INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: "
+                "Final action bottom must be within the native viewport\n"
+                "\tat org.junit.Assert.assertTrue(Assert.java:42)\n"
+                "\tat com.jarvis.developer.DeveloperConfigurationDeviceTest."
+                + validation.TEST_METHOD + "$lambda$1(DeveloperConfigurationDeviceTest.kt:104)\n")
+        diagnostic = validation.native_failure_evidence(text)
+        self.assertEqual("assertion", diagnostic["failureType"])
+        self.assertEqual("final_action_bottom", diagnostic["assertionCategory"])
+        self.assertEqual([{"path": validation.NATIVE_SOURCE_PATH, "method": validation.TEST_METHOD,
+                           "line": 104}], diagnostic["sourceFrames"])
+        self.assertNotIn("Final action bottom", json.dumps(diagnostic))
+
+    def test_unexpected_native_assertion_and_untrusted_frames_are_redacted(self):
+        secret = "private-fixture-provider-token"
+        text = ("INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: <hierarchy>" + secret + "\n"
+                "\tat untrusted." + secret + ".SomeClass.method(PrivateFile.kt:17)\n"
+                "\tat com.jarvis.developer.DeveloperConfigurationDeviceTest." + secret + "(DeveloperConfigurationDeviceTest.kt:51)\n"
+                "\tat com.jarvis.developer.DeveloperConfigurationDeviceTest.assertEffectiveConfiguration(PrivateFile.kt:52)\n"
+                "\tat com.jarvis.developer.DeveloperConfigurationDeviceTest.assertEffectiveConfiguration(DeveloperConfigurationDeviceTest.kt:113)\n")
+        diagnostic = validation.native_failure_evidence(text)
+        self.assertEqual("unrecognized_assertion", diagnostic["assertionCategory"])
+        self.assertEqual([{"path": validation.NATIVE_SOURCE_PATH, "method": "assertEffectiveConfiguration",
+                           "line": 113}], diagnostic["sourceFrames"])
+        encoded = json.dumps(diagnostic)
+        for private in (secret, "PrivateFile", "<hierarchy>", "untrusted"):
+            self.assertNotIn(private, encoded)
+
+    def test_configuration_timeout_retains_only_safe_cause_category_and_exact_source_location(self):
+        text = ("INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: "
+                "Native host configuration/layout did not settle for landscape_large within 10000ms. "
+                "Last checkpoint: Applied full-display width for landscape_large\n"
+                "\tat com.jarvis.developer.DeveloperConfigurationDeviceTest.awaitEffectiveConfigurationAndNativeLayout(DeveloperConfigurationDeviceTest.kt:167)\n"
+                "Caused by: java.lang.AssertionError: Applied full-display width for landscape_large expected:<1280> but was:<640>\n"
+                "\tat com.jarvis.developer.DeveloperConfigurationDeviceTest.assertEffectiveConfiguration(DeveloperConfigurationDeviceTest.kt:114)\n")
+        diagnostic = validation.native_failure_evidence(text)
+        self.assertEqual("configuration_not_settled", diagnostic["assertionCategory"])
+        self.assertEqual(["full_display_width"], diagnostic["relatedAssertionCategories"])
+        self.assertEqual([167, 114], [frame["line"] for frame in diagnostic["sourceFrames"]])
+        self.assertNotIn("expected:<", json.dumps(diagnostic))
+
+    def test_native_diagnostic_frames_are_bounded_and_do_not_invent_assertions(self):
+        text = "unrecognized native failure\n" + "".join(
+            "\tat com.jarvis.developer.DeveloperConfigurationDeviceTest.assertEffectiveConfiguration(DeveloperConfigurationDeviceTest.kt:"
+            + str(line) + ")\n" for line in range(100, 110))
+        diagnostic = validation.native_failure_evidence(text)
+        self.assertEqual("unrecognized_native_failure", diagnostic["failureType"])
+        self.assertEqual("unrecognized", diagnostic["assertionCategory"])
+        self.assertEqual(3, len(diagnostic["sourceFrames"]))
+
+    def test_native_primary_failure_survives_both_restoration_and_xml_cleanup_failures(self):
+        class NativeAndCleanupFailure(ConfigurationAdb):
+            def run(self, *args, **kwargs):
+                if args == ("shell", "rm", "-f", validation.UI_PATH):
+                    self.commands.append(args)
+                    raise validation.ValidationError("adb_command_failed")
+                result = super().run(*args, **kwargs)
+                if args[:3] == ("shell", "am", "instrument"):
+                    return validation.Result(0, "INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: "
+                        "Final action bottom must be within the native viewport\n"
+                        "\tat com.jarvis.developer.DeveloperConfigurationDeviceTest."
+                        + validation.TEST_METHOD + "$lambda$1(DeveloperConfigurationDeviceTest.kt:104)\n")
+                return result
+
+        original_restore = validation.restore
+        with patch.object(validation, "restore", side_effect=lambda target, saved:
+                          original_restore(target, saved, sleeper=lambda _: None)):
+            evidence = validation.execute(NativeAndCleanupFailure(restore_failure=True), SHA)
+        self.assertFalse(evidence["passed"])
+        self.assertEqual("native_case_failed", evidence["failureReason"])
+        self.assertEqual({"reason": "native_case_failed", "phase": "native_profiles"}, evidence["primaryFailure"])
+        self.assertEqual(["configuration_restore_failed", "temporary_ui_xml_cleanup_failed"],
+                         [failure["reason"] for failure in evidence["cleanupFailures"]])
+        self.assertEqual("final_action_bottom", evidence["profiles"][0]["nativeFailure"]["assertionCategory"])
+        self.assertEqual(104, evidence["profiles"][0]["nativeFailure"]["sourceFrames"][0]["line"])
+        self.assertFalse(evidence["configurationRestored"])
+        self.assertFalse(evidence["uiXmlRemoved"])
+
+    def test_cleanup_failure_becomes_primary_only_when_main_validation_passed(self):
+        class CleanupOnlyFailure(ConfigurationAdb):
+            def run(self, *args, **kwargs):
+                if args == ("shell", "rm", "-f", validation.UI_PATH):
+                    raise validation.ValidationError("adb_command_failed")
+                return super().run(*args, **kwargs)
+
+        evidence = validation.execute(CleanupOnlyFailure(), SHA, process_runner=lambda _: {"passed": True})
+        self.assertFalse(evidence["passed"])
+        self.assertEqual("temporary_ui_xml_cleanup_failed", evidence["failureReason"])
+        self.assertEqual("cleanup", evidence["phase"])
+        self.assertEqual({"reason": "temporary_ui_xml_cleanup_failed", "phase": "remove_temporary_ui_xml"},
+                         evidence["primaryFailure"])
 
     def test_process_phase_failure_is_not_lost_during_successful_cleanup(self):
         adb = ConfigurationAdb()

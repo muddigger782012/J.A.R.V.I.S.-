@@ -55,6 +55,8 @@ PROFILES = (
     ("narrow_large_night", "2.0", "yes", "portrait", "320", "640"),
     ("landscape_large", "2.0", "no", "landscape", "640", "320"),
 )
+CONFIGURATION_KEYS = ("size", "density", "font_scale", "accelerometer_rotation", "user_rotation", "night")
+NATIVE_SOURCE_PATH = "developer/src/androidTest/java/com/jarvis/developer/DeveloperConfigurationDeviceTest.kt"
 
 
 class ValidationError(Exception):
@@ -74,6 +76,12 @@ class AdbCommandError(ValidationError):
     def evidence(self):
         return {"classification": self.classification, "exitCode": self.exit_code,
                 "outputSha256": self.output_sha256, "commandKind": self.command_kind}
+
+
+class ConfigurationRestoreError(ValidationError):
+    def __init__(self, details):
+        super().__init__("configuration_restore_failed")
+        self.details = details
 
 
 def command_kind(args):
@@ -276,24 +284,142 @@ def validate_installed_targets(adb, evidence):
     evidence["runnerAvailable"] = True
 
 
-def restore(adb, saved):
-    failures = []
-    # Attempt every restoration even if an earlier command fails.
-    commands = [("shell", "wm", kind, saved[kind][1] or "reset") for kind in ("size", "density")]
-    commands += [("shell", "settings", "delete", "system", name) if saved[name] == "null"
-                 else ("shell", "settings", "put", "system", name, saved[name])
+def safe_configuration_value(name, value):
+    """Only already validated numeric/enum state may be retained, never raw output."""
+    if name in ("size", "density"):
+        physical, override = value
+        if name == "size":
+            return {"physicalPixels": [int(part) for part in physical.split("x")],
+                    "overridePixels": None if override is None else [int(part) for part in override.split("x")]}
+        return {"physicalDpi": int(physical), "overrideDpi": None if override is None else int(override)}
+    # Preserve missing values distinctly: a missing rotation is not rotation 0.
+    if name in ("font_scale", "accelerometer_rotation", "user_rotation"):
+        return None if value == "null" else value
+    return value
+
+
+def configuration_mismatches(saved, observed):
+    return {name: {"expected": safe_configuration_value(name, saved[name]),
+                   "observed": safe_configuration_value(name, observed[name])}
+            for name in CONFIGURATION_KEYS if saved[name] != observed[name]}
+
+
+def restore(adb, saved, sleeper=time.sleep, clock=time.monotonic):
+    details = {"commandFailedSettingNames": [], "snapshotAttempts": 0,
+               "mismatchedSettings": {}, "verified": False}
+    # Issue each fixed restoration command once, even when another command fails.
+    commands = [(kind, ("shell", "wm", kind, saved[kind][1] or "reset")) for kind in ("size", "density")]
+    commands += [(name, ("shell", "settings", "delete", "system", name) if saved[name] == "null"
+                  else ("shell", "settings", "put", "system", name, saved[name]))
                  for name in ("font_scale", "accelerometer_rotation", "user_rotation")]
-    commands.append(("shell", "cmd", "uimode", "night", saved["night"]))
-    for args in commands:
+    commands.append(("night", ("shell", "cmd", "uimode", "night", saved["night"])))
+    for name, args in commands:
         try:
             adb.run(*args)
         except ValidationError:
-            failures.append("configuration_restore_command_failed")
+            details["commandFailedSettingNames"].append(name)
+
+    # Android may apply display/rotation changes asynchronously. Observe convergence
+    # for at most four seconds/eight reads; never repeat a mutation to force a pass.
+    previous_deadline = adb.deadline
+    settle_deadline = clock() + 4
+    adb.deadline = min(previous_deadline, settle_deadline)
     try:
-        require(snapshot(adb) == saved, "configuration_restore_mismatch")
-    except ValidationError:
-        failures.append("configuration_restore_not_verified")
-    require(not failures, "configuration_restore_failed")
+        for attempt in range(8):
+            if clock() >= settle_deadline:
+                break
+            details["snapshotAttempts"] += 1
+            try:
+                observed = snapshot(adb)
+                details["mismatchedSettings"] = configuration_mismatches(saved, observed)
+                details.pop("snapshotFailureReason", None)
+                if not details["mismatchedSettings"]:
+                    details["verified"] = True
+                    break
+            except ValidationError as error:
+                details["snapshotFailureReason"] = str(error)
+            if attempt < 7 and clock() < settle_deadline:
+                sleeper(min(0.25, max(0, settle_deadline - clock())))
+    finally:
+        adb.deadline = previous_deadline
+    if details["commandFailedSettingNames"] or not details["verified"]:
+        raise ConfigurationRestoreError(details)
+    return details
+
+
+def native_failure_evidence(text):
+    """Extract only fixed assertion categories and frames in this exact test file."""
+    result = {"failureType": "unrecognized_native_failure", "assertionCategory": "unrecognized",
+              "sourceFrames": []}
+    assertions = list(re.finditer(r"(?m)^(?:INSTRUMENTATION_STATUS: stack=|Caused by: )?"
+                                 r"(?:java\.lang\.AssertionError|org\.junit\.ComparisonFailure)"
+                                 r"(?:: ([^\r\n]*))?$", text))[:4]
+    if assertions:
+        result["failureType"] = "assertion"
+        categories = (
+            ("Applied full-display density for ", "full_display_density"),
+            ("Applied app-resource density for ", "app_resource_density"),
+            ("Applied full-display width for ", "full_display_width"),
+            ("Applied full-display height for ", "full_display_height"),
+            ("Applied font scale for ", "font_scale"),
+            ("Applied Android system night mode for ", "system_night_mode"),
+            ("Applied orientation for ", "orientation"),
+            ("Applied width for ", "available_width"),
+            ("Applied height for ", "available_height"),
+            ("Native effective configuration did not settle", "configuration_not_settled"),
+            ("Native host configuration/layout did not settle", "configuration_not_settled"),
+            ("Native viewport did not receive nonzero layout for ", "native_layout_unavailable"),
+            ("Exactly one native scroll viewport is required", "native_viewport_count"),
+            ("Native scroll viewport must contain one content view", "native_content_count"),
+            ("Native scroll viewport must be laid out", "native_viewport_layout"),
+            ("Native scroll viewport must have no pending layout", "native_viewport_layout_pending"),
+            ("Native scroll viewport must have nonzero width and height", "native_viewport_size"),
+            ("Native content must be laid out", "native_content_layout"),
+            ("Native content must have no pending layout", "native_content_layout_pending"),
+            ("Native content must have nonzero width and height", "native_content_size"),
+            ("Content must require vertical scrolling", "vertical_scroll_required"),
+            ("Content must fit the actual viewport horizontally", "content_horizontal_containment"),
+            ("Visible interactive controls must exist", "interactive_controls_missing"),
+            ("Nonzero control width: ", "control_width"),
+            ("Nonzero control height: ", "control_height"),
+            ("Escaped left content edge: ", "control_left_containment"),
+            ("Escaped right content edge: ", "control_right_containment"),
+            ("Icon action must remain the final content child", "final_action_order"),
+            ("Native ScrollView must scroll toward its final action", "final_action_scroll"),
+            ("Native ScrollView must have moved downward", "scroll_position"),
+            ("Final action top must be within the native viewport", "final_action_top"),
+            ("Final action bottom must be within the native viewport", "final_action_bottom"),
+            ("Provider credential must remain empty", "provider_field_empty"),
+            ("GitHub credential must remain empty", "github_field_empty"),
+            ("Geometry checks must not confirm health", "health_unconfirmed"),
+        )
+        observed_categories = []
+        for assertion in assertions:
+            message = assertion.group(1) or ""
+            category = next((category for prefix, category in categories if message.startswith(prefix)),
+                            "unrecognized_assertion")
+            if any(message.startswith(label) for label in (*GATE_BUTTONS, *GATE_CHECKBOXES)):
+                category = "approval_gate"
+            if category not in observed_categories:
+                observed_categories.append(category)
+        result["assertionCategory"] = observed_categories[0]
+        result["relatedAssertionCategories"] = observed_categories[1:]
+    allowed_methods = (TEST_METHOD, "assertEffectiveConfiguration", "assertAvailableDimension",
+                       "awaitNativeLayout", "awaitEffectiveConfigurationAndNativeLayout", "assertNativeLayout",
+                       "assertWithinHorizontalContent",
+                       "assertCredentialsEmptyAndApprovalsUnavailable")
+    for frame in re.finditer(r"(?m)^\s+at com\.jarvis\.developer\.DeveloperConfigurationDeviceTest\."
+                             r"([A-Za-z0-9_$]+)\(DeveloperConfigurationDeviceTest\.kt:([1-9][0-9]{0,3})\)\s*$", text):
+        method, line = frame.groups()
+        canonical = next((name for name in allowed_methods
+                          if method == name or re.fullmatch(re.escape(name) + r"\$lambda\$[0-9]{1,2}", method)), None)
+        if canonical is not None:
+            record = {"path": NATIVE_SOURCE_PATH, "method": canonical, "line": int(line)}
+            if record not in result["sourceFrames"]:
+                result["sourceFrames"].append(record)
+            if len(result["sourceFrames"]) == 3:
+                break
+    return result
 
 
 def parse_instrumentation(text):
@@ -350,6 +476,7 @@ def run_profiles(adb, results=None):
             arguments += ["-e", key, value]
         arguments.append(RUNNER)
         record["stage"] = "native_case"
+        result = None
         try:
             result = adb.run(*arguments, timeout=120, max_bytes=262144)
             record["instrumentationOutputSha256"] = output_digest(result)
@@ -362,6 +489,8 @@ def run_profiles(adb, results=None):
             raise
         except ValidationError as error:
             record["failureClassification"] = str(error)
+            if result is not None:
+                record["nativeFailure"] = native_failure_evidence(result.text)
             raise
         record.update(passed=True, stage="complete")
     return results
@@ -644,6 +773,7 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
                 "scope": "already-installed-disposable-ci-emulator-offline-only",
                 "phase": "validate_emulator",
                 "passed": False, "installedTargets": {}, "profiles": [], "processDeath": {"passed": False},
+                "primaryFailure": None, "cleanupFailures": [],
                 "configurationRestored": False, "uiXmlRemoved": False,
                 "apkInstalledByThisTool": False, "providerOrPublisherInvoked": False}
     saved = None
@@ -657,13 +787,17 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
         evidence["phase"] = "native_profiles"
         run_profiles(adb, evidence["profiles"])
         evidence["phase"] = "restore_before_process_death"
-        restore(adb, saved)
+        evidence["restorationBeforeProcessDeath"] = restore(adb, saved)
         evidence["configurationRestored"] = True
         adb.deadline = clock() + 360
         evidence["phase"] = "process_death"
         evidence["processDeath"] = process_runner(adb)
         require(evidence["processDeath"].get("passed") is True, "process_death_not_verified")
         evidence["phase"] = "complete"
+    except ConfigurationRestoreError as error:
+        failure = str(error)
+        evidence["primaryFailure"] = {"reason": failure, "phase": evidence["phase"],
+                                      "details": error.details}
     except AdbCommandError as error:
         failure = str(error)
         evidence["commandFailure"] = error.evidence()
@@ -674,16 +808,29 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
         adb.deadline = clock() + 90
         if saved is not None:
             try:
-                restore(adb, saved)
+                evidence["cleanupRestoration"] = restore(adb, saved)
                 evidence["configurationRestored"] = True
+            except ConfigurationRestoreError as error:
+                evidence["configurationRestored"] = False
+                evidence["cleanupFailures"].append({"reason": str(error),
+                    "phase": "restore_configuration", "details": error.details})
             except ValidationError:
                 evidence["configurationRestored"] = False
-                failure = "configuration_restore_failed"
+                evidence["cleanupFailures"].append({"reason": "configuration_restore_failed",
+                                                     "phase": "restore_configuration"})
             try:
                 adb.run("shell", "rm", "-f", UI_PATH)
                 evidence["uiXmlRemoved"] = True
             except ValidationError:
-                failure = "temporary_ui_xml_cleanup_failed"
+                evidence["cleanupFailures"].append({"reason": "temporary_ui_xml_cleanup_failed",
+                                                     "phase": "remove_temporary_ui_xml"})
+    if failure is not None and evidence["primaryFailure"] is None:
+        evidence["primaryFailure"] = {"reason": failure, "phase": evidence["phase"]}
+    if failure is None and evidence["cleanupFailures"]:
+        first_cleanup = evidence["cleanupFailures"][0]
+        failure = first_cleanup["reason"]
+        evidence["primaryFailure"] = dict(first_cleanup)
+        evidence["phase"] = "cleanup"
     evidence["passed"] = failure is None
     if failure:
         evidence["failureReason"] = failure

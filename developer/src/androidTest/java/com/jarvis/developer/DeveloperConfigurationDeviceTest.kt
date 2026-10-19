@@ -50,7 +50,7 @@ class DeveloperConfigurationDeviceTest {
     @Test
     fun appliedHostConfigurationKeepsNativeControlsContainedAndLastActionReachable() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            awaitNativeLayout(scenario)
+            awaitEffectiveConfigurationAndNativeLayout(scenario)
             scenario.onActivity { activity ->
                 assertEffectiveConfiguration(activity)
                 val scroll = views<ScrollView>(activity).single()
@@ -81,7 +81,7 @@ class DeveloperConfigurationDeviceTest {
                     scroll.fullScroll(View.FOCUS_DOWN))
             }
 
-            awaitNativeLayout(scenario)
+            awaitEffectiveConfigurationAndNativeLayout(scenario)
             scenario.onActivity { activity ->
                 assertEffectiveConfiguration(activity)
                 val scroll = views<ScrollView>(activity).single()
@@ -131,23 +131,59 @@ class DeveloperConfigurationDeviceTest {
             availableDp in (displayDp - MAX_SYSTEM_BAR_DP)..displayDp)
     }
 
-    private fun awaitNativeLayout(scenario: ActivityScenario<MainActivity>) {
+    private fun awaitEffectiveConfigurationAndNativeLayout(scenario: ActivityScenario<MainActivity>) {
         val deadline = SystemClock.uptimeMillis() + LAYOUT_TIMEOUT_MS
+        var previousActivity: Activity? = null
+        var matchingObservations = 0
+        var lastFailedAssertion: AssertionError? = null
+        var lastCheckpoint = "Awaiting the exact host configuration and a native layout"
         do {
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-            var laidOut = false
             scenario.onActivity { activity ->
-                val scroll = views<ScrollView>(activity).single()
-                val content = scroll.getChildAt(0)
-                laidOut = scroll.isLaidOut && !scroll.isLayoutRequested &&
-                    scroll.width > 0 && scroll.height > 0 &&
-                    content.isLaidOut && !content.isLayoutRequested &&
-                    content.width > 0 && content.height > 0
+                try {
+                    // Host settings can return before display rotation, resource replacement and
+                    // Activity recreation settle. A laid-out portrait view is not a landscape pass.
+                    // These are the same strict assertions repeated below the wait, without forcing
+                    // measurement or accepting a different density/font/night/orientation profile.
+                    assertEffectiveConfiguration(activity)
+                    assertNativeLayout(activity)
+                    matchingObservations = if (previousActivity === activity) matchingObservations + 1 else 1
+                    previousActivity = activity
+                    lastCheckpoint = "Awaiting a second matching configuration/layout observation in the same Activity"
+                } catch (failure: AssertionError) {
+                    matchingObservations = 0
+                    previousActivity = null
+                    lastFailedAssertion = failure
+                    // Only the fixed labels and numeric configuration/layout assertions above may
+                    // enter this diagnostic. Never inspect or retain EditText or other UI contents.
+                    lastCheckpoint = failure.message?.substringBefore(" expected:")?.take(240)
+                        ?: "Configuration/layout assertion failed without a label"
+                }
             }
-            if (laidOut) return
-            SystemClock.sleep(50)
+            if (matchingObservations >= REQUIRED_MATCHING_OBSERVATIONS) return
+            val remaining = deadline - SystemClock.uptimeMillis()
+            if (remaining > 0) SystemClock.sleep(minOf(LAYOUT_POLL_MS, remaining))
         } while (SystemClock.uptimeMillis() < deadline)
-        throw AssertionError("Native viewport did not receive nonzero layout for ${profile.id}")
+        throw AssertionError("Native host configuration/layout did not settle for ${profile.id} " +
+            "within ${LAYOUT_TIMEOUT_MS}ms. Last checkpoint: $lastCheckpoint").apply {
+            // Retain the original fixed assertion's source line and label, rather than hiding it
+            // behind a generic timeout. The cause contains no credential or arbitrary view text.
+            lastFailedAssertion?.let { initCause(it) }
+        }
+    }
+
+    private fun assertNativeLayout(activity: Activity) {
+        val viewports = views<ScrollView>(activity)
+        assertEquals("Exactly one native scroll viewport is required", 1, viewports.size)
+        val scroll = viewports.single()
+        assertEquals("Native scroll viewport must contain one content view", 1, scroll.childCount)
+        val content = scroll.getChildAt(0)
+        assertTrue("Native scroll viewport must be laid out", scroll.isLaidOut)
+        assertFalse("Native scroll viewport must have no pending layout", scroll.isLayoutRequested)
+        assertTrue("Native scroll viewport must have nonzero width and height", scroll.width > 0 && scroll.height > 0)
+        assertTrue("Native content must be laid out", content.isLaidOut)
+        assertFalse("Native content must have no pending layout", content.isLayoutRequested)
+        assertTrue("Native content must have nonzero width and height", content.width > 0 && content.height > 0)
     }
 
     private fun assertWithinHorizontalContent(root: LinearLayout, view: View) {
@@ -244,5 +280,7 @@ class DeveloperConfigurationDeviceTest {
         private const val MAX_SYSTEM_BAR_DP = 100
         private const val HOST_DENSITY_DPI = 320
         private const val LAYOUT_TIMEOUT_MS = 10_000L
+        private const val LAYOUT_POLL_MS = 50L
+        private const val REQUIRED_MATCHING_OBSERVATIONS = 2
     }
 }
