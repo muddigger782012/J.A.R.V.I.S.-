@@ -221,7 +221,9 @@ class MainActivity : Activity() {
         TaskPlanningWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         RepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         SelfDevelopmentWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        val projectStartIndex = root.childCount
         applicationWorkbench = ApplicationApprovalWorkbench.attach(this, root)
+        val projectViews = (projectStartIndex until root.childCount).map { root.getChildAt(it) }
         root.addView(iconTest)
         if (recoveryWarning) {
             iconTest.isEnabled = false
@@ -318,49 +320,75 @@ class MainActivity : Activity() {
             root.removeViewAt(advancedStart)
             advanced.addView(child)
         }
-        val settings = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val projects = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 20, 24, 24)
+            setBackgroundColor(0xFF08151D.toInt())
+        }
+        projects.addView(TextView(this).apply {
+            text = "My projects"
+            textSize = 23f
+            setTextColor(0xFF75E9F7.toInt())
+        })
+        projects.addView(TextView(this).apply {
+            text = "Create an Android app, backend service, or Windows starter. Review the generated files before exporting."
+            setTextColor(0xFFC6DDE5.toInt())
+        })
+        projectViews.forEach { widget ->
+            (widget.parent as? android.view.ViewGroup)?.removeView(widget)
+            projects.addView(widget)
+        }
+        val settings = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 20, 24, 24)
+            setBackgroundColor(0xFF10232D.toInt())
+        }
+        settings.addView(TextView(this).apply {
+            text = "Settings and connections"
+            textSize = 22f
+            setTextColor(0xFF75E9F7.toInt())
+        })
         listOf(key, provider, model).forEach { widget ->
-            root.removeView(widget)
+            (widget.parent as? android.view.ViewGroup)?.removeView(widget)
             settings.addView(widget)
         }
-        advanced.addView(settings, 0)
         val shell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xFF08151D.toInt())
         }
         val navigation = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(12, 12, 12, 12)
+            setPadding(8, 8, 8, 8)
         }
-        val homeScroll = ScrollView(this).apply {
-            addView(root)
-            fillViewport = true
+        val pages = listOf(root, projects, advanced, settings).map { page ->
+            ScrollView(this).apply {
+                addView(page)
+                fillViewport = true
+                visibility = View.GONE
+            }
         }
-        val toolsScroll = ScrollView(this).apply {
-            addView(advanced)
-            fillViewport = true
-            visibility = View.GONE
-        }
-        fun tab(label: String, showTools: Boolean) = Button(this).apply {
+        fun tab(label: String, pageIndex: Int) = Button(this).apply {
             text = label
             textSize = 12f
+            isAllCaps = false
             setOnClickListener {
-                homeScroll.visibility = if (showTools) View.GONE else View.VISIBLE
-                toolsScroll.visibility = if (showTools) View.VISIBLE else View.GONE
-                if (label == "Settings") settings.requestFocus()
+                pages.forEachIndexed { index, page ->
+                    page.visibility = if (index == pageIndex) View.VISIBLE else View.GONE
+                }
             }
             navigation.addView(this, LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         }
-        tab("Home", false)
-        tab("Projects", true)
-        tab("Tools", true)
-        tab("Settings", true)
+        tab("Home", 0)
+        tab("Projects", 1)
+        tab("Tools", 2)
+        tab("Settings", 3)
+        pages[0].visibility = View.VISIBLE
         shell.addView(navigation)
-        shell.addView(homeScroll, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        shell.addView(toolsScroll, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        pages.forEach { page ->
+            shell.addView(page, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
         setContentView(shell)
     }
 
