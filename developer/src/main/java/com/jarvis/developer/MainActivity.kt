@@ -99,18 +99,46 @@ class MainActivity : Activity() {
                 setStroke(dp(1), 0xFF265361.toInt())
             }
         }
-        val reactorIcon = ImageView(this).apply {
-            setImageBitmap(reactor)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            contentDescription = "Animated Jarvis arc reactor"
+        // Animate independent concentric artwork layers: stationary core,
+        // clockwise reactor arc, and counter-clockwise outer ring.
+        // Each layer retains its original transparent pixels and alignment.
+        val reactorFrame = android.widget.FrameLayout(this)
+        val cx = (reactor.width - 1) / 2.0
+        val cy = (reactor.height - 1) / 2.0
+        val maxRadius = minOf(reactor.width, reactor.height) / 2.0
+        fun reactorLayer(innerFraction: Double, outerFraction: Double): Bitmap {
+            val layerPixels = pixels.copyOf()
+            for (y in 0 until reactor.height) {
+                for (x in 0 until reactor.width) {
+                    val radius = kotlin.math.hypot(x - cx, y - cy) / maxRadius
+                    if (radius < innerFraction || radius >= outerFraction) {
+                        layerPixels[y * reactor.width + x] = Color.TRANSPARENT
+                    }
+                }
+            }
+            return Bitmap.createBitmap(layerPixels, reactor.width, reactor.height, Bitmap.Config.ARGB_8888)
         }
-        header.addView(reactorIcon, LinearLayout.LayoutParams(dp(72), dp(72)))
-        ObjectAnimator.ofFloat(reactorIcon, View.ROTATION, 0f, 360f).apply {
-            duration = 12000L
-            repeatCount = ValueAnimator.INFINITE
-            interpolator = LinearInterpolator()
-            start()
+        fun addReactorLayer(bitmap: Bitmap, description: String): ImageView =
+            ImageView(this).apply {
+                setImageBitmap(bitmap)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                contentDescription = description
+                reactorFrame.addView(this, android.widget.FrameLayout.LayoutParams(-1, -1))
+            }
+        val outerRing = addReactorLayer(reactorLayer(0.78, Double.POSITIVE_INFINITY), "Counter-rotating outer ring")
+        val reactorArc = addReactorLayer(reactorLayer(0.34, 0.78), "Rotating reactor arc")
+        addReactorLayer(reactorLayer(0.0, 0.34), "Stationary reactor core")
+        header.addView(reactorFrame, LinearLayout.LayoutParams(dp(72), dp(72)))
+        fun spinReactorLayer(view: View, degrees: Float, durationMs: Long) {
+            ObjectAnimator.ofFloat(view, View.ROTATION, 0f, degrees).apply {
+                duration = durationMs
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                start()
+            }
         }
+        spinReactorLayer(reactorArc, 360f, 12000L)
+        spinReactorLayer(outerRing, -360f, 16000L)
         val headerWords = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
