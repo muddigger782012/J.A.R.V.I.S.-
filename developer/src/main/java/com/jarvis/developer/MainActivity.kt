@@ -521,18 +521,28 @@ class MainActivity : Activity() {
             }
             tabs.forEachIndexed { tabIndex, button ->
                 button.isSelected = tabIndex == activePage
-                button.alpha = if (tabIndex == activePage) 1f else 0.72f
+                button.alpha = if (tabIndex == activePage) 1f else 0.78f
+                button.background = GradientDrawable().apply {
+                    setColor(if (tabIndex == activePage) 0xFF173F4B.toInt()
+                        else getColor(R.color.developer_panel))
+                    cornerRadius = 18f
+                }
                 button.contentDescription = button.text.toString() +
                     if (tabIndex == activePage) ", selected" else ""
             }
         }
         selectPage = ::showPage
-        fun tab(label: String, pageIndex: Int) = Button(this).apply {
+        fun tab(label: String, pageIndex: Int, iconResource: Int) = Button(this).apply {
             text = label
-            textSize = 12f
+            textSize = 11f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            setPadding(2, 8, 2, 8)
             setTextColor(getColor(R.color.developer_primary))
-            backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_panel))
+            setCompoundDrawablesWithIntrinsicBounds(0, iconResource, 0, 0)
+            compoundDrawableTintList = android.content.res.ColorStateList.valueOf(
+                getColor(R.color.developer_primary))
+            compoundDrawablePadding = 4
             setOnClickListener { showPage(pageIndex) }
             tabs.add(this)
             navigation.addView(this, LinearLayout.LayoutParams(
@@ -543,10 +553,10 @@ class MainActivity : Activity() {
             key.requestFocus()
         }
         createProject.setOnClickListener { showPage(1) }
-        tab("Home", 0)
-        tab("Projects", 1)
-        tab("Tools", 2)
-        tab("Settings", 3)
+        tab("Home", 0, android.R.drawable.ic_menu_view)
+        tab("Projects", 1, android.R.drawable.ic_menu_agenda)
+        tab("Tools", 2, android.R.drawable.ic_menu_manage)
+        tab("Settings", 3, android.R.drawable.ic_menu_preferences)
         showPage(activePage)
         pages.forEach { page ->
             shell.addView(page, LinearLayout.LayoutParams(
