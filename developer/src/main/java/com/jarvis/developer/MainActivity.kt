@@ -11,6 +11,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.view.View
 import kotlin.concurrent.thread
 
 /**
@@ -44,7 +45,7 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 28, 28, 28)
-            setBackgroundColor(0xFF101820.toInt())
+            setBackgroundColor(0xFF08151D.toInt())
         }
         fun field(hint: String, multiline: Boolean = false) = EditText(this).apply {
             this.hint = hint
@@ -58,13 +59,13 @@ class MainActivity : Activity() {
             root.addView(this)
         }
         val title = TextView(this).apply {
-            text = "JARVIS DEVELOPER"
+            text = "J.A.R.V.I.S.  DEVELOPER"
             textSize = 24f
             setTextColor(0xFFFFFFFF.toInt())
         }
         root.addView(title)
         val status = TextView(this).apply {
-            text = "Standalone OpenAI coding client • Hybrid mode"
+            text = "Describe your idea, review changes, and build with confidence."
             setTextColor(0xFFB8C7D3.toInt())
         }
         root.addView(status)
@@ -77,7 +78,7 @@ class MainActivity : Activity() {
         }
         root.addView(provider)
         val model = field("Model ID (blank = provider default)")
-        val prompt = field("Describe the code or change you need", true)
+        val prompt = field("What would you like to build or change?", true)
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             prompt.setText(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
         }
@@ -86,7 +87,7 @@ class MainActivity : Activity() {
             setTextIsSelectable(true)
             text = "Coding responses appear here. Approved icon edits can be committed to the isolated Developer branch and checked against GitHub Actions."
         }
-        val send = Button(this).apply { text = "Ask coding assistant" }
+        val send = Button(this).apply { text = "Start with Jarvis" }
         root.addView(send)
         root.addView(output)
 
@@ -286,9 +287,62 @@ class MainActivity : Activity() {
                 }
             }
         }
-        val scroll = ScrollView(this)
-        scroll.addView(root)
-        setContentView(scroll)
+        // Preserve all existing controls while separating the beginner home from tools.
+        val advanced = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(20, 12, 20, 20)
+            setBackgroundColor(0xFF10232D.toInt())
+        }
+        val advancedStart = root.indexOfChild(plans)
+        while (root.childCount > advancedStart) {
+            val child = root.getChildAt(advancedStart)
+            root.removeViewAt(advancedStart)
+            advanced.addView(child)
+        }
+        val settings = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        listOf(key, provider, model).forEach { widget ->
+            root.removeView(widget)
+            settings.addView(widget)
+        }
+        advanced.addView(settings, 0)
+        val shell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xFF08151D.toInt())
+        }
+        val navigation = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(12, 12, 12, 12)
+        }
+        val homeScroll = ScrollView(this).apply {
+            addView(root)
+            fillViewport = true
+        }
+        val toolsScroll = ScrollView(this).apply {
+            addView(advanced)
+            fillViewport = true
+            visibility = View.GONE
+        }
+        fun tab(label: String, showTools: Boolean) = Button(this).apply {
+            text = label
+            textSize = 12f
+            setOnClickListener {
+                homeScroll.visibility = if (showTools) View.GONE else View.VISIBLE
+                toolsScroll.visibility = if (showTools) View.VISIBLE else View.GONE
+                if (label == "Settings") settings.requestFocus()
+            }
+            navigation.addView(this, LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        tab("Home", false)
+        tab("Projects", true)
+        tab("Tools", true)
+        tab("Settings", true)
+        shell.addView(navigation)
+        shell.addView(homeScroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        shell.addView(toolsScroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(shell)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
