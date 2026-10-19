@@ -405,7 +405,7 @@ class MainActivity : Activity() {
             val record = org.json.JSONObject().put("id", id).put("description", task)
                 .put("state", state).put("response", response)
                 .put("updated_at", System.currentTimeMillis()).toString()
-            return projectPrefs.edit().putString("project_$" + id, record).commit()
+            return projectPrefs.edit().putString("project_" + id, record).commit()
         }
         send.setOnClickListener {
             val providerName = provider.selectedItem.toString()
@@ -448,7 +448,7 @@ class MainActivity : Activity() {
                             output.text = (if (e is CodingAssistantProvider.ProviderFailure)
                                 e.message ?: "AI connection failed." else
                                 "Check the selected provider, API key and model.") +
-                                "\\nYour project description remains saved on this device."
+                                "\nYour project description remains saved on this device."
                         }
                     }
                 } finally {
