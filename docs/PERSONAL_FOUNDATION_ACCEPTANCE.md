@@ -5,6 +5,12 @@ and its phase and delivery issues. This increment improves working behavior acro
 phases without using Phase 1 perfection as a gate. The requested percentages remain
 planning targets, **not verified completion measurements**.
 
+Publication record: the owner explicitly requested immediate publication of full
+personal build 3.5.434 after the automated checks passed. The existing personal
+updater now serves that production-signed APK. Physical phone, live-provider and
+installed-data upgrade acceptance remain unperformed follow-up checks; they are
+not represented as passed. No Beta or Developer release is part of this publication.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -73,14 +79,16 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-No application version or production update pointer is changed in this increment.
+Personal build 3.5.434 (versionCode 434) replaces the previously distributed 3.5.433
+APK at the existing updater path, with the same distributed production signer.
+Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
 manual runs now produce only personal signed build artifacts: both publication
 steps and Beta compilation/upload require the main branch. This permits a signed
 personal phone-test candidate without replacing the updater or Beta release.
 A debug APK is build evidence, not a same-signer personal update candidate.
 
-## Required checks before merge and updater publication
+## Acceptance checklist and remaining physical follow-up
 
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
@@ -114,7 +122,9 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 - UI theme contract: passed locally; no visual source/resource changes.
 - Gateway tests: 16 passed locally, including the personal-only behavior-profile contract.
 - Final-source CI and emulator acceptance: recorded in the pull request's checks; do not infer success from compilation.
-- Physical-device acceptance, controlled wake measurements, signed upgrade and updater delivery: pending.
+- Full production-signed personal APK and all supported ABIs: verified against the distributed signer, package, version, archive and wake assets.
+- Personal updater delivery and versioned APK publication: authorized by the owner after automated checks; recorded for build 3.5.434.
+- Physical-device acceptance, live provider behavior, controlled wake measurements and actual in-place signed upgrade: pending.
 
 No verified per-phase percentage or release readiness is claimed while these
 acceptance gates remain open. Track the next smallest unmet contract in each phase
