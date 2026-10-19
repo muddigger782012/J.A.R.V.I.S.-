@@ -1,0 +1,99 @@
+name: Publish verified personal release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Personal version with a reviewed artifacts/personal-VERSION.json manifest
+        required: true
+        type: string
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: personal-versioned-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate reviewed build provenance
+        id: source
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, re, subprocess
+          version = os.environ['VERSION']
+          assert re.fullmatch(r'3\.5\.[0-9]+', version), 'Invalid personal version'
+          manifest = json.loads(pathlib.Path(f'artifacts/personal-{version}.json').read_text())
+          assert manifest['version'] == version
+          run_id = manifest['buildRunId']
+          commit = manifest['buildCommit']
+          assert isinstance(run_id, int) and run_id > 0
+          assert re.fullmatch(r'[0-9a-f]{40}', commit)
+          run = json.loads(subprocess.check_output(['gh', 'api', f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{run_id}']))
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          assert run['head_sha'] == commit and run['path'] == '.github/workflows/build-jarvis.yml'
+          assert manifest['apks'] and all(row['versionName'] == version and row['versionCode'] == run['run_number'] for row in manifest['apks'])
+          subprocess.run(['git', 'diff', '--exit-code', commit, 'HEAD', '--', 'app/src', 'app/build.gradle', 'app/proguard-rules.pro', 'build.gradle', 'settings.gradle', 'gradle.properties', 'gradle'], check=True)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'run_id={run_id}\n')
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          name: Jarvis-release-APK
+          path: downloaded
+          run-id: ${{ steps.source.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify exact signed artifacts and prepare downloads
+        env:
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, shutil, zipfile
+          version = os.environ['VERSION']
+          manifest = json.loads(pathlib.Path(f'artifacts/personal-{version}.json').read_text())
+          rows = manifest['apks']
+          assert len(rows) == 3 and {row['abi'] for row in rows} == {'arm64-v8a', 'armeabi-v7a', 'x86_64'}
+          destination = pathlib.Path('release-assets')
+          destination.mkdir()
+          for row in rows:
+              assert row['artifact'] == f'app-{row["abi"]}-release.apk'
+              assert re.fullmatch(r'[0-9a-f]{64}', row['sha256'])
+              source = pathlib.Path('downloaded') / row['artifact']
+              assert source.stat().st_size == row['bytes']
+              assert hashlib.sha256(source.read_bytes()).hexdigest() == row['sha256'], 'Artifact differs from reviewed signed APK'
+              with zipfile.ZipFile(source) as archive:
+                  assert archive.testzip() is None
+              shutil.copyfile(source, destination / f'Jarvis-{version}-{row["abi"]}.apk')
+          arm = destination / f'Jarvis-{version}-arm64-v8a.apk'
+          assert hashlib.sha256(arm.read_bytes()).digest() == hashlib.sha256(pathlib.Path('artifacts/app-debug.apk').read_bytes()).digest(), 'Personal updater differs from release'
+          archive_path = destination / f'Jarvis-{version}.zip'
+          with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as archive:
+              archive.write(arm, f'Jarvis-{version}.apk')
+          with zipfile.ZipFile(archive_path) as archive:
+              assert archive.testzip() is None
+              assert hashlib.sha256(archive.read(f'Jarvis-{version}.apk')).digest() == hashlib.sha256(arm.read_bytes()).digest()
+          files = sorted([*destination.glob('*.apk'), *destination.glob('*.zip')])
+          (destination / 'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in files))
+          PY
+      - name: Publish the prepared personal release
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="jarvis-$VERSION"
+          test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true
+          gh release upload "$tag" release-assets/*.apk release-assets/*.zip release-assets/SHA256SUMS.txt --clobber
+          gh release edit "$tag" --draft=false --latest=false
