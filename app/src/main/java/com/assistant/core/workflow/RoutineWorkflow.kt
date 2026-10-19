@@ -3,6 +3,12 @@ package com.assistant.core.workflow
 import com.assistant.core.services.LearnableDeviceAction
 import com.assistant.core.services.RoutineExecution
 
+/** Capacity refuses new work; no checkpoint or invocation key is silently evicted. */
+object RoutineWorkflowLimits {
+    const val MAX_RETAINED_WORKFLOWS = 100
+    const val MAX_REQUEST_KEYS_PER_WORKFLOW = 32
+}
+
 /** A host-bound action from the existing RoutineSteps allowlist, never executable text. */
 data class RoutineWorkflowStep(
     val index: Int,

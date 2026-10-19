@@ -30,6 +30,7 @@ Personal-app-only controls:
 - `routine execution status`
 - `resume routine execution`
 - `cancel routine execution`
+- `the routine worked` / `the routine failed` for an explicitly checked current routine result; reports remain user evidence, not device verification or installation proof
 - `improvement status`
 - `review improvement proposals`
 

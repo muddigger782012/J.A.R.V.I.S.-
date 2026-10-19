@@ -66,9 +66,8 @@ class HybridAssistantService(
     @Volatile private var currentRoutineId: String? = null
     private val workflowEngine: WorkflowEngine by lazy {
         WorkflowEngine(approvedRoutine = routineRegistry::find,
-            executeRoutineStep = { step ->
-                val phrase = currentRoutineId?.let { workflowEngine.routineCheckpoint(it).phrase }.orEmpty()
-                RoutineStepOutcome.fromRoutineStatus(executeRoutineStep(phrase, step.actionId, step.target))
+            executeRoutineStep = { checkpoint, step ->
+                RoutineStepOutcome.fromRoutineStatus(executeRoutineStep(checkpoint.phrase, step.actionId, step.target))
             }, resolvePreferred = assistantMemory::preferred, canLaunchApp = androidAssistant::canLaunchApp)
     }
 
@@ -1203,6 +1202,16 @@ class HybridAssistantService(
 
     private fun runTrackedRoutine(phrase: String): String = synchronized(routineExecutionLock) {
         runCatching {
+            currentRoutineId?.let { id ->
+                val current = workflowEngine.routineCheckpoint(id)
+                val unresolved = current.steps.any { it.status in setOf(RoutineStepStatus.RUNNING,
+                    RoutineStepStatus.REQUESTED, RoutineStepStatus.AWAITING_OUTCOME,
+                    RoutineStepStatus.REQUESTED_WITHOUT_TRACKING, RoutineStepStatus.AMBIGUOUS) }
+                if (current.phrase != phrase && (unresolved || current.status !in setOf(
+                        RoutineWorkflowStatus.CANCELLED, RoutineWorkflowStatus.VERIFIED, RoutineWorkflowStatus.USER_CONFIRMED))) {
+                    return@synchronized renderRoutineExecution(current) + " Resolve or cancel this execution before starting a different routine."
+                }
+            }
             val plan = workflowEngine.planApprovedRoutine(phrase, java.util.UUID.randomUUID().toString())
             currentRoutineId = plan.id
             if (plan.status == RoutineWorkflowStatus.AWAITING_APPROVAL) {
@@ -1219,6 +1228,15 @@ class HybridAssistantService(
             PersonalRoutineCommands.Command.STATUS -> workflowEngine.routineCheckpoint(id)
             PersonalRoutineCommands.Command.RESUME -> synchronized(routineExecutionLock) { workflowEngine.resumeApprovedRoutine(id) }
             PersonalRoutineCommands.Command.CANCEL -> workflowEngine.cancelApprovedRoutine(id)
+            PersonalRoutineCommands.Command.WORKED, PersonalRoutineCommands.Command.FAILED -> {
+                val current = workflowEngine.routineCheckpoint(id)
+                val step = current.steps.lastOrNull { it.status in setOf(RoutineStepStatus.REQUESTED,
+                    RoutineStepStatus.AWAITING_OUTCOME, RoutineStepStatus.REQUESTED_WITHOUT_TRACKING, RoutineStepStatus.AMBIGUOUS) }
+                    ?: return "No requested or uncertain routine step is awaiting a result report. No outcome was changed."
+                workflowEngine.recordRoutineOutcome(id, step.step.index,
+                    if (command == PersonalRoutineCommands.Command.WORKED) RoutineOutcomeObservation.USER_CONFIRMED else RoutineOutcomeObservation.FAILED,
+                    "User reported the current routine result. This is not device verification or proof that an update was installed.")
+            }
         }
         return renderRoutineExecution(checkpoint)
     }
@@ -1238,9 +1256,11 @@ class HybridAssistantService(
             }
         }
         val next = when (checkpoint.status) {
-            RoutineWorkflowStatus.AWAITING_OUTCOME -> " Check the requested result, then say 'it worked' or 'it failed'."
+            RoutineWorkflowStatus.AWAITING_OUTCOME -> if (checkpoint.steps.any { it.status == RoutineStepStatus.AWAITING_OUTCOME })
+                " Check the requested result, then say 'it worked' or 'it failed'."
+                else " Check the requested result, then say 'the routine worked' or 'the routine failed'. An updater launch is not proof of installation."
             RoutineWorkflowStatus.FAILED, RoutineWorkflowStatus.PAUSED -> " Review the cause before saying 'resume routine execution'. Completed steps will not repeat."
-            RoutineWorkflowStatus.AMBIGUOUS -> " Inspect the device result before any new request; this workflow will not retry an uncertain effect."
+            RoutineWorkflowStatus.AMBIGUOUS -> " Inspect the device result before any new request; this workflow will not retry an uncertain effect. Report a checked result with 'the routine worked' or 'the routine failed'."
             RoutineWorkflowStatus.CANCELLED, RoutineWorkflowStatus.CANCELLING -> " Subsequent steps are cancelled. Already requested actions are not undone."
             else -> ""
         }

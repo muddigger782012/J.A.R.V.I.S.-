@@ -11,7 +11,7 @@ class PersonalControlSafetyTest {
         val registry = ApprovedRoutineRegistry({ "[]" }, { fail("No routine should be saved"); false })
         for (text in listOf("show conversation memory", "review conversation memory", "clear conversation memory",
             "reset conversation memory", "improvement status", "review improvement proposals", "routine execution status",
-            "resume routine execution", "cancel routine execution")) {
+            "resume routine execution", "cancel routine execution", "the routine worked", "routine failed")) {
             assertTrue(text, LearnedCommandReviewCommands.isReserved(text))
             assertFalse(text, memory.recordSuccess(text, "volume_up", setOf("volume_up")))
             assertNull(text, registry.propose(text, listOf("volume_up")))

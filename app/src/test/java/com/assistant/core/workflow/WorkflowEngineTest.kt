@@ -482,6 +482,61 @@ class WorkflowEngineTest {
         } catch (_: IllegalStateException) { }
     }
 
+    @Test fun serviceStepOnlyDispatcherRemainsCompatibleWithTheContextApi() {
+        val f = Fixture(listOf("volume_down"))
+        var dispatched: String? = null
+        val engine = WorkflowEngine(approvedRoutine = f.registry::find,
+            executeRoutineStep = { step -> dispatched = step.actionId; RoutineStepOutcome.Verified })
+        val ready = f.ready(engine)
+        assertEquals(RoutineWorkflowStatus.VERIFIED, engine.runApprovedRoutine(ready.id).status)
+        assertEquals("volume_down", dispatched)
+    }
+
+    @Test fun journalCapacityRefusesNewWorkWithoutEvictingUnresolvedOrCompletedEffects() {
+        val f = Fixture(listOf("timer:300"))
+        val other = "volume preparation"
+        assertTrue(f.registry.saveApproved(f.registry.propose(other, listOf("volume_down"))!!))
+        f.effect = { if (it.target != null) RoutineStepOutcome.Requested else RoutineStepOutcome.Verified }
+        val engine = f.engine()
+        val unresolved = f.ready(engine)
+        engine.runApprovedRoutine(unresolved.id)
+        repeat(RoutineWorkflowLimits.MAX_RETAINED_WORKFLOWS - 1) { index ->
+            val plan = engine.planApprovedRoutine(other, "volume-turn-$index")
+            engine.approveRoutine(plan.id, plan.steps.map { it.step })
+            assertEquals(RoutineWorkflowStatus.VERIFIED, engine.runApprovedRoutine(plan.id).status)
+        }
+        expectCapacity { engine.planApprovedRoutine(other, "over-capacity") }
+        assertEquals(RoutineWorkflowLimits.MAX_RETAINED_WORKFLOWS, engine.routineCheckpoints().size)
+        assertEquals(RoutineWorkflowStatus.AWAITING_OUTCOME, engine.routineCheckpoint(unresolved.id).status)
+        assertEquals(RoutineWorkflowStatus.CANCELLED, engine.cancelApprovedRoutine(unresolved.id).status)
+        val previous = engine.planApprovedRoutine(other, "volume-turn-0")
+        engine.runApprovedRoutine(previous.id)
+        assertEquals(RoutineWorkflowLimits.MAX_RETAINED_WORKFLOWS, f.calls.size)
+        assertEquals(RoutineWorkflowLimits.MAX_RETAINED_WORKFLOWS, f.store.load().size)
+    }
+
+    @Test fun invocationKeyCapacityKeepsKnownKeysAndUnresolvedEffectWithoutAnyEviction() {
+        val f = Fixture(listOf("timer:300"))
+        f.effect = { RoutineStepOutcome.Requested }
+        val engine = f.engine()
+        val ready = f.ready(engine)
+        engine.runApprovedRoutine(ready.id)
+        repeat(RoutineWorkflowLimits.MAX_REQUEST_KEYS_PER_WORKFLOW - 1) { index ->
+            assertEquals(ready.id, engine.planApprovedRoutine(f.phrase, "alias-$index").id)
+        }
+        expectCapacity { engine.planApprovedRoutine(f.phrase, "over-capacity") }
+        assertEquals(RoutineWorkflowLimits.MAX_REQUEST_KEYS_PER_WORKFLOW, engine.routineCheckpoint(ready.id).requestKeys.size)
+        assertEquals(ready.id, engine.planApprovedRoutine(f.phrase, "alias-0").id)
+        assertEquals(RoutineWorkflowStatus.AWAITING_OUTCOME, engine.resumeApprovedRoutine(ready.id).status)
+        assertEquals(1, f.calls.size)
+        assertEquals(RoutineWorkflowStatus.CANCELLED, engine.cancelApprovedRoutine(ready.id).status)
+        assertEquals(RoutineStepStatus.REQUESTED, engine.routineCheckpoint(ready.id).steps.single().status)
+    }
+
+    private fun expectCapacity(block: () -> Unit) {
+        try { block(); fail("Expected capacity refusal") } catch (_: IllegalStateException) { }
+    }
+
     private fun expectIllegal(block: () -> Unit) {
         try { block(); fail("Expected IllegalArgumentException") } catch (_: IllegalArgumentException) { }
     }

@@ -58,9 +58,15 @@ internal class ApprovedRoutineExecutor(
         val routine = approvedRoutine(phrase) ?: throw IllegalArgumentException("No approved routine was found.")
         require(RoutineSteps.isValid(routine.actions)) { "Unsupported routine steps." }
         entries.values.firstOrNull { it.phrase == routine.phrase && blocksNewInvocation(it) }?.let {
+            check(it.requestKeys.size < RoutineWorkflowLimits.MAX_REQUEST_KEYS_PER_WORKFLOW) {
+                "The workflow invocation-key limit was reached. Inspect the existing workflow; no actions were run."
+            }
             val aliased = it.copy(requestKeys = it.requestKeys + requestKey)
             check(save(aliased)) { "The duplicate invocation checkpoint could not be saved." }
             return@synchronized aliased.detached()
+        }
+        check(entries.size < RoutineWorkflowLimits.MAX_RETAINED_WORKFLOWS) {
+            "The workflow journal is full. Existing status, cancellation and safe resume remain available; no actions were run."
         }
         val steps = routine.actions.mapIndexed { index, action ->
             val slot = RoutineSteps.preferredSlot(action)
