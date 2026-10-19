@@ -43,7 +43,9 @@ jobs:
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
             chmod +x ./gradlew
-            ./gradlew --no-daemon :developer:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.jarvis.developer.DeveloperDeviceValidationTest
+            # AGP otherwise removes app/test APKs before the host-only scenarios.
+            # Preserve them only inside this already approved disposable emulator.
+            ./gradlew --no-daemon :developer:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.jarvis.developer.DeveloperDeviceValidationTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
             python3 developer/tools/device_validation.py --serial emulator-5554 --source-sha "${{ github.sha }}" --output-directory "/tmp/jarvis-developer-native-api-${{ matrix.api }}"
       - name: Retain native device evidence
         if: always()
