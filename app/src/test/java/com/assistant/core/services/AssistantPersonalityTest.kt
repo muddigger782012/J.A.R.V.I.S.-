@@ -29,6 +29,9 @@ class AssistantPersonalityTest {
             val instructions = AssistantPersonality(enabled = enabled, humor = false, initiative = false).instructions()
             assertTrue(instructions.contains("output-schema"))
             assertTrue(instructions.contains("Never invent execution"))
+            assertTrue(instructions.contains("underlying objective"))
+            assertTrue(instructions.contains("supported alternatives"))
+            assertTrue(instructions.contains("latest explicit correction"))
         }
         val instructions = AssistantPersonality(humor = false, initiative = false).instructions()
         assertTrue(instructions.contains("Do not add jokes"))

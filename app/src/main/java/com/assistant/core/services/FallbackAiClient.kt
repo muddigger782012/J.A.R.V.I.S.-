@@ -6,13 +6,24 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-data class FallbackAiResult(val reply: String, val lessonJson: String?) {
+data class FallbackAiResult(val reply: String, val lessonJson: String?, val providerFailed: Boolean = false) {
     companion object {
         fun fromAssistantJson(raw: String): FallbackAiResult? = runCatching {
             val json = JSONObject(raw)
             val reply = (json.opt("reply") as? String)?.trim()?.takeIf { it.isNotBlank() } ?: return null
             FallbackAiResult(reply, json.optJSONObject("lesson")?.toString())
         }.getOrNull()
+    }
+}
+
+/** Bounded interpretation-only fallback. No tool executes until the host reviews the result. */
+object InterpretationFallback {
+    fun ask(primary: () -> FallbackAiResult, alternative: (() -> FallbackAiResult?)? = null): FallbackAiResult {
+        val first = runCatching(primary).getOrNull()
+            ?: FallbackAiResult("The primary AI connection failed.", null, providerFailed = true)
+        if (!first.providerFailed) return first
+        val second = alternative?.let { runCatching(it).getOrNull() }?.takeIf { !it.providerFailed }
+        return second ?: first.copy(lessonJson = null)
     }
 }
 
@@ -44,7 +55,7 @@ class FallbackAiClient(private val context: Context) {
         val request = FallbackAiRequest.build(userText, learnIntent, capabilityContext,
             prefs.getString("weather_latitude", "").orEmpty().toDoubleOrNull(),
             prefs.getString("weather_longitude", "").orEmpty().toDoubleOrNull(), includeLocation)
-        request.put("behavior_profile", AssistantPersonalityPreferences.load(context).toJson())
+        request.put("behavior_profile", AssistantPersonalityPreferences.behaviorProfile(context))
         val messages = JSONArray()
         conversation.takeLast(8).forEach { (user, assistant) ->
             messages.put(JSONObject().put("role", "user").put("content", user.take(12000)))
