@@ -969,7 +969,13 @@ class MainActivity : Activity() {
             showPage(3)
             key.requestFocus()
         }
-        createProject.setOnClickListener { showPage(1) }
+        createProject.setOnClickListener {
+            activeProjectId = null
+            prompt.text.clear()
+            output.text = ""
+            status.text = "Describe your new project."
+            showPage(1)
+        }
         tab("Home", 0, android.R.drawable.ic_menu_view)
         tab("Projects", 1, android.R.drawable.ic_menu_agenda)
         tab("Tools", 2, android.R.drawable.ic_menu_manage)
