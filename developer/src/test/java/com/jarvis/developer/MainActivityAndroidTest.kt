@@ -56,6 +56,7 @@ class MainActivityAndroidTest {
         assertTrue(views<ScrollView>(activity).isNotEmpty())
         assertEquals("", field(activity, PROVIDER_KEY).text.toString())
         assertEquals("", field(activity, GITHUB_TOKEN).text.toString())
+        openTools(activity)
         assertTrue(button(activity, "Browse source inventory (read-only)").isEnabled)
         assertTrue(button(activity, "Read source and propose bounded own-code improvements (GET only)").isEnabled)
         assertTrue(button(activity, "Read exact baseline debug CI (GET only)").isEnabled)
@@ -79,6 +80,7 @@ class MainActivityAndroidTest {
         assertEquals(BuildConfig.VERSION_CODE, health.getInt("confirmed_version", -1))
         assertEquals(0, health.getInt("quick_restarts", -1))
         assertTextPresent(activity, "Version ${BuildConfig.VERSION_CODE} confirmed working locally.")
+        openTools(activity)
         assertApprovalsUnavailable(activity)
     }
 
@@ -92,6 +94,7 @@ class MainActivityAndroidTest {
             .commit()
         val activity = start()
 
+        openTools(activity)
         val icon = button(activity, "Generate icon code, commit and check build")
         val updates = button(activity, "Check for Developer updates")
         assertFalse(icon.isEnabled)
@@ -114,6 +117,7 @@ class MainActivityAndroidTest {
         // Deliberately fake sentinels. No API request or valid reviewed proposal is created.
         val fakeProvider = "fixture-provider-key-never-persist"
         val fakeGithub = "fixture-github-token-never-persist"
+        openTools(activity)
         field(activity, PROVIDER_KEY).setText(fakeProvider)
         field(activity, GITHUB_TOKEN).setText(fakeGithub)
         field(activity, "Enter exact eligible review SHA-256").setText("a".repeat(64))
@@ -129,6 +133,7 @@ class MainActivityAndroidTest {
         assertEquals("", field(recreated, PROVIDER_KEY).text.toString())
         assertEquals("", field(recreated, GITHUB_TOKEN).text.toString())
         assertEquals("", field(recreated, "Enter exact eligible review SHA-256").text.toString())
+        openTools(recreated)
         assertApprovalsUnavailable(recreated)
         assertNoCredentialTextPersisted(recreated, fakeProvider, fakeGithub)
         assertEquals(-1, recreated.getSharedPreferences("developer_health", Context.MODE_PRIVATE)
@@ -139,6 +144,14 @@ class MainActivityAndroidTest {
         controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         idleMain()
         return controller!!.get()
+    }
+
+    private fun openTools(activity: Activity) {
+        assertTrue(button(activity, "Tools").performClick())
+        idleMain()
+        val expand = button(activity, "Show developer controls")
+        assertTrue(expand.performClick())
+        idleMain()
     }
 
     private fun assertApprovalsUnavailable(activity: Activity) {
