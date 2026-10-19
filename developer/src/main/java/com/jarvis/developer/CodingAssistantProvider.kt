@@ -21,6 +21,15 @@ object CodingAssistantProvider {
     internal const val MAX_RESPONSE_BYTES = 256_000
     internal const val MAX_SESSION_MILLIS = 90_000L
     internal const val FAILURE = "Coding assistant request failed; check provider access, model and bounded request/output format."
+    internal class ProviderFailure(message: String) : IllegalStateException(message)
+    private fun httpMessage(code: Int): String = when (code) {
+        400 -> "Provider rejected request (HTTP 400). Check model and settings."
+        401, 403 -> "Provider denied access (HTTP $code). Check key and permissions."
+        404 -> "Model not found (HTTP 404). Clear model field to use default."
+        429 -> "Provider quota or rate limit reached (HTTP 429)."
+        in 500..599 -> "AI provider temporarily unavailable (HTTP $code)."
+        else -> "AI provider returned HTTP $code."
+    }
     private const val OPENAI_URL = "https://api.openai.com/v1/responses"
     private const val GEMINI_PREFIX = "https://generativelanguage.googleapis.com/v1beta/models/"
     private val modelName = Regex("[a-z0-9][a-z0-9._-]{0,79}")
@@ -88,7 +97,7 @@ object CodingAssistantProvider {
                 val responseText = transport.post(outbound).use { response ->
                     requireProviderUrl(response.finalUrl)
                     require(response.finalUrl == outbound.url)
-                    require(response.status in 200..299)
+                    if (response.status !in 200..299) throw ProviderFailure(httpMessage(response.status))
                     require(response.contentLength in -1..MAX_RESPONSE_BYTES.toLong())
                     val bytes = ByteArrayOutputStream()
                     val buffer = ByteArray(8192)
@@ -116,6 +125,8 @@ object CodingAssistantProvider {
                 require(text.isNotBlank() && !text.contains(key))
                 checkBudget(started)
                 return text
+            } catch (e: ProviderFailure) {
+                throw e
             } catch (_: Exception) {
                 // Neither provider bodies nor exception causes cross the credential boundary.
                 throw IllegalStateException(FAILURE)
