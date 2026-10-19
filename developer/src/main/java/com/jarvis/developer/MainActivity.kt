@@ -185,7 +185,7 @@ class MainActivity : Activity() {
         }
         root.addView(status)
         val setupHint = TextView(this).apply {
-            text = "New here? Connect an AI provider in Settings to get started."
+            text = if (ProviderCredentialStore.load(this@MainActivity) != null)\n                "AI connection saved. Test your connection in Settings before starting a project."\n                else "New here? Connect an AI provider in Settings to get started."
             setTextColor(getColor(R.color.developer_secondary))
             setPadding(0, 16, 0, 8)
         }
@@ -592,6 +592,7 @@ class MainActivity : Activity() {
                     ProviderCredentialStore.save(this, provider.selectedItem.toString(),
                         selectedKey, model.text.toString().trim())
                     credentialStatus.text = "Connection saved securely. You can now start a project."
+                    setupHint.text = "AI connection saved. Test your connection in Settings before starting a project."
                     status.text = "AI connection saved"
                 } catch (_: Exception) {
                     credentialStatus.text = "Unable to save securely. Check device security settings."
