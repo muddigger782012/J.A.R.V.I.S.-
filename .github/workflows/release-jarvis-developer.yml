@@ -99,9 +99,9 @@ jobs:
           root = Path('developer/src/main/res/drawable-nodpi')
           with ZipFile(root / 'jarvis_approved_artwork.zip') as z:
               files = {Path(e.filename).name: z.read(e) for e in z.infolist() if not e.is_dir()}
-          header = files['developer_approved_header.png']
-          icon = files['developer_arc_reactor_icon.png']
-          assert hashlib.sha256(header).hexdigest() == '5eda3e2efed91ee83761b989c06d4f926a5071ed790e0dc79acbec40b68c40d5', 'Header mismatch'
+          header = files.get('developer_approved_header.png') or files.get('developer_header_reference.png')
+          icon = files.get('developer_arc_reactor_icon.png') or files.get('jarvis_arc_icon_transparent.png')
+          assert header is not None, 'Approved header missing from archive'\n          assert icon is not None, 'Approved reactor icon missing from archive'\n          assert hashlib.sha256(header).hexdigest() == '5eda3e2efed91ee83761b989c06d4f926a5071ed790e0dc79acbec40b68c40d5', 'Header mismatch'
           assert hashlib.sha256(icon).hexdigest() == 'a0fc91552667885a126b9509366938f070d004435e6a5114f70045fbc8e278f0', 'Icon mismatch'
           with Image.open(io.BytesIO(header)) as im:
               assert im.size == (1536, 512)
