@@ -126,6 +126,19 @@ class MainActivity : Activity() {
         }
         root.addView(provider)
         val model = field("Model ID (blank = provider default)")
+        root.addView(TextView(this).apply {
+            text = "What would you like to create?"
+            textSize = 22f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(getColor(R.color.developer_text))
+            setPadding(0, 24, 0, 6)
+        })
+        root.addView(TextView(this).apply {
+            text = "Describe an app, a feature, or a problem to fix in your own words."
+            textSize = 14f
+            setTextColor(getColor(R.color.developer_secondary))
+            setPadding(0, 0, 0, 12)
+        })
         val prompt = field("Describe your idea in everyday language…", true)
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             prompt.setText(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
@@ -420,7 +433,7 @@ class MainActivity : Activity() {
         listOf(key, model, githubToken, sourcePath, sourceRange).forEach { input ->
             input.setPadding(20, 18, 20, 18)
             input.background = roundedSurface(0xFF112A35.toInt())
-            input.setSingleLine(input !== sourcePath && input !== sourceRange)
+            input.setSingleLine(true)
         }
         provider.setPadding(16, 12, 16, 12)
         provider.background = roundedSurface(0xFF112A35.toInt())
@@ -471,7 +484,6 @@ class MainActivity : Activity() {
             isAllCaps = false
             contentDescription = "Open project creation tools"
         }
-        root.addView(createProject)
         listOf(setupButton, send, createProject).forEach { button ->
             button.isAllCaps = false
             button.setTextColor(0xFF071B25.toInt())
@@ -484,7 +496,7 @@ class MainActivity : Activity() {
             setTextColor(getColor(R.color.developer_text))
             setPadding(0, 22, 0, 12)
         }
-        root.addView(quickHeading, root.indexOfChild(createProject))
+        root.addView(quickHeading)
         fun quickAction(label: String, destination: Int, action: (() -> Unit)? = null): Button =
             Button(this).apply {
                 text = label
@@ -517,7 +529,7 @@ class MainActivity : Activity() {
         root.addView(quickRow(
             quickAction("▣  Create an app", 1),
             quickAction("▱  My projects", 1)
-        ), root.indexOfChild(createProject))
+        ))
         root.addView(quickRow(
             quickAction("⌁  Improve Jarvis", 2) {
                 selectPage?.invoke(2)
@@ -530,7 +542,7 @@ class MainActivity : Activity() {
                 advancedToggle.text = "Hide developer controls"
                 builds.performClick()
             }
-        ), root.indexOfChild(createProject))
+        ))
         // Move status feedback to the assistant screen when the user selects Tools.
         output.setPadding(8, 16, 8, 16)
         prompt.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
