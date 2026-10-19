@@ -9,6 +9,8 @@ import java.io.InputStream
 
 /** Provider contract checks use fake in-memory credentials and transports; no live request is made. */
 class CodingAssistantProviderTest {
+    private val sessionLimitMessage =
+        "AI request exceeded the 90-second session limit. Try a smaller task or faster model."
     private val key = "runtime-provider-key-42"
     private val task = "Explain the source and suggest a bounded implementation plan."
     private val answer = "Inspect the relevant source and test the proposed change."
@@ -215,7 +217,7 @@ class CodingAssistantProviderTest {
             }) { closes++ }
         }
         try { CodingAssistantProvider.Client(transport) { now }.ask("OpenAI", key, "", task); fail("Expected timeout") }
-        catch (failure: IllegalStateException) { assertEquals(CodingAssistantProvider.FAILURE, failure.message); assertNull(failure.cause) }
+        catch (failure: CodingAssistantProvider.ProviderFailure) { assertEquals(sessionLimitMessage, failure.message); assertNull(failure.cause) }
         assertEquals(0, reads)
         assertEquals(1, closes)
     }
@@ -229,7 +231,7 @@ class CodingAssistantProviderTest {
             }
         } } }
         try { CodingAssistantProvider.Client(fake) { now }.ask("OpenAI", key, "", task); fail("Expected timeout") }
-        catch (failure: IllegalStateException) { assertEquals(CodingAssistantProvider.FAILURE, failure.message); assertNull(failure.cause) }
+        catch (failure: CodingAssistantProvider.ProviderFailure) { assertEquals(sessionLimitMessage, failure.message); assertNull(failure.cause) }
         assertEquals(1, fake.requests.size)
         assertEquals(1, fake.closed)
     }
@@ -238,7 +240,7 @@ class CodingAssistantProviderTest {
         var calls = 0
         val fake = Fixture()
         try { CodingAssistantProvider.Client(fake) { if (calls++ == 0) 100L else 99L }.ask("OpenAI", key, "", task); fail("Expected timeout") }
-        catch (failure: IllegalStateException) { assertEquals(CodingAssistantProvider.FAILURE, failure.message) }
+        catch (failure: CodingAssistantProvider.ProviderFailure) { assertEquals(sessionLimitMessage, failure.message) }
         assertTrue(fake.requests.isEmpty())
     }
 
