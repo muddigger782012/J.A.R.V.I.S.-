@@ -360,6 +360,13 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             setPadding(8, 8, 8, 8)
         }
+        // Home can launch project creation without exposing advanced controls.
+        val createProject = Button(this).apply {
+            text = "Create a new project"
+            isAllCaps = false
+            contentDescription = "Open project creation tools"
+        }
+        root.addView(createProject)
         val pages = listOf(root, projects, advanced, settings).map { page ->
             ScrollView(this).apply {
                 addView(page)
@@ -378,6 +385,11 @@ class MainActivity : Activity() {
             }
             navigation.addView(this, LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        createProject.setOnClickListener {
+            pages.forEachIndexed { index, page ->
+                page.visibility = if (index == 1) View.VISIBLE else View.GONE
+            }
         }
         tab("Home", 0)
         tab("Projects", 1)
