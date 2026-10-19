@@ -34,3 +34,7 @@ Relative to completion of recovery verification: phase 1 3–5 days (week 1); ph
 ## Owner continuation directive — 2026-10-18
 
 Follow [GitHub issue #128](https://github.com/muddigger782012/J.A.R.V.I.S.-/issues/128): continue Phases 5 and 6 without blocking coding, CI, test APKs, or separate preview artifacts on the missing `developer-previous` backup. Retain the implemented backup/recovery logic and all fail-closed production release/promotion/installation gates for later remediation. Do not weaken signature, update, rollback, or approval protections. Deliver a complete isolated Developer build and independent evidence; do not mark incomplete features or device tests as complete. The owner wants forward development now, not a recovery-only workstream.
+
+## Owner UI priority — 2026-10-18
+
+Implement [Developer UI redesign issue #134](https://github.com/muddigger782012/J.A.R.V.I.S.-/issues/134) as the next user-facing Developer milestone. Reuse original Jarvis Default-theme assets, exact header reactor artwork and JARVIS lettering; show JARVIS DEVELOPER and adopt a simple beginner-first Home/Projects/Assistant/Activity/Settings navigation with advanced coding controls progressively disclosed. Preserve every existing feature, safety gate and isolated Developer identity. Build and verify a preview APK without production promotion or backup gate bypass.
