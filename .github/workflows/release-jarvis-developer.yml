@@ -87,6 +87,45 @@ jobs:
             echo 'Recovery commit must be an ancestor of the isolated Developer branch.'
             exit 1
           }
+      - name: Install uploaded approved artwork from ZIP
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feature/jarvis-developer'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import struct
+          root = Path("developer/src/main/res/drawable-nodpi")
+          archive = root / "jarvis_approved_artwork.zip"
+          if not archive.is_file():
+              print("No uploaded artwork ZIP; leaving existing artwork untouched.")
+              raise SystemExit(0)
+          with ZipFile(archive) as z:
+              candidates = []
+              for entry in z.infolist():
+                  if entry.is_dir() or not entry.filename.lower().endswith(".png"):
+                      continue
+                  data = z.read(entry)
+                  if data[:8] != b"\\x89PNG\\r\\n\\x1a\\n" or len(data) < 24:
+                      raise ValueError("Invalid PNG in uploaded artwork")
+                  width, height = struct.unpack(">II", data[16:24])
+                  candidates.append((entry.filename, width, height, data))
+              header = [c for c in candidates if c[1] >= 2*c[2] and c[1] >= 800]
+              icon = [c for c in candidates if c[1] == c[2] and "icon" in c[0].lower()]
+              if not icon:
+                  icon = [c for c in candidates if c[1] == c[2] and "reactor" in c[0].lower()]
+              if len(header) != 1 or len(icon) != 1:
+                  raise ValueError("Artwork ZIP must contain one wide PNG header and one square reactor icon")
+              (root / "developer_approved_header.png").write_bytes(header[0][3])
+              (root / "developer_arc_reactor_icon.png").write_bytes(icon[0][3])
+              print("Installed exact artwork:", header[0][:3], icon[0][:3])
+          PY
+          git add developer/src/main/res/drawable-nodpi/developer_approved_header.png developer/src/main/res/drawable-nodpi/developer_arc_reactor_icon.png
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Extract uploaded approved Developer artwork PNGs"
+            git push origin HEAD:feature/jarvis-developer
+          fi
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
