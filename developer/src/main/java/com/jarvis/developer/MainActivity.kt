@@ -96,6 +96,18 @@ class MainActivity : Activity() {
             setTextColor(getColor(R.color.developer_secondary))
         }
         root.addView(status)
+        val setupHint = TextView(this).apply {
+            text = "First time here? Connect an AI provider in Settings. Your credentials are used only for this session."
+            setTextColor(getColor(R.color.developer_secondary))
+            setPadding(0, 16, 0, 8)
+        }
+        root.addView(setupHint)
+        val setupButton = Button(this).apply {
+            text = "Set up AI connection"
+            isAllCaps = false
+            contentDescription = "Open Settings to enter your AI provider credentials"
+        }
+        root.addView(setupButton)
         val key = field("Selected provider API key (not saved)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
@@ -411,6 +423,10 @@ class MainActivity : Activity() {
             tabs.add(this)
             navigation.addView(this, LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        setupButton.setOnClickListener {
+            showPage(3)
+            key.requestFocus()
         }
         createProject.setOnClickListener { showPage(1) }
         tab("Home", 0)
