@@ -291,6 +291,17 @@ class CodingAssistantProviderTest {
         assertEquals("FirstSecond", CodingAssistantProvider.Client(google).ask("Gemini", key, "", task))
     }
 
+    @Test fun geminiAllowsHarmlessPartMetadataAndSkipsThinkingParts() {
+        val response = gemini("connected")
+        val parts = response.getJSONArray("candidates").getJSONObject(0)
+            .getJSONObject("content").getJSONArray("parts")
+        parts.getJSONObject(0).put("thoughtSignature", "opaque-signature")
+        parts.put(0, JSONObject().put("thought", true).put("text", "private reasoning"))
+        val fake = Fixture().apply { body(response) }
+        assertEquals("connected", CodingAssistantProvider.Client(fake).ask("Gemini", key, "gemini-2.5-flash", task))
+        assertEquals(1, fake.closed)
+    }
+
     @Test fun emptyTextResponsesFailInsteadOfClaimingSuccess() {
         for (text in listOf("", " \n\t")) {
             fails(Fixture().apply { body(openAi(text)) })
