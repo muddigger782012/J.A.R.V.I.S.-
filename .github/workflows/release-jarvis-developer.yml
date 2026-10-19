@@ -104,6 +104,10 @@ jobs:
           test -n "$KEY_B64" && test -n "$STORE_PASS" && test -n "$KEY_PASS" && test -n "$KEY_ALIAS"
           printf '%s' "$KEY_B64" | base64 -d > "$RUNNER_TEMP/developer-release.jks"
           chmod 600 "$RUNNER_TEMP/developer-release.jks"
+      - name: Prepare transparent reactor icon and header artwork
+        run: |
+          python3 -m pip install --quiet Pillow
+          python3 developer/tools/transparent_reactor.py
       - name: Compile signed Developer release
         env:
           DEVELOPER_VERSION_CODE: ${{ github.run_number }}
