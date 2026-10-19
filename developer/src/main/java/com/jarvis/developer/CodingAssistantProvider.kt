@@ -84,7 +84,11 @@ object CodingAssistantProvider {
 
     fun availableGeminiModels(key: String): List<String> {
         require(keyPattern.matches(key))
-        val connection = URL("https://generativelanguage.googleapis.com/v1beta/models").openConnection() as HttpURLConnection
+        val available = linkedSetOf<String>()
+        var nextPage = ""
+        repeat(5) {
+        val pageSuffix = if (nextPage.isBlank()) "" else "?pageToken=" + java.net.URLEncoder.encode(nextPage, "UTF-8")
+        val connection = URL("https://generativelanguage.googleapis.com/v1beta/models" + pageSuffix).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "GET"
             connection.instanceFollowRedirects = false
@@ -104,14 +108,18 @@ object CodingAssistantProvider {
                     bytes.write(buffer, 0, count)
                 }
             }
-            val models = JSONObject(strictUtf8(bytes.toByteArray())).optJSONArray("models") ?: JSONArray()
-            return (0 until models.length()).mapNotNull { index ->
+            val response = JSONObject(strictUtf8(bytes.toByteArray()))
+            val models = response.optJSONArray("models") ?: JSONArray()
+            val pageModels = (0 until models.length()).mapNotNull { index ->
                 val item = models.getJSONObject(index)
                 val methods = item.optJSONArray("supportedGenerationMethods") ?: JSONArray()
                 val name = item.optString("name").removePrefix("models/")
                 if (geminiName.matches(name) &&
                     (0 until methods.length()).any { methods.optString(it) == "generateContent" }) name else null
             }
+            available.addAll(pageModels)
+            nextPage = response.optString("nextPageToken")
+            if (nextPage.isBlank() || nextPage.length > 1024) return available.toList()
         } catch (e: ProviderFailure) {
             throw e
         } catch (_: Exception) {
@@ -119,6 +127,8 @@ object CodingAssistantProvider {
         } finally {
             connection.disconnect()
         }
+        }
+        return available.toList()
     }
 
     fun ask(provider: String, key: String, model: String, task: String): String = Client(http).ask(provider, key, model, task)
