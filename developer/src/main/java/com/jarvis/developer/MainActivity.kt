@@ -488,6 +488,38 @@ class MainActivity : Activity() {
             (widget.parent as? android.view.ViewGroup)?.removeView(widget)
             projects.addView(widget)
         }
+        // Existing projects are readable and recoverable after a failed AI request.
+        val savedProjects = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val refreshProjects = Button(this).apply { text = "Refresh saved projects"; isAllCaps = false }
+        fun refreshSavedProjects() {
+            savedProjects.removeAllViews()
+            val records = projectPrefs.all.values.mapNotNull { raw ->
+                try { org.json.JSONObject(raw as String) } catch (_: Exception) { null }
+            }.sortedByDescending { it.optLong("updated_at") }
+            if (records.isEmpty()) {
+                savedProjects.addView(TextView(this).apply { text = "No saved projects yet." })
+            }
+            records.forEach { record ->
+                val description = record.optString("description")
+                val state = record.optString("state")
+                val response = record.optString("response")
+                savedProjects.addView(Button(this).apply {
+                    text = description.take(80) + " (" + state + ")"
+                    isAllCaps = false
+                    setOnClickListener {
+                        prompt.setText(description)
+                        output.text = if (response.isNotBlank()) response else
+                            "Project restored. Use Generate to retry the AI request."
+                        status.text = "Loaded saved project. Description restored."
+                        selectPage?.invoke(0)
+                    }
+                })
+            }
+        }
+        refreshProjects.setOnClickListener { refreshSavedProjects() }
+        projects.addView(refreshProjects)
+        projects.addView(savedProjects)
+        refreshSavedProjects()
         val settings = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 20, 24, 24)
