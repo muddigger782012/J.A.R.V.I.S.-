@@ -6,7 +6,8 @@ health, or presses an action/approval button. Running it changes emulator displa
 settings temporarily and types fixed, non-secret sentinels into three fields.
 Do not invoke it until the exact source and disposable-emulator installation have
 been approved separately. It deliberately fails when UI redaction prevents proof.
-Only the compact evidence JSON is retained; UI XML and adb output stay in memory.
+Only compact evidence JSON is retained. Raw UI XML is temporary on the emulator
+and removed in cleanup; raw adb output is inspected only in host memory.
 """
 
 import argparse
@@ -26,10 +27,11 @@ import xml.etree.ElementTree as ET
 
 
 PACKAGE = "com.jarvis.developer"
+TEST_PACKAGE = PACKAGE + ".test"
 COMPONENT = PACKAGE + "/.MainActivity"
 TEST_CLASS = PACKAGE + ".DeveloperConfigurationDeviceTest"
 TEST_METHOD = "appliedHostConfigurationKeepsNativeControlsContainedAndLastActionReachable"
-RUNNER = PACKAGE + ".test/androidx.test.runner.AndroidJUnitRunner"
+RUNNER = TEST_PACKAGE + "/androidx.test.runner.AndroidJUnitRunner"
 UI_PATH = "/data/local/tmp/jarvis-developer-validation.xml"
 PROVIDER_HINT = "Selected provider API key (not saved)"
 TOKEN_HINT = "GitHub fine-grained token (not saved)"
@@ -57,6 +59,50 @@ PROFILES = (
 
 class ValidationError(Exception):
     """Only fixed, non-sensitive reason codes may reach the evidence/output."""
+
+
+class AdbCommandError(ValidationError):
+    """Retain bounded failure facts without retaining command output or arguments."""
+
+    def __init__(self, classification, exit_code, output_sha256, command_kind):
+        super().__init__(classification)
+        self.classification = classification
+        self.exit_code = exit_code
+        self.output_sha256 = output_sha256
+        self.command_kind = command_kind
+
+    def evidence(self):
+        return {"classification": self.classification, "exitCode": self.exit_code,
+                "outputSha256": self.output_sha256, "commandKind": self.command_kind}
+
+
+def command_kind(args):
+    if args in (("shell", "pm", "path", PACKAGE), ("shell", "pm", "path", TEST_PACKAGE)):
+        return "fixed_package_path_probe"
+    if args == ("shell", "pm", "list", "instrumentation", PACKAGE):
+        return "fixed_instrumentation_registry_probe"
+    if args[:3] == ("shell", "am", "instrument"):
+        return "native_instrumentation_case"
+    return "other_bounded_adb_command"
+
+
+def classify_command_failure(args, output):
+    """Map known Android failure shapes to fixed codes; never echo their text."""
+    text = output.decode("utf-8", errors="replace")
+    if re.search(r"(?mi)^(?:error: )?(?:device .+ not found|device offline|no devices/emulators found)", text):
+        return "adb_transport_unavailable"
+    if args in (("shell", "pm", "path", PACKAGE), ("shell", "pm", "path", TEST_PACKAGE)) and not text.strip():
+        return "developer_app_package_unavailable" if args[-1] == PACKAGE else "developer_test_package_unavailable"
+    if args[:3] == ("shell", "am", "instrument"):
+        if re.search(r"Unable to find instrumentation (?:info for|component)|No instrumentation found", text):
+            return "developer_instrumentation_runner_unavailable"
+        if re.search(r"Unable to find instrumentation target package|target package .* not found", text):
+            return "developer_instrumentation_target_unavailable"
+        if re.search(r"SecurityException|Permission Denial", text):
+            return "developer_instrumentation_permission_denied"
+        if re.search(r"Process crashed|INSTRUMENTATION_ABORTED", text):
+            return "developer_instrumentation_process_failed"
+    return "adb_command_failed"
 
 
 def require(condition, reason):
@@ -95,6 +141,11 @@ def prepare_output(path):
 class Result:
     code: int
     text: str
+    output_sha256: str | None = None
+
+
+def output_digest(result):
+    return result.output_sha256 or hashlib.sha256(result.text.encode("utf-8")).hexdigest()
 
 
 class Adb:
@@ -138,9 +189,11 @@ class Adb:
                 require(left > 0, "adb_command_timeout")
                 process.wait(timeout=left)
             code = process.returncode
-            require(code == 0 or (allow_empty and code == 1 and not output.strip()),
-                    "adb_command_failed")
-            return Result(code, output.decode("utf-8", errors="replace"))
+            digest = hashlib.sha256(output).hexdigest()
+            if code != 0 and not (allow_empty and code == 1 and not output.strip()):
+                raise AdbCommandError(classify_command_failure(args, output), code, digest,
+                                      command_kind(args))
+            return Result(code, output.decode("utf-8", errors="replace"), digest)
         except (OSError, subprocess.TimeoutExpired):
             raise ValidationError("adb_execution_failed") from None
         finally:
@@ -192,6 +245,35 @@ def snapshot(adb):
         result[name] = setting_value(adb.run("shell", "settings", "get", "system", name).text, name)
     result["night"] = night_snapshot(adb.run("shell", "cmd", "uimode", "night").text)
     return result
+
+
+def validate_installed_targets(adb, evidence):
+    """Require the fixed app, test APK and matching runner before any setting changes.
+
+    A connected Gradle test task may remove APKs during teardown. This read-only
+    preflight diagnoses that state; it never installs, repairs or fetches them.
+    Only probe digests and availability booleans enter the retained evidence.
+    """
+    evidence.update(appPackageAvailable=False, testPackageAvailable=False, runnerAvailable=False)
+    for package, key, reason in (
+            (PACKAGE, "appPackageAvailable", "developer_app_package_unavailable"),
+            (TEST_PACKAGE, "testPackageAvailable", "developer_test_package_unavailable")):
+        result = adb.run("shell", "pm", "path", package, max_bytes=32768)
+        evidence[key + "ProbeSha256"] = output_digest(result)
+        lines = result.text.strip().splitlines()
+        require(bool(lines), reason)
+        require(len(lines) == 1 and re.fullmatch(
+            r"package:/data/app/(?:(?!\.{1,2}/)[A-Za-z0-9_.~+=-]+/){1,3}base\.apk", lines[0]) is not None,
+            "unexpected_developer_package_path")
+        evidence[key] = True
+    # The pm argument is the instrumentation TARGET package, not the test APK.
+    result = adb.run("shell", "pm", "list", "instrumentation", PACKAGE, max_bytes=32768)
+    evidence["runnerProbeSha256"] = output_digest(result)
+    lines = result.text.strip().splitlines()
+    require(bool(lines), "developer_instrumentation_runner_unavailable")
+    require(lines == ["instrumentation:" + RUNNER + " (target=" + PACKAGE + ")"],
+            "unexpected_developer_instrumentation_registry")
+    evidence["runnerAvailable"] = True
 
 
 def restore(adb, saved):
@@ -268,9 +350,19 @@ def run_profiles(adb, results=None):
             arguments += ["-e", key, value]
         arguments.append(RUNNER)
         record["stage"] = "native_case"
-        output = adb.run(*arguments, timeout=120, max_bytes=262144).text
-        record["instrumentationOutputSha256"] = hashlib.sha256(output.encode("utf-8")).hexdigest()
-        parse_instrumentation(output)
+        try:
+            result = adb.run(*arguments, timeout=120, max_bytes=262144)
+            record["instrumentationOutputSha256"] = output_digest(result)
+            record["instrumentationExitCode"] = result.code
+            parse_instrumentation(result.text)
+        except AdbCommandError as error:
+            record.update(instrumentationOutputSha256=error.output_sha256,
+                          instrumentationExitCode=error.exit_code,
+                          failureClassification=error.classification)
+            raise
+        except ValidationError as error:
+            record["failureClassification"] = str(error)
+            raise
         record.update(passed=True, stage="complete")
     return results
 
@@ -551,13 +643,15 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
     evidence = {"schemaVersion": 1, "sourceCommitSha": source_sha,
                 "scope": "already-installed-disposable-ci-emulator-offline-only",
                 "phase": "validate_emulator",
-                "passed": False, "profiles": [], "processDeath": {"passed": False},
+                "passed": False, "installedTargets": {}, "profiles": [], "processDeath": {"passed": False},
                 "configurationRestored": False, "uiXmlRemoved": False,
                 "apkInstalledByThisTool": False, "providerOrPublisherInvoked": False}
     saved = None
     failure = None
     try:
         evidence["apiLevel"] = validate_emulator(adb)
+        evidence["phase"] = "verify_installed_targets"
+        validate_installed_targets(adb, evidence["installedTargets"])
         saved = snapshot(adb)  # No settings mutation occurs before all snapshots parse.
         adb.deadline = clock() + 660
         evidence["phase"] = "native_profiles"
@@ -570,6 +664,9 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
         evidence["processDeath"] = process_runner(adb)
         require(evidence["processDeath"].get("passed") is True, "process_death_not_verified")
         evidence["phase"] = "complete"
+    except AdbCommandError as error:
+        failure = str(error)
+        evidence["commandFailure"] = error.evidence()
     except ValidationError as error:
         failure = str(error)
     finally:

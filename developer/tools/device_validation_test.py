@@ -49,12 +49,15 @@ def fresh_nodes():
 
 
 class ConfigurationAdb:
-    def __init__(self, physical=False, fail_instrument=False, restore_failure=False):
+    def __init__(self, physical=False, fail_instrument=False, restore_failure=False,
+                 missing_package=None, missing_runner=False):
         self.commands = []
         self.deadline = 0
         self.physical = physical
         self.fail_instrument = fail_instrument
         self.restore_failure = restore_failure
+        self.missing_package = missing_package
+        self.missing_runner = missing_runner
         self.size = "720x1440"
         self.density = None
         self.settings = {"font_scale": "null", "accelerometer_rotation": "1", "user_rotation": "2"}
@@ -68,6 +71,13 @@ class ConfigurationAdb:
             return validation.Result(0, "0" if self.physical else "1")
         if args == ("shell", "getprop", "ro.build.version.sdk"):
             return validation.Result(0, "34")
+        if args[:3] == ("shell", "pm", "path"):
+            return validation.Result(0, "" if args[3] == self.missing_package else
+                                     "package:/data/app/~~fixture/" + args[3] + "-fixture==/base.apk\n")
+        if args == ("shell", "pm", "list", "instrumentation", validation.PACKAGE):
+            return validation.Result(0, "" if self.missing_runner else
+                                     "instrumentation:" + validation.RUNNER +
+                                     " (target=" + validation.PACKAGE + ")\n")
         if args[:2] == ("shell", "wm"):
             kind = args[2]
             if len(args) == 3:
@@ -204,6 +214,165 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(evidence["passed"])
         self.assertEqual("physical_device_or_unverified_emulator_denied", evidence["failureReason"])
         self.assertEqual([("get-state",), ("shell", "getprop", "ro.kernel.qemu")], adb.commands)
+
+    def test_fixed_app_test_and_target_runner_are_verified_before_settings(self):
+        adb = ConfigurationAdb()
+        evidence = validation.execute(adb, SHA, process_runner=lambda _: {"passed": True})
+        self.assertTrue(evidence["passed"])
+        availability = evidence["installedTargets"]
+        self.assertTrue(all(availability[key] for key in
+                            ("appPackageAvailable", "testPackageAvailable", "runnerAvailable")))
+        probes = [("shell", "pm", "path", validation.PACKAGE),
+                  ("shell", "pm", "path", validation.TEST_PACKAGE),
+                  ("shell", "pm", "list", "instrumentation", validation.PACKAGE)]
+        first_display = next(index for index, args in enumerate(adb.commands) if args[:2] == ("shell", "wm"))
+        self.assertTrue(all(adb.commands.index(probe) < first_display for probe in probes))
+        self.assertFalse(any("/data/app/" in str(value) for value in availability.values()))
+        for key in ("appPackageAvailableProbeSha256", "testPackageAvailableProbeSha256", "runnerProbeSha256"):
+            self.assertRegex(availability[key], "^[a-f0-9]{64}$")
+
+    def test_android28_and34_monolithic_package_path_shapes_are_accepted(self):
+        for path_template in ("/data/app/{package}-fixture==/base.apk",
+                              "/data/app/~~fixture==/{package}-fixture==/base.apk"):
+            class FixedPackagePaths(ConfigurationAdb):
+                def run(self, *args, **kwargs):
+                    if args[:3] == ("shell", "pm", "path"):
+                        self.commands.append(args)
+                        return validation.Result(0, "package:" + path_template.format(package=args[3]) + "\n")
+                    return super().run(*args, **kwargs)
+
+            with self.subTest(shape=path_template):
+                evidence = {}
+                validation.validate_installed_targets(FixedPackagePaths(), evidence)
+                self.assertTrue(evidence["appPackageAvailable"] and evidence["testPackageAvailable"]
+                                and evidence["runnerAvailable"])
+
+    def test_missing_app_or_test_package_fails_before_any_configuration_mutation(self):
+        for package, reason in ((validation.PACKAGE, "developer_app_package_unavailable"),
+                                (validation.TEST_PACKAGE, "developer_test_package_unavailable")):
+            with self.subTest(package=package):
+                adb = ConfigurationAdb(missing_package=package)
+                evidence = validation.execute(adb, SHA)
+                self.assertFalse(evidence["passed"])
+                self.assertEqual("verify_installed_targets", evidence["phase"])
+                self.assertEqual(reason, evidence["failureReason"])
+                self.assertEqual([], evidence["profiles"])
+                self.assertFalse(any(args[:2] == ("shell", "wm") or "instrument" in args or "rm" in args
+                                     for args in adb.commands))
+                self.assertFalse(any("install" in args for args in adb.commands))
+
+    def test_missing_runner_fails_before_any_configuration_mutation(self):
+        adb = ConfigurationAdb(missing_runner=True)
+        evidence = validation.execute(adb, SHA)
+        self.assertEqual("developer_instrumentation_runner_unavailable", evidence["failureReason"])
+        self.assertTrue(evidence["installedTargets"]["appPackageAvailable"])
+        self.assertTrue(evidence["installedTargets"]["testPackageAvailable"])
+        self.assertFalse(evidence["installedTargets"]["runnerAvailable"])
+        self.assertFalse(any(args[:2] == ("shell", "wm") or "instrument" in args for args in adb.commands))
+
+    def test_unexpected_package_path_or_registry_cannot_substitute_for_fixed_targets(self):
+        for target, output in (("path", "package:/system/app/Developer/base.apk\n"),
+                               ("path", "package:/data/app/../base.apk\n"),
+                               ("path", "package:/data/app/fixture/base.apk\npackage:/data/app/other/base.apk\n"),
+                               ("runner", "instrumentation:" + validation.RUNNER + " (target=other.package)\n"),
+                               ("runner", "instrumentation:other.test/Runner (target=" + validation.PACKAGE + ")\n")):
+            class UnexpectedTarget(ConfigurationAdb):
+                def run(self, *args, **kwargs):
+                    result = super().run(*args, **kwargs)
+                    if (target == "path" and args == ("shell", "pm", "path", validation.PACKAGE)) or (
+                            target == "runner" and args == ("shell", "pm", "list", "instrumentation", validation.PACKAGE)):
+                        return validation.Result(0, output)
+                    return result
+
+            with self.subTest(target=target, output=output):
+                adb = UnexpectedTarget()
+                evidence = validation.execute(adb, SHA)
+                self.assertFalse(evidence["passed"])
+                self.assertIn(evidence["failureReason"], ("unexpected_developer_package_path",
+                                                        "unexpected_developer_instrumentation_registry"))
+                self.assertFalse(any(args[:2] == ("shell", "wm") for args in adb.commands))
+
+    def test_nonzero_native_failure_retains_only_classification_exit_and_output_hash(self):
+        private_output = "Unable to find instrumentation info for: ComponentInfo{" + validation.RUNNER + "}\nprivate fixture output"
+        digest = hashlib.sha256(private_output.encode()).hexdigest()
+
+        class MissingInstrumentation(ConfigurationAdb):
+            def run(self, *args, **kwargs):
+                if args[:3] == ("shell", "am", "instrument"):
+                    self.commands.append(args)
+                    classification = validation.classify_command_failure(args, private_output.encode())
+                    raise validation.AdbCommandError(classification, 1, digest, validation.command_kind(args))
+                return super().run(*args, **kwargs)
+
+        adb = MissingInstrumentation()
+        evidence = validation.execute(adb, SHA)
+        self.assertFalse(evidence["passed"])
+        self.assertEqual("developer_instrumentation_runner_unavailable", evidence["failureReason"])
+        self.assertEqual(digest, evidence["profiles"][0]["instrumentationOutputSha256"])
+        self.assertEqual(1, evidence["profiles"][0]["instrumentationExitCode"])
+        self.assertEqual("native_instrumentation_case", evidence["commandFailure"]["commandKind"])
+        self.assertTrue(evidence["configurationRestored"])
+        self.assertTrue(evidence["uiXmlRemoved"])
+        self.assertNotIn(private_output, json.dumps(evidence))
+        self.assertNotIn("private fixture output", json.dumps(evidence))
+
+    def test_nonzero_empty_package_probe_is_diagnosed_without_attempting_install(self):
+        digest = hashlib.sha256(b"").hexdigest()
+
+        class PackageRemoved(ConfigurationAdb):
+            def run(self, *args, **kwargs):
+                if args == ("shell", "pm", "path", validation.TEST_PACKAGE):
+                    self.commands.append(args)
+                    raise validation.AdbCommandError(validation.classify_command_failure(args, b""),
+                                                     1, digest, validation.command_kind(args))
+                return super().run(*args, **kwargs)
+
+        adb = PackageRemoved()
+        evidence = validation.execute(adb, SHA)
+        self.assertEqual("developer_test_package_unavailable", evidence["failureReason"])
+        self.assertEqual(digest, evidence["commandFailure"]["outputSha256"])
+        self.assertEqual("fixed_package_path_probe", evidence["commandFailure"]["commandKind"])
+        self.assertEqual([], evidence["profiles"])
+        self.assertFalse(any(args[:2] == ("shell", "wm") or "install" in args or "instrument" in args
+                             for args in adb.commands))
+
+    def test_failure_classification_is_command_specific_and_never_echoes_output(self):
+        native = ("shell", "am", "instrument", "-w", validation.RUNNER)
+        fixtures = (("Unable to find instrumentation info for: private", "developer_instrumentation_runner_unavailable"),
+                    ("Unable to find instrumentation target package: private", "developer_instrumentation_target_unavailable"),
+                    ("java.lang.SecurityException: private", "developer_instrumentation_permission_denied"),
+                    ("INSTRUMENTATION_ABORTED: Process crashed private", "developer_instrumentation_process_failed"),
+                    ("error: device offline", "adb_transport_unavailable"),
+                    ("unknown failure private", "adb_command_failed"))
+        for output, expected in fixtures:
+            with self.subTest(expected=expected):
+                self.assertEqual(expected, validation.classify_command_failure(native, output.encode()))
+                self.assertNotIn("private", expected)
+        self.assertEqual("adb_command_failed", validation.classify_command_failure(
+            ("shell", "cat", validation.UI_PATH), fixtures[0][0].encode()))
+
+    def test_adb_nonzero_exit_captures_raw_byte_hash_without_exposing_output(self):
+        raw = b"unknown private output\xff"
+        process, selector = MagicMock(), MagicMock()
+        process.poll.return_value = 1
+        process.returncode = 1
+        selector.__enter__.return_value = selector
+        selector.get_map.side_effect = ({1: True}, {1: True}, {})
+        selected_file = SimpleNamespace(fileno=lambda: 9)
+        selector.select.return_value = [(SimpleNamespace(fileobj=selected_file), None)]
+        with patch.object(validation.subprocess, "Popen", return_value=process), \
+                patch.object(validation.selectors, "DefaultSelector", return_value=selector), \
+                patch.object(validation.os, "read", side_effect=(raw, b"")):
+            adb = validation.Adb("emulator-5554", executable="fake-adb")
+            with self.assertRaises(validation.AdbCommandError) as caught:
+                adb.run("shell", "am", "instrument", "-w", validation.RUNNER)
+        error = caught.exception
+        self.assertEqual("adb_command_failed", str(error))
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), error.output_sha256)
+        self.assertEqual(1, error.exit_code)
+        self.assertFalse(hasattr(error, "text"))
+        self.assertNotIn("private", json.dumps(error.evidence()))
+        process.stdout.close.assert_called_once()
 
     def test_all_four_profiles_restore_original_override_and_missing_setting(self):
         adb = ConfigurationAdb()
