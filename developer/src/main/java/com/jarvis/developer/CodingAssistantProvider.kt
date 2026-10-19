@@ -176,8 +176,14 @@ object CodingAssistantProvider {
                 return text
             } catch (e: ProviderFailure) {
                 throw e
+            } catch (e: java.net.SocketTimeoutException) {
+                throw ProviderFailure("AI connection timed out. Check network access and retry.")
+            } catch (e: java.net.UnknownHostException) {
+                throw ProviderFailure("AI provider hostname could not be resolved. Check internet or DNS.")
+            } catch (e: java.net.ConnectException) {
+                throw ProviderFailure("Could not connect to the AI provider. Check network access.")
             } catch (_: Exception) {
-                // Neither provider bodies nor exception causes cross the credential boundary.
+                // Never expose exception details: they may contain credentials or provider bodies.
                 throw IllegalStateException(FAILURE)
             }
         }
