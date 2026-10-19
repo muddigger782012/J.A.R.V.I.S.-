@@ -176,7 +176,7 @@ class MainActivityConfigurationAndroidTest {
             View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY))
         decor.layout(0, 0, widthPx, heightPx)
         idleMain()
-        val scroll = views<ScrollView>(activity).single()
+        val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
         val root = scroll.getChildAt(0) as LinearLayout
         assertTrue("Measured scroll viewport width", scroll.width > 0)
         assertTrue("Measured scroll viewport height", scroll.height > 0)
