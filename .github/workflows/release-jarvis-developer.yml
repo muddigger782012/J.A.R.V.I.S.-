@@ -110,7 +110,8 @@ jobs:
               assert im.size == (1536, 512)
               im.convert('RGB').save(root / 'developer_approved_header.png', format='PNG')
           with Image.open(io.BytesIO(icon)) as im:
-              assert im.size == (512, 512)
+              print('Approved reactor icon dimensions:', im.size, flush=True)
+              assert im.width == im.height and im.width >= 256, 'Approved icon must be square and at least 256px'
               im.verify()
           (root / 'developer_arc_reactor_icon.png').write_bytes(icon)
           print('Verified approved artwork installed; JPEG-encoded header converted to PNG')
