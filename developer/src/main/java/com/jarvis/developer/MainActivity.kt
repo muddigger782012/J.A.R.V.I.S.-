@@ -373,11 +373,11 @@ class MainActivity : Activity() {
                             status.text = "Response received from $providerName"
                         }
                     }
-                } catch (_: Exception) {
+                } catch (e: Exception) {
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
                             status.text = "Coding assistant request failed"
-                            output.text = "Check the selected provider, API key, model and bounded request/output format."
+                            output.text = if (e is CodingAssistantProvider.ProviderFailure) e.message ?: "AI connection failed." else "Check the selected provider, API key and model."
                         }
                     }
                 } finally {
@@ -443,6 +443,39 @@ class MainActivity : Activity() {
         val forgetConnection = Button(this).apply {
             text = "Remove saved connection"
             isAllCaps = false
+        }
+        val testConnection = Button(this).apply {
+            text = "Test AI connection"
+            isAllCaps = false
+        }
+        settings.addView(testConnection)
+        testConnection.setOnClickListener {
+            val selectedKey = key.text.toString().trim()
+            if (selectedKey.isBlank()) {
+                credentialStatus.text = "Enter an API key before testing."
+                return@setOnClickListener
+            }
+            val selectedProvider = provider.selectedItem.toString()
+            val selectedModel = model.text.toString().trim()
+            testConnection.isEnabled = false
+            credentialStatus.text = "Testing $selectedProvider connection..."
+            thread(name = "DeveloperConnectionTest") {
+                val message = try {
+                    CodingAssistantProvider.ask(selectedProvider, selectedKey, selectedModel,
+                        "Reply with the single word connected.") 
+                    "$selectedProvider connection successful."
+                } catch (e: CodingAssistantProvider.ProviderFailure) {
+                    e.message ?: "AI connection failed."
+                } catch (_: Exception) {
+                    "AI connection failed. Check provider and model."
+                }
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        credentialStatus.text = message
+                        testConnection.isEnabled = true
+                    }
+                }
+            }
         }
         settings.addView(saveConnection)
         settings.addView(forgetConnection)
