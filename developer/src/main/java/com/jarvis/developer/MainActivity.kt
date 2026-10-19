@@ -1,8 +1,5 @@
 package com.jarvis.developer
 
-import android.animation.ObjectAnimator
-import android.animation.ValueAnimator
-import android.view.animation.LinearInterpolator
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
@@ -18,9 +15,6 @@ import android.widget.ImageView
 import android.view.View
 import android.graphics.drawable.GradientDrawable
 import android.graphics.Typeface
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Color
 import kotlin.concurrent.thread
 
 /**
@@ -76,126 +70,17 @@ class MainActivity : Activity() {
             }
             root.addView(this)
         }
-        // The release asset has already been alpha-matted by transparent_reactor.py.
-        // Do not apply the threshold a second time: that erased fine reactor details.
-        val original = BitmapFactory.decodeResource(resources, R.drawable.developer_arc_reactor_art)
-        val reactor = original.copy(Bitmap.Config.ARGB_8888, false)
-        val pixels = IntArray(reactor.width * reactor.height)
-        reactor.getPixels(pixels, 0, reactor.width, 0, 0, reactor.width, reactor.height)
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(7), dp(7), dp(7), dp(7))
-            background = GradientDrawable().apply {
-                setColor(getColor(R.color.developer_panel))
-                cornerRadius = dp(18).toFloat()
-                setStroke(dp(1), 0xFF265361.toInt())
-            }
-        }
-        // Animate independent concentric artwork layers: stationary core,
-        // clockwise reactor arc, and counter-clockwise outer ring.
-        // Each layer retains its original transparent pixels and alignment.
-        val reactorFrame = android.widget.FrameLayout(this)
-        val cx = (reactor.width - 1) / 2.0
-        val cy = (reactor.height - 1) / 2.0
-        val maxRadius = minOf(reactor.width, reactor.height) / 2.0
-        fun reactorLayer(innerFraction: Double, outerFraction: Double): Bitmap {
-            val layerPixels = pixels.copyOf()
-            for (y in 0 until reactor.height) {
-                for (x in 0 until reactor.width) {
-                    val radius = kotlin.math.hypot(x - cx, y - cy) / maxRadius
-                    if (radius < innerFraction || radius >= outerFraction) {
-                        layerPixels[y * reactor.width + x] = Color.TRANSPARENT
-                    }
-                }
-            }
-            return Bitmap.createBitmap(layerPixels, reactor.width, reactor.height, Bitmap.Config.ARGB_8888)
-        }
-        fun addReactorLayer(bitmap: Bitmap, description: String): ImageView =
-            ImageView(this).apply {
-                setImageBitmap(bitmap)
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                contentDescription = description
-                reactorFrame.addView(this, android.widget.FrameLayout.LayoutParams(-1, -1))
-            }
-        val outerRing = addReactorLayer(reactorLayer(0.78, Double.POSITIVE_INFINITY), "Counter-rotating outer ring")
-        val reactorArc = addReactorLayer(reactorLayer(0.34, 0.78), "Rotating reactor arc")
-        addReactorLayer(reactorLayer(0.0, 0.34), "Stationary reactor core")
-        // The reactor sits outside the bordered title panel, which extends from its edge.
-        // This avoids framing or clipping the animated concentric rings.
-        val headerAssembly = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        headerAssembly.addView(reactorFrame, LinearLayout.LayoutParams(dp(84), dp(84)))
-        fun spinReactorLayer(view: View, degrees: Float, durationMs: Long): ObjectAnimator {
-            return ObjectAnimator.ofFloat(view, View.ROTATION, 0f, degrees).apply {
-                duration = durationMs
-                repeatCount = ValueAnimator.INFINITE
-                interpolator = LinearInterpolator()
-                start()
-            }
-        }
-        val arcAnimator = spinReactorLayer(reactorArc, 360f, 12000L)
-        val outerAnimator = spinReactorLayer(outerRing, -360f, 16000L)
-        val headerWords = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        headerWords.addView(ImageView(this).apply {
-            setImageResource(R.drawable.developer_jarvis_wordmark)
+        // Keep the approved composite intact: lettering, reactor and border are one image.
+        // The nodpi asset retains its source pixels; FIT_CENTER preserves its 3:1 proportions.
+        root.addView(ImageView(this).apply {
+            setImageResource(R.drawable.developer_approved_header)
+            adjustViewBounds = true
             scaleType = ImageView.ScaleType.FIT_CENTER
-            contentDescription = "J.A.R.V.I.S."
-        }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        headerWords.addView(TextView(this).apply {
-            text = "DEVELOPER"
-            textSize = 10f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(getColor(R.color.developer_primary))
-            gravity = Gravity.CENTER_VERTICAL
-            isSingleLine = true
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32)).apply {
-            marginStart = dp(8)
-        })
-        header.addView(headerWords, LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(10) })
-        // A restrained breathing glow follows the panel's cyan stroke.
-        // Keep the glow on the background drawable: no image scaling or text movement.
-        val borderDrawable = header.background as GradientDrawable
-        val borderPulse = ValueAnimator.ofObject(android.animation.ArgbEvaluator(),
-            0xFF265361.toInt(), 0xFF5AF4FF.toInt(), 0xFF265361.toInt()).apply {
-            duration = 2800L
-            repeatCount = ValueAnimator.INFINITE
-            interpolator = LinearInterpolator()
-            addUpdateListener { animator ->
-                borderDrawable.setStroke(dp(1), animator.animatedValue as Int)
-                header.invalidate()
-            }
-        }
-        borderPulse.start()
-        headerAssembly.addView(header, LinearLayout.LayoutParams(0, dp(78), 1f).apply {
-            marginStart = dp(4)
-        })
-        // Prefer the exact, approved bitmap whenever its resource has been installed.
-        // Do not draw a second wordmark, frame, or reactor on top of the approved art.
-        val approvedHeaderId = resources.getIdentifier(
-            "developer_approved_header", "drawable", packageName)
-        if (approvedHeaderId != 0) {
-            root.addView(ImageView(this).apply {
-                setImageResource(approvedHeaderId)
-                adjustViewBounds = true
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                contentDescription = "Approved J.A.R.V.I.S. Developer header"
-            }, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT))
-            // The approved image is a complete composite; stop fallback animations.
-            borderPulse.cancel()
-            arcAnimator.cancel()
-            outerAnimator.cancel()
-        } else {
-            root.addView(headerAssembly)
-        }
+            imageTintList = null
+            contentDescription = "Approved J.A.R.V.I.S. Developer header"
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT))
         val status = TextView(this).apply {
             text = "Your AI development assistant"
             textSize = 13f

@@ -36,6 +36,7 @@ jobs:
         run: |
           python3 -m pip install --quiet Pillow
           python3 developer/tools/transparent_reactor.py
+          python3 developer/tools/verify_approved_artwork.py
           chmod +x ./gradlew
           ./gradlew --no-daemon :developer:testDebugUnitTest :developer:lintDebug :developer:assembleDebug :developer:assembleDebugAndroidTest
       - name: Record bounded acceptance evidence in CI logs

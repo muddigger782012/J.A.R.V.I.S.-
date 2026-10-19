@@ -87,44 +87,9 @@ jobs:
             echo 'Recovery commit must be an ancestor of the isolated Developer branch.'
             exit 1
           }
-      - name: Install uploaded approved artwork from ZIP
+      - name: Verify unchanged approved artwork bytes
         if: steps.recovery.outputs.sha == ''
-        run: |
-          python3 -m pip install --quiet Pillow
-          python3 - <<'PY'
-          from pathlib import Path
-          from zipfile import ZipFile
-          from PIL import Image
-          import io, hashlib
-          root = Path('developer/src/main/res/drawable-nodpi')
-          with ZipFile(root / 'jarvis_approved_artwork.zip') as z:
-              files = {Path(e.filename).name: z.read(e) for e in z.infolist() if not e.is_dir()}
-          header = files.get('developer_approved_header.png') or files.get('developer_header_reference.png')
-          icon = files.get('developer_reactor_launcher.png') or files.get('developer_arc_reactor_icon.png') or files.get('jarvis_arc_icon_transparent.png')
-          assert header is not None, 'Approved header missing from archive'
-          assert icon is not None, 'Approved reactor icon missing from archive'
-          assert hashlib.sha256(header).hexdigest() == '5eda3e2efed91ee83761b989c06d4f926a5071ed790e0dc79acbec40b68c40d5', 'Header mismatch'
-          print('Approved archive icon SHA-256:', hashlib.sha256(icon).hexdigest(), flush=True)
-          assert hashlib.sha256(icon).hexdigest() == 'bcd0fe7499b57c43907e9f1b6cf82ca4dad84741403a0dacf666871ce7a5ff06', 'Icon mismatch'
-          with Image.open(io.BytesIO(header)) as im:
-              assert im.size == (1536, 512)
-              im.convert('RGB').save(root / 'developer_approved_header.png', format='PNG')
-          with Image.open(io.BytesIO(icon)) as im:
-              print('Approved reactor icon dimensions:', im.size, flush=True)
-              assert im.width == im.height and im.width >= 256, 'Approved icon must be square and at least 256px'
-              im.verify()
-          (root / 'developer_arc_reactor_icon.png').write_bytes(icon)
-          print('Verified approved artwork installed; JPEG-encoded header converted to PNG')
-          (root / 'jarvis_approved_artwork.zip').unlink()
-          print('Removed ZIP from drawable resources before Android resource merger')
-          PY
-          git add developer/src/main/res/drawable-nodpi/developer_approved_header.png developer/src/main/res/drawable-nodpi/developer_arc_reactor_icon.png
-          if ! git diff --cached --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Extract uploaded approved Developer artwork PNGs"
-            git push origin HEAD:feature/jarvis-developer
-          fi
+        run: python3 developer/tools/verify_approved_artwork.py
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
