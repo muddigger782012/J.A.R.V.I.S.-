@@ -100,7 +100,7 @@ jobs:
           with ZipFile(root / 'jarvis_approved_artwork.zip') as z:
               files = {Path(e.filename).name: z.read(e) for e in z.infolist() if not e.is_dir()}
           header = files.get('developer_approved_header.png') or files.get('developer_header_reference.png')
-          icon = files.get('developer_arc_reactor_icon.png') or files.get('jarvis_arc_icon_transparent.png')
+          icon = files.get('developer_reactor_launcher.png') or files.get('developer_arc_reactor_icon.png') or files.get('jarvis_arc_icon_transparent.png')
           assert header is not None, 'Approved header missing from archive'
           assert icon is not None, 'Approved reactor icon missing from archive'
           assert hashlib.sha256(header).hexdigest() == '5eda3e2efed91ee83761b989c06d4f926a5071ed790e0dc79acbec40b68c40d5', 'Header mismatch'
