@@ -516,6 +516,49 @@ class MainActivity : Activity() {
                 }
             }
         }
+        val discoverModels = Button(this).apply {
+            text = "Find models available to my API key"
+            isAllCaps = false
+        }
+        settings.addView(discoverModels)
+        discoverModels.setOnClickListener {
+            if (provider.selectedItem.toString() != "Gemini") {
+                credentialStatus.text = "Model discovery currently supports Gemini."
+                return@setOnClickListener
+            }
+            val apiKey = key.text.toString().trim()
+            if (apiKey.isBlank()) {
+                credentialStatus.text = "Enter your Gemini API key first."
+                return@setOnClickListener
+            }
+            discoverModels.isEnabled = false
+            credentialStatus.text = "Checking Gemini models available to this key..."
+            thread(name = "GeminiModelDiscovery") {
+                val result = try {
+                    CodingAssistantProvider.availableGeminiModels(apiKey)
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        discoverModels.isEnabled = true
+                        if (result.isEmpty()) {
+                            credentialStatus.text = "No compatible models returned. Check API key and access."
+                        } else {
+                            credentialStatus.text = "${result.size} compatible Gemini models found. Choose one."
+                            android.app.AlertDialog.Builder(this@MainActivity)
+                                .setTitle("Available Gemini models")
+                                .setItems(result.toTypedArray()) { _, index ->
+                                    model.setText(result[index])
+                                    credentialStatus.text = "Selected ${result[index]}. Save and test connection."
+                                }
+                                .setNegativeButton("Cancel", null)
+                                .show()
+                        }
+                    }
+                }
+            }
+        }
         settings.addView(saveConnection)
         settings.addView(forgetConnection)
         settings.addView(credentialStatus)
