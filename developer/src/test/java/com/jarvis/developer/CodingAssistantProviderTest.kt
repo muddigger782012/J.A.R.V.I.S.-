@@ -133,7 +133,16 @@ class CodingAssistantProviderTest {
                     override fun read(): Int { read = true; error("reflected-error-body $key") }
                 } }
             }
-            fails(fake)
+            if (status in listOf(301, 302, 307, 400, 401, 403, 429, 500)) {
+                try {
+                    CodingAssistantProvider.Client(fake).ask("OpenAI", key, "", task)
+                    fail("Expected HTTP provider failure")
+                } catch (failure: CodingAssistantProvider.ProviderFailure) {
+                    assertTrue(failure.message.orEmpty().contains("HTTP $status"))
+                    assertFalse(failure.toString().contains(key))
+                    assertNull(failure.cause)
+                }
+            }
             assertFalse(read)
             assertEquals(1, fake.requests.size)
             assertEquals(1, fake.closed)
@@ -289,6 +298,41 @@ class CodingAssistantProviderTest {
                 .put(JSONObject().put("text", "Second"))
         }) }
         assertEquals("FirstSecond", CodingAssistantProvider.Client(google).ask("Gemini", key, "", task))
+    }
+
+    @Test fun geminiAllowsHarmlessPartMetadataAndSkipsThinkingParts() {
+        val response = gemini("connected")
+        val parts = response.getJSONArray("candidates").getJSONObject(0)
+            .getJSONObject("content").getJSONArray("parts")
+        parts.getJSONObject(0).put("thoughtSignature", "opaque-signature")
+        val finalText = parts.getJSONObject(0)
+        val withThinking = JSONArray()
+            .put(JSONObject().put("thought", true).put("text", "private reasoning"))
+            .put(finalText)
+        response.getJSONArray("candidates").getJSONObject(0)
+            .getJSONObject("content").put("parts", withThinking)
+        val fake = Fixture().apply { body(response) }
+        assertEquals("connected", CodingAssistantProvider.Client(fake).ask("Gemini", key, "gemini-2.5-flash", task))
+        assertEquals(1, fake.closed)
+    }
+
+    @Test fun safeNetworkFailuresAreDistinguishedWithoutExposingExceptionDetails() {
+        val cases = listOf(
+            java.net.SocketTimeoutException("secret $key") to "timed out",
+            java.net.UnknownHostException("secret $key") to "hostname",
+            java.net.ConnectException("secret $key") to "Could not connect"
+        )
+        for ((exception, expected) in cases) {
+            val client = CodingAssistantProvider.Client(CodingAssistantProvider.PostTransport { throw exception })
+            try {
+                client.ask("Gemini", key, "gemini-2.5-flash", task)
+                fail("Expected safe network failure")
+            } catch (failure: CodingAssistantProvider.ProviderFailure) {
+                assertTrue(failure.message.orEmpty().contains(expected))
+                assertFalse(failure.toString().contains(key))
+                assertNull(failure.cause)
+            }
+        }
     }
 
     @Test fun emptyTextResponsesFailInsteadOfClaimingSuccess() {

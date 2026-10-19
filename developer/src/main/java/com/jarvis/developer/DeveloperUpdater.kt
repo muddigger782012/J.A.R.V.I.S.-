@@ -34,6 +34,10 @@ object DeveloperUpdater {
                     .firstOrNull { it.optString("name") == "Jarvis-Developer.apk" }
                     ?: throw IllegalStateException("No Developer APK in the release")
                 val url = apk.getString("browser_download_url")
+                val expectedDigest = apk.optString("digest").removePrefix("sha256:")
+                require(apk.optString("digest").startsWith("sha256:") && expectedDigest.matches(Regex("[0-9a-fA-F]{64}"))) {
+                    "Published Developer APK is missing a valid SHA-256 digest"
+                }
                 val releaseVersion = response.optString("name")
                 val releaseTag = response.optString("tag_name")
                 if (releaseTag != "developer-latest") {
@@ -44,13 +48,13 @@ object DeveloperUpdater {
                         .setTitle("Jarvis Developer update")
                         .setMessage("Published release: $releaseVersion\nInstalled version: ${BuildConfig.VERSION_NAME}\nDownload and request installation?")
                         .setNegativeButton("Cancel", null)
-                        .setPositiveButton("Download") { _, _ -> download(activity, url, status) }
+                        .setPositiveButton("Download") { _, _ -> download(activity, url, expectedDigest, status) }
                         .show()
                 }
             } catch (e: Exception) { activity.runOnUiThread { status(e.message ?: "Update check failed") } }
         }
     }
-    private fun download(activity: Activity, url: String, status: (String) -> Unit) {
+    private fun download(activity: Activity, url: String, expectedDigest: String, status: (String) -> Unit) {
         thread {
             try {
                 require(url.startsWith("https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/developer-latest/")) {
@@ -67,6 +71,12 @@ object DeveloperUpdater {
                     if (conn.responseCode != 200) throw IllegalStateException("Download HTTP ${conn.responseCode}")
                     conn.inputStream.use { input -> file.outputStream().use { output -> input.copyTo(output) } }
                 } finally { conn.disconnect() }
+                val actualDigest = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+                    .joinToString("") { "%02x".format(it) }
+                if (!actualDigest.equals(expectedDigest, ignoreCase = true)) {
+                    file.delete()
+                    throw IllegalStateException("Downloaded APK failed SHA-256 integrity verification")
+                }
                 val archive = activity.packageManager.getPackageArchiveInfo(file.absolutePath, 0)
                     ?: throw IllegalStateException("Downloaded file is not an APK")
                 if (archive.packageName != activity.packageName) throw IllegalStateException("APK package mismatch")

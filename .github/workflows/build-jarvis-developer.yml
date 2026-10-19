@@ -2,7 +2,7 @@ name: Build Jarvis Developer (isolated)
 on:
   workflow_dispatch:
   push:
-    branches: [feature/jarvis-developer, 'feature/jarvis-developer-task/**']
+    branches: [feature/jarvis-developer, 'feature/jarvis-developer-task/**', 'fix/developer-gemini-diagnostics-135']
     paths:
       - 'developer/**'
       - 'settings.gradle'

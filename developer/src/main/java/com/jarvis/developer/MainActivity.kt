@@ -128,7 +128,13 @@ class MainActivity : Activity() {
         val outerRing = addReactorLayer(reactorLayer(0.78, Double.POSITIVE_INFINITY), "Counter-rotating outer ring")
         val reactorArc = addReactorLayer(reactorLayer(0.34, 0.78), "Rotating reactor arc")
         addReactorLayer(reactorLayer(0.0, 0.34), "Stationary reactor core")
-        header.addView(reactorFrame, LinearLayout.LayoutParams(dp(72), dp(72)))
+        // The reactor sits outside the bordered title panel, which extends from its edge.
+        // This avoids framing or clipping the animated concentric rings.
+        val headerAssembly = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        headerAssembly.addView(reactorFrame, LinearLayout.LayoutParams(dp(72), dp(72)))
         fun spinReactorLayer(view: View, degrees: Float, durationMs: Long) {
             ObjectAnimator.ofFloat(view, View.ROTATION, 0f, degrees).apply {
                 duration = durationMs
@@ -160,7 +166,24 @@ class MainActivity : Activity() {
         })
         header.addView(headerWords, LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(10) })
-        root.addView(header)
+        // A restrained breathing glow follows the panel's cyan stroke.
+        // Keep the glow on the background drawable: no image scaling or text movement.
+        val borderDrawable = header.background as GradientDrawable
+        val borderPulse = ValueAnimator.ofObject(android.animation.ArgbEvaluator(),
+            0xFF265361.toInt(), 0xFF5AF4FF.toInt(), 0xFF265361.toInt()).apply {
+            duration = 2800L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = LinearInterpolator()
+            addUpdateListener { animator ->
+                borderDrawable.setStroke(dp(1), animator.animatedValue as Int)
+                header.invalidate()
+            }
+        }
+        borderPulse.start()
+        headerAssembly.addView(header, LinearLayout.LayoutParams(0, dp(64), 1f).apply {
+            marginStart = dp(4)
+        })
+        root.addView(headerAssembly)
         val status = TextView(this).apply {
             text = "Your AI development assistant"
             textSize = 13f
@@ -534,16 +557,21 @@ class MainActivity : Activity() {
             discoverModels.isEnabled = false
             credentialStatus.text = "Checking Gemini models available to this key..."
             thread(name = "GeminiModelDiscovery") {
+                var safeFailure: String? = null
                 val result = try {
                     CodingAssistantProvider.availableGeminiModels(apiKey)
+                } catch (e: CodingAssistantProvider.ProviderFailure) {
+                    safeFailure = e.message ?: "Model discovery failed."
+                    emptyList()
                 } catch (_: Exception) {
+                    safeFailure = "Model discovery failed due to a network or response error."
                     emptyList()
                 }
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
                         discoverModels.isEnabled = true
                         if (result.isEmpty()) {
-                            credentialStatus.text = "No compatible models returned. Check API key and access."
+                            credentialStatus.text = safeFailure ?: "No compatible models returned for this API key."
                         } else {
                             credentialStatus.text = "${result.size} compatible Gemini models found. Choose one."
                             android.app.AlertDialog.Builder(this@MainActivity)

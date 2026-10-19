@@ -95,10 +95,11 @@ class MainActivityConfigurationAndroidTest {
         val draftFields = mapOf(
             PROVIDER_KEY to fakeProvider,
             GITHUB_TOKEN to fakeGithub,
-            "Describe the code or change you need" to "Fixture draft only; no provider request",
+            "Example: Build me an app to track equipment maintenance." to "Fixture draft only; no provider request",
             TASK_ID to "fixture-bundle-review",
             "Enter exact eligible review SHA-256" to "b".repeat(64)
         )
+        openTools(original)
         draftFields.forEach { (hint, value) -> field(original, hint).setText(value) }
         idleMain()
         assertApprovalsUnavailable(original)
@@ -132,6 +133,7 @@ class MainActivityConfigurationAndroidTest {
         idleMain()
         val restored = replacement.get()
 
+        openTools(restored)
         assertNotSame(original, restored)
         assertNotSame(state, restoredState)
         assertSame("Framework simulation retains the Application", original.application, restored.application)
@@ -176,7 +178,13 @@ class MainActivityConfigurationAndroidTest {
             View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY))
         decor.layout(0, 0, widthPx, heightPx)
         idleMain()
-        val scroll = views<ScrollView>(activity).single()
+        // Inspect the Tools page where the long, security-gated action list lives.
+        // Expanding it exercises the layout most likely to overflow at large font sizes.
+        assertTrue(button(activity, "Tools").performClick())
+        idleMain()
+        assertTrue(button(activity, "Show developer controls").performClick())
+        idleMain()
+        val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
         val root = scroll.getChildAt(0) as LinearLayout
         assertTrue("Measured scroll viewport width", scroll.width > 0)
         assertTrue("Measured scroll viewport height", scroll.height > 0)
@@ -201,7 +209,7 @@ class MainActivityConfigurationAndroidTest {
 
         assertApprovalsUnavailable(activity)
         val lastAction = button(activity, "Generate icon code, commit and check build")
-        assertTrue("Last action is the final content child", root.getChildAt(root.childCount - 1) === lastAction)
+        assertTrue("Last action is inside the expanded Tools content", descendants(root).any { it === lastAction })
         scroll.isSmoothScrollingEnabled = false
         assertTrue("ScrollView can reach bottom", scroll.fullScroll(View.FOCUS_DOWN))
         idleMain()
@@ -227,6 +235,13 @@ class MainActivityConfigurationAndroidTest {
         controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         idleMain()
         return controller!!.get()
+    }
+
+    private fun openTools(activity: Activity) {
+        assertTrue(button(activity, "Tools").performClick())
+        idleMain()
+        assertTrue(button(activity, "Show developer controls").performClick())
+        idleMain()
     }
 
     private fun assertApprovalsUnavailable(activity: Activity) {
@@ -280,7 +295,7 @@ class MainActivityConfigurationAndroidTest {
     }
 
     companion object {
-        private const val PROVIDER_KEY = "Selected provider API key (not saved)"
+        private const val PROVIDER_KEY = "Paste your API key here (not a model name)"
         private const val GITHUB_TOKEN = "GitHub fine-grained token (not saved)"
         private const val TASK_ID = "Task ID (letters, digits, hyphens or underscores)"
     }
