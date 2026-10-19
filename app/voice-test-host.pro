@@ -23,3 +23,22 @@
 -keep,allowoptimization class com.assistant.core.FontPreferences { public *; }
 -keep,allowoptimization class com.assistant.core.ThemePreferences { public *; }
 -keep,allowoptimization class com.assistant.core.SettingsMenuViews { public *; }
+# Foundation instrumentation constructs these APIs from the separate test APK.
+# Preserve its entry points while optimizing bodies; release/Beta rules are unchanged.
+-keep,allowoptimization class com.assistant.core.services.HybridAssistantService** { public *; }
+-keep,allowoptimization class com.assistant.core.services.HybridAssistantReply** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ConversationMemory** { public *; }
+-keep,allowoptimization class com.assistant.core.services.SystemService** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AuditService** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.ActionRegistry** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.IntentClassifier** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.PolicyGate** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.CapabilityBroker** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.CapabilityRouting** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.ActionExecutor** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.AssistantEngine** { public *; }
+-keep,allowoptimization class com.assistant.core.models.ActionResult** { public *; }
+-keep,allowoptimization class com.assistant.core.models.CapabilityState** { public *; }
+-keep,allowoptimization class com.assistant.core.storage.Database** { public *; }
+-keep,allowoptimization class com.assistant.core.storage.ActionRepository** { public *; }
+-keep,allowoptimization class com.assistant.core.storage.AuditRepository** { public *; }
