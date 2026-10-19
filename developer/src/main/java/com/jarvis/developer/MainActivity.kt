@@ -403,9 +403,13 @@ class MainActivity : Activity() {
         // Persist the project before contacting an AI provider. A network failure must
         // never discard the user's description or the generated response.
         val projectPrefs = getSharedPreferences("developer_local_projects_v1", MODE_PRIVATE)
-        fun persistProject(id: String, task: String, state: String, response: String = ""): Boolean {
-            val record = org.json.JSONObject().put("id", id).put("description", task)
-                .put("state", state).put("response", response)
+        fun persistProject(id: String, task: String, state: String, response: String? = null): Boolean {
+            val existing = try {
+                org.json.JSONObject(projectPrefs.getString("project_" + id, "{}") ?: "{}")
+            } catch (_: Exception) { org.json.JSONObject() }
+            val record = existing.put("id", id).put("description", task)
+                .put("state", state)
+                .put("response", response ?: existing.optString("response"))
                 .put("updated_at", System.currentTimeMillis()).toString()
             return projectPrefs.edit().putString("project_" + id, record).commit()
         }
@@ -439,12 +443,13 @@ class MainActivity : Activity() {
             thread(name = "DeveloperCodingAssistant") {
                 try {
                     val result = CodingAssistantProvider.ask(providerName, apiKey, modelName, task)
-                    persistProject(projectId, task, "generated", result)
+                    val saved = persistProject(projectId, task, "generated", result)
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
                             output.text = result
                             refreshSavedProjectsAfterChange?.invoke()
-                            status.text = "Project saved; response received from " + providerName
+                            status.text = if (saved) "Project saved; response received from " + providerName
+                                else "AI response received, but could not be saved locally"
                         }
                     }
                 } catch (e: Exception) {
