@@ -128,7 +128,13 @@ class MainActivity : Activity() {
         val outerRing = addReactorLayer(reactorLayer(0.78, Double.POSITIVE_INFINITY), "Counter-rotating outer ring")
         val reactorArc = addReactorLayer(reactorLayer(0.34, 0.78), "Rotating reactor arc")
         addReactorLayer(reactorLayer(0.0, 0.34), "Stationary reactor core")
-        header.addView(reactorFrame, LinearLayout.LayoutParams(dp(72), dp(72)))
+        // The reactor sits outside the bordered title panel, which extends from its edge.
+        // This avoids framing or clipping the animated concentric rings.
+        val headerAssembly = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        headerAssembly.addView(reactorFrame, LinearLayout.LayoutParams(dp(72), dp(72)))
         fun spinReactorLayer(view: View, degrees: Float, durationMs: Long) {
             ObjectAnimator.ofFloat(view, View.ROTATION, 0f, degrees).apply {
                 duration = durationMs
@@ -174,7 +180,10 @@ class MainActivity : Activity() {
             }
         }
         borderPulse.start()
-        root.addView(header)
+        headerAssembly.addView(header, LinearLayout.LayoutParams(0, dp(64), 1f).apply {
+            marginStart = dp(4)
+        })
+        root.addView(headerAssembly)
         val status = TextView(this).apply {
             text = "Your AI development assistant"
             textSize = 13f
