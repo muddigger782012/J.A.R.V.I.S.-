@@ -87,6 +87,10 @@ object CodingAssistantProvider {
             deadline.cancel()
             connection.disconnect()
             throw ProviderFailure("Could not connect to the AI provider. Check network access.")
+        } catch (e: ProviderFailure) {
+            deadline.cancel()
+            connection.disconnect()
+            throw e
         } catch (_: Exception) {
             deadline.cancel()
             connection.disconnect()
