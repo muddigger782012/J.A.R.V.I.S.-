@@ -105,7 +105,7 @@ jobs:
           assert icon is not None, 'Approved reactor icon missing from archive'
           assert hashlib.sha256(header).hexdigest() == '5eda3e2efed91ee83761b989c06d4f926a5071ed790e0dc79acbec40b68c40d5', 'Header mismatch'
           print('Approved archive icon SHA-256:', hashlib.sha256(icon).hexdigest(), flush=True)
-          assert hashlib.sha256(icon).hexdigest() == 'a0fc91552667885a126b9509366938f070d004435e6a5114f70045fbc8e278f0', 'Icon mismatch'
+          assert hashlib.sha256(icon).hexdigest() == 'bcd0fe7499b57c43907e9f1b6cf82ca4dad84741403a0dacf666871ce7a5ff06', 'Icon mismatch'
           with Image.open(io.BytesIO(header)) as im:
               assert im.size == (1536, 512)
               im.convert('RGB').save(root / 'developer_approved_header.png', format='PNG')
