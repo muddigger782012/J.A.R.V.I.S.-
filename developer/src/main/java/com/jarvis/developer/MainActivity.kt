@@ -76,23 +76,16 @@ class MainActivity : Activity() {
             }
             root.addView(this)
         }
-        // Preserve the original reactor art while removing its baked-in black background.
+        // The release asset has already been alpha-matted by transparent_reactor.py.
+        // Do not apply the threshold a second time: that erased fine reactor details.
         val original = BitmapFactory.decodeResource(resources, R.drawable.developer_arc_reactor_art)
-        val reactor = original.copy(Bitmap.Config.ARGB_8888, true)
+        val reactor = original.copy(Bitmap.Config.ARGB_8888, false)
         val pixels = IntArray(reactor.width * reactor.height)
         reactor.getPixels(pixels, 0, reactor.width, 0, 0, reactor.width, reactor.height)
-        for (i in pixels.indices) {
-            val color = pixels[i]
-            val light = maxOf(Color.red(color), Color.green(color), Color.blue(color))
-            val alpha = ((light - 12) * 255 / 45).coerceIn(0, 255)
-            pixels[i] = Color.argb(Color.alpha(color) * alpha / 255,
-                Color.red(color), Color.green(color), Color.blue(color))
-        }
-        reactor.setPixels(pixels, 0, reactor.width, 0, 0, reactor.width, reactor.height)
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setPadding(dp(7), dp(7), dp(7), dp(7))
             background = GradientDrawable().apply {
                 setColor(getColor(R.color.developer_panel))
                 cornerRadius = dp(18).toFloat()
@@ -153,7 +146,7 @@ class MainActivity : Activity() {
             setImageResource(R.drawable.developer_jarvis_wordmark)
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "J.A.R.V.I.S."
-        }, LinearLayout.LayoutParams(0, dp(44), 1f))
+        }, LinearLayout.LayoutParams(0, dp(48), 1f))
         headerWords.addView(TextView(this).apply {
             text = "DEVELOPER"
             textSize = 10f
