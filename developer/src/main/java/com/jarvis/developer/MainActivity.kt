@@ -447,6 +447,57 @@ class MainActivity : Activity() {
             button.setTextColor(0xFF071B25.toInt())
             button.backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_primary))
         }
+        // Reference-style quick actions, backed by existing functional screens.
+        val quickHeading = TextView(this).apply {
+            text = "Quick actions"
+            textSize = 19f
+            setTextColor(getColor(R.color.developer_text))
+            setPadding(0, 22, 0, 12)
+        }
+        root.addView(quickHeading, root.indexOfChild(createProject))
+        fun quickAction(label: String, destination: Int, action: (() -> Unit)? = null): Button =
+            Button(this).apply {
+                text = label
+                textSize = 14f
+                isAllCaps = false
+                setTextColor(getColor(R.color.developer_text))
+                backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    0xFF142F3B.toInt())
+                setOnClickListener {
+                    if (action != null) action() else selectPage?.invoke(destination)
+                }
+            }
+        fun quickRow(first: Button, second: Button): LinearLayout =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(first, LinearLayout.LayoutParams(0, 88, 1f).apply {
+                    marginEnd = 6
+                })
+                addView(second, LinearLayout.LayoutParams(0, 88, 1f).apply {
+                    marginStart = 6
+                })
+            }
+        root.addView(quickRow(
+            quickAction("Create an app", 1),
+            quickAction("My projects", 1)
+        ), root.indexOfChild(createProject))
+        root.addView(quickRow(
+            quickAction("Improve Jarvis", 2) {
+                selectPage?.invoke(2)
+                advancedContent.visibility = View.VISIBLE
+                advancedToggle.text = "Hide developer controls"
+            },
+            quickAction("Build status", 2) {
+                selectPage?.invoke(2)
+                advancedContent.visibility = View.VISIBLE
+                advancedToggle.text = "Hide developer controls"
+                builds.performClick()
+            }
+        ), root.indexOfChild(createProject))
+        // Move status feedback to the assistant screen when the user selects Tools.
+        output.setPadding(8, 16, 8, 16)
+        prompt.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+            getColor(R.color.developer_primary)))
         val pages = listOf(root, projects, advanced, settings).map { page ->
             ScrollView(this).apply {
                 addView(page)
