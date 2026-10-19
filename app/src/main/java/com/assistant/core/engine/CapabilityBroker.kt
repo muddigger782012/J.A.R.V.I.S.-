@@ -8,50 +8,36 @@ import com.assistant.core.models.ActionRequest
 import com.assistant.core.models.ActionResult
 import com.assistant.core.models.CapabilityState
 
-class CapabilityBroker(
-    private val standardAdapter: StandardAdapter,
-    private val shizukuAdapter: ShizukuAdapter,
-    private val dhizukuAdapter: DhizukuAdapter,
-    private val specialAccessAdapter: SpecialAccessAdapter
+class CapabilityBroker internal constructor(
+    private val executeRoute: (CapabilityRouting.Route, ActionRequest, CapabilityState) -> ActionResult
 ) {
+    constructor(
+        standardAdapter: StandardAdapter,
+        shizukuAdapter: ShizukuAdapter,
+        dhizukuAdapter: DhizukuAdapter,
+        specialAccessAdapter: SpecialAccessAdapter
+    ) : this({ route, request, state ->
+        when (route) {
+            CapabilityRouting.Route.STANDARD -> standardAdapter.execute(request, state)
+            CapabilityRouting.Route.SHIZUKU -> shizukuAdapter.execute(request, state)
+            CapabilityRouting.Route.DHIZUKU -> dhizukuAdapter.execute(request, state)
+            CapabilityRouting.Route.SPECIAL_ACCESS -> specialAccessAdapter.execute(request)
+        }
+    })
 
     fun execute(actionRequest: ActionRequest, capabilityState: CapabilityState): ActionResult {
-        return when (actionRequest.requiredCapability.uppercase()) {
-            ActionRegistry.CAP_STANDARD -> standardAdapter.execute(actionRequest, capabilityState)
-            ActionRegistry.CAP_SPECIAL_ACCESS -> {
-                if (capabilityState.specialAccess) {
-                    specialAccessAdapter.execute(actionRequest)
-                } else {
-                    failure(actionRequest, "Special access capability unavailable.")
-                }
-            }
-            ActionRegistry.CAP_SHIZUKU -> {
-                if (capabilityState.shizuku) {
-                    shizukuAdapter.execute(actionRequest, capabilityState)
-                } else {
-                    fallbackOrFail(actionRequest, capabilityState, "Shizuku capability unavailable.")
-                }
-            }
-            ActionRegistry.CAP_DHIZUKU -> {
-                if (capabilityState.dhizuku || capabilityState.deviceOwner) {
-                    dhizukuAdapter.execute(actionRequest, capabilityState)
-                } else {
-                    fallbackOrFail(actionRequest, capabilityState, "Dhizuku capability unavailable.")
-                }
-            }
-            else -> failure(actionRequest, "Unknown capability: ${actionRequest.requiredCapability}")
+        // Keep the same policy boundary even for callers that use ActionExecutor directly.
+        val policy = PolicyGate().evaluate(actionRequest, capabilityState)
+        if (!policy.allowed) {
+            return ActionResult(actionRequest.id, false, "POLICY", policy.reason)
         }
-    }
 
-    private fun fallbackOrFail(
-        actionRequest: ActionRequest,
-        capabilityState: CapabilityState,
-        reason: String
-    ): ActionResult {
-        if (actionRequest.allowFallback) {
-            return standardAdapter.execute(actionRequest, capabilityState)
+        return when (val decision = CapabilityRouting.select(actionRequest, capabilityState)) {
+            // Selection happens before any execution. An adapter failure or exception is
+            // final: ActionResult does not establish whether an action was already applied.
+            is CapabilityRouting.Decision.Execute -> executeRoute(decision.route, actionRequest, capabilityState)
+            is CapabilityRouting.Decision.Unavailable -> failure(actionRequest, decision.reason)
         }
-        return failure(actionRequest, reason)
     }
 
     private fun failure(actionRequest: ActionRequest, message: String): ActionResult {
