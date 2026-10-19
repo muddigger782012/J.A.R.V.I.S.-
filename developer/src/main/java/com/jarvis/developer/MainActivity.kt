@@ -134,7 +134,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        headerAssembly.addView(reactorFrame, LinearLayout.LayoutParams(dp(72), dp(72)))
+        headerAssembly.addView(reactorFrame, LinearLayout.LayoutParams(dp(84), dp(84)))
         fun spinReactorLayer(view: View, degrees: Float, durationMs: Long) {
             ObjectAnimator.ofFloat(view, View.ROTATION, 0f, degrees).apply {
                 duration = durationMs
@@ -153,16 +153,16 @@ class MainActivity : Activity() {
             setImageResource(R.drawable.developer_jarvis_wordmark)
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "J.A.R.V.I.S."
-        }, LinearLayout.LayoutParams(0, dp(32), 1f))
+        }, LinearLayout.LayoutParams(0, dp(44), 1f))
         headerWords.addView(TextView(this).apply {
             text = "DEVELOPER"
-            textSize = 12f
+            textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(getColor(R.color.developer_primary))
             gravity = Gravity.CENTER_VERTICAL
             isSingleLine = true
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32)).apply {
-            marginStart = dp(4)
+            marginStart = dp(8)
         })
         header.addView(headerWords, LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(10) })
@@ -180,7 +180,7 @@ class MainActivity : Activity() {
             }
         }
         borderPulse.start()
-        headerAssembly.addView(header, LinearLayout.LayoutParams(0, dp(64), 1f).apply {
+        headerAssembly.addView(header, LinearLayout.LayoutParams(0, dp(78), 1f).apply {
             marginStart = dp(4)
         })
         root.addView(headerAssembly)
