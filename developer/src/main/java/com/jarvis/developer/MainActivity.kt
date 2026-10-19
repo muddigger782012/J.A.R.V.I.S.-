@@ -77,6 +77,13 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 8, 0, 18)
         }
+        val reactor = ImageView(this).apply {
+            setImageResource(R.drawable.developer_arc_reactor_art)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "Jarvis arc reactor"
+        }
+        header.addView(reactor, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 124))
         val wordmark = ImageView(this).apply {
             setImageResource(R.drawable.developer_jarvis_wordmark)
             scaleType = ImageView.ScaleType.FIT_START
