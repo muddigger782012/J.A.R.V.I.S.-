@@ -128,16 +128,16 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         headerAssembly.addView(reactorFrame, LinearLayout.LayoutParams(dp(84), dp(84)))
-        fun spinReactorLayer(view: View, degrees: Float, durationMs: Long) {
-            ObjectAnimator.ofFloat(view, View.ROTATION, 0f, degrees).apply {
+        fun spinReactorLayer(view: View, degrees: Float, durationMs: Long): ObjectAnimator {
+            return ObjectAnimator.ofFloat(view, View.ROTATION, 0f, degrees).apply {
                 duration = durationMs
                 repeatCount = ValueAnimator.INFINITE
                 interpolator = LinearInterpolator()
                 start()
             }
         }
-        spinReactorLayer(reactorArc, 360f, 12000L)
-        spinReactorLayer(outerRing, -360f, 16000L)
+        val arcAnimator = spinReactorLayer(reactorArc, 360f, 12000L)
+        val outerAnimator = spinReactorLayer(outerRing, -360f, 16000L)
         val headerWords = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -191,8 +191,8 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT))
             // The approved image is a complete composite; stop fallback animations.
             borderPulse.cancel()
-            reactorArc.clearAnimation()
-            outerRing.clearAnimation()
+            arcAnimator.cancel()
+            outerAnimator.cancel()
         } else {
             root.addView(headerAssembly)
         }
