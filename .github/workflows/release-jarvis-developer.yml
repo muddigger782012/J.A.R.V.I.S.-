@@ -106,7 +106,8 @@ jobs:
                       continue
                   data = z.read(entry)
                   if data[:8] != bytes([137,80,78,71,13,10,26,10]) or len(data) < 24:
-                      raise ValueError("Invalid PNG in uploaded artwork")
+                      print("Skipping invalid PNG entry:", entry.filename, "size:", len(data))
+                      continue
                   width, height = struct.unpack(">II", data[16:24])
                   candidates.append((entry.filename, width, height, data))
               header = [c for c in candidates if c[1] >= 2*c[2] and c[1] >= 800]
