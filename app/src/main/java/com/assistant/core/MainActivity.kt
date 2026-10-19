@@ -1538,7 +1538,16 @@ class MainActivity : ThemedActivity() {
                 setPadding(0, 0, 0, dp(6))
             })
             if (searchResults == null) card.addView(TextView(this).apply {
-                text = when { user -> line.removePrefix("You:").trimStart(); assistant -> line.removePrefix("J.A.R.V.I.S.:").trimStart().substringBefore("\nhttps://www.google.com/search?"); else -> line }
+                val rawMessage = when { user -> line.removePrefix("You:").trimStart(); assistant -> line.removePrefix("J.A.R.V.I.S.:").trimStart().substringBefore("\nhttps://www.google.com/search?"); else -> line }
+                if (assistant && rawMessage.length <= 12000) {
+                    val formatted = com.assistant.core.services.SearchReadableText.format(rawMessage)
+                    val styled = android.text.SpannableString(formatted.text)
+                    formatted.emphasis.forEach { emphasis ->
+                        if (emphasis.start >= 0 && emphasis.end <= styled.length && emphasis.start < emphasis.end)
+                            styled.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), emphasis.start, emphasis.end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                    text = styled
+                } else text = rawMessage
                 textSize = if (user || assistant) 16f else 12f
                 setTextColor(ThemePreferences.color(this@MainActivity, if (user || assistant) R.color.jarvis_on_dark else R.color.jarvis_on_dark_muted))
                 setLineSpacing(dp(4).toFloat(), 1f)
