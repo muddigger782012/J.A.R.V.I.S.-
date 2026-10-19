@@ -115,6 +115,8 @@ jobs:
               im.verify()
           (root / 'developer_arc_reactor_icon.png').write_bytes(icon)
           print('Verified approved artwork installed; JPEG-encoded header converted to PNG')
+          (root / 'jarvis_approved_artwork.zip').unlink()
+          print('Removed ZIP from drawable resources before Android resource merger')
           PY
           git add developer/src/main/res/drawable-nodpi/developer_approved_header.png developer/src/main/res/drawable-nodpi/developer_arc_reactor_icon.png
           if ! git diff --cached --quiet; then
