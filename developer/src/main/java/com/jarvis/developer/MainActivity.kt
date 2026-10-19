@@ -286,8 +286,15 @@ class MainActivity : Activity() {
             val apiKey = key.text.toString().trim()
             val modelName = model.text.toString().trim()
             val task = prompt.text.toString().trim()
-            if (apiKey.isEmpty() || task.isEmpty()) {
-                status.text = "Enter an API key and task."
+            if (task.isEmpty()) {
+                status.text = "Describe the change you want to make first."
+                prompt.requestFocus()
+                return@setOnClickListener
+            }
+            if (apiKey.isEmpty()) {
+                status.text = "Add your AI provider credentials in Settings before continuing."
+                selectPage?.invoke(3)
+                key.requestFocus()
                 return@setOnClickListener
             }
             val requestInputs = listOf(send, provider, key, model, prompt)
