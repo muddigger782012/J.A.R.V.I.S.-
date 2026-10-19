@@ -99,6 +99,7 @@ class MainActivityConfigurationAndroidTest {
             TASK_ID to "fixture-bundle-review",
             "Enter exact eligible review SHA-256" to "b".repeat(64)
         )
+        openTools(original)
         draftFields.forEach { (hint, value) -> field(original, hint).setText(value) }
         idleMain()
         assertApprovalsUnavailable(original)
@@ -132,6 +133,7 @@ class MainActivityConfigurationAndroidTest {
         idleMain()
         val restored = replacement.get()
 
+        openTools(restored)
         assertNotSame(original, restored)
         assertNotSame(state, restoredState)
         assertSame("Framework simulation retains the Application", original.application, restored.application)
@@ -233,6 +235,13 @@ class MainActivityConfigurationAndroidTest {
         controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         idleMain()
         return controller!!.get()
+    }
+
+    private fun openTools(activity: Activity) {
+        assertTrue(button(activity, "Tools").performClick())
+        idleMain()
+        assertTrue(button(activity, "Show developer controls").performClick())
+        idleMain()
     }
 
     private fun assertApprovalsUnavailable(activity: Activity) {
