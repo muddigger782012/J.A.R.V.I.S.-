@@ -90,6 +90,7 @@ jobs:
       - name: Install uploaded approved artwork from ZIP
         if: steps.recovery.outputs.sha == ''
         run: |
+          python3 -m pip install --quiet Pillow
           python3 - <<'PY'
           from pathlib import Path
           from zipfile import ZipFile
