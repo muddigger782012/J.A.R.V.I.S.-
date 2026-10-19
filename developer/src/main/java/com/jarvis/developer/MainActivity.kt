@@ -11,6 +11,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.ImageView
 import android.view.View
 import kotlin.concurrent.thread
 
@@ -63,7 +64,25 @@ class MainActivity : Activity() {
             textSize = 24f
             setTextColor(0xFFFFFFFF.toInt())
         }
-        root.addView(title)
+        // Reuse the original Jarvis header's vector lettering, not a substitute font.
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 8, 0, 18)
+        }
+        val wordmark = ImageView(this).apply {
+            setImageResource(R.drawable.developer_jarvis_wordmark)
+            scaleType = ImageView.ScaleType.FIT_START
+            contentDescription = "J.A.R.V.I.S."
+            adjustViewBounds = true
+        }
+        header.addView(wordmark, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 52))
+        title.text = "DEVELOPER"
+        title.textSize = 18f
+        title.letterSpacing = 0.22f
+        title.setTextColor(0xFF7EE8F7.toInt())
+        header.addView(title)
+        root.addView(header)
         val status = TextView(this).apply {
             text = "Describe your idea, review changes, and build with confidence."
             setTextColor(0xFFB8C7D3.toInt())
