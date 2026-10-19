@@ -398,40 +398,57 @@ class MainActivity : Activity() {
             }
         }
 
+        // Persist the project before contacting an AI provider. A network failure must
+        // never discard the user's description or the generated response.
+        val projectPrefs = getSharedPreferences("developer_local_projects_v1", MODE_PRIVATE)
+        fun persistProject(id: String, task: String, state: String, response: String = ""): Boolean {
+            val record = org.json.JSONObject().put("id", id).put("description", task)
+                .put("state", state).put("response", response)
+                .put("updated_at", System.currentTimeMillis()).toString()
+            return projectPrefs.edit().putString("project_$" + id, record).commit()
+        }
         send.setOnClickListener {
-            // Capture all widget state on the UI thread; a pending request owns this selection.
             val providerName = provider.selectedItem.toString()
             val apiKey = key.text.toString().trim()
             val modelName = model.text.toString().trim()
             val task = prompt.text.toString().trim()
             if (task.isEmpty()) {
-                status.text = "Describe the change you want to make first."
+                status.text = "Describe the project you want to create first."
                 prompt.requestFocus()
                 return@setOnClickListener
             }
+            val projectId = java.util.UUID.randomUUID().toString()
+            if (!persistProject(projectId, task, "saved")) {
+                status.text = "Project could not be saved on this device."
+                return@setOnClickListener
+            }
             if (apiKey.isEmpty()) {
-                status.text = "Save your AI provider credentials in Settings before continuing."
-                selectPage?.invoke(3)
-                key.requestFocus()
+                status.text = "Project saved locally. Connect an AI provider in Settings to generate code."
+                output.text = "Project saved. Your description is safe on this device; AI generation has not started."
                 return@setOnClickListener
             }
             val requestInputs = listOf(send, provider, key, model, prompt)
             requestInputs.forEach { it.isEnabled = false }
-            status.text = "Connecting to $providerName..."
+            status.text = "Project saved. Connecting to $"+ "{providerName}..."
             thread(name = "DeveloperCodingAssistant") {
                 try {
                     val result = CodingAssistantProvider.ask(providerName, apiKey, modelName, task)
+                    persistProject(projectId, task, "generated", result)
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
                             output.text = result
-                            status.text = "Response received from $providerName"
+                            status.text = "Project saved; response received from $"+ "{providerName}"
                         }
                     }
                 } catch (e: Exception) {
+                    persistProject(projectId, task, "generation_failed")
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
-                            status.text = "Coding assistant request failed"
-                            output.text = if (e is CodingAssistantProvider.ProviderFailure) e.message ?: "AI connection failed." else "Check the selected provider, API key and model."
+                            status.text = "Project saved; AI generation failed"
+                            output.text = (if (e is CodingAssistantProvider.ProviderFailure)
+                                e.message ?: "AI connection failed." else
+                                "Check the selected provider, API key and model.") +
+                                "\\nYour project description remains saved on this device."
                         }
                     }
                 } finally {
