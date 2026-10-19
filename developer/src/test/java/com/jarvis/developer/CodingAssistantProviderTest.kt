@@ -133,7 +133,18 @@ class CodingAssistantProviderTest {
                     override fun read(): Int { read = true; error("reflected-error-body $key") }
                 } }
             }
-            fails(fake)
+            if (status in 400..599) {
+                try {
+                    CodingAssistantProvider.Client(fake).ask("OpenAI", key, "", task)
+                    fail("Expected HTTP provider failure")
+                } catch (failure: CodingAssistantProvider.ProviderFailure) {
+                    assertTrue(failure.message.orEmpty().contains("HTTP $status"))
+                    assertFalse(failure.toString().contains(key))
+                    assertNull(failure.cause)
+                }
+            } else {
+                fails(fake)
+            }
             assertFalse(read)
             assertEquals(1, fake.requests.size)
             assertEquals(1, fake.closed)
