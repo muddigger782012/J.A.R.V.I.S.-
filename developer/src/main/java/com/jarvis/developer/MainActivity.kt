@@ -176,7 +176,26 @@ class MainActivity : Activity() {
         headerAssembly.addView(header, LinearLayout.LayoutParams(0, dp(78), 1f).apply {
             marginStart = dp(4)
         })
-        root.addView(headerAssembly)
+        // Prefer the exact, approved bitmap whenever its resource has been installed.
+        // Do not draw a second wordmark, frame, or reactor on top of the approved art.
+        val approvedHeaderId = resources.getIdentifier(
+            "developer_approved_header", "drawable", packageName)
+        if (approvedHeaderId != 0) {
+            root.addView(ImageView(this).apply {
+                setImageResource(approvedHeaderId)
+                adjustViewBounds = true
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                contentDescription = "Approved J.A.R.V.I.S. Developer header"
+            }, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT))
+            // The approved image is a complete composite; stop fallback animations.
+            borderPulse.cancel()
+            reactorArc.clearAnimation()
+            outerRing.clearAnimation()
+        } else {
+            root.addView(headerAssembly)
+        }
         val status = TextView(this).apply {
             text = "Your AI development assistant"
             textSize = 13f
