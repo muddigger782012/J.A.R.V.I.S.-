@@ -95,7 +95,7 @@ class MainActivityConfigurationAndroidTest {
         val draftFields = mapOf(
             PROVIDER_KEY to fakeProvider,
             GITHUB_TOKEN to fakeGithub,
-            "Describe the code or change you need" to "Fixture draft only; no provider request",
+            "Example: Build me an app to track equipment maintenance." to "Fixture draft only; no provider request",
             TASK_ID to "fixture-bundle-review",
             "Enter exact eligible review SHA-256" to "b".repeat(64)
         )
@@ -295,7 +295,7 @@ class MainActivityConfigurationAndroidTest {
     }
 
     companion object {
-        private const val PROVIDER_KEY = "Selected provider API key (not saved)"
+        private const val PROVIDER_KEY = "Paste your API key here (not a model name)"
         private const val GITHUB_TOKEN = "GitHub fine-grained token (not saved)"
         private const val TASK_ID = "Task ID (letters, digits, hyphens or underscores)"
     }
