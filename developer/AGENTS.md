@@ -30,3 +30,7 @@ Phase 2: can make and review a scoped multi-file change on an isolated branch, v
 
 ## Planning estimates
 Relative to completion of recovery verification: phase 1 3–5 days (week 1); phase 2 5–10 days (weeks 2–3); phase 3 1–2 weeks (weeks 3–5); phase 4 2–3 weeks (weeks 5–8); phase 5 3–5 weeks (weeks 8–13); phase 6 6–12 weeks (weeks 14–25). These are planning ranges, not commitments. Update estimates when actual test results warrant.
+
+## Owner continuation directive — 2026-10-18
+
+Follow [GitHub issue #128](https://github.com/muddigger782012/J.A.R.V.I.S.-/issues/128): continue Phases 5 and 6 without blocking coding, CI, test APKs, or separate preview artifacts on the missing `developer-previous` backup. Retain the implemented backup/recovery logic and all fail-closed production release/promotion/installation gates for later remediation. Do not weaken signature, update, rollback, or approval protections. Deliver a complete isolated Developer build and independent evidence; do not mark incomplete features or device tests as complete. The owner wants forward development now, not a recovery-only workstream.

@@ -19,6 +19,8 @@ import kotlin.concurrent.thread
  * This is API communication, NOT a connection to a ChatGPT conversation or Codex session.
  */
 class MainActivity : Activity() {
+    private var applicationWorkbench: ApplicationApprovalWorkbench.Handle? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val health = getSharedPreferences("developer_health", MODE_PRIVATE)
@@ -199,6 +201,7 @@ class MainActivity : Activity() {
         TaskPlanningWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         RepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         SelfDevelopmentWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        applicationWorkbench = ApplicationApprovalWorkbench.attach(this, root)
         root.addView(iconTest)
         if (recoveryWarning) {
             iconTest.isEnabled = false
@@ -286,5 +289,16 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this)
         scroll.addView(root)
         setContentView(scroll)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (applicationWorkbench?.onActivityResult(requestCode, resultCode, data) == true) return
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    override fun onDestroy() {
+        applicationWorkbench?.dispose()
+        applicationWorkbench = null
+        super.onDestroy()
     }
 }

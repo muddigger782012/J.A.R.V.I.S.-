@@ -16,6 +16,9 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Check repository theme contract
         run: python3 scripts/check_ui_theme.py
       - name: Test candidate, recovery and native-validation policy
@@ -23,6 +26,7 @@ jobs:
           python3 -m unittest discover -s developer/tools -p 'candidate_*_test.py' -v
           python3 -m unittest discover -s developer/tools -p 'developer_backup_test.py' -v
           python3 -m unittest discover -s developer/tools -p 'device_validation_test.py' -v
+          python3 -m unittest discover -s developer/tools -p 'scaffold_build_evidence_test.py' -v
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -193,3 +197,145 @@ jobs:
           name: Jarvis-Developer-device-test-build-evidence
           path: developer/build/reports/device-validation/compiled-apks.json
           if-no-files-found: error
+      - name: Verify immutable approved Phase 6 scaffold sources
+        run: |
+          for platform in android backend windows; do
+            python3 developer/tools/scaffold_build_evidence.py verify --root developer/build/reports/phase6-acceptance --platform "$platform"
+          done
+      - name: Upload separate Phase 6 scaffold source previews
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-phase6-scaffold-sources
+          path: |
+            developer/build/reports/phase6-acceptance/evidence.json
+            developer/build/reports/phase6-acceptance/android.zip
+            developer/build/reports/phase6-acceptance/backend.zip
+            developer/build/reports/phase6-acceptance/windows.zip
+            developer/build/reports/phase6-acceptance/android/
+            developer/build/reports/phase6-acceptance/backend/
+            developer/build/reports/phase6-acceptance/windows/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  phase6-android-preview:
+    needs: developer-debug
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: Jarvis-Developer-phase6-scaffold-sources
+          path: developer/build/reports/phase6-acceptance/
+      - name: Verify exact-source Android scaffold before building
+        run: python3 developer/tools/scaffold_build_evidence.py verify --root developer/build/reports/phase6-acceptance --platform android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Test and build independent Android debug preview without installing
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon -p developer/build/reports/phase6-acceptance/android :app:testDebugUnitTest :app:assembleDebug
+      - name: Record actual Android test and APK identity evidence
+        run: python3 developer/tools/scaffold_build_evidence.py record --root developer/build/reports/phase6-acceptance --platform android
+      - name: Retain independent Android preview and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-phase6-Android-preview
+          path: |
+            developer/build/reports/phase6-acceptance/android/app/build/outputs/apk/debug/*.apk
+            developer/build/reports/phase6-acceptance/android/app/build/test-results/testDebugUnitTest/
+            developer/build/reports/phase6-acceptance/android-build-evidence.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  phase6-backend-preview:
+    needs: developer-debug
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: Jarvis-Developer-phase6-scaffold-sources
+          path: developer/build/reports/phase6-acceptance/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify exact-source backend scaffold before running tests
+        run: python3 developer/tools/scaffold_build_evidence.py verify --root developer/build/reports/phase6-acceptance --platform backend
+      - name: Run generated backend contracts against ephemeral loopback service
+        shell: bash
+        run: |
+          python3 -m unittest discover -s developer/build/reports/phase6-acceptance/backend -v 2>&1 | tee developer/build/reports/phase6-acceptance/backend-tests.log
+      - name: Record actual backend test evidence
+        run: python3 developer/tools/scaffold_build_evidence.py record --root developer/build/reports/phase6-acceptance --platform backend
+      - name: Retain independent backend preview and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-phase6-backend-preview
+          path: |
+            developer/build/reports/phase6-acceptance/backend.zip
+            developer/build/reports/phase6-acceptance/backend-tests.log
+            developer/build/reports/phase6-acceptance/backend-build-evidence.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  phase6-windows-preview:
+    needs: developer-debug
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: Jarvis-Developer-phase6-scaffold-sources
+          path: developer/build/reports/phase6-acceptance/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Verify exact-source Windows scaffold before building
+        run: python developer/tools/scaffold_build_evidence.py verify --root developer/build/reports/phase6-acceptance --platform windows
+      - name: Build Windows preview and run actual STA WinForms smoke checks
+        shell: pwsh
+        run: |
+          dotnet build developer/build/reports/phase6-acceptance/windows/app/StarterApp.csproj --configuration Release --nologo
+          if ($LASTEXITCODE -ne 0) { throw 'Windows preview compilation failed' }
+          dotnet run --project developer/build/reports/phase6-acceptance/windows/smoke/StarterSmoke.csproj --configuration Release 2>&1 | Tee-Object -FilePath developer/build/reports/phase6-acceptance/windows-smoke.log
+          if ($LASTEXITCODE -ne 0) { throw 'Windows STA smoke checks failed' }
+      - name: Record actual Windows compilation and smoke evidence
+        run: python developer/tools/scaffold_build_evidence.py record --root developer/build/reports/phase6-acceptance --platform windows
+      - name: Retain independent Windows preview and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-phase6-Windows-preview
+          path: |
+            developer/build/reports/phase6-acceptance/windows/app/bin/Release/net8.0-windows/
+            developer/build/reports/phase6-acceptance/windows-smoke.log
+            developer/build/reports/phase6-acceptance/windows-build-evidence.json
+          if-no-files-found: warn
+          retention-days: 14
