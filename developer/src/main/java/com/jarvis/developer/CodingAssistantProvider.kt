@@ -149,15 +149,19 @@ object CodingAssistantProvider {
 
     fun ask(provider: String, key: String, model: String, task: String): String = Client(http).ask(provider, key, model, task)
 
+    /** Small bounded request for checking credentials/model access without a full coding response. */
+    fun testConnection(provider: String, key: String, model: String): String =
+        Client(http).ask(provider, key, model, "Reply with the single word connected.", 64)
+
     /** One text request, no retries. Injectable dependencies are instance-local and internal to tests. */
     internal class Client(
         private val transport: PostTransport,
         private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 }
     ) {
-        fun ask(provider: String, key: String, model: String, task: String): String {
+        fun ask(provider: String, key: String, model: String, task: String, maxOutputTokens: Int = 8192): String {
             try {
                 val started = nowMillis()
-                val outbound = outbound(provider, key, model, task)
+                val outbound = outbound(provider, key, model, task, maxOutputTokens)
                 checkBudget(started)
                 val responseText = transport.post(outbound).use { response ->
                     requireProviderUrl(response.finalUrl)
@@ -205,11 +209,13 @@ object CodingAssistantProvider {
         }
 
         private fun checkBudget(started: Long) {
-            require(nowMillis() - started in 0 until MAX_SESSION_MILLIS)
+            if (nowMillis() - started !in 0 until MAX_SESSION_MILLIS)
+                throw ProviderFailure("AI request exceeded the 90-second session limit. Try a smaller task or faster model.")
         }
     }
 
-    private fun outbound(provider: String, key: String, model: String, task: String): PostRequest {
+    private fun outbound(provider: String, key: String, model: String, task: String, maxOutputTokens: Int): PostRequest {
+        require(maxOutputTokens in 1..8192)
         require(keyPattern.matches(key))
         require(task.isNotBlank() && task.length <= MAX_REQUEST_BYTES && !task.contains(key))
         val instruction = "You are Jarvis Developer, a software engineering assistant. " +
@@ -226,7 +232,7 @@ object CodingAssistantProvider {
                 require(modelName.matches(selectedModel))
                 url = OPENAI_URL
                 headers = mapOf("Authorization" to "Bearer $key")
-                body = JSONObject().put("model", selectedModel).put("store", false).put("max_output_tokens", 8192)
+                body = JSONObject().put("model", selectedModel).put("store", false).put("max_output_tokens", maxOutputTokens)
                     .put("instructions", instruction).put("input", task)
             }
             "Gemini" -> {
@@ -236,7 +242,7 @@ object CodingAssistantProvider {
                 body = JSONObject().put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", instruction))))
                     .put("contents", JSONArray().put(JSONObject().put("role", "user")
                         .put("parts", JSONArray().put(JSONObject().put("text", task)))))
-                    .put("generationConfig", JSONObject().put("candidateCount", 1).put("maxOutputTokens", 8192))
+                    .put("generationConfig", JSONObject().put("candidateCount", 1).put("maxOutputTokens", maxOutputTokens))
             }
             else -> error("Unsupported provider")
         }
