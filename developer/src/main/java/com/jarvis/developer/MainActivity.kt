@@ -160,6 +160,19 @@ class MainActivity : Activity() {
         })
         header.addView(headerWords, LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(10) })
+        // A restrained breathing glow follows the panel's cyan stroke.
+        // Keep the glow on the background drawable: no image scaling or text movement.
+        val borderDrawable = header.background as GradientDrawable
+        val borderPulse = ValueAnimator.ofInt(0xFF265361.toInt(), 0xFF5AF4FF.toInt(), 0xFF265361.toInt()).apply {
+            duration = 2800L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = LinearInterpolator()
+            addUpdateListener { animator ->
+                borderDrawable.setStroke(dp(1), animator.animatedValue as Int)
+                header.invalidate()
+            }
+        }
+        borderPulse.start()
         root.addView(header)
         val status = TextView(this).apply {
             text = "Your AI development assistant"
