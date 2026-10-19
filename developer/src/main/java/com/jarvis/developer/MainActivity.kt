@@ -534,16 +534,21 @@ class MainActivity : Activity() {
             discoverModels.isEnabled = false
             credentialStatus.text = "Checking Gemini models available to this key..."
             thread(name = "GeminiModelDiscovery") {
+                var safeFailure: String? = null
                 val result = try {
                     CodingAssistantProvider.availableGeminiModels(apiKey)
+                } catch (e: CodingAssistantProvider.ProviderFailure) {
+                    safeFailure = e.message ?: "Model discovery failed."
+                    emptyList()
                 } catch (_: Exception) {
+                    safeFailure = "Model discovery failed due to a network or response error."
                     emptyList()
                 }
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
                         discoverModels.isEnabled = true
                         if (result.isEmpty()) {
-                            credentialStatus.text = "No compatible models returned. Check API key and access."
+                            credentialStatus.text = safeFailure ?: "No compatible models returned for this API key."
                         } else {
                             credentialStatus.text = "${result.size} compatible Gemini models found. Choose one."
                             android.app.AlertDialog.Builder(this@MainActivity)
