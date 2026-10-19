@@ -75,6 +75,18 @@ object CodingAssistantProvider {
                 deadline.cancel()
                 connection.disconnect()
             }
+        } catch (e: java.net.SocketTimeoutException) {
+            deadline.cancel()
+            connection.disconnect()
+            throw ProviderFailure("AI connection timed out. Check network access and retry.")
+        } catch (e: java.net.UnknownHostException) {
+            deadline.cancel()
+            connection.disconnect()
+            throw ProviderFailure("AI provider hostname could not be resolved. Check internet or DNS.")
+        } catch (e: java.net.ConnectException) {
+            deadline.cancel()
+            connection.disconnect()
+            throw ProviderFailure("Could not connect to the AI provider. Check network access.")
         } catch (_: Exception) {
             deadline.cancel()
             connection.disconnect()
