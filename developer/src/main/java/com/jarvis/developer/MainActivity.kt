@@ -410,6 +410,7 @@ class MainActivity : Activity() {
             return projectPrefs.edit().putString("project_" + id, record).commit()
         }
         var activeProjectId: String? = null
+        var refreshSavedProjectsAfterChange: (() -> Unit)? = null
         send.setOnClickListener {
             val providerName = provider.selectedItem.toString()
             val apiKey = key.text.toString().trim()
@@ -426,6 +427,7 @@ class MainActivity : Activity() {
                 status.text = "Project could not be saved on this device."
                 return@setOnClickListener
             }
+            refreshSavedProjectsAfterChange?.invoke()
             if (apiKey.isEmpty()) {
                 status.text = "Project saved locally. Connect an AI provider in Settings to generate code."
                 output.text = "Project saved. Your description is safe on this device; AI generation has not started."
@@ -441,6 +443,7 @@ class MainActivity : Activity() {
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
                             output.text = result
+                            refreshSavedProjectsAfterChange?.invoke()
                             status.text = "Project saved; response received from " + providerName
                         }
                     }
@@ -448,6 +451,7 @@ class MainActivity : Activity() {
                     persistProject(projectId, task, "generation_failed")
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
+                            refreshSavedProjectsAfterChange?.invoke()
                             status.text = "Project saved; AI generation failed"
                             output.text = (if (e is CodingAssistantProvider.ProviderFailure)
                                 e.message ?: "AI connection failed." else
@@ -521,6 +525,7 @@ class MainActivity : Activity() {
                 })
             }
         }
+        refreshSavedProjectsAfterChange = ::refreshSavedProjects
         refreshProjects.setOnClickListener { refreshSavedProjects() }
         projects.addView(refreshProjects)
         projects.addView(savedProjects)
@@ -889,7 +894,13 @@ class MainActivity : Activity() {
                 })
             }
         root.addView(quickRow(
-            quickAction("▣  Create an app", 1),
+            quickAction("▣  Create an app", 1) {
+                activeProjectId = null
+                prompt.text.clear()
+                output.text = ""
+                status.text = "Describe your new project."
+                selectPage?.invoke(1)
+            },
             quickAction("▱  My projects", 1)
         ))
         root.addView(quickRow(
