@@ -43,7 +43,7 @@ class RepositoryAcceptanceTest {
     )
 
     @Test fun aiConnectivityDiagnosisFindsDiagnosticAndProviderLayers() = verify(
-        task = "Diagnose AI connectivity: explain why provider connection tests fail while preserving saved credentials and avoiding learning from diagnostic prompts.",
+        task = "Diagnose AI connectivity in IntelligenceActivity and IntelligenceOverview: explain why provider connection tests fail while preserving saved credentials and avoiding learning from diagnostic prompts.",
         requiredFiles = setOf("${core}IntelligenceActivity.kt", "${core}services/IntelligenceOverview.kt"),
         dependencyTargets = setOf("${core}services/DirectOnlineClient.kt", "${core}services/FallbackAiClient.kt"),
         declarationNames = setOf("testConnection", "IntelligenceOverview", "IntelligenceActivity")
