@@ -152,7 +152,7 @@ class MainActivity : Activity() {
             contentDescription = "Open Settings to enter your AI provider credentials"
         }
         root.addView(setupButton)
-        val key = field("Selected provider API key (encrypted on device)").apply {
+        val key = field("Paste your API key here (not a model name)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         val provider = android.widget.Spinner(this).apply {
@@ -437,6 +437,7 @@ class MainActivity : Activity() {
             textSize = 22f
             setTextColor(getColor(R.color.developer_primary))
         })
+        settings.addView(TextView(this).apply { text = "API key — not a model name"; textSize = 16f; setTextColor(getColor(R.color.developer_primary)) })
         listOf(key, provider, model).forEach { widget ->
             (widget.parent as? android.view.ViewGroup)?.removeView(widget)
             settings.addView(widget)
@@ -461,8 +462,8 @@ class MainActivity : Activity() {
         settings.addView(testConnection)
         testConnection.setOnClickListener {
             val selectedKey = key.text.toString().trim()
-            if (selectedKey.isBlank()) {
-                credentialStatus.text = "Enter an API key before testing."
+            if (selectedKey.isBlank() || selectedKey.startsWith("gemini-") || selectedKey.startsWith("gpt-")) {
+                credentialStatus.text = "Enter an actual API key, not a model name."
                 return@setOnClickListener
             }
             val selectedProvider = provider.selectedItem.toString()
@@ -493,7 +494,7 @@ class MainActivity : Activity() {
         saveConnection.setOnClickListener {
             val selectedKey = key.text.toString().trim()
             if (selectedKey.isBlank()) {
-                credentialStatus.text = "Enter your provider API key before saving."
+                credentialStatus.text = "Enter an actual API key, not a model name."
             } else {
                 try {
                     ProviderCredentialStore.save(this, provider.selectedItem.toString(),
@@ -558,11 +559,13 @@ class MainActivity : Activity() {
                     "Suggested use: ${choices[match].substringAfter(" — ", "automatic selection")}."
             updatingModelPicker = false
         }
+        var firstModelSelection = true
         modelPicker.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?,
                 position: Int, id: Long) {
                 if (updatingModelPicker) return
+                if (firstModelSelection) { firstModelSelection = false; refreshModelPicker(); return }
                 val gemini = provider.selectedItem.toString() == "Gemini"
                 val ids = if (gemini)
                     listOf("", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite")
