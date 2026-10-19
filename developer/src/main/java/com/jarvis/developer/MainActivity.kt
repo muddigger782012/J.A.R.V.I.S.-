@@ -15,6 +15,9 @@ import android.widget.ImageView
 import android.view.View
 import android.graphics.drawable.GradientDrawable
 import android.graphics.Typeface
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Color
 import kotlin.concurrent.thread
 
 /**
@@ -53,9 +56,10 @@ class MainActivity : Activity() {
             .putInt("last_launch_version", currentCode)
             .putLong("last_launch_ms", now)
             .putInt("quick_restarts", restarts).apply()
+        fun dp(n: Int) = (n * resources.displayMetrics.density + 0.5f).toInt()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(28, 28, 28, 28)
+            setPadding(dp(16), dp(16), dp(16), dp(24))
             setBackgroundColor(getColor(R.color.developer_background))
         }
         fun field(hint: String, multiline: Boolean = false) = EditText(this).apply {
@@ -69,39 +73,58 @@ class MainActivity : Activity() {
             }
             root.addView(this)
         }
-        // Original reactor artwork and original vector lettering share one compact header row.
+        // Preserve the original reactor art while removing its baked-in black background.
+        val original = BitmapFactory.decodeResource(resources, R.drawable.developer_arc_reactor_art)
+        val reactor = original.copy(Bitmap.Config.ARGB_8888, true)
+        val pixels = IntArray(reactor.width * reactor.height)
+        reactor.getPixels(pixels, 0, reactor.width, 0, 0, reactor.width, reactor.height)
+        for (i in pixels.indices) {
+            val color = pixels[i]
+            val light = maxOf(Color.red(color), Color.green(color), Color.blue(color))
+            val alpha = ((light - 12) * 255 / 45).coerceIn(0, 255)
+            pixels[i] = Color.argb(Color.alpha(color) * alpha / 255,
+                Color.red(color), Color.green(color), Color.blue(color))
+        }
+        reactor.setPixels(pixels, 0, reactor.width, 0, 0, reactor.width, reactor.height)
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(12, 16, 12, 16)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
             background = GradientDrawable().apply {
                 setColor(getColor(R.color.developer_panel))
-                cornerRadius = 24f
-                setStroke(1, 0xFF265361.toInt())
+                cornerRadius = dp(18).toFloat()
+                setStroke(dp(1), 0xFF265361.toInt())
             }
         }
         header.addView(ImageView(this).apply {
-            setImageResource(R.drawable.developer_arc_reactor_art)
+            setImageBitmap(reactor)
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "Jarvis arc reactor"
-        }, LinearLayout.LayoutParams(64, 64))
-        header.addView(ImageView(this).apply {
+        }, LinearLayout.LayoutParams(dp(72), dp(72)))
+        val headerWords = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        headerWords.addView(ImageView(this).apply {
             setImageResource(R.drawable.developer_jarvis_wordmark)
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "J.A.R.V.I.S."
-        }, LinearLayout.LayoutParams(0, 56, 1f).apply { marginStart = 8 })
-        header.addView(TextView(this).apply {
+        }, LinearLayout.LayoutParams(0, dp(32), 1f))
+        headerWords.addView(TextView(this).apply {
             text = "DEVELOPER"
-            textSize = 15f
-            letterSpacing = 0.03f
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
             setTextColor(getColor(R.color.developer_primary))
             gravity = Gravity.CENTER_VERTICAL
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, 56).apply {
-            marginStart = 6
+            isSingleLine = true
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32)).apply {
+            marginStart = dp(4)
         })
+        header.addView(headerWords, LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(10) })
         root.addView(header)
         val status = TextView(this).apply {
-            text = "Your AI development assistant"
+            text = "Your AI development assistant"\n            textSize = 13f\n            setPadding(dp(4), dp(8), 0, dp(6))
             setTextColor(getColor(R.color.developer_secondary))
         }
         root.addView(status)
@@ -131,15 +154,15 @@ class MainActivity : Activity() {
             textSize = 22f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(getColor(R.color.developer_text))
-            setPadding(0, 24, 0, 6)
+            setPadding(0, dp(24), 0, dp(6))
         })
         root.addView(TextView(this).apply {
             text = "Describe an app, a feature, or a problem to fix in your own words."
             textSize = 14f
             setTextColor(getColor(R.color.developer_secondary))
-            setPadding(0, 0, 0, 12)
+            setPadding(0, 0, 0, dp(12))
         })
-        val prompt = field("Describe your idea in everyday language…", true)
+        val prompt = field("Example: Build me an app to track equipment maintenance.", true)
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             prompt.setText(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
         }
@@ -494,7 +517,7 @@ class MainActivity : Activity() {
             text = "Quick actions"
             textSize = 19f
             setTextColor(getColor(R.color.developer_text))
-            setPadding(0, 22, 0, 12)
+            setPadding(0, dp(20), 0, dp(12))
         }
         root.addView(quickHeading)
         fun quickAction(label: String, destination: Int, action: (() -> Unit)? = null): Button =
@@ -503,12 +526,12 @@ class MainActivity : Activity() {
                 textSize = 14f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER_VERTICAL or Gravity.START
-                setPadding(24, 8, 12, 8)
+                setPadding(dp(14), dp(12), dp(8), dp(12))
                 isAllCaps = false
                 setTextColor(getColor(R.color.developer_text))
                 background = GradientDrawable().apply {
                     setColor(0xFF142F3B.toInt())
-                    cornerRadius = 22f
+                    cornerRadius = dp(16).toFloat()
                     setStroke(2, 0xFF285563.toInt())
                 }
                 setOnClickListener {
@@ -518,12 +541,12 @@ class MainActivity : Activity() {
         fun quickRow(first: Button, second: Button): LinearLayout =
             LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 0, 0, 12)
-                addView(first, LinearLayout.LayoutParams(0, 100, 1f).apply {
-                    marginEnd = 6
+                setPadding(0, 0, 0, dp(10))
+                addView(first, LinearLayout.LayoutParams(0, dp(92), 1f).apply {
+                    marginEnd = dp(5)
                 })
-                addView(second, LinearLayout.LayoutParams(0, 100, 1f).apply {
-                    marginStart = 6
+                addView(second, LinearLayout.LayoutParams(0, dp(92), 1f).apply {
+                    marginStart = dp(5)
                 })
             }
         root.addView(quickRow(
@@ -544,9 +567,12 @@ class MainActivity : Activity() {
             }
         ))
         // Move status feedback to the assistant screen when the user selects Tools.
-        output.setPadding(8, 16, 8, 16)
-        prompt.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-            getColor(R.color.developer_primary)))
+        output.setPadding(dp(4), dp(12), dp(4), dp(12))
+        prompt.apply {
+            minLines = 4
+            setPadding(dp(16), dp(16), dp(16), dp(12))
+            background = roundedSurface(0xFF142F3B.toInt())
+        }
         val pages = listOf(root, projects, advanced, settings).map { page ->
             ScrollView(this).apply {
                 addView(page)
