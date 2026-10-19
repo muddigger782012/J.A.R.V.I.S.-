@@ -22,7 +22,7 @@ import kotlin.concurrent.thread
 
 /**
  * Independent Gemini/OpenAI coding client.
- * API key is kept only in memory and is never embedded in the APK or persisted.
+ * Provider API key is encrypted using Android Keystore; it is never embedded in the APK.
  * This is API communication, NOT a connection to a ChatGPT conversation or Codex session.
  */
 class MainActivity : Activity() {
@@ -142,7 +142,7 @@ class MainActivity : Activity() {
             contentDescription = "Open Settings to enter your AI provider credentials"
         }
         root.addView(setupButton)
-        val key = field("Selected provider API key (not saved)").apply {
+        val key = field("Selected provider API key (encrypted on device)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         val provider = android.widget.Spinner(this).apply {
@@ -151,6 +151,11 @@ class MainActivity : Activity() {
         }
         root.addView(provider)
         val model = field("Model ID (blank = provider default)")
+        ProviderCredentialStore.load(this)?.let { (savedProvider, savedKey, savedModel) ->
+            provider.setSelection(if (savedProvider == "OpenAI") 1 else 0)
+            key.setText(savedKey)
+            model.setText(savedModel)
+        }
         root.addView(TextView(this).apply {
             text = "What would you like to create?"
             textSize = 22f
@@ -351,7 +356,7 @@ class MainActivity : Activity() {
                 return@setOnClickListener
             }
             if (apiKey.isEmpty()) {
-                status.text = "Add your AI provider credentials in Settings before continuing."
+                status.text = "Save your AI provider credentials in Settings before continuing."
                 selectPage?.invoke(3)
                 key.requestFocus()
                 return@setOnClickListener
@@ -426,6 +431,43 @@ class MainActivity : Activity() {
             (widget.parent as? android.view.ViewGroup)?.removeView(widget)
             settings.addView(widget)
         }
+        val credentialStatus = TextView(this).apply {
+            setTextColor(getColor(R.color.developer_secondary))
+            text = if (ProviderCredentialStore.load(this@MainActivity) != null)
+                "AI connection saved securely on this device." else "No AI connection saved yet."
+        }
+        val saveConnection = Button(this).apply {
+            text = "Save AI connection"
+            isAllCaps = false
+        }
+        val forgetConnection = Button(this).apply {
+            text = "Remove saved connection"
+            isAllCaps = false
+        }
+        settings.addView(saveConnection)
+        settings.addView(forgetConnection)
+        settings.addView(credentialStatus)
+        saveConnection.setOnClickListener {
+            val selectedKey = key.text.toString().trim()
+            if (selectedKey.isBlank()) {
+                credentialStatus.text = "Enter your provider API key before saving."
+            } else {
+                try {
+                    ProviderCredentialStore.save(this, provider.selectedItem.toString(),
+                        selectedKey, model.text.toString().trim())
+                    credentialStatus.text = "Connection saved securely. You can now start a project."
+                    status.text = "AI connection saved"
+                } catch (_: Exception) {
+                    credentialStatus.text = "Unable to save securely. Check device security settings."
+                }
+            }
+        }
+        forgetConnection.setOnClickListener {
+            ProviderCredentialStore.clear(this)
+            key.text.clear()
+            model.text.clear()
+            credentialStatus.text = "Saved connection removed from this device."
+        }
         // Plain-language introductions for every destination; advanced controls remain available.
         fun sectionIntro(container: LinearLayout, heading: String, description: String) {
             container.addView(TextView(this).apply {
@@ -444,7 +486,7 @@ class MainActivity : Activity() {
         sectionIntro(advanced, "Assistant and development tools",
             "Describe a change on Home to ask Jarvis for help. Here you can review code, check builds, and use advanced development tools.")
         sectionIntro(settings, "Connect your AI",
-            "Choose Gemini or OpenAI, enter your API key, and optionally select a model. Your key is not saved on this device.")
+            "Choose Gemini or OpenAI, enter your API key, then tap Save connection. The key is encrypted on this device.")
         // Give every secondary screen the same rounded, readable Jarvis surfaces.
         fun roundedSurface(color: Int = getColor(R.color.developer_panel)) =
             GradientDrawable().apply {
