@@ -28,6 +28,11 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v4
+      - name: Prepare and verify approved artwork resources
+        run: |
+          python3 -m pip install --quiet Pillow
+          python3 developer/tools/transparent_reactor.py
+          python3 developer/tools/verify_approved_artwork.py
       - name: Enable KVM for the disposable emulator
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

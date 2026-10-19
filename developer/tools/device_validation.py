@@ -33,14 +33,22 @@ TEST_CLASS = PACKAGE + ".DeveloperConfigurationDeviceTest"
 TEST_METHOD = "appliedHostConfigurationKeepsNativeControlsContainedAndLastActionReachable"
 RUNNER = TEST_PACKAGE + "/androidx.test.runner.AndroidJUnitRunner"
 UI_PATH = "/data/local/tmp/jarvis-developer-validation.xml"
-PROVIDER_HINT = "Selected provider API key (not saved)"
+PROVIDER_HINT = "Paste your API key here (not a model name)"
 TOKEN_HINT = "GitHub fine-grained token (not saved)"
 REVIEW_HINT = "Enter exact eligible review SHA-256"
+NAVIGATION_LABELS = ("Home", "Projects", "Tools", "Settings")
+UNSAVED_CONNECTION_STATUS = "No AI connection saved yet."
+SAVED_CONNECTION_STATUSES = ("AI connection saved securely on this device.",
+                             "Connection saved securely. You can now start a project.")
+SHOW_CONTROLS = "Show developer controls"
+HIDE_CONTROLS = "Hide developer controls"
 FAKE_PROVIDER = "JARVISFAKEPROVIDERKEYNOTREAL123456"
 FAKE_TOKEN = "JARVISFAKEGITHUBTOKENNOTREAL123456789012"
 FAKE_REVIEW = "a" * 64
+FIELD_IDS = {PROVIDER_HINT: "provider_key", TOKEN_HINT: "github_token", REVIEW_HINT: "review_fingerprint"}
 GATE_BUTTONS = (
     "Create task branch and commit approved files (writes)",
+    "Check CI for this exact task commit (read-only)",
     "Stage this exact source scope for a NEW diff review",
     "Compare baseline, candidate and verified recovery evidence",
     "Record exact approved promotion request (metadata only)",
@@ -55,6 +63,8 @@ PROFILES = (
     ("narrow_large_night", "2.0", "yes", "portrait", "320", "640"),
     ("landscape_large", "2.0", "no", "landscape", "640", "320"),
 )
+CONFIGURATION_KEYS = ("size", "density", "font_scale", "accelerometer_rotation", "user_rotation", "night")
+NATIVE_SOURCE_PATH = "developer/src/androidTest/java/com/jarvis/developer/DeveloperConfigurationDeviceTest.kt"
 
 
 class ValidationError(Exception):
@@ -74,6 +84,19 @@ class AdbCommandError(ValidationError):
     def evidence(self):
         return {"classification": self.classification, "exitCode": self.exit_code,
                 "outputSha256": self.output_sha256, "commandKind": self.command_kind}
+
+
+class ConfigurationRestoreError(ValidationError):
+    def __init__(self, details):
+        super().__init__("configuration_restore_failed")
+        self.details = details
+
+
+class ProcessDeathEntryError(ValidationError):
+    def __init__(self, reason, details, command_failure=None):
+        super().__init__(reason)
+        self.details = details
+        self.command_failure = command_failure
 
 
 def command_kind(args):
@@ -276,24 +299,240 @@ def validate_installed_targets(adb, evidence):
     evidence["runnerAvailable"] = True
 
 
-def restore(adb, saved):
-    failures = []
-    # Attempt every restoration even if an earlier command fails.
-    commands = [("shell", "wm", kind, saved[kind][1] or "reset") for kind in ("size", "density")]
-    commands += [("shell", "settings", "delete", "system", name) if saved[name] == "null"
-                 else ("shell", "settings", "put", "system", name, saved[name])
+def safe_configuration_value(name, value):
+    """Only already validated numeric/enum state may be retained, never raw output."""
+    if name in ("size", "density"):
+        physical, override = value
+        if name == "size":
+            return {"physicalPixels": [int(part) for part in physical.split("x")],
+                    "overridePixels": None if override is None else [int(part) for part in override.split("x")]}
+        return {"physicalDpi": int(physical), "overrideDpi": None if override is None else int(override)}
+    # Preserve missing values distinctly: a missing rotation is not rotation 0.
+    if name in ("font_scale", "accelerometer_rotation", "user_rotation"):
+        return None if value == "null" else value
+    return value
+
+
+def configuration_mismatches(saved, observed):
+    return {name: {"expected": safe_configuration_value(name, saved[name]),
+                   "observed": safe_configuration_value(name, observed[name])}
+            for name in CONFIGURATION_KEYS if saved[name] != observed[name]}
+
+
+def global_font_scale(adb):
+    output = adb.run("shell", "dumpsys", "activity", "processes", max_bytes=1048576)
+    matches = re.findall(r"(?m)^\s*mGlobalConfiguration:\s*\{([0-9](?:\.[0-9]{1,6})?)\s", output.text)
+    require(len(matches) == 1 and 0.5 <= float(matches[0]) <= 3,
+            "global_font_scale_not_observable")
+    return float(matches[0]), output_digest(output)
+
+
+def settle_default_font_before_absence(adb, details, sleeper, clock):
+    preparation = {"requestedFontScale": "1.0", "verified": False, "observations": 0,
+                   "matchingObservations": 0, "absenceDeleteIssued": False}
+    details["missingFontScalePreparation"] = preparation
+    previous_deadline = adb.deadline
+    settle_deadline = clock() + 4
+    adb.deadline = min(previous_deadline, settle_deadline)
+    try:
+        for attempt in range(8):
+            if clock() >= settle_deadline:
+                break
+            preparation["observations"] += 1
+            try:
+                database_value = setting_value(adb.run("shell", "settings", "get", "system", "font_scale").text,
+                                               "font_scale")
+                global_value, digest = global_font_scale(adb)
+                preparation["lastDatabaseValue"] = None if database_value == "null" else database_value
+                preparation["lastGlobalValue"] = global_value
+                preparation["lastGlobalProbeSha256"] = digest
+                preparation.pop("probeFailureReason", None)
+                matching = database_value != "null" and float(database_value) == 1.0 and global_value == 1.0
+                preparation["matchingObservations"] = preparation["matchingObservations"] + 1 if matching else 0
+                if preparation["matchingObservations"] >= 2:
+                    preparation["verified"] = True
+                    break
+            except ValidationError as error:
+                preparation["probeFailureReason"] = str(error)
+                preparation["matchingObservations"] = 0
+            if attempt < 7 and clock() < settle_deadline:
+                sleeper(min(0.25, max(0, settle_deadline - clock())))
+    finally:
+        adb.deadline = previous_deadline
+    # Delete only after the explicit default-font preparation. Even a failed
+    # preparation gets this one best-effort cleanup; it can never count as pass.
+    preparation["absenceDeleteIssued"] = True
+    try:
+        adb.run("shell", "settings", "delete", "system", "font_scale")
+        preparation["absenceDeleteSucceeded"] = True
+    except ValidationError:
+        preparation["absenceDeleteSucceeded"] = False
+        details["commandFailedSettingNames"].append("font_scale")
+
+
+def restore(adb, saved, sleeper=None, clock=time.monotonic):
+    sleeper = time.sleep if sleeper is None else sleeper
+    details = {"commandFailedSettingNames": [], "snapshotAttempts": 0,
+               "mismatchedSettings": {}, "verified": False}
+    # Issue each fixed restoration command once, even when another command fails.
+    commands = [(kind, ("shell", "wm", kind, saved[kind][1] or "reset")) for kind in ("size", "density")]
+    # AOSP's font observer reads an absent font_scale as 1.0 and persists it if
+    # global configuration still differs. First converge to the real default,
+    # then delete once and independently verify the original absent state.
+    commands += [(name, ("shell", "settings", "put", "system", name, "1.0")
+                  if name == "font_scale" and saved[name] == "null"
+                  else ("shell", "settings", "delete", "system", name) if saved[name] == "null"
+                  else ("shell", "settings", "put", "system", name, saved[name]))
                  for name in ("font_scale", "accelerometer_rotation", "user_rotation")]
-    commands.append(("shell", "cmd", "uimode", "night", saved["night"]))
-    for args in commands:
+    commands.append(("night", ("shell", "cmd", "uimode", "night", saved["night"])))
+    for name, args in commands:
         try:
             adb.run(*args)
         except ValidationError:
-            failures.append("configuration_restore_command_failed")
+            details["commandFailedSettingNames"].append(name)
+
+    if saved["font_scale"] == "null":
+        settle_default_font_before_absence(adb, details, sleeper, clock)
+
+    # Android may apply display/rotation changes asynchronously. Observe convergence
+    # for at most four seconds/eight reads; never repeat a mutation to force a pass.
+    previous_deadline = adb.deadline
+    settle_deadline = clock() + 4
+    adb.deadline = min(previous_deadline, settle_deadline)
+    matching_observations = 0
     try:
-        require(snapshot(adb) == saved, "configuration_restore_mismatch")
-    except ValidationError:
-        failures.append("configuration_restore_not_verified")
-    require(not failures, "configuration_restore_failed")
+        for attempt in range(8):
+            if clock() >= settle_deadline:
+                break
+            details["snapshotAttempts"] += 1
+            try:
+                observed = snapshot(adb)
+                details["mismatchedSettings"] = configuration_mismatches(saved, observed)
+                details.pop("snapshotFailureReason", None)
+                matching_observations = matching_observations + 1 if not details["mismatchedSettings"] else 0
+                if matching_observations >= (2 if saved["font_scale"] == "null" else 1):
+                    details["verified"] = True
+                    break
+            except ValidationError as error:
+                details["snapshotFailureReason"] = str(error)
+                matching_observations = 0
+            if attempt < 7 and clock() < settle_deadline:
+                sleeper(min(0.25, max(0, settle_deadline - clock())))
+    finally:
+        adb.deadline = previous_deadline
+    if details["commandFailedSettingNames"] or not details["verified"] or (
+            saved["font_scale"] == "null" and not details["missingFontScalePreparation"]["verified"]):
+        details["rawSnapshotVerified"] = details["verified"]
+        details["verified"] = False
+        raise ConfigurationRestoreError(details)
+    return details
+
+
+def native_failure_evidence(text):
+    """Extract only fixed assertion categories and frames in this exact test file."""
+    result = {"failureType": "unrecognized_native_failure", "assertionCategory": "unrecognized",
+              "sourceFrames": []}
+    assertions = list(re.finditer(r"(?m)^(?:INSTRUMENTATION_STATUS: stack=|Caused by: )?"
+                                 r"(?:java\.lang\.AssertionError|org\.junit\.ComparisonFailure)"
+                                 r"(?:: ([^\r\n]*))?$", text))[:4]
+    if assertions:
+        result["failureType"] = "assertion"
+        categories = (
+            ("Applied full-display density for ", "full_display_density"),
+            ("Applied app-resource density for ", "app_resource_density"),
+            ("Applied full-display width for ", "full_display_width"),
+            ("Applied full-display height for ", "full_display_height"),
+            ("Applied font scale for ", "font_scale"),
+            ("Applied Android system night mode for ", "system_night_mode"),
+            ("Applied orientation for ", "orientation"),
+            ("Applied width for ", "available_width"),
+            ("Applied height for ", "available_height"),
+            ("Native effective configuration did not settle", "configuration_not_settled"),
+            ("Native host configuration/layout did not settle", "configuration_not_settled"),
+            ("Native viewport did not receive nonzero layout for ", "native_layout_unavailable"),
+            ("Exactly one native scroll viewport is required", "native_viewport_count"),
+            ("Native scroll viewport must contain one content view", "native_content_count"),
+            ("Native scroll viewport must be laid out", "native_viewport_layout"),
+            ("Native scroll viewport must have no pending layout", "native_viewport_layout_pending"),
+            ("Native scroll viewport must have nonzero width and height", "native_viewport_size"),
+            ("Native content must be laid out", "native_content_layout"),
+            ("Native content must have no pending layout", "native_content_layout_pending"),
+            ("Native content must have nonzero width and height", "native_content_size"),
+            ("Requested navigation must be shown", "navigation_visibility"),
+            ("Requested navigation must respond", "navigation_response"),
+            ("Requested navigation must be selected", "navigation_selection"),
+            ("Developer disclosure must be on the visible Tools page", "tools_disclosure_visibility"),
+            ("Developer disclosure must respond", "tools_disclosure_response"),
+            ("Final Tools action must be exposed", "tools_action_visibility"),
+            ("Provider draft must be on the visible Settings page", "settings_provider_visibility"),
+            ("Current owner UI must retain its four page viewports", "page_viewport_count"),
+            ("Exactly one page viewport must be shown", "page_viewport_visibility"),
+            ("Requested page navigation must be selected", "page_viewport_selection"),
+            ("Visible viewport must contain the requested page's control", "page_control_containment"),
+            ("Content must require vertical scrolling", "vertical_scroll_required"),
+            ("Content must fit the actual viewport horizontally", "content_horizontal_containment"),
+            ("Visible interactive controls must exist", "interactive_controls_missing"),
+            ("Nonzero control width: ", "control_width"),
+            ("Nonzero control height: ", "control_height"),
+            ("Escaped left content edge: ", "control_left_containment"),
+            ("Escaped right content edge: ", "control_right_containment"),
+            ("Icon action must remain the final content child", "final_action_order"),
+            ("Expanded developer controls must be the final Tools section", "final_tools_section"),
+            ("Icon action must remain the final expanded Tools child", "final_action_order"),
+            ("Native ScrollView must scroll toward its final action", "final_action_scroll"),
+            ("Native ScrollView must have moved downward", "scroll_position"),
+            ("Final action top must be within the native viewport", "final_action_top"),
+            ("Final action bottom must be within the native viewport", "final_action_bottom"),
+            ("Provider credential must remain empty", "provider_field_empty"),
+            ("GitHub credential must remain empty", "github_field_empty"),
+            ("Geometry checks must not confirm health", "health_unconfirmed"),
+        )
+        observed_categories = []
+        numeric_assertions = []
+        for assertion in assertions:
+            message = assertion.group(1) or ""
+            category = next((category for prefix, category in categories if message.startswith(prefix)),
+                            "unrecognized_assertion")
+            if any(message.startswith(label) for label in (*GATE_BUTTONS, *GATE_CHECKBOXES)):
+                category = "approval_gate"
+            if category not in observed_categories:
+                observed_categories.append(category)
+            numeric = re.fullmatch(
+                r"Applied full-display (width|height|density) for "
+                r"(narrow_normal|narrow_large|narrow_large_night|landscape_large) "
+                r"expected:<([0-9]{1,5})> but was:<([0-9]{1,5})>", message)
+            if numeric:
+                dimension, profile_id, expected_text, observed_text = numeric.groups()
+                profile = next(profile for profile in PROFILES if profile[0] == profile_id)
+                expected, observed = int(expected_text), int(observed_text)
+                exact_expected = 320 if dimension == "density" else int(profile[4 if dimension == "width" else 5]) * 2
+                if expected == exact_expected and 0 <= observed <= (1000 if dimension == "density" else 8192):
+                    record = {"property": "full_display_" + dimension, "profileId": profile_id,
+                              "expected": expected, "observed": observed,
+                              "unit": "dpi" if dimension == "density" else "px"}
+                    if record not in numeric_assertions and len(numeric_assertions) < 3:
+                        numeric_assertions.append(record)
+        result["assertionCategory"] = observed_categories[0]
+        result["relatedAssertionCategories"] = observed_categories[1:]
+        if numeric_assertions:
+            result["numericConfigurationAssertions"] = numeric_assertions
+    allowed_methods = (TEST_METHOD, "assertEffectiveConfiguration", "assertAvailableDimension",
+                       "awaitNativeLayout", "awaitEffectiveConfigurationAndNativeLayout", "assertNativeLayout",
+                       "openPage", "visiblePageScroll", "assertHorizontalGeometry", "assertFinalToolsAction",
+                       "assertWithinHorizontalContent",
+                       "assertCredentialsEmptyAndApprovalsUnavailable")
+    for frame in re.finditer(r"(?m)^\s+at com\.jarvis\.developer\.DeveloperConfigurationDeviceTest\."
+                             r"([A-Za-z0-9_$]+)\(DeveloperConfigurationDeviceTest\.kt:([1-9][0-9]{0,3})\)\s*$", text):
+        method, line = frame.groups()
+        canonical = next((name for name in allowed_methods
+                          if method == name or re.fullmatch(re.escape(name) + r"\$lambda\$[0-9]{1,2}", method)), None)
+        if canonical is not None:
+            record = {"path": NATIVE_SOURCE_PATH, "method": canonical, "line": int(line)}
+            if record not in result["sourceFrames"]:
+                result["sourceFrames"].append(record)
+            if len(result["sourceFrames"]) == 3:
+                break
+    return result
 
 
 def parse_instrumentation(text):
@@ -326,12 +565,16 @@ def parse_instrumentation(text):
 
 
 def apply_profile(adb, profile):
-    _, font, night, orientation, _, _ = profile
-    adb.run("shell", "wm", "size", "640x1280")
+    require(profile in PROFILES, "profile_not_allowlisted")
+    _, font, night, _, width_dp, height_dp = profile
+    # Use a fixed real logical viewport, not an unverified sensor rotation. The
+    # native test still requires the exact resulting pixels and orientation.
+    viewport = str(int(width_dp) * 2) + "x" + str(int(height_dp) * 2)
+    adb.run("shell", "wm", "size", viewport)
     adb.run("shell", "wm", "density", "320")
     adb.run("shell", "settings", "put", "system", "font_scale", font)
     adb.run("shell", "settings", "put", "system", "accelerometer_rotation", "0")
-    adb.run("shell", "settings", "put", "system", "user_rotation", "0" if orientation == "portrait" else "1")
+    adb.run("shell", "settings", "put", "system", "user_rotation", "0")
     adb.run("shell", "cmd", "uimode", "night", night)
 
 
@@ -340,6 +583,9 @@ def run_profiles(adb, results=None):
     for profile in PROFILES:
         record = {"profileId": profile[0], "passed": False, "nativeCases": 1,
                   "testClass": TEST_CLASS, "testMethod": TEST_METHOD,
+                  "requestedViewportPixels": [int(profile[4]) * 2, int(profile[5]) * 2],
+                  "requestedUserRotation": 0,
+                  "orientationMethod": "fixed-logical-viewport-not-sensor-rotation",
                   "stage": "apply_configuration"}
         results.append(record)
         apply_profile(adb, profile)
@@ -350,6 +596,7 @@ def run_profiles(adb, results=None):
             arguments += ["-e", key, value]
         arguments.append(RUNNER)
         record["stage"] = "native_case"
+        result = None
         try:
             result = adb.run(*arguments, timeout=120, max_bytes=262144)
             record["instrumentationOutputSha256"] = output_digest(result)
@@ -362,6 +609,8 @@ def run_profiles(adb, results=None):
             raise
         except ValidationError as error:
             record["failureClassification"] = str(error)
+            if result is not None:
+                record["nativeFailure"] = native_failure_evidence(result.text)
             raise
         record.update(passed=True, stage="complete")
     return results
@@ -438,26 +687,140 @@ def filled_field_proof(node, sentinel):
 
 
 def ime_shown(text):
-    values = re.findall(r"\b(?:mInputShown|mIsInputViewShown)=(true|false)\b", text)
-    require(bool(values), "ime_visibility_not_observable")
+    fields = re.findall(r"\b(?:mInputShown|mIsInputViewShown)\b", text)
+    values = re.findall(r"\b(?:mInputShown|mIsInputViewShown)=([^\s]*)", text)
+    require(bool(fields) and len(fields) == len(values)
+            and all(value in ("true", "false") for value in values),
+            "ime_visibility_not_observable")
     return "true" in values
 
 
+def hide_observed_ime(adb, facts, sleeper=None, clock=time.monotonic):
+    """One positively gated BACK, followed solely by bounded visibility reads."""
+    sleeper = time.sleep if sleeper is None else sleeper
+    facts.update(shownObserved=False, backSent=False, hiddenObserved=False, hiddenPolls=0)
+    if not ime_shown(adb.run("shell", "dumpsys", "input_method", max_bytes=262144).text):
+        facts["hiddenObserved"] = True
+        return
+    facts["shownObserved"] = True
+    adb.run("shell", "input", "keyevent", "KEYCODE_BACK")
+    facts["backSent"] = True
+    # input keyevent may return before the IME's hide animation/state callbacks.
+    # Never send another BACK: that could close the Activity after IME dismissal.
+    previous_deadline = getattr(adb, "deadline", None)
+    settle_deadline = clock() + 4
+    if previous_deadline is not None:
+        adb.deadline = min(previous_deadline, settle_deadline)
+    try:
+        for attempt in range(12):
+            remaining = settle_deadline - clock()
+            if remaining <= 0:
+                break
+            facts["hiddenPolls"] += 1
+            result = adb.run("shell", "dumpsys", "input_method", timeout=min(1.0, remaining), max_bytes=262144)
+            if not ime_shown(result.text):
+                facts["hiddenObserved"] = True
+                return
+            if attempt < 11 and clock() < settle_deadline:
+                sleeper(min(0.25, max(0, settle_deadline - clock())))
+    finally:
+        if previous_deadline is not None:
+            adb.deadline = previous_deadline
+    raise ValidationError("ime_did_not_hide")
+
+
 class HostUi:
-    """Read-only UI inspection plus swipes and taps into allowlisted text fields."""
+    """Read-only inspection with fixed page/disclosure navigation and fake-field input."""
 
     def __init__(self, adb):
         self.adb = adb
+        self.entry_stage = "not_started"
+        self.ime_facts = {}
+
+    def entry_evidence(self, field_id):
+        allowed_stages = ("not_started", "navigate_field", "locate_empty_field", "focus_field",
+                          "type_fake_sentinel", "hide_observed_ime", "verify_prefill", "complete")
+        result = {"fieldId": field_id,
+                  "entryStage": self.entry_stage if self.entry_stage in allowed_stages else "not_observable"}
+        facts = {}
+        for key in ("shownObserved", "backSent", "hiddenObserved"):
+            if isinstance(self.ime_facts.get(key), bool):
+                facts[key] = self.ime_facts[key]
+        polls = self.ime_facts.get("hiddenPolls")
+        if type(polls) is int and 0 <= polls <= 12:
+            facts["hiddenPolls"] = polls
+        if facts:
+            result["ime"] = facts
+        return result
 
     def dump(self):
         self.adb.run("shell", "uiautomator", "dump", "--compressed", UI_PATH,
                      timeout=20, max_bytes=32768)
         return parse_ui(self.adb.run("shell", "cat", UI_PATH, max_bytes=1048576).text)
 
-    def swipe(self, nodes, downward):
+    @staticmethod
+    def active_scroll(nodes):
         containers = own_nodes(nodes, "ScrollView")
-        require(len(containers) == 1, "unique_scroll_container_required")
-        left, top, right, bottom = bounds(containers[0])
+        require(len(containers) == 1, "unique_active_scroll_container_required")
+        bounds(containers[0])
+        return containers[0]
+
+    @staticmethod
+    def navigation(nodes):
+        scroll = HostUi.active_scroll(nodes)
+        _, _, _, scroll_bottom = bounds(scroll)
+        tabs = {}
+        for label in NAVIGATION_LABELS:
+            matches = [node for node in own_nodes(nodes, "Button")
+                       if node.get("text") == label and node.get("content-desc") in (label, label + ", selected")]
+            require(len(matches) == 1, "fixed_navigation_tabs_not_observable")
+            tab = matches[0]
+            require(tab.get("enabled") == "true", "fixed_navigation_tab_disabled")
+            require(bounds(tab)[1] >= scroll_bottom, "fixed_navigation_tab_not_outside_page")
+            tabs[label] = tab
+        selected = [label for label, node in tabs.items() if node.get("selected") == "true"
+                    and node.get("content-desc") == label + ", selected"]
+        require(len(selected) == 1 and all(node.get("selected") in ("true", "false") for node in tabs.values()),
+                "selected_page_not_observable")
+        require(all((node.get("selected") == "true") == (node.get("content-desc") == label + ", selected")
+                    for label, node in tabs.items()), "selected_page_not_observable")
+        return tabs, selected[0]
+
+    def navigate(self, page):
+        require(page in ("Settings", "Tools"), "page_navigation_not_allowlisted")
+        nodes = self.dump()
+        tabs, selected = self.navigation(nodes)
+        if selected != page:
+            left, top, right, bottom = bounds(tabs[page])
+            self.adb.run("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+            nodes = self.dump()
+            _, selected = self.navigation(nodes)
+        require(selected == page, "fixed_page_navigation_failed")
+        return nodes
+
+    def show_tools_controls(self):
+        self.navigate("Tools")
+        node, nodes = self.find(lambda item: item.get("class") == "android.widget.Button"
+                                and item.get("text") in (SHOW_CONTROLS, HIDE_CONTROLS))
+        require(self.navigation(nodes)[1] == "Tools", "developer_disclosure_wrong_page")
+        require(node.get("enabled") == "true", "developer_disclosure_disabled")
+        if node.get("text") == SHOW_CONTROLS:
+            left, top, right, bottom = bounds(node)
+            sl, st, sr, sb = bounds(self.active_scroll(nodes))
+            require(sl <= left < right <= sr and st <= top < bottom <= sb,
+                    "developer_disclosure_not_fully_visible")
+            self.adb.run("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+            node, _ = self.find(lambda item: item.get("class") == "android.widget.Button"
+                                and item.get("text") == HIDE_CONTROLS)
+        require(node.get("text") == HIDE_CONTROLS, "developer_controls_not_disclosed")
+
+    def require_unsaved_provider(self):
+        node, _ = self.find(lambda item: item.get("class") == "android.widget.TextView"
+                            and item.get("text") in (UNSAVED_CONNECTION_STATUS, *SAVED_CONNECTION_STATUSES))
+        require(node.get("text") == UNSAVED_CONNECTION_STATUS, "existing_provider_configuration_must_not_be_changed")
+
+    def swipe(self, nodes, downward):
+        left, top, right, bottom = bounds(self.active_scroll(nodes))
         require(right - left >= 80 and bottom - top >= 160, "scroll_container_too_small")
         x, margin = (left + right) // 2, max(30, (bottom - top) // 5)
         y1, y2 = (top + margin, bottom - margin) if downward else (bottom - margin, top + margin)
@@ -495,38 +858,48 @@ class HostUi:
     def enter(self, hint, sentinel):
         require((hint, sentinel) in ((PROVIDER_HINT, FAKE_PROVIDER), (TOKEN_HINT, FAKE_TOKEN),
                                      (REVIEW_HINT, FAKE_REVIEW)), "field_input_not_allowlisted")
+        self.entry_stage = "navigate_field"
+        self.ime_facts = {}
+        if hint == PROVIDER_HINT:
+            self.navigate("Settings")
+            self.require_unsaved_provider()
+        else:
+            self.show_tools_controls()
+        self.entry_stage = "locate_empty_field"
         node, nodes = self.find(lambda item: item.get("class") == "android.widget.EditText"
                                and exact_hint(item, hint))
         require(node.get("enabled") == "true", "input_field_disabled")
+        require(node.get("text") == hint, "input_field_not_visibly_empty_before_fake_input")
         field_bounds = bounds(node)
-        scrolls = own_nodes(nodes, "ScrollView")
-        require(len(scrolls) == 1, "unique_scroll_container_required")
         left, top, right, bottom = field_bounds
-        sl, st, sr, sb = bounds(scrolls[0])
+        sl, st, sr, sb = bounds(self.active_scroll(nodes))
         require(sl <= left < right <= sr and st <= top < bottom <= sb,
                 "input_field_not_fully_visible")
+        self.entry_stage = "focus_field"
         self.adb.run("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
         focused = [item for item in own_nodes(self.dump(), "EditText") if item.get("focused") == "true"]
         require(len(focused) == 1 and exact_hint(focused[0], hint), "focused_field_identity_mismatch")
+        self.entry_stage = "type_fake_sentinel"
         self.adb.run("shell", "input", "text", sentinel)
         # BACK is safe only with positively observed IME visibility; a blind BACK
         # can finish the Activity on emulators using a hardware keyboard.
-        if ime_shown(self.adb.run("shell", "dumpsys", "input_method", max_bytes=262144).text):
-            self.adb.run("shell", "input", "keyevent", "KEYCODE_BACK")
-            require(not ime_shown(self.adb.run("shell", "dumpsys", "input_method",
-                                              max_bytes=262144).text), "ime_did_not_hide")
+        self.entry_stage = "hide_observed_ime"
+        hide_observed_ime(self.adb, self.ime_facts)
+        self.entry_stage = "verify_prefill"
         focused = [item for item in own_nodes(self.dump(), "EditText") if item.get("focused") == "true"]
         require(len(focused) == 1 and filled_field_proof(focused[0], sentinel),
                 "prefill_not_observable_password_redaction_unsupported")
         if hint == REVIEW_HINT:
             require(focused[0].get("text") == FAKE_REVIEW, "review_fingerprint_prefill_not_exact")
+        self.entry_stage = "complete"
 
-    def assert_fresh(self):
-        # Scan once from top to bottom and retain only presence booleans. No UI
-        # text, password representation or hierarchy is written to an artifact.
-        required = {hint: False for hint in (PROVIDER_HINT, TOKEN_HINT, REVIEW_HINT)}
-        gates = {label: False for label in (*GATE_BUTTONS, *GATE_CHECKBOXES)}
-        health = False
+    def scan_fresh_page(self, field_hints, require_gates=False, require_health=False, require_unsaved=False):
+        # Presence comes from each actual visible page. Hidden-page nodes, blank
+        # password redaction and absence never establish empty state or approval.
+        required = {hint: False for hint in field_hints}
+        gates = {label: False for label in (*GATE_BUTTONS, *GATE_CHECKBOXES)} if require_gates else {}
+        health = not require_health
+        unsaved = not require_unsaved
         nodes = self.top()
         for _ in range(25):
             for node in own_nodes(nodes):
@@ -548,6 +921,10 @@ class HostUi:
                         require(node.get("checked") == "false", "approval_checkbox_not_cleared")
                     gates[text] = True
                 if klass == "android.widget.TextView":
+                    if require_unsaved:
+                        require(text not in SAVED_CONNECTION_STATUSES, "provider_connection_was_saved")
+                        if text == UNSAVED_CONNECTION_STATUS:
+                            unsaved = True
                     if re.fullmatch(r"Version [1-9][0-9]* is awaiting your health confirmation\.", text):
                         health = True
                     elif re.fullmatch(r"WARNING: [0-9]+ rapid launches on unconfirmed version [1-9][0-9]*\. "
@@ -556,7 +933,7 @@ class HostUi:
                         health = True
                     require(not re.search(r"confirmed working (?:locally|on this device)", text),
                             "health_was_confirmed")
-            if all(required.values()) and all(gates.values()) and health:
+            if all(required.values()) and all(gates.values()) and health and unsaved:
                 return
             previous = self.signature(nodes)
             self.swipe(nodes, downward=False)
@@ -564,6 +941,12 @@ class HostUi:
             if self.signature(nodes) == previous:
                 break
         raise ValidationError("fresh_fields_gates_or_unconfirmed_health_not_observable")
+
+    def assert_fresh(self):
+        self.navigate("Settings")
+        self.scan_fresh_page((PROVIDER_HINT,), require_unsaved=True)
+        self.show_tools_controls()
+        self.scan_fresh_page((TOKEN_HINT, REVIEW_HINT), require_gates=True, require_health=True)
 
 
 def package_pid(adb):
@@ -600,7 +983,13 @@ def run_process_death(adb, ui=None, sleeper=time.sleep):
     require(foreground, "launcher_not_foreground")
     for hint, sentinel in ((PROVIDER_HINT, FAKE_PROVIDER), (TOKEN_HINT, FAKE_TOKEN),
                             (REVIEW_HINT, FAKE_REVIEW)):
-        ui.enter(hint, sentinel)
+        try:
+            ui.enter(hint, sentinel)
+        except ValidationError as error:
+            details = ui.entry_evidence(FIELD_IDS[hint]) if isinstance(ui, HostUi) else {
+                "fieldId": FIELD_IDS[hint], "entryStage": "enter_fixture"}
+            raise ProcessDeathEntryError(str(error), details,
+                                        error.evidence() if isinstance(error, AdbCommandError) else None) from None
     require(package_pid(adb) == old_pid and activity_state(adb) == (task, True),
             "process_or_task_changed_before_background")
     adb.run("shell", "input", "keyevent", "KEYCODE_HOME")
@@ -644,6 +1033,7 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
                 "scope": "already-installed-disposable-ci-emulator-offline-only",
                 "phase": "validate_emulator",
                 "passed": False, "installedTargets": {}, "profiles": [], "processDeath": {"passed": False},
+                "primaryFailure": None, "cleanupFailures": [],
                 "configurationRestored": False, "uiXmlRemoved": False,
                 "apkInstalledByThisTool": False, "providerOrPublisherInvoked": False}
     saved = None
@@ -657,13 +1047,22 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
         evidence["phase"] = "native_profiles"
         run_profiles(adb, evidence["profiles"])
         evidence["phase"] = "restore_before_process_death"
-        restore(adb, saved)
+        evidence["restorationBeforeProcessDeath"] = restore(adb, saved)
         evidence["configurationRestored"] = True
         adb.deadline = clock() + 360
         evidence["phase"] = "process_death"
         evidence["processDeath"] = process_runner(adb)
         require(evidence["processDeath"].get("passed") is True, "process_death_not_verified")
         evidence["phase"] = "complete"
+    except ProcessDeathEntryError as error:
+        failure = str(error)
+        evidence["processDeath"].update(error.details)
+        if error.command_failure is not None:
+            evidence["commandFailure"] = error.command_failure
+    except ConfigurationRestoreError as error:
+        failure = str(error)
+        evidence["primaryFailure"] = {"reason": failure, "phase": evidence["phase"],
+                                      "details": error.details}
     except AdbCommandError as error:
         failure = str(error)
         evidence["commandFailure"] = error.evidence()
@@ -674,16 +1073,29 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
         adb.deadline = clock() + 90
         if saved is not None:
             try:
-                restore(adb, saved)
+                evidence["cleanupRestoration"] = restore(adb, saved)
                 evidence["configurationRestored"] = True
+            except ConfigurationRestoreError as error:
+                evidence["configurationRestored"] = False
+                evidence["cleanupFailures"].append({"reason": str(error),
+                    "phase": "restore_configuration", "details": error.details})
             except ValidationError:
                 evidence["configurationRestored"] = False
-                failure = "configuration_restore_failed"
+                evidence["cleanupFailures"].append({"reason": "configuration_restore_failed",
+                                                     "phase": "restore_configuration"})
             try:
                 adb.run("shell", "rm", "-f", UI_PATH)
                 evidence["uiXmlRemoved"] = True
             except ValidationError:
-                failure = "temporary_ui_xml_cleanup_failed"
+                evidence["cleanupFailures"].append({"reason": "temporary_ui_xml_cleanup_failed",
+                                                     "phase": "remove_temporary_ui_xml"})
+    if failure is not None and evidence["primaryFailure"] is None:
+        evidence["primaryFailure"] = {"reason": failure, "phase": evidence["phase"]}
+    if failure is None and evidence["cleanupFailures"]:
+        first_cleanup = evidence["cleanupFailures"][0]
+        failure = first_cleanup["reason"]
+        evidence["primaryFailure"] = dict(first_cleanup)
+        evidence["phase"] = "cleanup"
     evidence["passed"] = failure is None
     if failure:
         evidence["failureReason"] = failure

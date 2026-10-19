@@ -2,6 +2,8 @@ package com.jarvis.developer
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Rect
+import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -44,11 +46,13 @@ class DeveloperDeviceValidationTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             waitForIdle()
             scenario.onActivity { activity ->
+                openSettings(activity)
+                assertFieldEmpty(activity, PROVIDER_KEY, "Provider credential must start empty")
+                openTools(activity)
                 assertTrue(button(activity, "Browse source inventory (read-only)").isEnabled)
                 assertTrue(button(activity, "Read exact baseline debug CI (GET only)").isEnabled)
                 assertTrue(button(activity, "Read signed candidate and recovery evidence (GET only)").isEnabled)
-                assertEquals("", field(activity, PROVIDER_KEY).text.toString())
-                assertEquals("", field(activity, GITHUB_TOKEN).text.toString())
+                assertFieldEmpty(activity, GITHUB_TOKEN, "GitHub credential must start empty")
                 assertApprovalsUnavailable(activity)
             }
         }
@@ -60,7 +64,11 @@ class DeveloperDeviceValidationTest {
             waitForIdle()
             scenario.onActivity { activity ->
                 // Fake sentinels only; no network-capable control is clicked.
+                openSettings(activity)
+                assertFieldEmpty(activity, PROVIDER_KEY, "Do not overwrite a configured provider credential")
                 field(activity, PROVIDER_KEY).setText("instrumented-fixture-provider-key")
+                openTools(activity)
+                assertFieldEmpty(activity, GITHUB_TOKEN, "Do not overwrite a configured GitHub credential")
                 field(activity, GITHUB_TOKEN).setText("instrumented-fixture-github-token")
                 field(activity, REVIEW_FINGERPRINT).setText("a".repeat(64))
                 assertApprovalsUnavailable(activity)
@@ -70,9 +78,11 @@ class DeveloperDeviceValidationTest {
             waitForIdle()
 
             scenario.onActivity { activity ->
-                assertEquals("", field(activity, PROVIDER_KEY).text.toString())
-                assertEquals("", field(activity, GITHUB_TOKEN).text.toString())
-                assertEquals("", field(activity, REVIEW_FINGERPRINT).text.toString())
+                openSettings(activity)
+                assertFieldEmpty(activity, PROVIDER_KEY, "Unsaved provider draft must clear on recreation")
+                openTools(activity)
+                assertFieldEmpty(activity, GITHUB_TOKEN, "GitHub draft must clear on recreation")
+                assertFieldEmpty(activity, REVIEW_FINGERPRINT, "Review draft must clear on recreation")
                 assertApprovalsUnavailable(activity)
             }
         }
@@ -81,22 +91,30 @@ class DeveloperDeviceValidationTest {
     @Test
     fun nativeScrollContainerCanReachItsBottomWithoutGrantingApproval() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            waitForIdle()
+            scenario.onActivity { openTools(it) }
+            awaitToolsLayout(scenario)
             scenario.onActivity { activity ->
-                val scroll = views<ScrollView>(activity).single()
+                val scroll = visibleToolsScroll(activity)
                 assertTrue("Activity viewport must be laid out", scroll.height > 0)
                 assertTrue("The complete workbench must exceed the viewport", scroll.getChildAt(0).height > scroll.height)
                 scroll.isSmoothScrollingEnabled = false
-                scroll.fullScroll(View.FOCUS_DOWN)
+                assertFinalToolsAction(activity, scroll)
+                assertTrue("Tools viewport must scroll toward its final action", scroll.fullScroll(View.FOCUS_DOWN))
             }
-            waitForIdle()
+            awaitToolsLayout(scenario)
 
             scenario.onActivity { activity ->
-                val scroll = views<ScrollView>(activity).single()
+                val scroll = visibleToolsScroll(activity)
                 val content = scroll.getChildAt(0)
                 assertTrue("The workbench must actually scroll", scroll.scrollY > 0)
                 assertTrue("The bottom of the workbench must be reachable",
                     scroll.scrollY + scroll.height - scroll.paddingBottom >= content.bottom)
+                val lastAction = assertFinalToolsAction(activity, scroll)
+                val bounds = Rect(0, 0, lastAction.width, lastAction.height)
+                scroll.offsetDescendantRectToMyCoords(lastAction, bounds)
+                assertTrue("Final Tools action must be fully reachable in its visible viewport",
+                    bounds.top >= scroll.scrollY + scroll.paddingTop &&
+                        bounds.bottom <= scroll.scrollY + scroll.height - scroll.paddingBottom)
                 assertApprovalsUnavailable(activity)
             }
         }
@@ -120,15 +138,17 @@ class DeveloperDeviceValidationTest {
                 }
             }
             scenario.onActivity { activity ->
-                assertEquals("", field(activity, PROVIDER_KEY).text.toString())
-                assertEquals("", field(activity, GITHUB_TOKEN).text.toString())
+                openSettings(activity)
+                assertFieldEmpty(activity, PROVIDER_KEY, "Public inventory must not use a provider credential")
+                openTools(activity)
+                assertFieldEmpty(activity, GITHUB_TOKEN, "Public inventory must use an empty GitHub credential")
                 field(activity, "Source path or directory prefix (blank lists all allowed sources)")
                     .setText("developer/")
                 status = views<TextView>(activity).single {
                     it.text.toString() == "Local task plans loaded; no repository request was made."
                 }
                 output = views<TextView>(activity).single {
-                    it.text.toString().startsWith("Coding responses appear here.")
+                    it.text.toString() == "Your assistant’s response will appear here."
                 }
                 status.addTextChangedListener(watcher)
                 assertTrue(button(activity, "Browse source inventory (read-only)").performClick())
@@ -149,11 +169,93 @@ class DeveloperDeviceValidationTest {
                     status.text.toString())
                 assertTrue("Inventory must identify the relevant Developer source file",
                     report.contains("developer/src/main/java/com/jarvis/developer/TaskFileSummary.kt"))
-                assertEquals("", field(activity, PROVIDER_KEY).text.toString())
-                assertEquals("", field(activity, GITHUB_TOKEN).text.toString())
+                assertFieldEmpty(activity, PROVIDER_KEY, "Public inventory must leave the provider credential empty")
+                assertFieldEmpty(activity, GITHUB_TOKEN, "Public inventory must leave the GitHub credential empty")
                 assertApprovalsUnavailable(activity)
             }
         }
+    }
+
+    private fun openSettings(activity: Activity) {
+        val tab = button(activity, "Settings")
+        assertTrue("Settings navigation must be shown", tab.isShown)
+        if (!tab.isSelected) assertTrue("Settings navigation must respond", tab.performClick())
+        assertTrue("Settings navigation must be selected", tab.isSelected)
+        assertTrue("Provider draft must be on the visible Settings page", field(activity, PROVIDER_KEY).isShown)
+    }
+
+    private fun openTools(activity: Activity) {
+        val tab = button(activity, "Tools")
+        assertTrue("Tools navigation must be shown", tab.isShown)
+        if (!tab.isSelected) assertTrue("Tools navigation must respond", tab.performClick())
+        assertTrue("Tools navigation must be selected", tab.isSelected)
+        val disclosure = views<Button>(activity).single {
+            it.text.toString() in listOf("Show developer controls", "Hide developer controls")
+        }
+        assertTrue("Developer disclosure must be on the visible Tools page", disclosure.isShown)
+        if (disclosure.text.toString() == "Show developer controls") {
+            assertTrue("Developer disclosure must respond", disclosure.performClick())
+        }
+        assertEquals("Hide developer controls", disclosure.text.toString())
+        assertTrue("Expanded Tools must expose the final action", button(activity, LAST_ACTION).isShown)
+        visibleToolsScroll(activity)
+    }
+
+    private fun visibleToolsScroll(activity: Activity): ScrollView {
+        val pages = views<ScrollView>(activity)
+        assertEquals("Current owner UI must retain its four page viewports", 4, pages.size)
+        val shown = pages.filter { it.isShown }
+        assertEquals("Exactly one page viewport must be shown", 1, shown.size)
+        assertTrue("Tools must be the selected page", button(activity, "Tools").isSelected)
+        val scroll = shown.single()
+        assertTrue("The visible viewport must contain the Tools action",
+            descendants(scroll).any { it === button(activity, LAST_ACTION) })
+        return scroll
+    }
+
+    private fun assertFinalToolsAction(activity: Activity, scroll: ScrollView): Button {
+        val action = button(activity, LAST_ACTION)
+        val root = scroll.getChildAt(0) as ViewGroup
+        val controls = action.parent as ViewGroup
+        assertTrue("Expanded developer controls must be the final Tools section",
+            root.getChildAt(root.childCount - 1) === controls)
+        assertTrue("Icon action must remain the final expanded Tools child",
+            controls.getChildAt(controls.childCount - 1) === action)
+        assertTrue("Final Tools action must have actual nonzero geometry", action.width > 0 && action.height > 0)
+        return action
+    }
+
+    private fun awaitToolsLayout(scenario: ActivityScenario<MainActivity>) {
+        val deadline = SystemClock.uptimeMillis() + 10_000L
+        var lastFailure: AssertionError? = null
+        do {
+            waitForIdle()
+            var laidOut = false
+            scenario.onActivity { activity ->
+                try {
+                    openTools(activity)
+                    val scroll = visibleToolsScroll(activity)
+                    val content = scroll.getChildAt(0)
+                    laidOut = scroll.isLaidOut && !scroll.isLayoutRequested &&
+                        scroll.width > 0 && scroll.height > 0 &&
+                        content.isLaidOut && !content.isLayoutRequested &&
+                        content.width > 0 && content.height > 0
+                } catch (failure: AssertionError) {
+                    lastFailure = failure
+                }
+            }
+            if (laidOut) return
+            val remaining = deadline - SystemClock.uptimeMillis()
+            if (remaining > 0) SystemClock.sleep(minOf(50L, remaining))
+        } while (SystemClock.uptimeMillis() < deadline)
+        throw AssertionError("Visible expanded Tools did not receive actual layout within 10000ms").apply {
+            lastFailure?.let { initCause(it) }
+        }
+    }
+
+    private fun assertFieldEmpty(activity: Activity, hint: String, label: String) {
+        // Preserve exact emptiness without printing a configured credential or fake sentinel on failure.
+        assertTrue(label, field(activity, hint).text.isEmpty())
     }
 
     private fun assertApprovalsUnavailable(activity: Activity) {
@@ -188,8 +290,9 @@ class DeveloperDeviceValidationTest {
     }
 
     companion object {
-        private const val PROVIDER_KEY = "Selected provider API key (not saved)"
+        private const val PROVIDER_KEY = "Paste your API key here (not a model name)"
         private const val GITHUB_TOKEN = "GitHub fine-grained token (not saved)"
         private const val REVIEW_FINGERPRINT = "Enter exact eligible review SHA-256"
+        private const val LAST_ACTION = "Generate icon code, commit and check build"
     }
 }
