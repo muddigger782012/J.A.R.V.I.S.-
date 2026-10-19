@@ -179,11 +179,20 @@ jobs:
             test -n "$PREVIOUS_SOURCE"
             mkdir -p "$RUNNER_TEMP/developer-previous"
             if gh release download developer-latest -p Jarvis-Developer.apk -D "$RUNNER_TEMP/developer-previous"; then
-              if ! gh release view developer-previous >/dev/null 2>&1; then
-                gh release create developer-previous --target "$PREVIOUS_SOURCE" --prerelease --title 'Jarvis Developer previous signed APK' --notes 'Backup only. Android version downgrade is normally blocked; use a recovery rebuild instead.'
+              if gh release view developer-previous >/dev/null 2>&1; then
+                # A pre-existing protected backup may be immutable to the Actions token.
+                # Verify its APK matches exactly instead of attempting an unnecessary edit.
+                mkdir -p "$RUNNER_TEMP/developer-existing-backup"
+                gh release download developer-previous -p Jarvis-Developer.apk -D "$RUNNER_TEMP/developer-existing-backup"
+                cmp "$RUNNER_TEMP/developer-previous/Jarvis-Developer.apk" "$RUNNER_TEMP/developer-existing-backup/Jarvis-Developer.apk" || {
+                  echo "::error::Protected previous APK differs from current release; refusing publication."
+                  exit 1
+                }
+                echo "Existing signed Developer backup matches current release; no backup mutation required."
+              else
+                gh release create developer-previous --target "$PREVIOUS_SOURCE" --prerelease --title 'Jarvis Developer previous signed APK' --notes "Previous published Developer source commit: $PREVIOUS_SOURCE"
+                gh release upload developer-previous "$RUNNER_TEMP/developer-previous/Jarvis-Developer.apk"
               fi
-              gh release upload developer-previous "$RUNNER_TEMP/developer-previous/Jarvis-Developer.apk" --clobber
-              gh release edit developer-previous --target "$PREVIOUS_SOURCE" --notes "Previous published Developer source commit: $PREVIOUS_SOURCE. Rebuild this SHA via the workflow recovery_sha input; do not install an APK downgrade."
             else
               echo 'Could not preserve previous APK; refusing to replace update channel.'
               exit 1
