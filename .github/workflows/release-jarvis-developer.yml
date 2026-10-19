@@ -93,32 +93,23 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           from zipfile import ZipFile
-          import struct
-          root = Path("developer/src/main/res/drawable-nodpi")
-          archive = root / "jarvis_approved_artwork.zip"
-          if not archive.is_file():
-              print("No uploaded artwork ZIP; leaving existing artwork untouched.")
-              raise SystemExit(0)
-          with ZipFile(archive) as z:
-              candidates = []
-              for entry in z.infolist():
-                  if entry.is_dir() or not entry.filename.lower().endswith(".png"):
-                      continue
-                  data = z.read(entry)
-                  if data[:8] != bytes([137,80,78,71,13,10,26,10]) or len(data) < 24:
-                      print("Skipping invalid PNG entry:", entry.filename, "size:", len(data))
-                      continue
-                  width, height = struct.unpack(">II", data[16:24])
-                  candidates.append((entry.filename, width, height, data))
-              header = [c for c in candidates if c[1] >= 2*c[2] and c[1] >= 800]
-              icon = [c for c in candidates if c[1] == c[2] and "icon" in c[0].lower()]
-              if not icon:
-                  icon = [c for c in candidates if c[1] == c[2] and "reactor" in c[0].lower()]
-              if len(header) != 1 or len(icon) != 1:
-                  raise ValueError("Artwork ZIP must contain one wide PNG header and one square reactor icon")
-              (root / "developer_approved_header.png").write_bytes(header[0][3])
-              (root / "developer_arc_reactor_icon.png").write_bytes(icon[0][3])
-              print("Installed exact artwork:", header[0][:3], icon[0][:3])
+          from PIL import Image
+          import io, hashlib
+          root = Path('developer/src/main/res/drawable-nodpi')
+          with ZipFile(root / 'jarvis_approved_artwork.zip') as z:
+              files = {Path(e.filename).name: z.read(e) for e in z.infolist() if not e.is_dir()}
+          header = files['developer_approved_header.png']
+          icon = files['developer_arc_reactor_icon.png']
+          assert hashlib.sha256(header).hexdigest() == '5eda3e2efed91ee83761b989c06d4f926a5071ed790e0dc79acbec40b68c40d5', 'Header mismatch'
+          assert hashlib.sha256(icon).hexdigest() == 'a0fc91552667885a126b9509366938f070d004435e6a5114f70045fbc8e278f0', 'Icon mismatch'
+          with Image.open(io.BytesIO(header)) as im:
+              assert im.size == (1536, 512)
+              im.convert('RGB').save(root / 'developer_approved_header.png', format='PNG')
+          with Image.open(io.BytesIO(icon)) as im:
+              assert im.size == (512, 512)
+              im.verify()
+          (root / 'developer_arc_reactor_icon.png').write_bytes(icon)
+          print('Verified approved artwork installed; JPEG-encoded header converted to PNG')
           PY
           git add developer/src/main/res/drawable-nodpi/developer_approved_header.png developer/src/main/res/drawable-nodpi/developer_arc_reactor_icon.png
           if ! git diff --cached --quiet; then
