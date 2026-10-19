@@ -13,6 +13,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.ImageView
 import android.view.View
+import android.graphics.drawable.GradientDrawable
 import kotlin.concurrent.thread
 
 /**
@@ -67,44 +68,44 @@ class MainActivity : Activity() {
             }
             root.addView(this)
         }
-        val title = TextView(this).apply {
-            text = "J.A.R.V.I.S.  DEVELOPER"
-            textSize = 24f
-            setTextColor(0xFFFFFFFF.toInt())
-        }
-        // Reuse the original Jarvis header's vector lettering, not a substitute font.
+        // Original reactor artwork and original vector lettering share one compact header row.
         val header = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, 8, 0, 18)
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(12, 16, 12, 16)
+            background = GradientDrawable().apply {
+                setColor(getColor(R.color.developer_panel))
+                cornerRadius = 24f
+                setStroke(1, 0xFF265361.toInt())
+            }
         }
-        val reactor = ImageView(this).apply {
+        header.addView(ImageView(this).apply {
             setImageResource(R.drawable.developer_arc_reactor_art)
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "Jarvis arc reactor"
-        }
-        header.addView(reactor, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 124))
-        val wordmark = ImageView(this).apply {
+        }, LinearLayout.LayoutParams(64, 64))
+        header.addView(ImageView(this).apply {
             setImageResource(R.drawable.developer_jarvis_wordmark)
-            scaleType = ImageView.ScaleType.FIT_START
+            scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "J.A.R.V.I.S."
-            adjustViewBounds = true
-        }
-        header.addView(wordmark, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 52))
-        title.text = "DEVELOPER"
-        title.textSize = 18f
-        title.letterSpacing = 0.22f
-        title.setTextColor(getColor(R.color.developer_primary))
-        header.addView(title)
+        }, LinearLayout.LayoutParams(0, 56, 1f).apply { marginStart = 8 })
+        header.addView(TextView(this).apply {
+            text = "DEVELOPER"
+            textSize = 15f
+            letterSpacing = 0.03f
+            setTextColor(getColor(R.color.developer_primary))
+            gravity = Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, 56).apply {
+            marginStart = 6
+        })
         root.addView(header)
         val status = TextView(this).apply {
-            text = "Describe your idea, review changes, and build with confidence."
+            text = "Your AI development assistant"
             setTextColor(getColor(R.color.developer_secondary))
         }
         root.addView(status)
         val setupHint = TextView(this).apply {
-            text = "First time here? Connect an AI provider in Settings. Your credentials are used only for this session."
+            text = "New here? Connect an AI provider in Settings to get started."
             setTextColor(getColor(R.color.developer_secondary))
             setPadding(0, 16, 0, 8)
         }
@@ -124,16 +125,16 @@ class MainActivity : Activity() {
         }
         root.addView(provider)
         val model = field("Model ID (blank = provider default)")
-        val prompt = field("What would you like to build or change?", true)
+        val prompt = field("Describe your idea in everyday language…", true)
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             prompt.setText(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
         }
         val output = TextView(this).apply {
             setTextColor(getColor(R.color.developer_text))
             setTextIsSelectable(true)
-            text = "Coding responses appear here. Approved icon edits can be committed to the isolated Developer branch and checked against GitHub Actions."
+            text = "Your assistant’s response will appear here."
         }
-        val send = Button(this).apply { text = "Start with Jarvis" }
+        val send = Button(this).apply { text = "Start project"; isAllCaps = false }
         root.addView(send)
         root.addView(output)
 
@@ -396,11 +397,16 @@ class MainActivity : Activity() {
         }
         // Home can launch project creation without exposing advanced controls.
         val createProject = Button(this).apply {
-            text = "Create a new project"
+            text = "My projects"
             isAllCaps = false
             contentDescription = "Open project creation tools"
         }
         root.addView(createProject)
+        listOf(setupButton, send, createProject).forEach { button ->
+            button.isAllCaps = false
+            button.setTextColor(0xFF071B25.toInt())
+            button.backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_primary))
+        }
         val pages = listOf(root, projects, advanced, settings).map { page ->
             ScrollView(this).apply {
                 addView(page)
@@ -426,6 +432,8 @@ class MainActivity : Activity() {
             text = label
             textSize = 12f
             isAllCaps = false
+            setTextColor(getColor(R.color.developer_primary))
+            backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_panel))
             setOnClickListener { showPage(pageIndex) }
             tabs.add(this)
             navigation.addView(this, LinearLayout.LayoutParams(
@@ -441,11 +449,12 @@ class MainActivity : Activity() {
         tab("Tools", 2)
         tab("Settings", 3)
         showPage(activePage)
-        shell.addView(navigation)
         pages.forEach { page ->
             shell.addView(page, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         }
+        navigation.setBackgroundColor(getColor(R.color.developer_panel))
+        shell.addView(navigation)
         setContentView(shell)
     }
 
