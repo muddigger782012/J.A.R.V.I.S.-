@@ -176,6 +176,12 @@ class MainActivityConfigurationAndroidTest {
             View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY))
         decor.layout(0, 0, widthPx, heightPx)
         idleMain()
+        // Inspect the Tools page where the long, security-gated action list lives.
+        // Expanding it exercises the layout most likely to overflow at large font sizes.
+        assertTrue(button(activity, "Tools").performClick())
+        idleMain()
+        assertTrue(button(activity, "Show developer controls").performClick())
+        idleMain()
         val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
         val root = scroll.getChildAt(0) as LinearLayout
         assertTrue("Measured scroll viewport width", scroll.width > 0)
