@@ -262,11 +262,17 @@ object CodingAssistantProvider {
         require(content.get("role") == "model")
         val parts = content.getJSONArray("parts")
         require(parts.length() > 0)
-        return (0 until parts.length()).joinToString("") { index ->
+        // Gemini can include non-text thinking metadata alongside the final text.
+        // Only expose ordinary text parts; never surface thoughts or tool calls.
+        return (0 until parts.length()).mapNotNull { index ->
             val part = parts.getJSONObject(index)
-            require(part.length() == 1 && part.get("text") is String)
-            part.get("text") as String
-        }
+            require(!part.has("functionCall") && !part.has("executableCode") && !part.has("codeExecutionResult"))
+            if (part.optBoolean("thought", false)) null
+            else {
+                require(part.has("text") && part.get("text") is String)
+                part.getString("text")
+            }
+        }.joinToString("")
     }
 
     private fun rejectCredential(value: Any, key: String) {
