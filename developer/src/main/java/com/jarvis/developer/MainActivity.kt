@@ -163,7 +163,8 @@ class MainActivity : Activity() {
         // A restrained breathing glow follows the panel's cyan stroke.
         // Keep the glow on the background drawable: no image scaling or text movement.
         val borderDrawable = header.background as GradientDrawable
-        val borderPulse = ValueAnimator.ofInt(0xFF265361.toInt(), 0xFF5AF4FF.toInt(), 0xFF265361.toInt()).apply {
+        val borderPulse = ValueAnimator.ofObject(android.animation.ArgbEvaluator(),
+            0xFF265361.toInt(), 0xFF5AF4FF.toInt(), 0xFF265361.toInt()).apply {
             duration = 2800L
             repeatCount = ValueAnimator.INFINITE
             interpolator = LinearInterpolator()
