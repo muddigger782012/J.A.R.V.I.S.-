@@ -74,8 +74,10 @@ namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
 No application version or production update pointer is changed in this increment.
-The existing stable build workflow publishes both products and replaces the
-personal updater APK; it must not be manually run on an unverified feature branch.
+The stable build workflow still publishes both products on main. Feature-branch
+manual runs now produce only personal signed build artifacts: both publication
+steps and Beta compilation/upload require the main branch. This permits a signed
+personal phone-test candidate without replacing the updater or Beta release.
 A debug APK is build evidence, not a same-signer personal update candidate.
 
 ## Required checks before merge and updater publication
@@ -106,11 +108,12 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 
 ## Verification record for this increment
 
-- APK archive Python checks: passed locally.
+- JVM suite: 410 tests across 77 suites passed locally, with no failures, errors or skipped tests.
+- Debug assemblies: all three supported ABI APKs and the Android test APK built successfully.
+- APK archive Python checks: six passed locally.
 - UI theme contract: passed locally; no visual source/resource changes.
-- Gateway tests: passed locally, including the personal-only behavior-profile contract.
-- Full Android/JVM build and instrumentation compilation: in progress.
-- Final-source CI and emulator acceptance: pending.
+- Gateway tests: 16 passed locally, including the personal-only behavior-profile contract.
+- Final-source CI and emulator acceptance: recorded in the pull request's checks; do not infer success from compilation.
 - Physical-device acceptance, controlled wake measurements, signed upgrade and updater delivery: pending.
 
 No verified per-phase percentage or release readiness is claimed while these
