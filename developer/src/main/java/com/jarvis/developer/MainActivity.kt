@@ -409,6 +409,7 @@ class MainActivity : Activity() {
                 .put("updated_at", System.currentTimeMillis()).toString()
             return projectPrefs.edit().putString("project_" + id, record).commit()
         }
+        var activeProjectId: String? = null
         send.setOnClickListener {
             val providerName = provider.selectedItem.toString()
             val apiKey = key.text.toString().trim()
@@ -419,7 +420,8 @@ class MainActivity : Activity() {
                 prompt.requestFocus()
                 return@setOnClickListener
             }
-            val projectId = java.util.UUID.randomUUID().toString()
+            val projectId = activeProjectId ?: java.util.UUID.randomUUID().toString()
+            activeProjectId = projectId
             if (!persistProject(projectId, task, "saved")) {
                 status.text = "Project could not be saved on this device."
                 return@setOnClickListener
@@ -509,6 +511,7 @@ class MainActivity : Activity() {
                     text = description.take(80) + " (" + state + ")"
                     isAllCaps = false
                     setOnClickListener {
+                        activeProjectId = record.optString("id").takeIf { it.isNotBlank() }
                         prompt.setText(description)
                         output.text = if (response.isNotBlank()) response else
                             "Project restored. Use Generate to retry the AI request."
