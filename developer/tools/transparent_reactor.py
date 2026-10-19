@@ -17,3 +17,10 @@ for r, g, b, a in image.getdata():
 image.putdata(pixels)
 image.save(asset, format="WEBP", lossless=True, exact=True)
 print(f"Transparent reactor prepared: {image.width}x{image.height}")
+
+# Android's launcher must use the processed transparent pixels, not the
+# original approved PNG (which may contain an opaque white canvas).
+launcher = Path("developer/src/main/res/drawable-nodpi/developer_launcher_transparent.png")
+image.save(launcher, format="PNG", optimize=True)
+assert image.getpixel((0, 0))[3] == 0, "Launcher corner must be transparent"
+print(f"Transparent launcher written: {launcher}")
