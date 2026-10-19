@@ -82,6 +82,45 @@ object CodingAssistantProvider {
         }
     }
 
+    fun availableGeminiModels(key: String): List<String> {
+        require(keyPattern.matches(key))
+        val connection = URL("https://generativelanguage.googleapis.com/v1beta/models").openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "GET"
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = 15000
+            connection.readTimeout = 20000
+            connection.setRequestProperty("x-goog-api-key", key)
+            connection.setRequestProperty("Accept", "application/json")
+            val code = connection.responseCode
+            if (code !in 200..299) throw ProviderFailure(httpMessage(code))
+            val bytes = ByteArrayOutputStream()
+            connection.inputStream.use { stream ->
+                val buffer = ByteArray(4096)
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count == -1) break
+                    require(count > 0 && bytes.size() + count <= MAX_RESPONSE_BYTES)
+                    bytes.write(buffer, 0, count)
+                }
+            }
+            val models = JSONObject(strictUtf8(bytes.toByteArray())).optJSONArray("models") ?: JSONArray()
+            return (0 until models.length()).mapNotNull { index ->
+                val item = models.getJSONObject(index)
+                val methods = item.optJSONArray("supportedGenerationMethods") ?: JSONArray()
+                val name = item.optString("name").removePrefix("models/")
+                if (geminiName.matches(name) &&
+                    (0 until methods.length()).any { methods.optString(it) == "generateContent" }) name else null
+            }
+        } catch (e: ProviderFailure) {
+            throw e
+        } catch (_: Exception) {
+            throw IllegalStateException("Unable to discover Gemini models.")
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     fun ask(provider: String, key: String, model: String, task: String): String = Client(http).ask(provider, key, model, task)
 
     /** One text request, no retries. Injectable dependencies are instance-local and internal to tests. */
