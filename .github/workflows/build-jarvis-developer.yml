@@ -34,6 +34,8 @@ jobs:
       - uses: android-actions/setup-android@v4
       - name: Test, lint and build standalone Developer APK
         run: |
+          python3 -m pip install --quiet Pillow
+          python3 developer/tools/transparent_reactor.py
           chmod +x ./gradlew
           ./gradlew --no-daemon :developer:testDebugUnitTest :developer:lintDebug :developer:assembleDebug :developer:assembleDebugAndroidTest
       - name: Record bounded acceptance evidence in CI logs
