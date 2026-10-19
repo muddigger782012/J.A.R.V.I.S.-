@@ -302,6 +302,25 @@ class CodingAssistantProviderTest {
         assertEquals(1, fake.closed)
     }
 
+    @Test fun safeNetworkFailuresAreDistinguishedWithoutExposingExceptionDetails() {
+        val cases = listOf(
+            java.net.SocketTimeoutException("secret $key") to "timed out",
+            java.net.UnknownHostException("secret $key") to "hostname",
+            java.net.ConnectException("secret $key") to "Could not connect"
+        )
+        for ((exception, expected) in cases) {
+            val client = CodingAssistantProvider.Client(CodingAssistantProvider.PostTransport { throw exception })
+            try {
+                client.ask("Gemini", key, "gemini-2.5-flash", task)
+                fail("Expected safe network failure")
+            } catch (failure: CodingAssistantProvider.ProviderFailure) {
+                assertTrue(failure.message.orEmpty().contains(expected))
+                assertFalse(failure.toString().contains(key))
+                assertNull(failure.cause)
+            }
+        }
+    }
+
     @Test fun emptyTextResponsesFailInsteadOfClaimingSuccess() {
         for (text in listOf("", " \n\t")) {
             fails(Fixture().apply { body(openAi(text)) })
