@@ -1,5 +1,8 @@
 package com.jarvis.developer
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
+import android.view.animation.LinearInterpolator
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
@@ -96,11 +99,18 @@ class MainActivity : Activity() {
                 setStroke(dp(1), 0xFF265361.toInt())
             }
         }
-        header.addView(ImageView(this).apply {
+        val reactorIcon = ImageView(this).apply {
             setImageBitmap(reactor)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            contentDescription = "Jarvis arc reactor"
-        }, LinearLayout.LayoutParams(dp(72), dp(72)))
+            contentDescription = "Animated Jarvis arc reactor"
+        }
+        header.addView(reactorIcon, LinearLayout.LayoutParams(dp(72), dp(72)))
+        ObjectAnimator.ofFloat(reactorIcon, View.ROTATION, 0f, 360f).apply {
+            duration = 12000L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = LinearInterpolator()
+            start()
+        }
         val headerWords = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
