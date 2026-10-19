@@ -516,8 +516,7 @@ class MainActivity : Activity() {
             credentialStatus.text = "Testing $selectedProvider connection..."
             thread(name = "DeveloperConnectionTest") {
                 val message = try {
-                    CodingAssistantProvider.ask(selectedProvider, selectedKey, selectedModel,
-                        "Reply with the single word connected.") 
+                    CodingAssistantProvider.testConnection(selectedProvider, selectedKey, selectedModel) 
                     "$selectedProvider connection successful."
                 } catch (e: CodingAssistantProvider.ProviderFailure) {
                     e.message ?: "AI connection failed."
