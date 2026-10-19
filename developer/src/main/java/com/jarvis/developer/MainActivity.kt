@@ -431,7 +431,7 @@ class MainActivity : Activity() {
             }
             val requestInputs = listOf(send, provider, key, model, prompt)
             requestInputs.forEach { it.isEnabled = false }
-            status.text = "Project saved. Connecting to $"+ "{providerName}..."
+            status.text = "Project saved. Connecting to " + providerName + "..."
             thread(name = "DeveloperCodingAssistant") {
                 try {
                     val result = CodingAssistantProvider.ask(providerName, apiKey, modelName, task)
@@ -439,7 +439,7 @@ class MainActivity : Activity() {
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
                             output.text = result
-                            status.text = "Project saved; response received from $"+ "{providerName}"
+                            status.text = "Project saved; response received from " + providerName
                         }
                     }
                 } catch (e: Exception) {
