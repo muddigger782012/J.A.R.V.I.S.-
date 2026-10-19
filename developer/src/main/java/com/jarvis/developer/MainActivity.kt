@@ -185,7 +185,9 @@ class MainActivity : Activity() {
         }
         root.addView(status)
         val setupHint = TextView(this).apply {
-            text = if (ProviderCredentialStore.load(this@MainActivity) != null)\n                "AI connection saved. Test your connection in Settings before starting a project."\n                else "New here? Connect an AI provider in Settings to get started."
+            text = if (ProviderCredentialStore.load(this@MainActivity) != null)
+                "AI connection saved. Test your connection in Settings before starting a project."
+                else "New here? Connect an AI provider in Settings to get started."
             setTextColor(getColor(R.color.developer_secondary))
             setPadding(0, 16, 0, 8)
         }
