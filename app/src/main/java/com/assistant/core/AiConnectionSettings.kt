@@ -67,6 +67,43 @@ object AiConnectionSettings {
                     } else geminiModel.setText(chosen)
                 }.setNegativeButton("Cancel", null).show()
         }
+        val discoverButton = com.google.android.material.button.MaterialButton(activity).apply {
+            text = "Find Gemini models available to my API key"
+        }
+        val discoveryStatus = TextView(activity).apply {
+            text = "Queries Google's model catalog using the entered API key."
+            textSize = 12f
+        }
+        fields.addView(discoverButton)
+        fields.addView(discoveryStatus)
+        discoverButton.setOnClickListener {
+            val apiKey = geminiKey.text.toString().trim()
+            if (apiKey.isEmpty()) {
+                discoveryStatus.text = "Enter your Gemini API key first."
+                return@setOnClickListener
+            }
+            discoverButton.isEnabled = false
+            discoveryStatus.text = "Checking available Gemini models..."
+            kotlin.concurrent.thread(name = "JarvisGeminiModelDiscovery") {
+                val models = try {
+                    com.assistant.core.services.GeminiModelDiscovery.list(apiKey)
+                } catch (_: Exception) { emptyList() }
+                activity.runOnUiThread {
+                    if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                    discoverButton.isEnabled = true
+                    if (models.isEmpty()) discoveryStatus.text =
+                        "No models returned. Check your API key and network connection."
+                    else {
+                        discoveryStatus.text = "${models.size} text-generation models available."
+                        ThemedDialogBuilder(activity).setTitle("Available Gemini models")
+                            .setItems(models.toTypedArray()) { _, index ->
+                                geminiModel.setText(models[index])
+                                discoveryStatus.text = "Selected ${models[index]}. Tap Save to apply."
+                            }.setNegativeButton("Cancel", null).show()
+                    }
+                }
+            }
+        }
         fields.addView(TextView(activity).apply {
             text = "Models vary by API key, region and availability. Selection changes both conversation and Google Search grounding; unsupported models will return a provider error."
             textSize = 12f
