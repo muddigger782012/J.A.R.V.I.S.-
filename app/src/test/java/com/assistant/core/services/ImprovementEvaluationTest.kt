@@ -201,7 +201,7 @@ class ImprovementEvaluationTest {
         assertEquals(before.samples, evaluation.snapshot().samples)
         assertEquals(before.baseline, evaluation.snapshot().baseline)
         assertTrue(evaluation.snapshot().enabled)
-        assertEquals(2, org.json.JSONObject(file.readText()).getInt("version"))
+        assertEquals(3, org.json.JSONObject(file.readText()).getInt("version"))
     }
 
     @Test fun proposalControlsAcceptOnlyKnownScenariosAndCannotApproveCodeExecution() {
@@ -212,5 +212,73 @@ class ImprovementEvaluationTest {
             assertNull(ImprovementEvaluation.command(text))
         }
         assertTrue(ImprovementEvaluation.isManagementInput("review improvement proposal for my private transcript"))
+    }
+
+    @Test fun localChecksRequireOptInPersistActualResultsAndRemainSeparateFromOwnerReports() = fixture { directory ->
+        val evaluation = store(directory)
+        val run = ImprovementEvaluation.Command(ImprovementEvaluation.Action.RUN_LOCAL)
+        assertTrue(evaluation.reply(run).contains("No checks were run"))
+        assertNull(evaluation.snapshot().localRun)
+        evaluation.setEnabled(true)
+        evaluation.record(ImprovementEvaluation.Scenario.RECOVERY, ImprovementEvaluation.Outcome.UNCLEAR)
+        val reports = evaluation.snapshot().samples
+        val response = evaluation.reply(run)
+        assertTrue(response.contains("counter dispatchers"))
+        assertTrue(response.contains("No phone action"))
+        assertTrue(store(directory).snapshot().localRun!!.results.all { it.outcome == LocalFoundationChecks.Outcome.PASSED })
+        assertEquals(reports, evaluation.snapshot().samples)
+        assertTrue(evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.BASELINE_LOCAL)).contains("Saved the actual"))
+        store(directory, 436).reply(run)
+        val compared = store(directory, 436).reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.COMPARE_LOCAL))
+        assertTrue(compared.contains("3.5.435 to 3.5.436"))
+        assertTrue(compared.contains("passed -> passed; unchanged"))
+        val beforeClear = evaluation.snapshot()
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.CLEAR_LOCAL))
+        assertEquals(beforeClear.copy(localRun = null, localBaseline = null), evaluation.snapshot())
+        evaluation.setEnabled(false)
+        assertTrue(evaluation.reply(run).contains("No checks were run"))
+    }
+
+    @Test fun localComparisonsPreserveFailedResultsAndRefuseMismatchedCheckRevisions() = fixture { directory ->
+        val evaluation = store(directory)
+        evaluation.setEnabled(true)
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.RUN_LOCAL))
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.BASELINE_LOCAL))
+        val file = File(directory, "improvement-evaluation.json")
+        val json = org.json.JSONObject(file.readText())
+        json.getJSONObject("localRun").getJSONArray("results").getJSONObject(0).put("outcome", "FAILED")
+        file.writeText(json.toString())
+        assertTrue(evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.COMPARE_LOCAL)).contains("regression or incomplete check"))
+        json.getJSONObject("localRun").put("revision", LocalFoundationChecks.REVISION + 1)
+        file.writeText(json.toString())
+        assertTrue(evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.COMPARE_LOCAL)).contains("revision changed"))
+        json.getJSONObject("localRun").getJSONArray("results").getJSONObject(0).put("case", "UNREVIEWED_INPUT")
+        file.writeText(json.toString())
+        try { evaluation.snapshot(); fail("Unknown persisted check must fail closed") } catch (_: IllegalArgumentException) { }
+        assertTrue(evaluation.clear())
+        assertFalse(evaluation.snapshot().enabled)
+    }
+
+    @Test fun installedVersionTwoBriefsAndConsentSurviveLocalCheckMigrationWithoutAutomaticRuns() = fixture { directory ->
+        val evaluation = store(directory)
+        evaluation.setEnabled(true)
+        evaluation.record(ImprovementEvaluation.Scenario.UPDATES, ImprovementEvaluation.Outcome.FAILED)
+        evaluation.saveBaseline()
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.PROPOSAL, ImprovementEvaluation.Scenario.UPDATES))
+        evaluation.setEnabled(false)
+        val before = evaluation.snapshot()
+        val file = File(directory, "improvement-evaluation.json")
+        val versionTwo = org.json.JSONObject(file.readText()).put("version", 2)
+        file.writeText(versionTwo.toString())
+        assertEquals(before, store(directory).snapshot())
+        assertTrue(evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.RUN_LOCAL)).contains("No checks were run"))
+        assertEquals(versionTwo.toString(), file.readText())
+        evaluation.setEnabled(true)
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.RUN_LOCAL))
+        assertEquals(before.proposals, evaluation.snapshot().proposals)
+        assertEquals(before.samples, evaluation.snapshot().samples)
+        assertEquals(before.baseline, evaluation.snapshot().baseline)
+        assertTrue(evaluation.clear())
+        assertEquals(ImprovementEvaluation.Snapshot(false, emptyList(), emptyList()), evaluation.snapshot())
     }
 }

@@ -25,6 +25,13 @@ class GoalPlanStore(private val file: PersonalStateFile, private val now: () -> 
     fun durationDraft(): GoalPlanning.Request? = file.access { decode(read()).takeIf { fresh(it.created) }?.draft }
     fun pending(): GoalPlanning.Plan? = file.access { decode(read()).takeIf { fresh(it.created) }?.pending }
     fun current(): GoalPlanning.Plan? = file.access { decode(read()).current }
+    /** Compare-and-replace prevents a correction in one conversation overwriting a newer review. */
+    fun replacePending(expected: GoalPlanning.Plan, replacement: GoalPlanning.Plan?): Boolean = file.access {
+        require(replacement == null || (GoalPlanning.valid(replacement) && replacement.key != expected.key && replacement.kind == expected.kind))
+        val saved = decode(read())
+        if (!fresh(saved.created) || saved.pending != expected) false
+        else write(encode(saved.copy(pending = replacement, created = if (replacement == null) 0 else now(), draft = null)))
+    }
     fun discardPending(): Boolean = file.access {
         val saved = decode(read())
         if (saved.pending == null && saved.draft == null) true
