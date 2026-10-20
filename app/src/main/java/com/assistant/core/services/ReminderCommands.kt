@@ -24,7 +24,7 @@ class ReminderCommands(private val reminders: () -> PersonalReminders) {
                 reviewedId = null
                 if (input.seconds == null || input.title == null || !PersonalReminders.validTitle(input.title)) {
                     check(manager.discardPending())
-                    "Use 'remind me in ten minutes to check the oven', with a duration from one second to 24 hours and a title up to 160 characters. No new reminder was approved."
+                    "Use 'remind me in ten minutes to check the oven', with a duration from one second to 24 hours and a title up to 160 characters. For later dates, use 'create a calendar event called Check the oven' and choose its date in your calendar. No new local reminder was approved."
                 } else {
                     val plan = manager.prepare(input.title, input.seconds)
                     if (!input.directRequest) review(plan) else {
