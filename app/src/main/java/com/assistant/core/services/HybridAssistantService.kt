@@ -1244,7 +1244,14 @@ class HybridAssistantService(
                 "test search connection", "check search connection"
             )) {
             Thread {
-                val response = try {
+                val searchProbe = rawInput.contains("search", ignoreCase = true)
+                val response = if (searchProbe) {
+                    val router = SearchRouter.configured("", "", "web")
+                    val result = router.search("Android developer documentation")
+                    if (result.items.isNotEmpty())
+                        "Independent web search returned " + result.items.size + " result(s). This verifies retrieval at test time, not Gemini connectivity."
+                    else router.failureMessage(result, "web")
+                } else try {
                     val connection = java.net.URL("https://www.google.com/generate_204").openConnection() as java.net.HttpURLConnection
                     try {
                         connection.connectTimeout = 5000
