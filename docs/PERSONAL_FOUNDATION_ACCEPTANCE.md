@@ -241,7 +241,7 @@ records evidence and personal publication. Broad UI-layout smoke remains skipped
 upstream; physical phone, live-provider and installed-data upgrade checks remain
 pending under existing owner authorization. No measured phase percentage is claimed.
 
-## Next prioritized workflows: persistent reminders and developer handoff
+## Persistent reminders and reviewed developer handoff
 
 This follow-up starts broader Phase 5 workflows with an actual local notification
 reminder. `remind me in ten minutes to check the oven` freezes a title and due time
@@ -297,10 +297,20 @@ registration/cancellation and NotificationManager post/readback with synthetic s
 and a controlled clock; it cancels all test alarms/notifications. It does not claim
 that a real alarm callback, reboot, doze timing or delivery on the personal phone has
 been field-tested. A chooser-construction test intercepts activity dispatch and
-performs no external transfer. Final-source CI/signing/publication evidence belongs
-in this follow-up's pull request. Phone, live-provider and installed-data acceptance
-remain pending. Contact lookup with confirmation and research-and-summary workflows
-remain the next Phase 5 priorities.
+performs no external transfer.
+
+Final automated evidence for personal build 3.5.451: all 478 JVM tests across 85
+suites passed with no failures, errors or skips; debug APKs for all three ABIs,
+instrumentation compilation, theme contract and personal/Beta merged-manifest
+separation passed. Final-source CI unit/build, gateway, theme and optimized Android
+acceptance passed, with `OK (21 tests)` in the actual emulator result. Broad
+visual-layout smoke is skipped upstream. All three production APKs independently
+passed package/version/ABI, distributed-signer compatibility, archive integrity,
+wake runtime/model and private enabled reminder-receiver checks. The build and
+publication provenance is retained in the pull request and signed-artifact manifest.
+Phone, actual alarm callback/reboot/doze timing, live-provider and installed-data
+acceptance remain pending. Contact lookup with confirmation and research-and-summary
+workflows remain the next Phase 5 priorities.
 
 ## Delivered behavior and acceptance evidence
 
@@ -373,13 +383,18 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.442 (versionCode 442) replaces the previously distributed 3.5.441
+Personal build 3.5.451 (versionCode 451) replaces the previously distributed 3.5.450
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
 manual runs now produce only personal signed build artifacts: both publication
 steps and Beta compilation/upload require the main branch. This permits a signed
 personal phone-test candidate without replacing the updater or Beta release.
+Feature candidates use independent branch concurrency; the main shared publisher
+retains its serialization lock. The older main publishers finished before this
+personal updater was replaced. The dedicated personal release publisher checks
+the reviewed manifest, final app-source identity and exact signed APK hashes.
+The versioned personal release contains all three ABIs, an ARM64 ZIP and checksums.
 A debug APK is build evidence, not a same-signer personal update candidate.
 
 ## Acceptance checklist and remaining physical follow-up
