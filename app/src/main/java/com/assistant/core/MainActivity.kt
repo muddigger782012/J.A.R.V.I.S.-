@@ -332,9 +332,22 @@ class MainActivity : ThemedActivity() {
             insets
         }
         setupTabs()
-        findViewById<android.widget.Button>(R.id.btnOpenJarvisChat).setOnClickListener {
-            showTab(0, animate = true, direction = if (currentTabIndex == 0) 0 else -1)
-            commandInput.requestFocus()
+        findViewById<android.widget.Button>(R.id.btnOpenJarvisChat).setOnClickListener { anchor ->
+            android.widget.PopupMenu(this, anchor).apply {
+                menu.add("Chat").setIcon(android.R.drawable.ic_menu_edit).setOnMenuItemClickListener {
+                    showTab(0, animate = true, direction = if (currentTabIndex == 0) 0 else -1)
+                    true
+                }
+                menu.add("New chat").setIcon(android.R.drawable.ic_input_add).setOnMenuItemClickListener {
+                    findViewById<Button>(R.id.btnNewAssistantChat).performClick()
+                    true
+                }
+                menu.add("History").setIcon(android.R.drawable.ic_menu_recent_history).setOnMenuItemClickListener {
+                    findViewById<Button>(R.id.btnAssistantHistory).performClick()
+                    true
+                }
+                show()
+            }
         }
 
         val database = Database(this)
@@ -1554,11 +1567,11 @@ class MainActivity : ThemedActivity() {
                 val answerText = line.removePrefix("J.A.R.V.I.S.:").trimStart()
                     .substringBefore("\nhttps://www.google.com/search?")
                 val copyAction = TextView(this).apply {
-                    text = "Copy answer"
-                    textSize = 12f
-                    minHeight = dp(48)
+                    text = "⧉"
+                    textSize = 18f
+                    minHeight = dp(32)
                     gravity = android.view.Gravity.CENTER_VERTICAL
-                    setPadding(dp(8), dp(8), dp(8), dp(8))
+                    setPadding(dp(4), dp(2), dp(4), dp(2))
                     setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
                     isClickable = true
                     isFocusable = true
