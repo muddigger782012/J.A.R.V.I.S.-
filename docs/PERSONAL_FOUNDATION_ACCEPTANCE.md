@@ -5,15 +5,19 @@ and its phase and delivery issues. This increment improves working behavior acro
 phases without using Phase 1 perfection as a gate. The requested percentages remain
 planning targets, **not verified completion measurements**.
 
-Publication record: the owner explicitly requested immediate publication of full
-personal build 3.5.434 after the automated checks passed. The existing personal
-updater now serves that production-signed APK. Physical phone, live-provider and
+Initial publication record: the owner explicitly requested immediate publication
+of full personal build 3.5.434 after automated checks passed. That production-signed
+foundation build was delivered through the existing personal updater. Physical phone, live-provider and
 installed-data upgrade acceptance remain unperformed follow-up checks; they are
 not represented as passed. No Beta or Developer release is part of this publication.
 
 ## Follow-up: personal routine recovery
 
-The next development increment replaces the personal service's session-only routine
+Personal build 3.5.435 delivers this verified increment through the existing updater
+and versioned downloads, under the owner's instruction to publish after automated
+verification while physical acceptance remains follow-up work.
+
+This increment replaces the personal service's session-only routine
 adapter with a bounded, atomic journal outside Android backup. Typed chat and voice
 share an operating-system execution lease. A competing instance can inspect the
 write-ahead checkpoint and save a cancellation request, but cannot dispatch or
@@ -38,11 +42,13 @@ work; reaching the limit blocks new invocations while preserving review and canc
 Acceptance for this increment includes an independent-JVM lease/death test, shared
 coordinator races, interrupted and between-step recovery, saved cancellation,
 stale feedback, removed approval and corrupt storage tests. Two additional Android
-cases exercise the actual atomic files and reconstructed service. Record successful
-results in the follow-up pull request before treating them as verified. The shipped
-personal build described above still has the earlier session-only adapter until a
-new signed update is published. This work adds no background scheduler or generic
-goal planner. Physical-device acceptance remains outstanding.
+cases exercise the actual atomic files and reconstructed service. The follow-up
+pull request records the full local suite (423 tests across 79 suites), all debug
+ABI and test APK builds, and successful final-source CI unit/build, gateway, theme
+and optimized emulator acceptance (11 tests). The signed build and independent
+downloaded-APK verification passed for all supported ABIs. Broad UI-layout smoke
+remains skipped upstream. This work adds no background scheduler or generic goal
+planner. Physical-device acceptance remains outstanding.
 
 ## Delivered behavior and acceptance evidence
 
@@ -52,7 +58,7 @@ goal planner. Physical-device acceptance remains outstanding.
 | 2: conversation | Explicit interpretation state replaces response-text matching. Questions mentioning commands stay conversational. Personal solution-first instructions apply in both persona modes. One configured gateway alternative can answer after a failed Gemini interpretation. | Intent, local query, fallback, personality and provider-routing tests; Android service acceptance cases. | Live provider behavior, naturalness and three-turn voice/text evaluation on the personal phone. Prompt contract tests do not prove model behavior. |
 | 3: memory/offline | A bounded local dialogue window survives service/process reconstruction. Latest corrections follow older dialogue. Exact review/reset controls; confirmed device memory and validated command learning remain separate. Local arithmetic, date/time, commands and approved routines remain available offline. | Reconstruction, expiry, malformed data, deletion, write-failure and command-control tests; actual Android storage acceptance cases. | Physical restart and foreground/voice-process smoke tests. No offline generative model or arbitrary fact-learning is claimed. |
 | 4: device integration | Selects implemented Standard fallbacks before an unavailable/unsupported privileged route is attempted. Maintains risk confirmations. Does not repeat uncertain adapter effects. Android rejecting an Accessibility action cannot become success. | Broker tests with injected adapters exercise actual selection, disabled fallback, denied policy, unsupported actions, failures and exceptions. | Standard, Accessibility, Shizuku and Dhizuku permission/device matrix. An advertised capability is not proof of permission or a working service. |
-| 5: execution | Personal saved approved routines use a step/checkpoint engine. Supports review, bounded explicit resume, cancellation, deduplication and distinct requested/user-confirmed/device-verified results. | Engine tests for representative volume/timer/app/updater routines, interruption, cancellation, changed approval/targets, storage failure and duplicate effects. | Device execution of three representative workflows; durable service-level checkpoint adapter, cross-process task coordination and broader goal decomposition. |
+| 5: execution | Personal approved routines use durable checkpoints and a shared dispatch lease across voice/chat. Supports restart review, bounded explicit resume, persisted cancellation, duplicate prevention and distinct requested/user-confirmed/device-verified results. | Engine/coordinator tests, an independent-JVM lease/death case, and Android service/atomic-storage recovery and concurrent cancellation acceptance. | Physical-device execution of three representative workflows; broader goal decomposition and reviewed terminal-history management. |
 | 6: improvement | Read-only proposals from recurring existing local result history: failure categories, bounded evidence, synthetic regression cases, recovery and recurrence. | Deterministic journal evaluation tests cover insufficient evidence, duplicates, conflicts, later verification and reopening. | Reviewed real-world feedback dataset, conversational failure collection with opt-in, developer integration for proposed patches/PRs and before/after behavioral evaluation. |
 
 The engine and pure policy tests establish their bounded contracts. Fake/injected
@@ -75,8 +81,8 @@ Personal-app-only controls:
 
 These controls cannot be taught as command aliases or saved routine names. They
 run locally and do not authorize unrelated pending actions. Routine status and
-control in the published build refer only to the current tracked execution in that
-assistant session; the follow-up described above restores them across sessions.
+control refer to the current tracked execution on this device, including after
+service reconstruction. Restoring status does not authorize or start pending steps.
 
 Conversation memory retains at most 30 exchanges, 2,000 characters per side and
 24,000 characters total, with seven-day expiry. It uses atomic writes and a file
@@ -87,10 +93,9 @@ never an executable command, saved fact, contact selection or pending approval.
 When a configured online provider is used, the supplied recent context is part of
 that request, as it already was for in-memory conversation.
 
-The service currently uses the workflow engine's **process-local checkpoint store**.
-It does not claim task recovery or duplicate protection across independent service
-instances, process death or restarts. The injectable durable-store recovery is
-unit-tested; a production durable adapter remains work for Phase 5. No background
+Personal build 3.5.434 used process-local routine checkpoints. Build 3.5.435 uses
+the durable personal adapter described above; the library's default remains local
+for callers that do not explicitly provide coordinated durable storage. No background
 execution, generic autonomous planner or unattended consequential action is added.
 An uncertain launch cannot be resumed automatically. Cancellation stops subsequent
 steps and does not undo effects already requested.
@@ -113,7 +118,7 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.434 (versionCode 434) replaces the previously distributed 3.5.433
+Personal build 3.5.435 (versionCode 435) replaces the previously distributed 3.5.434
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
@@ -146,9 +151,10 @@ A debug APK is build evidence, not a same-signer personal update candidate.
    APK integrity and exact installed signer compatibility.
 7. Exercise an in-place update from the installed personal build. Confirm retained
    settings, keys, manual model selection, appearance, chat and learned data.
-   Publish through the updater only after the release evidence is complete.
+   Record these checks separately from automated verification. The owner has
+   explicitly authorized personal publication with physical acceptance pending.
 
-## Verification record for this increment
+## Verification record for the initial foundation increment
 
 - JVM suite: 410 tests across 77 suites passed locally, with no failures, errors or skipped tests.
 - Debug assemblies: all three supported ABI APKs and the Android test APK built successfully.
@@ -162,4 +168,5 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 
 No verified per-phase percentage or release readiness is claimed while these
 acceptance gates remain open. Track the next smallest unmet contract in each phase
-in parallel, starting with device evidence and durable task coordination.
+in parallel, starting with device evidence, broader goal planning and supervised
+improvement proposals that can prepare reviewed developer changes.
