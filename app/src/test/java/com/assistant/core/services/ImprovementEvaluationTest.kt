@@ -281,4 +281,28 @@ class ImprovementEvaluationTest {
         assertTrue(evaluation.clear())
         assertEquals(ImprovementEvaluation.Snapshot(false, emptyList(), emptyList()), evaluation.snapshot())
     }
+
+    @Test fun explicitHandoffContainsSavedEvidenceAndSeparateLocalChecksWithoutSubmittingOrMutatingAnything() = fixture { directory ->
+        val evaluation = store(directory)
+        val scenario = ImprovementEvaluation.Scenario.RECOVERY
+        assertNull(evaluation.handoff(scenario))
+        evaluation.setEnabled(true)
+        evaluation.record(scenario, ImprovementEvaluation.Outcome.FAILED)
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.PROPOSAL, scenario))
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.RUN_LOCAL))
+        evaluation.record(scenario, ImprovementEvaluation.Outcome.PASSED)
+        val before = evaluation.snapshot()
+        val artifact = evaluation.handoff(scenario)!!
+        assertTrue(artifact.contains("owner reported failed"))
+        assertTrue(artifact.contains("newer report supersedes this source (passed)"))
+        assertTrue(artifact.contains("Separate local-check snapshot"))
+        assertTrue(artifact.contains("counter dispatchers"))
+        assertTrue(artifact.contains("no raw conversation"))
+        assertEquals(before, evaluation.snapshot())
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.DISMISS_PROPOSAL, scenario))
+        assertNull(evaluation.handoff(scenario))
+        assertEquals(ImprovementEvaluation.Action.SHARE_PROPOSAL, ImprovementEvaluation.command("share improvement proposal for routine recovery")!!.action)
+        assertNull(ImprovementEvaluation.command("share improvement proposal for routine recovery then send it"))
+        assertTrue(ImprovementEvaluation.isManagementInput("share improvement proposal for unknown private details"))
+    }
 }

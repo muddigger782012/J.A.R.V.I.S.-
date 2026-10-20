@@ -11,6 +11,7 @@ android {
         applicationId "com.assistant.core"
         minSdk 26
         targetSdk 34
+        manifestPlaceholders.personalReminderEnabled = "true"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // CI supplies monotonically increasing values from the GitHub Actions run number.
         // Local builds retain a safe baseline above all historical versionCode 24 installs.
@@ -67,6 +68,7 @@ android {
             initWith release
             applicationIdSuffix ".beta"
             versionNameSuffix "-beta"
+            manifestPlaceholders.personalReminderEnabled = "false"
             matchingFallbacks = ["release"]
             resValue "string", "install_package", "com.assistant.core.beta"
             buildConfigField "String", "GITHUB_UPDATE_APK_PATH", "\"artifacts/beta.apk\""

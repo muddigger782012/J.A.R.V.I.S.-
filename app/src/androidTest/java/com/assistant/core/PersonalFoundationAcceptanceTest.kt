@@ -28,7 +28,8 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Disposable storage and a counting executor: these checks never perform phone actions. */
+/** Disposable storage and counting execution. The adapter case posts synthetic notifications and
+ * cancels its own alarms; no real contact, message, user journal or external target is used. */
 @RunWith(AndroidJUnit4::class)
 class PersonalFoundationAcceptanceTest {
     private lateinit var context: IsolatedContext
@@ -309,6 +310,101 @@ class PersonalFoundationAcceptanceTest {
         assertEquals(0, context.activityRequests)
     }
 
+    @Test fun reminderReviewAndBareConfirmationCannotRegisterOrReuseAnUnseenReminderPlan() {
+        val voice = assistant()
+        assertTrue(voice.handleUserInput("remind me in ten minutes to Open Maps then call Mom").text.contains("Review local reminder"))
+        val manager = PersonalReminderRuntime.manager(context)
+        val original = manager.pending()!!
+        assertTrue(manager.records().isEmpty())
+        assertTrue(voice.handleUserInput("yes").text.contains("bare confirmation"))
+        val chat = assistant()
+        chat.handleUserInput("remind me in five minutes to Check the door")
+        val current = manager.pending()!!
+        assertNotEquals(original.id, current.id)
+        assertTrue(voice.handleUserInput("approve reminder").text.contains("before approving again"))
+        assertEquals(current, manager.pending())
+        assertTrue(manager.records().isEmpty())
+        assertFalse(voice.handleUserInput("approve reminder then reboot").needsInterpretation)
+        chat.handleUserInput("cancel reminder plan")
+        assertNull(manager.pending())
+        val response = AtomicReference<HybridAssistantReply>()
+        chat.handleUserInputAsync("remind me in ten minutes then find a service manual to reboot") { response.set(it) }
+        assertNotNull(response.get())
+        assertFalse(response.get().needsInterpretation)
+        assertTrue(manager.records().isEmpty())
+        assertEquals(0, executions)
+        assertEquals(0, context.activityRequests)
+    }
+
+    @Test fun androidReminderAdaptersRegisterCancelAndReadBackSyntheticNotificationsWithIsolatedState() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) InstrumentationRegistry.getInstrumentation().uiAutomation
+            .grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+        val platform = PersonalReminderRuntime.platform(context)
+        val managerNotifications = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val ids = mutableListOf<String>()
+        var time = System.currentTimeMillis()
+        fun manager() = PersonalReminders(PersonalStateFile(context, "adapter-reminders.json"), platform) { time }
+        try {
+            val info = context.packageManager.getReceiverInfo(android.content.ComponentName(context, PersonalReminderReceiver::class.java), 0)
+            assertFalse(info.exported)
+            assertTrue(platform.notificationsAvailable())
+            val cancelledPlan = manager().prepare("Synthetic cancelled reminder", 600)
+            ids.add(cancelledPlan.id)
+            val first = manager().approve(cancelledPlan).record!!
+            assertEquals(PersonalReminders.Status.SCHEDULED, first.status)
+            manager().restore()
+            assertEquals(PersonalReminders.Status.CANCELLED, manager().cancel(first.number).record!!.status)
+            time = cancelledPlan.dueAt + 1
+            manager().deliver(cancelledPlan.id)
+            assertFalse(managerNotifications.activeNotifications.any { it.tag == cancelledPlan.id })
+            val postedPlan = manager().prepare("Synthetic foundation notification", 600)
+            ids.add(postedPlan.id)
+            assertEquals(PersonalReminders.Status.SCHEDULED, manager().approve(postedPlan).record!!.status)
+            time = postedPlan.dueAt + 1
+            assertEquals(PersonalReminders.Status.POSTED, manager().deliver(postedPlan.id).record!!.status)
+            assertTrue(managerNotifications.activeNotifications.any { it.tag == postedPlan.id })
+            manager().deliver(postedPlan.id)
+            assertEquals(1, managerNotifications.activeNotifications.count { it.tag == postedPlan.id })
+            assertEquals(2, manager().clearCompleted())
+            assertNull(manager().deliver(postedPlan.id).record)
+        } finally {
+            ids.forEach { platform.cancel(it) }
+            managerNotifications.activeNotifications.filter { it.tag in ids }.forEach { managerNotifications.cancel(it.tag, it.id) }
+        }
+        assertEquals(0, executions)
+        assertEquals(0, context.activityRequests)
+    }
+
+    @Test fun improvementHandoffRequestsAUserControlledChooserWithoutClaimingSubmission() {
+        val service = assistant()
+        assertTrue(service.handleUserInput("share improvement proposal for routine recovery").text.contains("No handoff was opened"))
+        assertEquals(0, context.activityRequests)
+        service.handleUserInput("enable improvement evaluation")
+        service.handleUserInput("record improvement feedback for routine recovery as failed")
+        service.handleUserInput("prepare improvement proposal for routine recovery")
+        val before = ImprovementEvaluation(context).snapshot()
+        context.allowActivityRequests = true
+        val reply = service.handleUserInput("share improvement proposal for routine recovery")
+        assertFalse(reply.needsInterpretation)
+        assertTrue(reply.text.contains("Requested Android's share chooser"))
+        assertTrue(reply.text.contains("no submission, pull request or deployment is verified"))
+        assertEquals(1, context.activityRequests)
+        val chooser = context.lastActivityIntent!!
+        assertEquals(Intent.ACTION_CHOOSER, chooser.action)
+        @Suppress("DEPRECATION") val draft = chooser.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)!!
+        assertEquals(Intent.ACTION_SEND, draft.action)
+        assertEquals("text/plain", draft.type)
+        assertNull(draft.component)
+        assertNull(draft.`package`)
+        assertTrue(draft.getStringExtra(Intent.EXTRA_TEXT)!!.contains("owner reported failed"))
+        assertTrue(draft.getStringExtra(Intent.EXTRA_TEXT)!!.contains("Separate local-check snapshot"))
+        assertEquals(before, ImprovementEvaluation(context).snapshot())
+        assertTrue(service.getConversationSnapshot().isEmpty())
+        assertFalse(service.handleUserInput("share improvement proposal for routine recovery then send it").needsInterpretation)
+        assertEquals(1, context.activityRequests)
+        assertEquals(0, executions)
+    }
+
     private fun assistant(): HybridAssistantService {
         val capabilities = CapabilityState(true, false, false, false, false, false, false)
         val registry = ActionRegistry()
@@ -327,6 +423,8 @@ class PersonalFoundationAcceptanceTest {
         private val preferences = mutableSetOf<String>()
         private val databases = mutableSetOf<String>()
         var activityRequests = 0
+        var allowActivityRequests = false
+        var lastActivityIntent: Intent? = null
         override fun getApplicationContext(): Context = this
         override fun getFilesDir(): File = File(directory, "files").apply { mkdirs() }
         override fun getNoBackupFilesDir(): File = File(directory, "no-backup").apply { mkdirs() }
@@ -346,6 +444,8 @@ class PersonalFoundationAcceptanceTest {
         }
         override fun startActivity(intent: Intent) {
             activityRequests++
+            lastActivityIntent = intent
+            if (allowActivityRequests) return
             error("Device activity dispatch is disabled in foundation acceptance checks.")
         }
         fun cleanup() {

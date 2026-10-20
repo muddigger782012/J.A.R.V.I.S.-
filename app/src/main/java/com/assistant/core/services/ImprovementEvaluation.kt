@@ -6,7 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 
-/** Explicit local reports about fixed synthetic cases. Never collects conversation or runs code. */
+/** Manual reports and isolated logic checks. Never collects conversations or applies developer changes. */
 class ImprovementEvaluation(private val file: PersonalStateFile, private val build: Int,
                             private val buildName: String, private val now: () -> Long = System::currentTimeMillis) {
     constructor(context: Context) : this(PersonalStateFile(context, "improvement-evaluation.json"), BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)
@@ -32,7 +32,7 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
     }
     enum class Outcome { PASSED, FAILED, UNCLEAR }
     enum class Action { ENABLE, DISABLE, CLEAR, REVIEW, BASELINE, COMPARE, RECORD, PROPOSAL, PROPOSALS, REVIEW_PROPOSAL, DISMISS_PROPOSAL, CLEAR_PROPOSALS,
-        RUN_LOCAL, REVIEW_LOCAL, CLEAR_LOCAL, BASELINE_LOCAL, COMPARE_LOCAL }
+        RUN_LOCAL, REVIEW_LOCAL, CLEAR_LOCAL, BASELINE_LOCAL, COMPARE_LOCAL, SHARE_PROPOSAL }
     data class Command(val action: Action, val scenario: Scenario? = null, val outcome: Outcome? = null)
     data class Sample(val scenario: Scenario, val outcome: Outcome, val build: Int, val buildName: String, val time: Long)
     enum class ProposalStatus { PREPARED, DISMISSED }
@@ -96,6 +96,16 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
             else "Could not save the local check baseline."
         }
         Action.COMPARE_LOCAL -> compareLocal(snapshot())
+        Action.SHARE_PROPOSAL -> "Use the personal assistant's share improvement proposal command to open Android's review chooser. This evaluation store does not submit or share anything."
+    }
+
+    fun handoff(scenario: Scenario): String? {
+        val saved = snapshot()
+        val proposal = saved.proposals.lastOrNull { it.source.scenario == scenario } ?: return null
+        if (proposal.status != ProposalStatus.PREPARED) return null
+        return "Jarvis developer handoff — review required\n" + renderProposal(proposal, saved) +
+            "\n\nSeparate local-check snapshot at handoff (not owner-reported experience or phone verification):\n" + renderLocal(saved.localRun) +
+            "\n\nHandoff boundary: this is the saved synthetic evidence brief, not a patch or verified root cause. Review/reproduce it, prepare a focused change and regression tests, then use normal PR review, CI, signing and publication verification. This handoff contains no raw conversation, screenshots, private targets or provider credentials. Choosing a share destination does not prove that any external submission completed."
     }
 
     private fun runLocalChecks(): String {
@@ -314,14 +324,14 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
                 val scenario = Scenario.values().firstOrNull { it.label == record.groupValues[1] } ?: return null
                 return Command(Action.RECORD, scenario, Outcome.valueOf(record.groupValues[2].uppercase(Locale.ROOT)))
             }
-            for ((prefix, proposalAction) in listOf("prepare" to Action.PROPOSAL, "review" to Action.REVIEW_PROPOSAL, "dismiss" to Action.DISMISS_PROPOSAL)) {
+            for ((prefix, proposalAction) in listOf("prepare" to Action.PROPOSAL, "review" to Action.REVIEW_PROPOSAL, "dismiss" to Action.DISMISS_PROPOSAL, "share" to Action.SHARE_PROPOSAL)) {
                 val proposal = value.removePrefix("$prefix improvement proposal for ")
                 if (proposal != value) Scenario.values().firstOrNull { it.label == proposal }?.let { return Command(proposalAction, it) }
             }
             return null
         }
         fun isManagementInput(text: String): Boolean = command(text) != null || normalize(text).startsWith("record improvement feedback ") ||
-            listOf("prepare", "review", "dismiss", "clear").any { normalize(text).startsWith("$it improvement proposal") } ||
+            listOf("prepare", "review", "dismiss", "clear", "share").any { normalize(text).startsWith("$it improvement proposal") } ||
             Regex("^(?:run|review|clear|compare) local foundation checks\\b|^save local check baseline\\b").containsMatchIn(normalize(text))
     }
 }

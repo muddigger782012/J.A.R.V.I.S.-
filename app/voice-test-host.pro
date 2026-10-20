@@ -51,3 +51,6 @@
 -keep,allowoptimization class com.assistant.core.services.PersonalStateFile** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ImprovementEvaluation** { public *; }
 -keep,allowoptimization class com.assistant.core.services.LocalFoundationChecks** { public *; }
+-keep,allowoptimization class com.assistant.core.services.PersonalReminders** { public *; }
+-keep,allowoptimization class com.assistant.core.services.PersonalReminderRuntime** { public *; }
+-keep,allowoptimization class com.assistant.core.services.PersonalReminderReceiver** { public *; }

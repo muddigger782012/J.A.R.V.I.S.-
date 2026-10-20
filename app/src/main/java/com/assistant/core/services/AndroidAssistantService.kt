@@ -210,6 +210,14 @@ class AndroidAssistantService(private val context: Context) {
             putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
         })
 
+    /** The user chooses a destination and completes sharing in Android's UI. No recipient is preselected. */
+    fun reviewTextHandoff(title: String, text: String): Boolean {
+        if (title.length !in 1..100 || text.length !in 1..32_000) return false
+        val draft = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_SUBJECT, title)
+            .putExtra(Intent.EXTRA_TEXT, text)
+        return launch(Intent.createChooser(draft, "Review developer handoff"))
+    }
+
     fun openSettings(): Boolean = launch(Intent(Settings.ACTION_SETTINGS))
 
     fun adjustVolume(direction: Int): Boolean = synchronized(volumeLock) { runCatching {

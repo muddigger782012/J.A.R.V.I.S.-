@@ -80,6 +80,7 @@ class VoiceForegroundService : Service() {
         voicePreferences = VoicePreferences(this)
         ContextCompat.registerReceiver(this, responseOptionsReceiver, android.content.IntentFilter(VoiceResponsePreferences.ACTION_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
         createNotificationChannel()
+        PersonalReminderRuntime.restoreAsync(applicationContext)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
