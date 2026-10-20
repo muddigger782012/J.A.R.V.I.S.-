@@ -241,6 +241,67 @@ records evidence and personal publication. Broad UI-layout smoke remains skipped
 upstream; physical phone, live-provider and installed-data upgrade checks remain
 pending under existing owner authorization. No measured phase percentage is claimed.
 
+## Next prioritized workflows: persistent reminders and developer handoff
+
+This follow-up starts broader Phase 5 workflows with an actual local notification
+reminder. `remind me in ten minutes to check the oven` freezes a title and due time
+(`remind me to check the oven in ten minutes` is also supported)
+and directly authorizes that reversible local notification. `prepare a reminder in
+ten minutes to check the oven` instead presents a review, followed by exact
+`approve reminder`. A bare yes, restored conversation or an unseen/replaced review
+cannot authorize a prepared alarm.
+Reviews expire after two minutes or at the due time. Titles are inert notification
+data, not executable commands. Durations are strict English/digits from one second
+to 24 hours; titles are bounded to 160 characters. Untimed `remind me to ...` keeps
+the existing calendar-provider flow.
+
+The approved reminder journal lives in locked atomic no-backup storage shared by
+voice and chat. Stable alarm identities make restart/boot/package-update restoration
+idempotent. Notification posting has its own write-ahead checkpoint: interrupted or
+ambiguous delivery cannot be silently repeated. Posted means Android readback found
+the notification, not that it was read or the task completed. A bounded readback
+accounts for Android's asynchronous enqueueing. Missing notification permission or
+a blocked channel gives actionable notification-settings/retry guidance. No exact
+alarm access is needed; delivery is approximate and Android power saving may delay
+it. More-than-one-day-overdue reminders are marked missed instead of posted late.
+
+Controls: `review reminders`, `review reminder plan`, `cancel reminder plan`,
+`cancel reminder 1`, `retry reminder 1`, `reminder 1 was shown`, and `clear completed
+reminder history`, using the listed reminder number. Cancellation is stored before
+requesting Android alarm removal, so a late callback is suppressed even if removal
+fails. Only known blocked/unconfirmed registrations can retry; an owner report can
+resolve uncertain delivery as user-confirmed, separately from device verification.
+At most 100 records are retained. Explicit cleanup removes only posted, user-confirmed,
+cancelled or missed records; active/blocked/uncertain evidence remains. Numbers are
+not reused, cleared IDs cannot be revived by old broadcasts, and no entry is silently
+evicted. The receiver is non-exported; all titles/authorization come from private
+storage. Beta disables the receiver and omits boot permission. Developer behavior,
+personal provider/model controls and selected visual themes remain separate.
+
+Phase 6 adds `share improvement proposal for routine recovery` (or another known
+scenario). It requires an existing active saved brief and constructs a text handoff
+with the immutable original report, superseding-evidence labels, synthetic regression
+requirements and a separately labeled local-check snapshot. It requests Android's
+share chooser without preselecting a recipient. The user reviews and completes any
+transfer there; the command never claims a message, issue, PR or deployment succeeded.
+Missing/dismissed briefs and malformed share controls cause no activity request.
+No transcript, screenshot, private target or provider credential is included, and
+sharing does not mutate evaluation results or replace the original evidence. Actual
+in-app patch generation/GitHub write integration remains future work.
+
+Automated acceptance covers private-file approval/cancellation/recovery, duplicate
+callbacks, expired/stale reviews, blocked permission/delivery, retry bounds, write
+failures before registration and after posting, concurrent approval, capacity and
+old-broadcast rejection. Android acceptance separately exercises real AlarmManager
+registration/cancellation and NotificationManager post/readback with synthetic state
+and a controlled clock; it cancels all test alarms/notifications. It does not claim
+that a real alarm callback, reboot, doze timing or delivery on the personal phone has
+been field-tested. A chooser-construction test intercepts activity dispatch and
+performs no external transfer. Final-source CI/signing/publication evidence belongs
+in this follow-up's pull request. Phone, live-provider and installed-data acceptance
+remain pending. Contact lookup with confirmation and research-and-summary workflows
+remain the next Phase 5 priorities.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -326,7 +387,7 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
 2. Pass the existing CI unit/build, gateway, theme and optimized voice emulator jobs
-   on the final source. The voice runner requires all 18 voice/settings and isolated
+   on the final source. The voice runner requires all 21 voice/settings and isolated
    foundation service/storage acceptance tests. Broad visual-layout
    smoke remains disabled upstream; do not count it as a pass.
 3. On a disposable emulator, verify exact commands, no unintended actions for

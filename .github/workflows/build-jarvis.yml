@@ -8,7 +8,9 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: jarvis-main-apk-publisher
+  # Only main publishes shared updater assets. Isolated personal candidates can
+  # build in parallel without waiting for unrelated Beta packaging on main.
+  group: ${{ github.ref == 'refs/heads/main' && 'jarvis-main-apk-publisher' || format('jarvis-personal-candidate-{0}', github.ref) }}
   cancel-in-progress: false
 jobs:
   build:

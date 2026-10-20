@@ -319,6 +319,7 @@ class MainActivity : ThemedActivity() {
         setContentView(R.layout.activity_main)
 
         initViews()
+        com.assistant.core.services.PersonalReminderRuntime.restoreAsync(applicationContext)
         com.assistant.core.services.BundledVoicePreparation.ensure(applicationContext)
         pendingCameraPath = savedInstanceState?.getString("attachment_camera_path")
         savedInstanceState?.getString("attachment_draft")?.let { restoreAttachmentDraft(it) }

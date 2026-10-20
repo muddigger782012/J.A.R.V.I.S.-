@@ -47,6 +47,8 @@ class HybridAssistantService(
     @Volatile private var reviewedGoalKey: String? = null
     private val improvementEvaluation = if (personalAssistant) ImprovementEvaluation(systemService.context()) else null
     private val taskHistory = TaskHistoryCommands({ routineCoordinator })
+    private val personalReminders by lazy { PersonalReminderRuntime.manager(systemService.context()) }
+    private val reminderCommands = ReminderCommands { personalReminders }
     private var pendingLearningReset: Boolean = false
     private val routineConfirmations = RoutineConfirmationStore(systemService.context())
     private val routineRegistry = com.assistant.core.learning.ApprovedRoutineRegistry(systemService.context())
@@ -80,6 +82,25 @@ class HybridAssistantService(
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
+        if (personalAssistant) {
+            val reminderInput = ReminderCommands.parse(userInput)
+            val reminderReply = if (reminderInput != null) runCatching {
+                clearPendingActionPrompts()
+                goalPlans?.discardPending()
+                reminderCommands.reply(reminderInput)
+            }.getOrElse { "Reminder storage or Android delivery could not be accessed safely. Review reminders and notification settings before retrying; no automatic duplicate is allowed." }
+            else runCatching { reminderCommands.confirmation(userInput) }.getOrNull()
+            if (reminderReply != null) {
+                taskHistory.discardReview()
+                clearPendingActionPrompts()
+                runCatching { goalPlans?.discardPending() }
+                remember(userInput, reminderReply)
+                return HybridAssistantReply(reminderReply)
+            }
+            reminderCommands.discardReview()
+            if (userInput.lowercase(Locale.ROOT).trimEnd('.', '?', '!') !in setOf("notification settings", "open notification settings", "manage notifications"))
+                runCatching { personalReminders.discardPending() }
+        }
         val taskHistoryCommand = if (personalAssistant) TaskHistoryCommands.parse(userInput) else null
         if (taskHistoryCommand == null) taskHistory.discardReview()
         if (personalAssistant && TaskHistoryCommands.isManagementInput(userInput)) {
@@ -153,7 +174,15 @@ class HybridAssistantService(
                 val command = ImprovementEvaluation.command(userInput)
                 return HybridAssistantReply(if (command == null)
                     "Use an exact evaluation control: 'review improvement evaluation' for manual scenarios, or 'run local foundation checks' for isolated logic checks. Nothing was changed."
-                    else runCatching { improvementEvaluation!!.reply(command) }.getOrElse {
+                    else runCatching {
+                        if (command.action == ImprovementEvaluation.Action.SHARE_PROPOSAL) {
+                            val text = improvementEvaluation!!.handoff(command.scenario!!)
+                            if (text == null) "Prepare an active improvement proposal for that scenario before sharing. No handoff was opened."
+                            else if (androidAssistant.reviewTextHandoff("Jarvis improvement brief", text))
+                                "Requested Android's share chooser for the saved improvement brief. Review its evidence and choose a destination there; no submission, pull request or deployment is verified."
+                            else "Android's share chooser could not be opened. Review the saved improvement proposal and copy its brief for a developer handoff."
+                        } else improvementEvaluation!!.reply(command)
+                    }.getOrElse {
                         "Improvement evaluation storage could not be accessed. Review local storage access or explicitly clear improvement evaluation to reset it. No test or code change was performed."
                     })
             }
@@ -1093,7 +1122,7 @@ class HybridAssistantService(
         // Local evaluation/correction controls must not be reinterpreted as a manual search
         // when malformed trailing text happens to mention documentation or a provider.
         if (personalAssistant && (ImprovementEvaluation.isManagementInput(rawInput) ||
-                TaskHistoryCommands.isManagementInput(rawInput) || GoalPlanning.edit(rawInput) != null)) {
+                TaskHistoryCommands.isManagementInput(rawInput) || GoalPlanning.edit(rawInput) != null || ReminderCommands.parse(rawInput) != null)) {
             callback(handleUserInput(rawInput))
             return
         }
