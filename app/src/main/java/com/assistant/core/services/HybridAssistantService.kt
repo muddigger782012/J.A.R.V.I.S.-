@@ -1153,6 +1153,22 @@ class HybridAssistantService(
                 "Check any serial-number applicability against official documentation; if no serial number was provided, ask for it. " +
                 "Do not invent manual links or equipment-specific service procedures."
         } else rawInput
+        // Explicit web lookup runs independently of Gemini or any fallback AI API.
+        val keylessQuery = WebSearchCommand.query(resolvedInput)
+        if (keylessQuery != null && !directOnlineClient.hasGeminiKey()) {
+            Thread {
+                val router = SearchRouter.configured("", "", "web")
+                val retrieved = router.search(keylessQuery)
+                val response = if (retrieved.items.isNotEmpty())
+                    ChatSearchResults.encode(rawInput, retrieved.items,
+                        "Web search results. Review the linked sources; no AI verification was performed.",
+                        retrievedAt = System.currentTimeMillis())
+                else router.failureMessage(retrieved, "web")
+                remember(rawInput, response)
+                callback(HybridAssistantReply(response))
+            }.start()
+            return
+        }
         val local = handleUserInput(resolvedInput)
         val manualRetrieval = Regex(
             "(?i)\\b(?:technical|service|repair|shop|workshop|operator|operators|operator[’']s)\\s+manual\\b|technical documentation|service documentation"
