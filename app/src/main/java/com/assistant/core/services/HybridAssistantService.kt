@@ -1155,7 +1155,7 @@ class HybridAssistantService(
         } else rawInput
         // Dispatch explicit retrieval before the synchronous local handler returns
         // a browser-link acknowledgement. Search requires no cloud AI credentials.
-        if (!directOnlineClient.hasGeminiKey()) {
+        run {
             val videoQuery = WebSearchCommand.videoQuery(resolvedInput)
             val imageQuery = WebSearchCommand.imageQueryNatural(resolvedInput)
             val webQuery = WebSearchCommand.query(resolvedInput)
