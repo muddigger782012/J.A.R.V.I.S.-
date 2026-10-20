@@ -105,4 +105,51 @@ class GoalPlanningTest {
             }
         } finally { directory.deleteRecursively() }
     }
+
+    @Test fun correctionsReplaceOnlyTheRequestedFieldAndRequireANewExactReview() {
+        val original = plan("help me focus for 25 minutes at 20 percent volume")!!
+        val duration = GoalPlanning.revise(original, GoalPlanning.edit("Actually, make that ten minutes!")!!)!!
+        assertEquals(listOf("volume:20", "timer:600"), duration.actions)
+        assertNotEquals(original.key, duration.key)
+        val volume = GoalPlanning.revise(duration, GoalPlanning.edit("change the goal volume to zero percent")!!)!!
+        assertEquals(listOf("volume:0", "timer:600"), volume.actions)
+        assertNotEquals(duration.key, volume.key)
+        val music = plan("prepare a music session")!!
+        val changed = GoalPlanning.revise(music, GoalPlanning.edit("change goal volume to twenty five percent")!!)!!
+        assertEquals(music.actions.last(), changed.actions.last())
+        assertEquals("volume:25", changed.actions.first())
+        assertNull(GoalPlanning.revise(music, GoalPlanning.edit("make that ten minutes")!!))
+    }
+
+    @Test fun invalidCorrectionsCannotBecomePartiallyAcceptedCommands() {
+        val original = plan("help me focus for 25 minutes")!!
+        for (text in listOf("make that zero minutes", "make that ten minutes then reboot", "change goal volume to 101 percent",
+            "change goal volume to 20 percent then call someone", "make that", "change goal volume to")) {
+            assertNull(text, GoalPlanning.revise(original, GoalPlanning.edit(text)!!))
+        }
+        for (text in listOf("what would make that easier?", "set volume to 20 percent", "yes", "cancel goal plan"))
+            assertNull(text, GoalPlanning.edit(text))
+    }
+
+    @Test fun correctionCompareAndReplaceCannotOverwriteANewerPlanOrTheApprovedDefinition() {
+        val directory = Files.createTempDirectory("goal-correction").toFile()
+        var time = 1_000L
+        fun store() = GoalPlanStore(PersonalStateFile(directory, "goal-plans.json")) { time }
+        try {
+            val approved = plan("help me focus for five minutes")!!
+            assertTrue(store().propose(approved)); assertTrue(store().approve(approved))
+            val original = plan("help me focus for 25 minutes")!!
+            val revised = GoalPlanning.revise(original, GoalPlanning.edit("make that ten minutes")!!)!!
+            store().propose(original)
+            assertTrue(store().replacePending(original, revised))
+            assertFalse(store().approve(original))
+            assertFalse(store().replacePending(original, null))
+            assertEquals(revised, store().pending())
+            assertEquals(approved, store().current())
+            time += 120_001
+            assertFalse(store().replacePending(revised, null))
+            assertFalse(store().approve(revised))
+            assertEquals(approved, store().current())
+        } finally { directory.deleteRecursively() }
+    }
 }

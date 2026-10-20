@@ -10,6 +10,8 @@ object GoalPlanning {
     }
     data class Request(val kind: Kind, val volume: Int, val seconds: Int? = null, val appLabel: String? = null, val invalidDuration: Boolean = false)
     data class Plan(val key: String, val kind: Kind, val actions: List<String>)
+    enum class Field { DURATION, VOLUME }
+    data class Edit(val field: Field, val value: Int?)
     enum class Command { REVIEW, APPROVE, CANCEL, STATUS, RESUME, WORKED, FAILED }
 
     fun command(text: String): Command? = when (clean(text)) {
@@ -21,6 +23,34 @@ object GoalPlanning {
         "the goal worked" -> Command.WORKED
         "the goal failed" -> Command.FAILED
         else -> null
+    }
+
+    /** A correction changes only a pending review, never an approved or running execution. */
+    fun edit(text: String): Edit? {
+        val value = clean(text).replace(Regex("^actually(?:,|:)?\\s+"), "")
+        val volume = Regex("^change (?:the )?goal volume to(?: (.*))?$").matchEntire(value)
+        if (volume != null) {
+            val number = Regex("^(.+?)(?: percent|%)$").matchEntire(volume.groupValues[1])?.groupValues?.get(1)
+            return Edit(Field.VOLUME, number?.takeIf { text.length <= 200 }?.let(SpokenTimerDuration::number)?.takeIf { it in 0..100 })
+        }
+        val duration = Regex("^(?:make that|change (?:the )?goal duration to)(?: (.*))?$").matchEntire(value) ?: return null
+        return Edit(Field.DURATION, duration.groupValues[1].takeIf { text.length <= 200 }?.let(SpokenTimerDuration::seconds))
+    }
+
+    fun revise(plan: Plan, edit: Edit): Plan? {
+        if (!valid(plan) || edit.value == null) return null
+        val actions = plan.actions.toMutableList()
+        when (edit.field) {
+            Field.DURATION -> {
+                if (plan.kind != Kind.FOCUS || edit.value !in 1..86400) return null
+                actions[1] = "timer:${edit.value}"
+            }
+            Field.VOLUME -> {
+                if (edit.value !in 0..100) return null
+                actions[0] = "volume:${edit.value}"
+            }
+        }
+        return Plan("goal plan ${UUID.randomUUID()}", plan.kind, actions).takeIf(::valid)
     }
 
     fun parse(text: String): Request? {

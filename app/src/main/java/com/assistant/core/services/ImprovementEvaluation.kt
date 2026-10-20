@@ -31,12 +31,14 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
             "Keep the interrupted effect uncertain, avoid duplicate dispatch and allow cancellation of later steps.", "RoutineExecutionCoordinator and LocalRoutineWorkflowAccess")
     }
     enum class Outcome { PASSED, FAILED, UNCLEAR }
-    enum class Action { ENABLE, DISABLE, CLEAR, REVIEW, BASELINE, COMPARE, RECORD, PROPOSAL, PROPOSALS, REVIEW_PROPOSAL, DISMISS_PROPOSAL, CLEAR_PROPOSALS }
+    enum class Action { ENABLE, DISABLE, CLEAR, REVIEW, BASELINE, COMPARE, RECORD, PROPOSAL, PROPOSALS, REVIEW_PROPOSAL, DISMISS_PROPOSAL, CLEAR_PROPOSALS,
+        RUN_LOCAL, REVIEW_LOCAL, CLEAR_LOCAL, BASELINE_LOCAL, COMPARE_LOCAL }
     data class Command(val action: Action, val scenario: Scenario? = null, val outcome: Outcome? = null)
     data class Sample(val scenario: Scenario, val outcome: Outcome, val build: Int, val buildName: String, val time: Long)
     enum class ProposalStatus { PREPARED, DISMISSED }
     data class Proposal(val source: Sample, val preparedAt: Long, val status: ProposalStatus = ProposalStatus.PREPARED)
-    data class Snapshot(val enabled: Boolean, val samples: List<Sample>, val baseline: List<Sample>, val proposals: List<Proposal> = emptyList())
+    data class Snapshot(val enabled: Boolean, val samples: List<Sample>, val baseline: List<Sample>, val proposals: List<Proposal> = emptyList(),
+                        val localRun: LocalFoundationChecks.Run? = null, val localBaseline: LocalFoundationChecks.Run? = null)
 
     fun snapshot(): Snapshot = file.access { decode(read()) }
     fun setEnabled(enabled: Boolean): Boolean = file.access { write(encode(decode(read()).copy(enabled = enabled))) }
@@ -58,11 +60,11 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
     }
 
     fun reply(command: Command): String = when (command.action) {
-        Action.ENABLE -> if (setEnabled(true)) "Enabled local improvement evaluation. Record only results you explicitly check using 'record improvement feedback for correction handling as passed', failed, or unclear. No conversations are collected automatically."
+        Action.ENABLE -> if (setEnabled(true)) "Enabled local improvement evaluation. Record checked results using 'record improvement feedback for correction handling as passed', failed, or unclear. You can also request 'run local foundation checks'. Nothing runs or collects conversations automatically."
             else "Could not enable improvement evaluation. No feedback was recorded."
         Action.DISABLE -> if (setEnabled(false)) "Disabled improvement evaluation recording. Existing reports remain available to review or clear."
             else "Could not confirm the evaluation setting. Review it before recording feedback."
-        Action.CLEAR -> if (clear()) "Cleared improvement reports, baseline and saved proposals; evaluation recording is off. Conversation, preferences and learned commands are separate."
+        Action.CLEAR -> if (clear()) "Cleared improvement reports, baselines, local checks and saved proposals; evaluation recording is off. Conversation, preferences and learned commands are separate."
             else "Could not confirm evaluation deletion."
         Action.REVIEW -> review(snapshot())
         Action.BASELINE -> if (saveBaseline()) "Saved this build's explicitly reported scenario results as the comparison baseline."
@@ -79,6 +81,60 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
             if (write(encode(decode(read()).copy(proposals = emptyList())))) "Cleared saved improvement proposals. Evaluation reports, baseline and recording preference remain."
             else "Could not confirm proposal deletion."
         }
+        Action.RUN_LOCAL -> runLocalChecks()
+        Action.REVIEW_LOCAL -> renderLocal(snapshot().localRun)
+        Action.CLEAR_LOCAL -> file.access {
+            if (write(encode(decode(read()).copy(localRun = null, localBaseline = null)))) "Cleared local foundation check results and their baseline. Manual reports, saved briefs and recording preference remain."
+            else "Could not confirm deletion of local check results."
+        }
+        Action.BASELINE_LOCAL -> file.access {
+            val saved = decode(read())
+            val run = saved.localRun
+            if (run == null || run.build != build || run.revision != LocalFoundationChecks.REVISION)
+                "Run local foundation checks on this build before saving their baseline."
+            else if (write(encode(saved.copy(localBaseline = run)))) "Saved the actual local synthetic check results as their separate baseline. Manual owner reports are unchanged."
+            else "Could not save the local check baseline."
+        }
+        Action.COMPARE_LOCAL -> compareLocal(snapshot())
+    }
+
+    private fun runLocalChecks(): String {
+        if (!snapshot().enabled) return "Enable improvement evaluation before running and recording local foundation checks. No checks were run."
+        val results = LocalFoundationChecks.run()
+        val run = LocalFoundationChecks.Run(build, buildName, now(), LocalFoundationChecks.REVISION, results)
+        require(run.time >= 0)
+        val saved = file.access {
+            val current = decode(read())
+            current.enabled && write(encode(current.copy(localRun = run)))
+        }
+        return if (saved) renderLocal(run) else "Local synthetic checks returned, but recording was disabled or results could not be saved. Review evaluation recording and local storage before retrying; no device action was run."
+    }
+
+    private fun renderLocal(run: LocalFoundationChecks.Run?): String {
+        if (run == null) return "No local foundation check results are saved. Enable improvement evaluation and say 'run local foundation checks'."
+        return "Local synthetic logic checks on ${run.buildName}, revision ${run.revision}" +
+            (if (run.build != build || run.revision != LocalFoundationChecks.REVISION) " (previous build or check revision; retest)" else "") + ":\n" +
+            run.results.joinToString("\n") { "${it.case.label}: ${it.outcome.name.lowercase(Locale.ROOT)}. Expected: ${it.case.expected}" } +
+            "\nThese checks executed local planning, approval, retry, recovery and journal logic with isolated synthetic state and counter dispatchers. No phone action, provider request or user workflow ran. They do not establish live conversation quality, device integration, production signing or upgrade compatibility. Failed or errored cases need developer reproduction and a reviewed regression fix; this command makes no code change. Manual owner reports remain separate. Save a local check baseline before a later retest to compare the same checks."
+    }
+
+    private fun compareLocal(saved: Snapshot): String {
+        val before = saved.localBaseline ?: return "No local check baseline is saved. Run local foundation checks, then say 'save local check baseline'."
+        val after = saved.localRun
+        if (after == null || after.build != build) return "Run local foundation checks on this build before comparing."
+        if (before.revision != after.revision || after.revision != LocalFoundationChecks.REVISION)
+            return "The local check revision changed. Retest and save a new baseline; these results cannot establish a matched comparison."
+        return "Actual local synthetic check comparison (${before.buildName} to ${after.buildName}; not device or provider verification):\n" +
+            before.results.joinToString("\n") { old ->
+                val current = after.results.single { it.case == old.case }
+                "${old.case.label}: ${old.outcome.name.lowercase(Locale.ROOT)} -> ${current.outcome.name.lowercase(Locale.ROOT)}" +
+                    when {
+                        old.outcome == current.outcome -> "; unchanged."
+                        old.outcome == LocalFoundationChecks.Outcome.PASSED -> "; regression or incomplete check; investigate."
+                        current.outcome == LocalFoundationChecks.Outcome.PASSED -> "; now passed this local check; no causal code-fix claim."
+                        else -> "; still failed or incomplete."
+                    }
+            }
     }
 
     private fun review(saved: Snapshot) = buildString {
@@ -173,7 +229,7 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
         if (raw == null) return Snapshot(false, emptyList(), emptyList())
         val json = JSONObject(raw)
         val version = json.getInt("version")
-        require(version in 1..2 && json.getInt("dataset") == DATASET_VERSION)
+        require(version in 1..3 && json.getInt("dataset") == DATASET_VERSION)
         fun sample(item: JSONObject) = Sample(Scenario.valueOf(item.getString("scenario")), Outcome.valueOf(item.getString("outcome")),
             item.getInt("build"), item.getString("buildName"), item.getLong("time")).also {
             require(it.build > 0 && it.buildName.length in 1..40 && it.time >= 0)
@@ -193,7 +249,19 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
                 }
             } }.also { require(it.distinctBy { proposal -> proposal.source }.size == it.size) }
         }
-        return Snapshot(json.getBoolean("enabled"), samples("samples", MAX_SAMPLES), samples("baseline", Scenario.values().size), proposals)
+        fun localRun(key: String): LocalFoundationChecks.Run? = if (version < 3 || !json.has(key)) null else json.getJSONObject(key).let { item ->
+            val results = item.getJSONArray("results")
+            require(results.length() == LocalFoundationChecks.Case.values().size)
+            LocalFoundationChecks.Run(item.getInt("build"), item.getString("buildName"), item.getLong("time"), item.getInt("revision"),
+                (0 until results.length()).map { index -> results.getJSONObject(index).let { result ->
+                    LocalFoundationChecks.Result(LocalFoundationChecks.Case.valueOf(result.getString("case")), LocalFoundationChecks.Outcome.valueOf(result.getString("outcome")))
+                } }).also {
+                require(it.build > 0 && it.buildName.length in 1..40 && it.time >= 0 && it.revision > 0)
+                require(it.results.map { result -> result.case }.toSet().size == results.length())
+            }
+        }
+        return Snapshot(json.getBoolean("enabled"), samples("samples", MAX_SAMPLES), samples("baseline", Scenario.values().size), proposals,
+            localRun("localRun"), localRun("localBaseline"))
     }
     private fun encode(saved: Snapshot): String {
         fun row(sample: Sample) = JSONObject().put("scenario", sample.scenario.name).put("outcome", sample.outcome.name)
@@ -204,8 +272,16 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
         val proposals = JSONArray().also { output -> saved.proposals.forEach {
             output.put(JSONObject().put("source", row(it.source)).put("preparedAt", it.preparedAt).put("status", it.status.name))
         } }
-        return JSONObject().put("version", 2).put("dataset", DATASET_VERSION).put("enabled", saved.enabled)
-            .put("samples", rows(saved.samples)).put("baseline", rows(saved.baseline)).put("proposals", proposals).toString()
+        val json = JSONObject().put("version", 3).put("dataset", DATASET_VERSION).put("enabled", saved.enabled)
+            .put("samples", rows(saved.samples)).put("baseline", rows(saved.baseline)).put("proposals", proposals)
+        fun putRun(key: String, run: LocalFoundationChecks.Run?) { run?.let {
+            val results = JSONArray().also { output -> run.results.forEach { result ->
+                output.put(JSONObject().put("case", result.case.name).put("outcome", result.outcome.name))
+            } }
+            json.put(key, JSONObject().put("build", it.build).put("buildName", it.buildName).put("time", it.time).put("revision", it.revision).put("results", results))
+        } }
+        putRun("localRun", saved.localRun); putRun("localBaseline", saved.localBaseline)
+        return json.toString()
     }
 
     companion object {
@@ -225,6 +301,11 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
                 "compare improvement evaluation" -> Action.COMPARE
                 "review improvement proposals" -> Action.PROPOSALS
                 "clear improvement proposals" -> Action.CLEAR_PROPOSALS
+                "run local foundation checks" -> Action.RUN_LOCAL
+                "review local foundation checks" -> Action.REVIEW_LOCAL
+                "clear local foundation checks" -> Action.CLEAR_LOCAL
+                "save local check baseline" -> Action.BASELINE_LOCAL
+                "compare local foundation checks" -> Action.COMPARE_LOCAL
                 else -> null
             }
             if (action != null) return Command(action)
@@ -240,6 +321,7 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
             return null
         }
         fun isManagementInput(text: String): Boolean = command(text) != null || normalize(text).startsWith("record improvement feedback ") ||
-            listOf("prepare", "review", "dismiss", "clear").any { normalize(text).startsWith("$it improvement proposal") }
+            listOf("prepare", "review", "dismiss", "clear").any { normalize(text).startsWith("$it improvement proposal") } ||
+            Regex("^(?:run|review|clear|compare) local foundation checks\\b|^save local check baseline\\b").containsMatchIn(normalize(text))
     }
 }

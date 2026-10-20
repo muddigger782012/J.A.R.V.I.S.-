@@ -256,6 +256,59 @@ class PersonalFoundationAcceptanceTest {
         assertEquals(0, context.activityRequests)
     }
 
+    @Test fun goalCorrectionsRequireTheRevisedReviewAndInvalidCorrectionCannotReviveTheOldPlan() {
+        val voice = assistant()
+        voice.handleUserInput("help me focus for 25 minutes at 20 percent volume")
+        val original = GoalPlanStore(context).pending()!!
+        val chat = assistant()
+        assertTrue(chat.handleUserInput("actually, make that ten minutes").text.contains("replaces the earlier pending review"))
+        val duration = GoalPlanStore(context).pending()!!
+        assertEquals(listOf("volume:20", "timer:600"), duration.actions)
+        assertNotEquals(original.key, duration.key)
+        chat.handleUserInput("change goal volume to zero percent")
+        val revised = GoalPlanStore(context).pending()!!
+        assertEquals(listOf("volume:0", "timer:600"), revised.actions)
+        assertFalse(GoalPlanStore(context).approve(original))
+        assertTrue(voice.handleUserInput("approve goal plan").text.contains("before approving again"))
+        assertEquals(revised, GoalPlanStore(context).pending())
+        chat.handleUserInput("make that ten minutes then reboot")
+        assertNull(GoalPlanStore(context).pending())
+        assertTrue(voice.handleUserInput("approve goal plan").text.contains("No current goal plan"))
+        assertEquals(0, executions)
+        assertEquals(0, context.activityRequests)
+    }
+
+    @Test fun localSelfChecksUseIsolatedStateAndKeepManualEvidenceAndRealDeviceActionsSeparate() {
+        val chat = assistant()
+        assertTrue(chat.handleUserInput("run local foundation checks").text.contains("No checks were run"))
+        chat.handleUserInput("enable improvement evaluation")
+        chat.handleUserInput("record improvement feedback for routine recovery as unclear")
+        val before = ImprovementEvaluation(context).snapshot()
+        val result = chat.handleUserInput("run local foundation checks")
+        assertFalse(result.needsInterpretation)
+        assertTrue(result.text.contains("counter dispatchers"))
+        val saved = ImprovementEvaluation(context).snapshot()
+        assertTrue(saved.localRun!!.results.all { it.outcome == LocalFoundationChecks.Outcome.PASSED })
+        assertEquals(before.samples, saved.samples)
+        assertTrue(LocalRoutineWorkflowAccess(context).store.load().isEmpty())
+        chat.handleUserInput("save local check baseline")
+        val restored = assistant()
+        assertTrue(restored.handleUserInput("compare local foundation checks").text.contains("passed -> passed"))
+        restored.handleUserInput("disable improvement evaluation")
+        assertTrue(restored.handleUserInput("run local foundation checks").text.contains("No checks were run"))
+        assertFalse(restored.handleUserInput("run local foundation checks then reboot").needsInterpretation)
+        val localReply = AtomicReference<HybridAssistantReply>()
+        restored.handleUserInputAsync("run local foundation checks then find a service manual") { localReply.set(it) }
+        assertNotNull(localReply.get())
+        assertFalse(localReply.get().needsInterpretation)
+        restored.handleUserInput("clear local foundation checks")
+        assertNull(ImprovementEvaluation(context).snapshot().localRun)
+        assertEquals(before.samples, ImprovementEvaluation(context).snapshot().samples)
+        assertTrue(chat.getConversationSnapshot().isEmpty())
+        assertEquals(0, executions)
+        assertEquals(0, context.activityRequests)
+    }
+
     private fun assistant(): HybridAssistantService {
         val capabilities = CapabilityState(true, false, false, false, false, false, false)
         val registry = ActionRegistry()

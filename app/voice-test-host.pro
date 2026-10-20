@@ -50,3 +50,4 @@
 -keep,allowoptimization class com.assistant.core.services.GoalPlanStore** { public *; }
 -keep,allowoptimization class com.assistant.core.services.PersonalStateFile** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ImprovementEvaluation** { public *; }
+-keep,allowoptimization class com.assistant.core.services.LocalFoundationChecks** { public *; }

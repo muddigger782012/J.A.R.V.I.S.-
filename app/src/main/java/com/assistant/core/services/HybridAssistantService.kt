@@ -152,7 +152,7 @@ class HybridAssistantService(
                 runCatching { goalPlans?.discardPending() }
                 val command = ImprovementEvaluation.command(userInput)
                 return HybridAssistantReply(if (command == null)
-                    "Choose a scenario from 'review improvement evaluation', then record its checked result as passed, failed or unclear."
+                    "Use an exact evaluation control: 'review improvement evaluation' for manual scenarios, or 'run local foundation checks' for isolated logic checks. Nothing was changed."
                     else runCatching { improvementEvaluation!!.reply(command) }.getOrElse {
                         "Improvement evaluation storage could not be accessed. Review local storage access or explicitly clear improvement evaluation to reset it. No test or code change was performed."
                     })
@@ -1090,6 +1090,13 @@ class HybridAssistantService(
     }
 
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+        // Local evaluation/correction controls must not be reinterpreted as a manual search
+        // when malformed trailing text happens to mention documentation or a provider.
+        if (personalAssistant && (ImprovementEvaluation.isManagementInput(rawInput) ||
+                TaskHistoryCommands.isManagementInput(rawInput) || GoalPlanning.edit(rawInput) != null)) {
+            callback(handleUserInput(rawInput))
+            return
+        }
         if (CapabilityDiscovery.needsClarification(rawInput)) {
             callback(handleUserInput(rawInput))
             return
@@ -1274,6 +1281,21 @@ class HybridAssistantService(
 
     private fun handleGoalInput(input: String): String? {
         val plans = goalPlans ?: return null
+        GoalPlanning.edit(input)?.let { edit ->
+            reviewedGoalKey = null
+            return runCatching {
+                clearPendingActionPrompts()
+                val pending = plans.pending() ?: return@runCatching "No pending goal review is available to change. Request a focus, music or navigation plan first. A correction cannot alter a running task."
+                val revised = GoalPlanning.revise(pending, edit)
+                val target = revised?.actions?.lastOrNull()?.let(RoutineSteps::appAction)
+                val available = target == null || androidAssistant.canLaunchApp(target.parameters.getValue("package"))
+                if (!plans.replacePending(pending, revised?.takeIf { available }))
+                    return@runCatching "The pending goal changed or expired before this correction was saved. Say 'review goal plan' to inspect the current proposal; no steps ran."
+                if (revised == null) return@runCatching "I discarded the previous pending review because that correction could not be applied safely. Use a focus duration from one second to 24 hours, or 'change goal volume to 20 percent'. Request the plan again; no steps ran for this correction."
+                if (!available) return@runCatching "The proposed app is no longer launchable, so I discarded the pending review. Restore it or request a new plan using an available app. No steps ran for this correction."
+                reviewGoalPlan(revised) + " This replaces the earlier pending review; approval must refer to these revised steps."
+            }.getOrElse { "The correction could not be saved safely. Review 'goal plan status' before approving anything; no steps were run by this correction." }
+        }
         if (ConfirmationWords.isConfirmation(input)) {
             val pending = runCatching { plans.pending() }.getOrNull()
             if (pending != null) return runCatching {
