@@ -64,4 +64,17 @@ class JsonRoutineWorkflowStoreTest {
             assertEquals(0, calls)
         }
     }
+
+    @Test fun oversizedOrInvalidInvocationStateFailsClosedBeforeWriting() {
+        var writes = 0
+        val oversized = JsonRoutineWorkflowStore({ " ".repeat(2_000_001) }, { writes++; true })
+        try { oversized.load(); fail("Oversized journal must fail closed") } catch (_: IllegalArgumentException) { }
+        val store = JsonRoutineWorkflowStore({ null }, { writes++; true })
+        val snapshot = RoutineWorkflowCheckpoint("run", setOf("turn"), "focus time",
+            listOf(RoutineStepCheckpoint(RoutineWorkflowStep(0, "volume_down"))))
+        assertFalse(store.save(snapshot.copy(requestKeys = emptySet())))
+        assertFalse(store.save(snapshot.copy(requestKeys = (0..RoutineWorkflowLimits.MAX_REQUEST_KEYS_PER_WORKFLOW).map { "turn-$it" }.toSet())))
+        assertFalse(store.save(snapshot.copy(id = "")))
+        assertEquals(0, writes)
+    }
 }
