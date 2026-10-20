@@ -147,6 +147,64 @@ class PersonalFoundationAcceptanceTest {
         assertTrue(storage.cancellationRequested(next.id))
     }
 
+    @Test fun goalClarificationReviewAndBareYesDoNotDispatchAndFailedReplacementCannotReviveAnOldPlan() {
+        val service = assistant()
+        assertTrue(service.handleUserInput("help me focus").text.contains("How long"))
+        val review = assistant().handleUserInput("twenty five minutes").text
+        assertTrue(review.contains("approve goal plan"))
+        assertTrue(review.contains("25%"))
+        assertTrue(service.getConversationSnapshot().contains("twenty five minutes"))
+        assertTrue(service.getConversationSnapshot().contains("approve goal plan"))
+        val answered = CountDownLatch(1)
+        val answer = AtomicReference<HybridAssistantReply>()
+        service.handleUserInputAsync("yes") { answer.set(it); answered.countDown() }
+        assertTrue(answered.await(3, TimeUnit.SECONDS))
+        assertFalse(answer.get().needsInterpretation)
+        assertTrue(answer.get().text.contains("approve goal plan"))
+        assertNotNull(GoalPlanStore(context).pending())
+        service.handleUserInput("cancel goal plan")
+        assertTrue(assistant().handleUserInput("approve goal plan").text.contains("No current goal plan"))
+        service.handleUserInput("help me focus for five minutes")
+        service.handleUserInput("prepare a music session using JarvisMissingTestApp")
+        assertTrue(assistant().handleUserInput("approve goal plan").text.contains("No current goal plan"))
+        assertNull(GoalPlanStore(context).pending())
+        assertEquals(0, executions)
+        assertEquals(0, context.activityRequests)
+    }
+
+    @Test fun optInEvaluationAndManualBaselineComparisonSurviveReconstructionWithoutCollectingDialogue() {
+        val service = assistant()
+        assertTrue(service.handleUserInput("review improvement evaluation").text.contains("recording: off"))
+        service.handleUserInput("enable improvement evaluation")
+        service.handleUserInput("record improvement feedback for correction handling as passed")
+        service.handleUserInput("save improvement baseline")
+        val restored = assistant()
+        restored.handleUserInput("record improvement feedback for correction handling as failed")
+        assertTrue(restored.handleUserInput("compare improvement evaluation").text.contains("reported regression"))
+        assertTrue(restored.handleUserInput("prepare improvement proposal for correction handling").text.contains("Developer change brief"))
+        restored.handleUserInput("clear improvement evaluation")
+        assertFalse(ImprovementEvaluation(context).snapshot().enabled)
+        assertTrue(ImprovementEvaluation(context).snapshot().samples.isEmpty())
+        assertTrue(service.getConversationSnapshot().isEmpty())
+        assertEquals(0, executions)
+        assertEquals(0, context.activityRequests)
+    }
+
+    @Test fun approvalFromAnotherAssistantCannotRunAChangedOrUnreviewedGoal() {
+        val voice = assistant()
+        voice.handleUserInput("help me focus for 25 minutes")
+        val chat = assistant()
+        chat.handleUserInput("help me focus for five minutes")
+        val current = GoalPlanStore(context).pending()!!
+        assertEquals("timer:300", current.actions.last())
+        assertTrue(voice.handleUserInput("approve goal plan").text.contains("current goal plan"))
+        assertEquals(current, GoalPlanStore(context).pending())
+        assertTrue(assistant().handleUserInput("approve goal plan").text.contains("before approving again"))
+        assertEquals(current, GoalPlanStore(context).pending())
+        assertEquals(0, executions)
+        assertEquals(0, context.activityRequests)
+    }
+
     private fun assistant(): HybridAssistantService {
         val capabilities = CapabilityState(true, false, false, false, false, false, false)
         val registry = ActionRegistry()

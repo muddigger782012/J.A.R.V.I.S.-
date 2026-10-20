@@ -20,7 +20,8 @@ object LearnedCommandReviewCommands {
             ?.let { phrase.substring(1, phrase.length - 1).trim() } ?: phrase
     }
     fun isReserved(text: String): Boolean = GeminiFailureMemory.isQuestion(text) || WebSearchCommand.isVideoLinkFollowup(text) || page(text) != null || forgetPhrase(text) != null || DeviceLearningSession.isReminder(text) || PendingTimerCorrection.isRequest(text) || PendingAppCorrection.isRequest(text) || CapabilityDiscovery.isControl(text) ||
-        ConversationMemoryCommands.parse(text) != null || SupervisedImprovement.parseCommand(text) != null || PersonalRoutineCommands.parse(text) != null
+        ConversationMemoryCommands.parse(text) != null || SupervisedImprovement.parseCommand(text) != null || PersonalRoutineCommands.parse(text) != null ||
+        GoalPlanning.command(text) != null || GoalPlanning.parse(text) != null || ImprovementEvaluation.isManagementInput(text)
 }
 
 object LearnedCommandReview {

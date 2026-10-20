@@ -238,7 +238,8 @@ class SupervisedImprovementTest {
         val status = SupervisedImprovement.render(result, Command.STATUS)
         assertTrue(status.contains("1 open"))
         assertTrue(status.contains("User-confirmed successes: 1; device-verified successes: 0"))
-        assertTrue(status.contains("Additional feedback collection is off"))
+        assertTrue(status.contains("This review only reads existing local history"))
+        assertTrue(status.contains("Separate improvement evaluation is opt-in"))
         assertFalse(status.contains("Regression:"))
         assertFalse(status.contains("Review proposal:"))
     }

@@ -24,6 +24,34 @@ class RoutineExecutionCoordinator(
 ) {
     data class Result(val checkpoint: RoutineWorkflowCheckpoint?, val busy: Boolean = false, val message: String = "")
 
+    /**
+     * A freshly reviewed host plan, not a learned alias. Confirming its exact pending definition
+     * must atomically consume that review and expose it to approvedRoutine before planning.
+     * The callback only updates local approval state; it must not dispatch an action.
+     */
+    fun invokePrepared(phrase: String, requestKey: String, confirmDefinition: () -> Boolean): Result = exclusive { engine ->
+        val previous = current(engine.routineCheckpoints())
+        if (previous != null && blocks(previous)) {
+            Result(previous, message = "Resolve this execution before approving another goal. The new goal has not run.")
+        } else {
+            check(confirmDefinition()) { "The reviewed goal changed, expired or could not be saved." }
+            val plan = engine.planApprovedRoutine(phrase, requestKey)
+            engine.approveRoutine(plan.id, plan.steps.map { it.step })
+            Result(engine.runApprovedRoutine(plan.id))
+        }
+    }
+
+    /** Explicit reapproval after interruption between goal definition and approval checkpoint. */
+    fun approvePrepared(id: String, reviewedSteps: List<RoutineWorkflowStep>): Result = exclusive { engine ->
+        val saved = current(engine.routineCheckpoints())
+        require(saved?.id == id && !saved.cancellationRequested && (saved.status == RoutineWorkflowStatus.AWAITING_APPROVAL ||
+            (saved.status == RoutineWorkflowStatus.FAILED && !saved.approved && saved.steps.all { it.attempts == 0 }))) {
+            "The goal review is no longer current."
+        }
+        engine.approveRoutine(id, reviewedSteps)
+        Result(engine.runApprovedRoutine(id))
+    }
+
     fun invoke(phrase: String, requestKey: String): Result = exclusive { engine ->
         val current = current(engine.routineCheckpoints())
         if (current != null && blocks(current) && !current.phrase.equals(phrase.trim(), ignoreCase = true)) {
@@ -43,21 +71,24 @@ class RoutineExecutionCoordinator(
     /** Recovery only inspects checkpoints. Reading status never starts pending actions. */
     fun status(): Result = exclusive { engine -> Result(current(engine.routineCheckpoints())) }
 
-    fun resume(): Result = exclusive { engine ->
+    fun resume(expectedId: String? = null): Result = exclusive { engine ->
         val saved = current(engine.routineCheckpoints()) ?: return@exclusive Result(null)
+        if (expectedId != null && expectedId != saved.id) return@exclusive Result(saved, message = "The tracked execution changed. Review its status before controlling it.")
         // READY can survive a crash between saved approval and first dispatch. This explicit
         // resume is fresh authorization; constructing the coordinator never starts it.
         Result(if (saved.status == RoutineWorkflowStatus.READY) engine.runApprovedRoutine(saved.id)
             else engine.resumeApprovedRoutine(saved.id))
     }
 
-    fun cancel(): Result {
+    fun cancel(expectedId: String? = null): Result {
         return access.tryExclusive {
             val engine = engine()
             val saved = current(engine.routineCheckpoints()) ?: return@tryExclusive Result(null)
+            if (expectedId != null && expectedId != saved.id) return@tryExclusive Result(saved, message = "The tracked execution changed. No cancellation was applied.")
             Result(engine.cancelApprovedRoutine(saved.id))
         } ?: run {
             val saved = current(access.store.load()) ?: return Result(null, busy = true)
+            if (expectedId != null && expectedId != saved.id) return Result(saved, busy = true, message = "The tracked execution changed. No cancellation was applied.")
             if (saved.status in terminal) return Result(saved, busy = true)
             check(access.requestCancellation(saved.id)) { "The cancellation request could not be saved." }
             Result(saved.copy(cancellationRequested = true, status = RoutineWorkflowStatus.CANCELLING), busy = true,
@@ -66,8 +97,10 @@ class RoutineExecutionCoordinator(
     }
 
     /** Explicit checked-result report, never an approval or an instruction to resume. */
-    fun report(observation: RoutineOutcomeObservation): Result = exclusive { engine ->
-        report(engine, current(engine.routineCheckpoints()), observation)
+    fun report(observation: RoutineOutcomeObservation, expectedId: String? = null): Result = exclusive { engine ->
+        val saved = current(engine.routineCheckpoints())
+        if (expectedId != null && saved?.id != expectedId) Result(saved, message = "The tracked execution changed. No outcome was changed.")
+        else report(engine, saved, observation)
     }
 
     /** A generic device follow-up may update only the exact invocation from this session. */

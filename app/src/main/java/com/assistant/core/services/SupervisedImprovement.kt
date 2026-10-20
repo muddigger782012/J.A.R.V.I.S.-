@@ -9,8 +9,8 @@ import java.util.Locale
  * Integration: parseCommand(input)?.let { render(generate(resultHistory.snapshot()), it) }.
  * Route these commands before learned/cloud routing and reserve them from teaching. Reading
  * history needs no new collection consent. This object never records feedback, modifies learning,
- * accepts a patch, executes a regression, or sends anything. Additional collection needs a separate
- * explicit opt-in design; there is deliberately no improvement store or enable switch here.
+ * accepts a patch, executes a regression, or sends anything. Separate manual synthetic evaluation
+ * lives in ImprovementEvaluation and requires explicit opt-in; this object never collects it.
  *
  * Input is newest first, as returned by IntelligenceResultHistory.snapshot(), and only the first
  * MAX_RECORDS rows are inspected. Timestamps plus canonical targets conservatively identify attempts
@@ -175,7 +175,7 @@ object SupervisedImprovement {
         if (report.ignoredInvalidRecords > 0) appendLine("Invalid journal rows were ignored.")
         if (report.coalescedRecords > 0) appendLine("Same-time records for one target were counted as one attempt.")
         if (report.omittedProposals > 0) appendLine("${report.omittedProposals} proposals are outside this bounded display.")
-        append("Additional feedback collection is off; this review only reads existing local history. " +
+        append("This review only reads existing local history. Separate improvement evaluation is opt-in; use 'review improvement evaluation' to inspect its setting and manual reports. " +
             "Counts describe recorded evidence, not measured reliability or a proven root cause. " +
             "A person must review any proposed change and its regression results before approval. " +
             "No code, learning, permissions or deployment was changed.")

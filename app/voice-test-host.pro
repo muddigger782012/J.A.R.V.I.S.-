@@ -45,3 +45,8 @@
 # Durable routine acceptance uses these APIs from the separate instrumentation APK.
 -keep,allowoptimization class com.assistant.core.workflow.** { public *; }
 -keep,allowoptimization class com.assistant.core.learning.ApprovedRoutineRegistry** { public *; }
+# Goal/evaluation acceptance APIs used from the separately compiled test APK.
+-keep,allowoptimization class com.assistant.core.services.GoalPlanning** { public *; }
+-keep,allowoptimization class com.assistant.core.services.GoalPlanStore** { public *; }
+-keep,allowoptimization class com.assistant.core.services.PersonalStateFile** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ImprovementEvaluation** { public *; }

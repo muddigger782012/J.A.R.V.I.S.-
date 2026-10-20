@@ -50,6 +50,83 @@ downloaded-APK verification passed for all supported ABIs. Broad UI-layout smoke
 remains skipped upstream. This work adds no background scheduler or generic goal
 planner. Physical-device acceptance remains outstanding.
 
+## Phase 5 and 6 follow-up: reviewed goals and supervised evaluation
+
+The next source increment adds three bounded offline goal templates. The currently
+published recovery APK remains unchanged until a new verified update is delivered.
+
+| Goal request | Proposed steps | Acceptance boundary |
+| --- | --- | --- |
+| `help me focus for 25 minutes` | Set media volume to the visibly proposed 25%, then request the specified timer. A missing duration is clarified across voice/chat instances. | Exact `approve goal plan` required; a bare yes, review or restored conversation cannot execute. Timer acceptance remains a request until outcome evidence is supplied. |
+| `prepare a music session` | Propose media volume 35% and open the saved music app, or the exact installed app named with `using ...`. | Bind one launchable target before review; missing or ambiguous apps require a preference or explicit installed name. Playback remains a user step inside the app. |
+| `prepare a navigation session` | Propose media volume 50% and open the saved maps app, or an exact installed app named with `using ...`. | The review does not claim route planning or navigation has started. Choose a destination in the opened app. |
+
+An explicit `at 20 percent volume` overrides the visible template suggestion. The
+planner composes existing volume/timer/app handlers; it is not a general goal
+decomposer, scheduler or arbitrary tool executor. No named routine or learned alias
+is created. The same shared execution lease and durable checkpoint engine protect
+these goals. Another unresolved routine blocks approval without consuming the new
+goal review. A fresh exact approval can recover an approval-save failure only if
+no step was attempted. Cancellation/feedback for a stale goal cannot alter a newer
+execution. A failed replacement request invalidates the old pending review.
+
+Controls: `review goal plan`, `approve goal plan`, `cancel goal plan`, `goal plan
+status`, `resume goal plan`, `the goal worked` and `the goal failed`. Pending review
+and duration clarification expire after two minutes; another topic invalidates
+them. One current approved definition is retained independently of the routine
+registry so an interrupted execution can be reviewed/recovered. All execution
+effects still require explicit authorization and existing Android permissions.
+Goal dialogue uses the existing bounded conversation window so it becomes the
+current topic; that dialogue never supplies execution approval. Evaluation
+management/report replies remain outside conversational memory.
+Each assistant instance binds approval to the exact goal it displayed. If another
+voice/chat instance replaces the plan, or the reviewing instance restarts, the
+current steps must be presented again before a subsequent approval can execute.
+
+Phase 6 adds explicitly enabled manual evaluation, separate from automatic
+read-only recurrence analysis of the existing outcome journal. Recording is off
+by default. The fixed synthetic dataset covers corrections, natural conversation,
+initial-only Sir, Jarvis identity, Maps discovery, realistic update status, goal
+approval and routine recovery. The owner-reported positive conversational example
+from the Phase 6 issue supplies coverage ideas, never an invented test pass; no
+raw screenshots, transcripts or provider responses are imported or collected.
+
+Commands:
+
+- `review improvement evaluation`
+- `enable improvement evaluation` / `disable improvement evaluation`
+- `record improvement feedback for correction handling as passed` (also `failed`
+  or `unclear`, using a scenario listed by review)
+- `save improvement baseline` / `compare improvement evaluation`
+- `prepare improvement proposal for correction handling`
+- `clear improvement evaluation`
+
+Records contain only scenario/outcome enums, app build and report time. The latest
+explicit report for each scenario/build replaces that report; repeats do not
+become independent evidence. At most 96 reports are retained, plus one explicit
+baseline of up to eight cases. Comparisons pair only matching retested scenarios,
+preserve regressions and uncertainty, and describe owner reports rather than
+measured reliability, proven root causes or causal effects of a release. Disable
+stops recording while retaining review; clear deletes reports/baseline and turns
+recording off. State uses fresh, locked atomic files outside Android backup.
+
+A developer brief links one failed/unclear report to its synthetic reproduction,
+expected behavior, relevant modules, proposed failing/positive/ambiguous regression
+cases, before/after evaluation, reviewed PR/CI/signing delivery and recovery limits.
+It does not fabricate a patch, executed tests, PR or deployment. The app has no
+configured GitHub write integration, and its existing updater read token is never
+repurposed. Actual patch preparation/developer integration and live-model quality
+evaluation remain future work. Clear evaluation leaves goals, conversation,
+preferences, learned commands and the result journal separate.
+
+Automated evidence for this increment is recorded on its follow-up pull request:
+planner/input boundaries, shared approval/expiry state, failure recovery, duplicate
+and stale-control prevention, opt-in/reset, bounded reports, matched comparisons,
+concurrent updates and explicit-only developer briefs. Three new Android cases
+exercise goal review/clarification, cross-instance review binding and evaluation/baseline state through reconstructed
+assistant services. These tests do not establish live-provider naturalness or
+physical-device execution/upgrade acceptance. No phase percentage is claimed.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
