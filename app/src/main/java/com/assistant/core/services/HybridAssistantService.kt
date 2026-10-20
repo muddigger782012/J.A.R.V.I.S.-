@@ -80,6 +80,7 @@ class HybridAssistantService(
         val userInput = rawInput.trim()
         val geminiFailure = GeminiFailureMemory(systemService.context())
         if (geminiFailure.shouldAnswer(userInput)) {
+            runCatching { goalPlans?.discardPending() }
             routineConfirmations.consume("")
             volumeConfirmations.consume("")
             deviceLearningSession.consume(userInput)
@@ -92,6 +93,7 @@ class HybridAssistantService(
         // Run before pending prompts, learned aliases, permissive local parsers or AI.
         // A misheard control must not execute the timer/app embedded in its description.
         if (CapabilityDiscovery.needsClarification(userInput)) {
+            runCatching { goalPlans?.discardPending() }
             routineConfirmations.consume("")
             volumeConfirmations.consume("")
             deviceLearningSession.consume("")
@@ -1250,6 +1252,16 @@ class HybridAssistantService(
 
     private fun handleGoalInput(input: String): String? {
         val plans = goalPlans ?: return null
+        if (ConfirmationWords.isConfirmation(input)) {
+            val pending = runCatching { plans.pending() }.getOrNull()
+            if (pending != null) return runCatching {
+                clearPendingActionPrompts()
+                if (ConfirmationWords.cancels(input)) {
+                    check(plans.discardPending())
+                    "Discarded the pending goal plan. No steps were run for that proposal."
+                } else GoalPlanning.review(pending) + " Use the exact approval phrase for this plan; this reply has not executed it."
+            }.getOrElse { "The pending goal review could not be accessed safely. Nothing was approved or automatically retried." }
+        }
         GoalPlanning.command(input)?.let { command ->
             return runCatching {
                 clearPendingActionPrompts()
