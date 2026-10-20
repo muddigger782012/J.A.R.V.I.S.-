@@ -193,7 +193,9 @@ records automated evidence and publication. No measured phase percentage is clai
 
 ## Phase 5 and 6 follow-up: goal corrections and local self-checks
 
-Pending focus reviews can be corrected with `make that ten minutes` or `change goal
+Personal build 3.5.442 delivers this follow-up through the existing personal updater
+and versioned downloads. Pending focus reviews can be corrected with
+`make that ten minutes` or `change goal
 duration to ten minutes`. `change goal volume to twenty five percent` changes the
 proposed volume for any of the three templates. Each successful correction creates
 a new review key and displays the revised steps, preserving all other fields and
@@ -226,8 +228,18 @@ run automatically, and no raw conversation, exceptions or private targets are st
 
 Local checks establish bounded logic behavior only. They do not establish physical
 device integration, provider quality, production signing or upgrade compatibility.
-Final-source CI, optimized Android acceptance, signed-build and publication evidence
-for this follow-up belongs in its pull request. Phone acceptance remains pending.
+Verified evidence for build 3.5.442: all 462 JVM tests across 84 suites passed
+without failures, errors or skips, and every debug ABI plus instrumentation APK
+assembled. Final-source CI unit/build, gateway and theme checks passed, together
+with all 18 optimized Android cases. The two new Android cases verify changed-goal
+approval across assistants and actual local-check isolation, persistence and baseline
+comparison without real device actions or manual-report replacement. All downloaded
+production-signed ABI APKs independently passed package/version/signer, native runtime,
+ZIP and wake-asset verification, and the signed source matches the merged app source.
+The [follow-up pull request](https://github.com/muddigger782012/J.A.R.V.I.S.-/pull/153)
+records evidence and personal publication. Broad UI-layout smoke remains skipped
+upstream; physical phone, live-provider and installed-data upgrade checks remain
+pending under existing owner authorization. No measured phase percentage is claimed.
 
 ## Delivered behavior and acceptance evidence
 
@@ -237,8 +249,8 @@ for this follow-up belongs in its pull request. Phone acceptance remains pending
 | 2: conversation | Explicit interpretation state replaces response-text matching. Questions mentioning commands stay conversational. Personal solution-first instructions apply in both persona modes. One configured gateway alternative can answer after a failed Gemini interpretation. | Intent, local query, fallback, personality and provider-routing tests; Android service acceptance cases. | Live provider behavior, naturalness and three-turn voice/text evaluation on the personal phone. Prompt contract tests do not prove model behavior. |
 | 3: memory/offline | A bounded local dialogue window survives service/process reconstruction. Latest corrections follow older dialogue. Exact review/reset controls; confirmed device memory and validated command learning remain separate. Local arithmetic, date/time, commands and approved routines remain available offline. | Reconstruction, expiry, malformed data, deletion, write-failure and command-control tests; actual Android storage acceptance cases. | Physical restart and foreground/voice-process smoke tests. No offline generative model or arbitrary fact-learning is claimed. |
 | 4: device integration | Selects implemented Standard fallbacks before an unavailable/unsupported privileged route is attempted. Maintains risk confirmations. Does not repeat uncertain adapter effects. Android rejecting an Accessibility action cannot become success. | Broker tests with injected adapters exercise actual selection, disabled fallback, denied policy, unsupported actions, failures and exceptions. | Standard, Accessibility, Shizuku and Dhizuku permission/device matrix. An advertised capability is not proof of permission or a working service. |
-| 5: execution | Approved routines and reviewed focus/music/navigation goals share durable checkpoints and a voice/chat dispatch lease, bounded resume, cancellation, duplicate prevention and honest outcome types. Explicit reviewed cleanup retains latest/unresolved status and invocation fingerprints. | Engine/coordinator/planner tests, independent-JVM lease/death checks, bounded/migrated history tests and actual Android service/storage cases. | Physical workflow execution and broader goal decomposition. |
-| 6: improvement | Read-only recurrence proposals plus opt-in manual synthetic evaluation, matched baselines and persistent evidence-linked developer briefs with review/dismissal controls. | Deterministic tests cover recurrence, uncertainty, opt-in/reset, migration, bounded reports/briefs and honest comparison; Android reconstruction and proposal acceptance. | Live behavioral evaluation, broader reviewed feedback coverage and actual developer write integration for patches/PRs. |
+| 5: execution | Approved routines and reviewed focus/music/navigation goals share durable checkpoints and a voice/chat dispatch lease, bounded resume, cancellation, duplicate prevention and honest outcome types. Pending duration/volume corrections require a new exact review. Explicit reviewed cleanup retains latest/unresolved status and invocation fingerprints. | Engine/coordinator/planner tests, independent-JVM lease/death checks, bounded/migrated history tests and actual Android service/storage cases. | Physical workflow execution and broader goal decomposition. |
+| 6: improvement | Read-only recurrence proposals plus opt-in manual synthetic evaluation, matched baselines, isolated on-demand logic checks with separate results/baselines, and persistent evidence-linked developer briefs with review/dismissal controls. | Deterministic tests cover recurrence, uncertainty, opt-in/reset, migration, bounded reports/briefs and honest comparison; Android reconstruction and proposal acceptance. | Live behavioral evaluation, broader reviewed feedback coverage and actual developer write integration for patches/PRs. |
 
 The engine and pure policy tests establish their bounded contracts. Fake/injected
 adapters do not prove that Android or an AI provider performed an action. Android
@@ -300,7 +312,7 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.441 (versionCode 441) replaces the previously distributed 3.5.440
+Personal build 3.5.442 (versionCode 442) replaces the previously distributed 3.5.441
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
