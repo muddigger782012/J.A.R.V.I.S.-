@@ -183,6 +183,10 @@ class VoiceAssistantService(
     }
 
     fun speak(text: String, channel: SpeechChannel = SpeechChannel.REGULAR, after: (() -> Unit)? = null) {
+        speakPrepared(ChatSearchResults.forSpeech(text), channel, after)
+    }
+
+    private fun speakPrepared(text: String, channel: SpeechChannel, after: (() -> Unit)?) {
         stopSpeaking()
         afterSpeech = after
         activeSpeechChannel = channel

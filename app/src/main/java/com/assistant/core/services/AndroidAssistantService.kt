@@ -45,6 +45,39 @@ class AndroidAssistantService(private val context: Context) {
 
     fun resolveContactPhone(name: String): String? = resolveContact(name).number
 
+    fun contactCallPlatform() = object : ContactCallWorkflow.Platform {
+        private fun contactsAllowed() = androidx.core.content.ContextCompat.checkSelfPermission(context,
+            android.Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        private val columns get() = arrayOf(ContactsContract.CommonDataKinds.Phone._ID,
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER)
+        private fun read(uri: Uri): List<ContactCallWorkflow.Recipient> = context.contentResolver.query(uri, columns, null, null, null)?.use { cursor ->
+            val rows = mutableListOf<ContactCallWorkflow.Recipient>()
+            while (cursor.moveToNext()) {
+                check(rows.size < 1000) { "Contact lookup exceeds its review limit" }
+                rows.add(ContactCallWorkflow.Recipient(cursor.getString(0).orEmpty(), cursor.getString(1).orEmpty(), cursor.getString(2).orEmpty()))
+            }
+            rows
+        } ?: error("Contacts provider unavailable")
+        override fun lookup(query: String): ContactCallWorkflow.Lookup {
+            if (ContactCallWorkflow.phone(query) != null) return ContactCallWorkflow.Lookup(emptyList())
+            if (!contactsAllowed()) return ContactCallWorkflow.Lookup(emptyList(), false)
+            val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_FILTER_URI.buildUpon().appendPath(query).build()
+            return ContactCallWorkflow.Lookup(read(uri))
+        }
+        override fun current(recipient: ContactCallWorkflow.Recipient): Boolean {
+            if (recipient.row == "number") return ContactCallWorkflow.phone(recipient.number) != null
+            if (!contactsAllowed()) return false
+            val uri = android.content.ContentUris.withAppendedId(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, recipient.row.toLong())
+            return read(uri).singleOrNull() == recipient
+        }
+        override fun canCall() = hasCallPermission()
+        override fun request(recipient: ContactCallWorkflow.Recipient, dialOnly: Boolean): Boolean {
+            val action = if (dialOnly) Intent.ACTION_DIAL else Intent.ACTION_CALL
+            context.startActivity(Intent(action, Uri.parse("tel:" + Uri.encode(recipient.number))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return true
+        }
+    }
+
     fun resolveContact(name: String): ContactNameMatcher.MatchResult {
         if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return ContactNameMatcher.MatchResult(ContactNameMatcher.MatchStatus.NOT_FOUND)
         val projection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)

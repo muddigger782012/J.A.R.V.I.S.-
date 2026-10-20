@@ -28,7 +28,11 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
         GOAL_REVIEW("goal approval", "Prepare a focus session, review its steps, say yes, then cancel the plan.",
             "Planning and a bare yes do not execute steps; only the exact current plan approval authorizes them.", "GoalPlanning, GoalPlanStore and RoutineExecutionCoordinator"),
         RECOVERY("routine recovery", "Interrupt a synthetic routine during a requested action, restart, then request resume.",
-            "Keep the interrupted effect uncertain, avoid duplicate dispatch and allow cancellation of later steps.", "RoutineExecutionCoordinator and LocalRoutineWorkflowAccess")
+            "Keep the interrupted effect uncertain, avoid duplicate dispatch and allow cancellation of later steps.", "RoutineExecutionCoordinator and LocalRoutineWorkflowAccess"),
+        CONTACT_CALL("contact call review", "Prepare a call to a synthetic contact with two numbers, choose one, reconstruct the service and review before approval.",
+            "Require the current recipient review, revalidate the number and request at most one call or dialer; never claim connection.", "ContactCallWorkflow, ContactCallCommands and AndroidAssistantService"),
+        RESEARCH("research brief", "Use synthetic sources, fail the first retrieval method, then cancel a delayed follow-up and review the saved brief offline.",
+            "Fall back to an available method, retain source links, reject late cancelled results and distinguish excerpts from verified facts.", "ResearchBriefs, SearchCoordinator and SearchRouter")
     }
     enum class Outcome { PASSED, FAILED, UNCLEAR }
     enum class Action { ENABLE, DISABLE, CLEAR, REVIEW, BASELINE, COMPARE, RECORD, PROPOSAL, PROPOSALS, REVIEW_PROPOSAL, DISMISS_PROPOSAL, CLEAR_PROPOSALS,
@@ -261,13 +265,17 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
         }
         fun localRun(key: String): LocalFoundationChecks.Run? = if (version < 3 || !json.has(key)) null else json.getJSONObject(key).let { item ->
             val results = item.getJSONArray("results")
-            require(results.length() == LocalFoundationChecks.Case.values().size)
+            val revision = item.getInt("revision")
+            val expectedCases = if (revision == 1) setOf(LocalFoundationChecks.Case.CORRECTIONS, LocalFoundationChecks.Case.APPROVAL,
+                LocalFoundationChecks.Case.RECOVERY, LocalFoundationChecks.Case.RETRIES, LocalFoundationChecks.Case.HISTORY)
+                else LocalFoundationChecks.Case.values().toSet()
+            require(results.length() == expectedCases.size)
             LocalFoundationChecks.Run(item.getInt("build"), item.getString("buildName"), item.getLong("time"), item.getInt("revision"),
                 (0 until results.length()).map { index -> results.getJSONObject(index).let { result ->
                     LocalFoundationChecks.Result(LocalFoundationChecks.Case.valueOf(result.getString("case")), LocalFoundationChecks.Outcome.valueOf(result.getString("outcome")))
                 } }).also {
                 require(it.build > 0 && it.buildName.length in 1..40 && it.time >= 0 && it.revision > 0)
-                require(it.results.map { result -> result.case }.toSet().size == results.length())
+                require(it.results.map { result -> result.case }.toSet() == expectedCases)
             }
         }
         return Snapshot(json.getBoolean("enabled"), samples("samples", MAX_SAMPLES), samples("baseline", Scenario.values().size), proposals,

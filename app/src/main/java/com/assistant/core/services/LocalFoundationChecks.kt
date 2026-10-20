@@ -5,13 +5,15 @@ import com.assistant.core.workflow.*
 
 /** On-demand synthetic logic checks. Every dispatcher is a counter; no host tools or user state. */
 object LocalFoundationChecks {
-    const val REVISION = 1
+    const val REVISION = 2
     enum class Case(val label: String, val expected: String) {
         CORRECTIONS("goal corrections", "A duration correction preserves volume and generates a new review; appended commands are rejected."),
         APPROVAL("approval guard", "Planning and execution before approval dispatch nothing; only exact reviewed steps can be approved."),
         RECOVERY("interrupted recovery", "An interrupted action remains ambiguous after reconstruction and cancellation, without another dispatch."),
         RETRIES("bounded retry", "A known not-applied failure can retry only within the attempt limit."),
-        HISTORY("history duplicate guard", "Cleanup keeps the latest status and rejects archived invocation keys after reconstruction.")
+        HISTORY("history duplicate guard", "Cleanup keeps the latest status and rejects archived invocation keys after reconstruction."),
+        CONTACTS("contact selection logic", "Exact names take precedence, distinct numbers need selection, and malformed review controls stay local."),
+        RESEARCH("research fallback logic", "A failed synthetic search method falls back to safe source URLs; malformed research controls stay local.")
     }
     enum class Outcome { PASSED, FAILED, ERROR }
     data class Result(val case: Case, val outcome: Outcome)
@@ -32,6 +34,8 @@ object LocalFoundationChecks {
                 Case.RECOVERY -> recovery()
                 Case.RETRIES -> retries()
                 Case.HISTORY -> history()
+                Case.CONTACTS -> contacts()
+                Case.RESEARCH -> research()
             }
             Outcome.PASSED
         } catch (_: CheckFailed) { Outcome.FAILED }
@@ -46,6 +50,24 @@ object LocalFoundationChecks {
         verify(changed.key != plan.key && changed.actions == listOf("volume:20", "timer:600"))
         verify(GoalPlanning.revise(changed, GoalPlanning.edit("make that ten minutes then reboot")!!) == null)
         verify(GoalPlanning.edit("what would make that easier?") == null)
+    }
+
+    private fun contacts() {
+        val rows = listOf(ContactCallWorkflow.Recipient("1", "Alex", "2025550100"),
+            ContactCallWorkflow.Recipient("2", "Alex", "2025550101"), ContactCallWorkflow.Recipient("3", "Alex Smith", "2025550102"))
+        verify(ContactCallWorkflow.matches("Alex", rows).size == 2)
+        verify(ContactCallWorkflow.phone("Alex 2") == null)
+        verify(ContactCallCommands.parse("choose contact 2 then reboot")?.command == ContactCallCommands.Command.INVALID)
+    }
+
+    private fun research() {
+        var attempts = 0
+        val router = SearchRouter(listOf(SearchRouter.Provider("synthetic failure") { attempts++; error("synthetic") },
+            SearchRouter.Provider("synthetic fallback") { attempts++; listOf(SearchRouter.Result("Source", "Synthetic excerpt", "https://example.com/source"),
+                SearchRouter.Result("Invalid", "Synthetic", "javascript:invalid")) }))
+        val result = router.search("synthetic topic")
+        verify(attempts == 2 && result.items.size == 1 && result.provider == "synthetic fallback")
+        verify(ResearchBriefCommands.parse("research status then reboot")?.command == ResearchBriefCommands.Command.INVALID)
     }
 
     private fun approval() {

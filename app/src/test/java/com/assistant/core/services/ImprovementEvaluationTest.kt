@@ -8,6 +8,26 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicReference
 
 class ImprovementEvaluationTest {
+    @Test fun previousLocalCheckRevisionSurvivesUpgradeWithoutLosingOwnerFeedbackOrBaseline() = fixture { directory ->
+        val evaluation = store(directory)
+        evaluation.setEnabled(true)
+        evaluation.record(ImprovementEvaluation.Scenario.RECOVERY, ImprovementEvaluation.Outcome.FAILED)
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.RUN_LOCAL))
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.BASELINE_LOCAL))
+        val file = File(directory, "improvement-evaluation.json")
+        val json = org.json.JSONObject(file.readText())
+        for (key in listOf("localRun", "localBaseline")) {
+            val run = json.getJSONObject(key); run.put("revision", 1)
+            val rows = run.getJSONArray("results")
+            run.put("results", org.json.JSONArray().also { output -> (0 until 5).forEach { output.put(rows.getJSONObject(it)) } })
+        }
+        file.writeText(json.toString())
+        assertEquals(1, evaluation.snapshot().localBaseline!!.revision)
+        assertEquals(ImprovementEvaluation.Outcome.FAILED, evaluation.snapshot().samples.single().outcome)
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.RUN_LOCAL))
+        assertTrue(evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.COMPARE_LOCAL)).contains("revision changed"))
+        assertEquals(5, evaluation.snapshot().localBaseline!!.results.size)
+    }
     private inline fun fixture(block: (File) -> Unit) {
         val directory = Files.createTempDirectory("improvement-evaluation").toFile()
         try { block(directory) } finally { directory.deleteRecursively() }

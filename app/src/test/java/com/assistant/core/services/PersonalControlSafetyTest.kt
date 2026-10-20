@@ -31,7 +31,9 @@ class PersonalControlSafetyTest {
             "make that ten minutes", "change goal volume to 20 percent", "run local foundation checks",
             "review local foundation checks", "clear local foundation checks", "save local check baseline", "compare local foundation checks",
             "remind me in ten minutes to check the oven", "prepare a reminder in ten minutes to check the oven", "approve reminder", "review reminders", "review reminder plan", "cancel reminder plan",
-            "cancel reminder 1", "retry reminder 1", "reminder 1 was shown", "clear completed reminder history", "share improvement proposal for routine recovery")) {
+            "cancel reminder 1", "retry reminder 1", "reminder 1 was shown", "clear completed reminder history", "share improvement proposal for routine recovery",
+            "prepare a call to Alex", "find contact Alex and confirm call", "review contact call", "choose contact 2", "approve contact call", "cancel contact call", "contact call status",
+            "research solar panels and summarize", "review research brief", "research status", "retry research", "cancel research", "clear research brief")) {
             assertTrue(text, LearnedCommandReviewCommands.isReserved(text))
             assertFalse(text, memory.recordSuccess(text, "volume_up", setOf("volume_up")))
             assertNull(text, registry.propose(text, listOf("volume_up")))

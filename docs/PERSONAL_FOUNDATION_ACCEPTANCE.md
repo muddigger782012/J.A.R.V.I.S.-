@@ -309,8 +309,70 @@ passed package/version/ABI, distributed-signer compatibility, archive integrity,
 wake runtime/model and private enabled reminder-receiver checks. The build and
 publication provenance is retained in the pull request and signed-artifact manifest.
 Phone, actual alarm callback/reboot/doze timing, live-provider and installed-data
-acceptance remain pending. Contact lookup with confirmation and research-and-summary
-workflows remain the next Phase 5 priorities.
+acceptance remain pending. The follow-up below extends the next Phase 5 priorities:
+contact lookup with confirmation and research-and-summary workflows.
+
+## Contact call review and saved research briefs
+
+Personal Jarvis now supports `find contact Alex and confirm call`, `find contact
+Alex`, `look up contact Alex` and `prepare a call to Alex`. A full phone number can
+be supplied without Contacts permission. Exact normalized names take precedence;
+distinct phone choices are listed instead of choosing an arbitrary recipient.
+Use `choose contact 2`, `review contact call`, `approve contact call`,
+`cancel contact call` and `contact call status`. A bare yes only repeats a review.
+Reviews expire after two minutes, a topic change discards the pending review,
+and a reconstructed service must present the current recipient again before
+approval. The selected contact row/name/number is revalidated immediately before
+dispatch. Without Phone permission, approval requests the ordinary dialer instead
+of placing a call. Missing Contacts access offers the full-number alternative.
+
+The private no-backup checkpoint consumes authorization before requesting Android.
+Voice/chat approval races dispatch at most once. Failed storage before dispatch
+causes no request; interrupted or unsaved outcomes remain uncertain and are never
+automatically retried. A failed new recipient validation retains earlier uncertain
+request evidence. Android accepting an intent is reported as a requested call or
+dialer, never a connected/completed call. Existing direct call/dial/message commands
+remain available; numbers are recognized only as complete phone strings, rather
+than extracting digits from contact names. Contact review details are not added to
+provider dialogue memory. Only the pending review and latest SDK-request result
+are retained by this workflow; it does not create a call log or record calls.
+
+`research solar panels and summarize` (also `research and summarize solar panels`)
+performs an explicit online lookup using the existing configured grounded-search
+and retrieval fallbacks. Selected provider/model settings and optional search keys
+are preserved. A bounded brief extracts up to five source excerpts with linked
+originals and retrieval time. It does not claim full-page access, independent fact
+verification, or a generative synthesis. Returned source text is presentation data;
+it never authorizes a tool or enters provider dialogue memory. Structured search
+answers are now converted to readable speech before TTS instead of reading JSON.
+
+Use `review research brief` or `summarize that research` offline to read the last
+saved brief, `research status`, `cancel research`, `retry research` for an explicit
+new attempt, and `clear research brief` after cancelling an active request. The
+query and completion checkpoint are private, bounded and shared by voice/chat.
+Only one latest brief is retained. Failure leaves an older brief intact. Duplicate
+workers cannot start the same ticket twice; cancelled/superseded late results
+cannot replace the saved brief. Restart never silently repeats a network request;
+an unfinished request is explicitly described as running or interrupted. Cancelling
+prevents saving late results and does not claim to abort an in-flight HTTP request.
+
+Phase 6 adds opt-in manual evaluation scenarios for contact-call review and research
+briefs, plus narrow synthetic contact-selection and search-fallback logic checks.
+Local-check revision 2 preserves revision 1 results and baselines, labels them stale
+and requires retesting before a comparison. These checks do not access contacts,
+place calls, contact search providers or replace manual phone/provider evidence.
+Owner feedback and developer brief sharing remain explicit and supervised.
+
+JVM coverage includes stale/changed recipients, denial/dialer fallback, cancellation,
+duplicate approval, corrupt storage, actual filesystem write failures before/after
+dispatch, source validation, provider fallback, duplicate workers, restart and late
+cancelled/superseded research. New Android cases intercept phone intents without
+launching a Phone app, use synthetic retrieval for service reconstruction and
+cancellation, and verify no private review content enters provider dialogue memory.
+The optimized emulator gate now requires all 24 acceptance tests. Final-source CI,
+signing and publication evidence is recorded in this follow-up's pull request.
+Actual personal contacts, physical call/permission behavior, live search/model
+quality, real phone voice interaction and installed-data upgrade remain pending.
 
 ## Delivered behavior and acceptance evidence
 
@@ -402,7 +464,7 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
 2. Pass the existing CI unit/build, gateway, theme and optimized voice emulator jobs
-   on the final source. The voice runner requires all 21 voice/settings and isolated
+   on the final source. The voice runner requires all 24 voice/settings and isolated
    foundation service/storage acceptance tests. Broad visual-layout
    smoke remains disabled upstream; do not count it as a pass.
 3. On a disposable emulator, verify exact commands, no unintended actions for

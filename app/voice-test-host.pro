@@ -54,3 +54,6 @@
 -keep,allowoptimization class com.assistant.core.services.PersonalReminders** { public *; }
 -keep,allowoptimization class com.assistant.core.services.PersonalReminderRuntime** { public *; }
 -keep,allowoptimization class com.assistant.core.services.PersonalReminderReceiver** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ContactCallWorkflow** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ResearchBriefs** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ChatSearchResults** { public *; }
