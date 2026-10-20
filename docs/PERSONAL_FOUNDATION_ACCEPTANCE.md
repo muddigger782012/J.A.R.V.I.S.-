@@ -11,6 +11,39 @@ updater now serves that production-signed APK. Physical phone, live-provider and
 installed-data upgrade acceptance remain unperformed follow-up checks; they are
 not represented as passed. No Beta or Developer release is part of this publication.
 
+## Follow-up: personal routine recovery
+
+The next development increment replaces the personal service's session-only routine
+adapter with a bounded, atomic journal outside Android backup. Typed chat and voice
+share an operating-system execution lease. A competing instance can inspect the
+write-ahead checkpoint and save a cancellation request, but cannot dispatch or
+recover another live instance's action. The lease is released on process death.
+
+Status reconstruction does not run actions. An interrupted in-flight step stays
+ambiguous and cannot be retried. A checkpoint between verified steps becomes paused;
+only an explicit resume can run remaining safe steps. An approved checkpoint saved
+before first dispatch also needs an explicit invocation or resume. Saved approval,
+frozen app targets, outcome evidence and attempt limits remain in force. Generic
+session feedback cannot confirm a newer invocation with the same name and target.
+
+The existing exact routine controls now refer to the current execution on this
+device across service restarts. Cancellation is cooperative and stops later steps;
+it cannot undo an action already dispatched. Cancellation survives the requesting
+or executing instance being reconstructed. Corrupt or oversized checkpoints stop
+execution rather than falling back to an empty journal. Storage remains limited to
+100 retained executions and 32 invocation keys per execution, with no silent
+eviction of duplicate-protection evidence. A history-management flow remains future
+work; reaching the limit blocks new invocations while preserving review and cancel.
+
+Acceptance for this increment includes an independent-JVM lease/death test, shared
+coordinator races, interrupted and between-step recovery, saved cancellation,
+stale feedback, removed approval and corrupt storage tests. Two additional Android
+cases exercise the actual atomic files and reconstructed service. Record successful
+results in the follow-up pull request before treating them as verified. The shipped
+personal build described above still has the earlier session-only adapter until a
+new signed update is published. This work adds no background scheduler or generic
+goal planner. Physical-device acceptance remains outstanding.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -42,7 +75,8 @@ Personal-app-only controls:
 
 These controls cannot be taught as command aliases or saved routine names. They
 run locally and do not authorize unrelated pending actions. Routine status and
-control refer only to the current tracked execution in that assistant session.
+control in the published build refer only to the current tracked execution in that
+assistant session; the follow-up described above restores them across sessions.
 
 Conversation memory retains at most 30 exchanges, 2,000 characters per side and
 24,000 characters total, with seven-day expiry. It uses atomic writes and a file

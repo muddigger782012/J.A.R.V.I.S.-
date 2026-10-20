@@ -15,8 +15,13 @@ import com.assistant.core.services.*
 import com.assistant.core.storage.ActionRepository
 import com.assistant.core.storage.AuditRepository
 import com.assistant.core.storage.Database
+import com.assistant.core.learning.ApprovedRoutineRegistry
+import com.assistant.core.workflow.*
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -84,6 +89,62 @@ class PersonalFoundationAcceptanceTest {
         }
         assertEquals(0, executions)
         assertTrue(service.getConversationSnapshot().isEmpty())
+    }
+
+    @Test fun interruptedRoutineRestoresThroughTheActualServiceWithoutReplayingAnAction() {
+        val access = LocalRoutineWorkflowAccess(context)
+        val engine = WorkflowEngine(approvedRoutine = { ApprovedRoutineRegistry.Routine("focus time", listOf("timer:300")) }, store = access.store)
+        val plan = engine.planApprovedRoutine("focus time", "first-turn")
+        val ready = engine.approveRoutine(plan.id, plan.steps.map { it.step })
+        assertTrue(access.store.save(ready.copy(status = RoutineWorkflowStatus.RUNNING,
+            steps = ready.steps.map { it.copy(status = RoutineStepStatus.RUNNING, attempts = 1) })))
+        val service = assistant()
+        assertTrue(service.handleUserInput("routine execution status").text.contains("effect uncertain"))
+        service.handleUserInput("resume routine execution")
+        service.handleUserInput("focus time")
+        assertEquals(0, context.activityRequests)
+        assertEquals(0, executions)
+        assertEquals(RoutineWorkflowStatus.AMBIGUOUS, LocalRoutineWorkflowAccess(context).store.load().single().status)
+        assertTrue(assistant().handleUserInput("the routine worked").text.contains("you confirmed the result"))
+        assertEquals(RoutineWorkflowStatus.USER_CONFIRMED, LocalRoutineWorkflowAccess(context).store.load().single().status)
+        assertTrue(service.getConversationSnapshot().isEmpty())
+        // Existing corrupt state is preserved, never replaced with an empty/repeatable journal.
+        val journal = File(context.noBackupFilesDir, "routine-execution/checkpoints.json")
+        journal.writeText("invalid checkpoint")
+        assertTrue(assistant().handleUserInput("routine execution status").text.contains("could not be accessed safely"))
+        assertEquals("invalid checkpoint", journal.readText())
+    }
+
+    @Test fun separateAndroidStorageInstancesCanCancelAnInFlightRoutine() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val result = AtomicReference<RoutineExecutionCoordinator.Result>()
+        val failure = AtomicReference<Throwable>()
+        var calls = 0
+        fun coordinator() = RoutineExecutionCoordinator(LocalRoutineWorkflowAccess(context),
+            { ApprovedRoutineRegistry.Routine("focus time", listOf("volume:25", "app_update")) },
+            { _, _ -> calls++; entered.countDown(); check(release.await(5, TimeUnit.SECONDS)); RoutineStepOutcome.Verified })
+        val worker = Thread { try { result.set(coordinator().invoke("focus time", "voice-turn")) } catch (e: Throwable) { failure.set(e) } }
+        worker.start()
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val chat = coordinator()
+            assertTrue(chat.status().busy)
+            assertEquals(RoutineStepStatus.RUNNING, chat.status().checkpoint!!.steps.first().status)
+            assertTrue(chat.invoke("focus time", "chat-turn").busy)
+            assertEquals(RoutineWorkflowStatus.CANCELLING, chat.cancel().checkpoint!!.status)
+        } finally { release.countDown(); worker.join(5_000) }
+        assertFalse(worker.isAlive)
+        failure.get()?.let { throw AssertionError(it) }
+        assertEquals(1, calls)
+        assertEquals(RoutineWorkflowStatus.CANCELLED, result.get().checkpoint!!.status)
+        assertEquals(RoutineWorkflowStatus.CANCELLED, coordinator().resume().checkpoint!!.status)
+        assertEquals(1, calls)
+        val next = coordinator().invoke("focus time", "next-turn").checkpoint!!
+        val storage = LocalRoutineWorkflowAccess(context)
+        assertTrue(storage.requestCancellation(next.id))
+        assertTrue(storage.requestCancellation(result.get().checkpoint!!.id))
+        assertTrue(storage.cancellationRequested(next.id))
     }
 
     private fun assistant(): HybridAssistantService {

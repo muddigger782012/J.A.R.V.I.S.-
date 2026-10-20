@@ -42,3 +42,6 @@
 -keep,allowoptimization class com.assistant.core.storage.Database** { public *; }
 -keep,allowoptimization class com.assistant.core.storage.ActionRepository** { public *; }
 -keep,allowoptimization class com.assistant.core.storage.AuditRepository** { public *; }
+# Durable routine acceptance uses these APIs from the separate instrumentation APK.
+-keep,allowoptimization class com.assistant.core.workflow.** { public *; }
+-keep,allowoptimization class com.assistant.core.learning.ApprovedRoutineRegistry** { public *; }

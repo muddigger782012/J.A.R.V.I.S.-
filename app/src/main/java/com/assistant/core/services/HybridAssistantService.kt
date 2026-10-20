@@ -5,9 +5,9 @@ import com.assistant.core.engine.AssistantEngine
 import com.assistant.core.engine.IntentClassifier
 import com.assistant.core.models.ActionResult
 import com.assistant.core.models.CapabilityState
-import com.assistant.core.workflow.WorkflowEngine
+import com.assistant.core.workflow.RoutineExecutionCoordinator
+import com.assistant.core.workflow.LocalRoutineWorkflowAccess
 import com.assistant.core.workflow.RoutineWorkflowCheckpoint
-import com.assistant.core.workflow.RoutineWorkflowStep
 import com.assistant.core.workflow.RoutineWorkflowStatus
 import com.assistant.core.workflow.RoutineStepStatus
 import com.assistant.core.workflow.RoutineStepOutcome
@@ -62,11 +62,10 @@ class HybridAssistantService(
     private val trialEvidence = CapabilityTrialEvidence(systemService.context().filesDir)
     private val resultHistory = IntelligenceResultHistory(systemService.context())
     private val preferenceConfirmations = PreferenceConfirmationStore(systemService.context())
-    private val routineExecutionLock = Any()
-    @Volatile private var currentRoutineId: String? = null
-    private val workflowEngine: WorkflowEngine by lazy {
-        WorkflowEngine(approvedRoutine = routineRegistry::find,
-            executeRoutineStep = { checkpoint, step ->
+    @Volatile private var sessionRoutineId: String? = null
+    private val routineCoordinator: RoutineExecutionCoordinator by lazy {
+        RoutineExecutionCoordinator(access = LocalRoutineWorkflowAccess(systemService.context()), approvedRoutine = routineRegistry::find,
+            execute = { checkpoint, step ->
                 RoutineStepOutcome.fromRoutineStatus(executeRoutineStep(checkpoint.phrase, step.actionId, step.target))
             }, resolvePreferred = assistantMemory::preferred, canLaunchApp = androidAssistant::canLaunchApp)
     }
@@ -122,6 +121,13 @@ class HybridAssistantService(
                 return HybridAssistantReply(SupervisedImprovement.render(SupervisedImprovement.generate(resultHistory.snapshot()), command))
             }
             PersonalRoutineCommands.parse(userInput)?.let { command ->
+                routineConfirmations.consume("")
+                volumeConfirmations.consume("")
+                deviceLearningSession.consume("")
+                preferenceConfirmations.consume("")
+                pendingPrompt = PendingPrompt.NONE
+                pendingShellCommand = null
+                pendingLearningReset = false
                 return HybridAssistantReply(controlRoutineExecution(command))
             }
         }
@@ -1200,45 +1206,30 @@ class HybridAssistantService(
         else result
     }
 
-    private fun runTrackedRoutine(phrase: String): String = synchronized(routineExecutionLock) {
+    private fun runTrackedRoutine(phrase: String): String =
         runCatching {
-            currentRoutineId?.let { id ->
-                val current = workflowEngine.routineCheckpoint(id)
-                val unresolved = current.steps.any { it.status in setOf(RoutineStepStatus.RUNNING,
-                    RoutineStepStatus.REQUESTED, RoutineStepStatus.AWAITING_OUTCOME,
-                    RoutineStepStatus.REQUESTED_WITHOUT_TRACKING, RoutineStepStatus.AMBIGUOUS) }
-                if (current.phrase != phrase && (unresolved || current.status !in setOf(
-                        RoutineWorkflowStatus.CANCELLED, RoutineWorkflowStatus.VERIFIED, RoutineWorkflowStatus.USER_CONFIRMED))) {
-                    return@synchronized renderRoutineExecution(current) + " Resolve or cancel this execution before starting a different routine."
-                }
-            }
-            val plan = workflowEngine.planApprovedRoutine(phrase, java.util.UUID.randomUUID().toString())
-            currentRoutineId = plan.id
-            if (plan.status == RoutineWorkflowStatus.AWAITING_APPROVAL) {
-                // Invoking this already reviewed, saved name is the existing authorization to run it.
-                workflowEngine.approveRoutine(plan.id, plan.steps.map { it.step })
-            }
-            renderRoutineExecution(workflowEngine.runApprovedRoutine(plan.id))
+            val result = routineCoordinator.invoke(phrase, java.util.UUID.randomUUID().toString())
+            if (!result.busy) sessionRoutineId = result.checkpoint?.id
+            renderRoutineControl(result)
         }.getOrElse { "This routine could not start safely. Check its saved apps and preferences, then review 'routine execution status'. No automatic retry was made." }
-    }
 
     private fun controlRoutineExecution(command: PersonalRoutineCommands.Command): String {
-        val id = currentRoutineId ?: return "No routine execution is tracked in this assistant session. Invoke a saved, approved routine first."
-        val checkpoint = when (command) {
-            PersonalRoutineCommands.Command.STATUS -> workflowEngine.routineCheckpoint(id)
-            PersonalRoutineCommands.Command.RESUME -> synchronized(routineExecutionLock) { workflowEngine.resumeApprovedRoutine(id) }
-            PersonalRoutineCommands.Command.CANCEL -> workflowEngine.cancelApprovedRoutine(id)
-            PersonalRoutineCommands.Command.WORKED, PersonalRoutineCommands.Command.FAILED -> {
-                val current = workflowEngine.routineCheckpoint(id)
-                val step = current.steps.lastOrNull { it.status in setOf(RoutineStepStatus.REQUESTED,
-                    RoutineStepStatus.AWAITING_OUTCOME, RoutineStepStatus.REQUESTED_WITHOUT_TRACKING, RoutineStepStatus.AMBIGUOUS) }
-                    ?: return "No requested or uncertain routine step is awaiting a result report. No outcome was changed."
-                workflowEngine.recordRoutineOutcome(id, step.step.index,
-                    if (command == PersonalRoutineCommands.Command.WORKED) RoutineOutcomeObservation.USER_CONFIRMED else RoutineOutcomeObservation.FAILED,
-                    "User reported the current routine result. This is not device verification or proof that an update was installed.")
+        return runCatching {
+            val result = when (command) {
+                PersonalRoutineCommands.Command.STATUS -> routineCoordinator.status()
+                PersonalRoutineCommands.Command.RESUME -> routineCoordinator.resume()
+                PersonalRoutineCommands.Command.CANCEL -> routineCoordinator.cancel()
+                PersonalRoutineCommands.Command.WORKED -> routineCoordinator.report(RoutineOutcomeObservation.USER_CONFIRMED)
+                PersonalRoutineCommands.Command.FAILED -> routineCoordinator.report(RoutineOutcomeObservation.FAILED)
             }
-        }
-        return renderRoutineExecution(checkpoint)
+            renderRoutineControl(result)
+        }.getOrElse { "Routine checkpoints could not be accessed safely. No automatic retry was made. Restore local storage access and review 'routine execution status'." }
+    }
+
+    private fun renderRoutineControl(result: RoutineExecutionCoordinator.Result): String {
+        val status = result.checkpoint?.let(::renderRoutineExecution)
+            ?: "No routine execution is tracked on this device. Invoke a saved, approved routine first."
+        return listOf(status, result.message).filter { it.isNotBlank() }.joinToString(" ")
     }
 
     private fun renderRoutineExecution(checkpoint: RoutineWorkflowCheckpoint): String {
@@ -1256,9 +1247,9 @@ class HybridAssistantService(
             }
         }
         val next = when (checkpoint.status) {
-            RoutineWorkflowStatus.AWAITING_OUTCOME -> if (checkpoint.steps.any { it.status == RoutineStepStatus.AWAITING_OUTCOME })
-                " Check the requested result, then say 'it worked' or 'it failed'."
-                else " Check the requested result, then say 'the routine worked' or 'the routine failed'. An updater launch is not proof of installation."
+            RoutineWorkflowStatus.AWAITING_APPROVAL -> " Invoke the saved routine by name to authorize its reviewed steps. Nothing has run."
+            RoutineWorkflowStatus.READY -> " Say 'resume routine execution' to run the pending steps. Nothing resumes automatically."
+            RoutineWorkflowStatus.AWAITING_OUTCOME -> " Check the requested result, then say 'the routine worked' or 'the routine failed'. An updater launch is not proof of installation."
             RoutineWorkflowStatus.FAILED, RoutineWorkflowStatus.PAUSED -> " Review the cause before saying 'resume routine execution'. Completed steps will not repeat."
             RoutineWorkflowStatus.AMBIGUOUS -> " Inspect the device result before any new request; this workflow will not retry an uncertain effect. Report a checked result with 'the routine worked' or 'the routine failed'."
             RoutineWorkflowStatus.CANCELLED, RoutineWorkflowStatus.CANCELLING -> " Subsequent steps are cancelled. Already requested actions are not undone."
@@ -1269,15 +1260,10 @@ class HybridAssistantService(
 
     private fun settleTrackedRoutine(pending: DeviceLearningSession.Pending, success: Boolean) {
         if (!personalAssistant) return
-        synchronized(routineExecutionLock) {
-            val id = currentRoutineId ?: return
-            val checkpoint = workflowEngine.routineCheckpoint(id)
-            if (checkpoint.phrase != pending.phrase) return
-            val step = checkpoint.steps.lastOrNull { it.step.target == pending.action && it.status in setOf(
-                RoutineStepStatus.REQUESTED, RoutineStepStatus.AWAITING_OUTCOME, RoutineStepStatus.REQUESTED_WITHOUT_TRACKING) } ?: return
-            workflowEngine.recordRoutineOutcome(id, step.step.index,
-                if (success) RoutineOutcomeObservation.USER_CONFIRMED else RoutineOutcomeObservation.FAILED,
-                if (success) "User confirmed the requested result." else "User reported the result unsuccessful; effects remain uncertain.")
+        val id = sessionRoutineId ?: return
+        runCatching {
+            routineCoordinator.reportFor(id, pending.phrase, pending.action,
+                if (success) RoutineOutcomeObservation.USER_CONFIRMED else RoutineOutcomeObservation.FAILED)
         }
     }
 
