@@ -36,8 +36,8 @@ it cannot undo an action already dispatched. Cancellation survives the requestin
 or executing instance being reconstructed. Corrupt or oversized checkpoints stop
 execution rather than falling back to an empty journal. Storage remains limited to
 100 retained executions and 32 invocation keys per execution, with no silent
-eviction of duplicate-protection evidence. A history-management flow remains future
-work; reaching the limit blocks new invocations while preserving review and cancel.
+eviction of duplicate-protection evidence. The reviewed history-management follow-up
+below allows explicit cleanup while preserving invocation fingerprints.
 
 Acceptance for this increment includes an independent-JVM lease/death test, shared
 coordinator races, interrupted and between-step recovery, saved cancellation,
@@ -134,6 +134,50 @@ exercise goal review/clarification, cross-instance review binding and evaluation
 assistant services. These tests do not establish live-provider naturalness or
 physical-device execution/upgrade acceptance. No phase percentage is claimed.
 
+## Phase 5 and 6 follow-up: reviewed history and saved proposals
+
+The next personal increment adds two local management flows without changing themes,
+provider selection, saved routines or permissions. Verification and publication for
+this increment are recorded in its pull request; physical-phone acceptance remains
+pending. Previous release evidence above applies to its named release only.
+
+`review task history` displays retained/eligible counts and groups the exact older
+completed records by name and outcome. `clear reviewed task history` must immediately
+follow that review in the same assistant instance within two minutes. A different
+topic, a new service instance, expiry or any changed journal snapshot invalidates
+the review. Cleanup holds the existing execution lease, never runs an action, and
+retains the latest status plus every unfinished, failed, running or uncertain task.
+Cancellation cannot make an uncertain effect eligible for removal. Only verified,
+user-confirmed, or cancelled-without-uncertain-effects older records are candidates.
+
+Cleanup atomically replaces removed records with SHA-256 fingerprints of their
+workflow IDs and invocation keys in the same journal. These fingerprints prevent
+an old invocation or obsolete writer from resurrecting a removed execution, including
+after restart. Installed version-one journals remain readable; the version-two
+envelope is written when cleanup first needs fingerprint retention. There is no
+silent eviction: at most 8,192 fingerprints are retained. If this bounded safety
+record fills or storage fails, cleanup refuses without removing records. It is not
+an unlimited archive, a way to reset uncertain actions, or deletion of saved routines.
+
+`prepare improvement proposal for <scenario>` now saves the original failed/unclear
+owner report, source build and report/preparation times as an immutable local brief.
+Repeated preparation from identical evidence returns the existing brief. At most
+16 briefs are retained, without silently replacing earlier evidence. Review them
+alongside the existing recurrence suggestions with `review improvement proposals`;
+`review improvement proposal for <scenario>` displays the latest brief for that
+scenario. Newer reports and newer builds are labeled as superseding evidence or
+requiring retesting; a passed report never rewrites an earlier failure as verified.
+
+`dismiss improvement proposal for <scenario>` marks the latest brief dismissed while
+retaining its source. `clear improvement proposals` explicitly deletes briefs while
+preserving evaluation reports, baseline and recording preference. `clear improvement
+evaluation` resets all evaluation data, including briefs, and turns recording off.
+Installed version-one evaluation reports migrate without changing opt-in or baseline.
+No private free text, conversation, provider result or screenshot is stored in briefs.
+These commands neither run tests nor prepare/apply code, send to GitHub, or deploy.
+The app still has no developer write integration; updater read credentials remain
+unrelated. Preparing actual patches and reviewed pull requests remains future work.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -142,8 +186,8 @@ physical-device execution/upgrade acceptance. No phase percentage is claimed.
 | 2: conversation | Explicit interpretation state replaces response-text matching. Questions mentioning commands stay conversational. Personal solution-first instructions apply in both persona modes. One configured gateway alternative can answer after a failed Gemini interpretation. | Intent, local query, fallback, personality and provider-routing tests; Android service acceptance cases. | Live provider behavior, naturalness and three-turn voice/text evaluation on the personal phone. Prompt contract tests do not prove model behavior. |
 | 3: memory/offline | A bounded local dialogue window survives service/process reconstruction. Latest corrections follow older dialogue. Exact review/reset controls; confirmed device memory and validated command learning remain separate. Local arithmetic, date/time, commands and approved routines remain available offline. | Reconstruction, expiry, malformed data, deletion, write-failure and command-control tests; actual Android storage acceptance cases. | Physical restart and foreground/voice-process smoke tests. No offline generative model or arbitrary fact-learning is claimed. |
 | 4: device integration | Selects implemented Standard fallbacks before an unavailable/unsupported privileged route is attempted. Maintains risk confirmations. Does not repeat uncertain adapter effects. Android rejecting an Accessibility action cannot become success. | Broker tests with injected adapters exercise actual selection, disabled fallback, denied policy, unsupported actions, failures and exceptions. | Standard, Accessibility, Shizuku and Dhizuku permission/device matrix. An advertised capability is not proof of permission or a working service. |
-| 5: execution | Approved routines and reviewed focus/music/navigation goals share durable checkpoints and a voice/chat dispatch lease, bounded resume, cancellation, duplicate prevention and honest outcome types. | Engine/coordinator/planner tests, independent-JVM lease/death checks and actual Android service/storage cases, including changed/unseen cross-chat review. | Physical workflow execution; broader goal decomposition and reviewed terminal-history management. |
-| 6: improvement | Read-only recurrence proposals plus opt-in manual synthetic evaluation, bounded build/scenario reports, matched baselines and evidence-linked developer briefs. | Deterministic journal and evaluation tests cover recurrence, uncertainty, opt-in/reset, concurrent/bounded reports and honest comparison; Android reconstruction and baseline acceptance. | Live behavioral evaluation, broader reviewed feedback coverage and actual developer write integration for patches/PRs. |
+| 5: execution | Approved routines and reviewed focus/music/navigation goals share durable checkpoints and a voice/chat dispatch lease, bounded resume, cancellation, duplicate prevention and honest outcome types. Explicit reviewed cleanup retains latest/unresolved status and invocation fingerprints. | Engine/coordinator/planner tests, independent-JVM lease/death checks, bounded/migrated history tests and actual Android service/storage cases. | Physical workflow execution and broader goal decomposition. |
+| 6: improvement | Read-only recurrence proposals plus opt-in manual synthetic evaluation, matched baselines and persistent evidence-linked developer briefs with review/dismissal controls. | Deterministic tests cover recurrence, uncertainty, opt-in/reset, migration, bounded reports/briefs and honest comparison; Android reconstruction and proposal acceptance. | Live behavioral evaluation, broader reviewed feedback coverage and actual developer write integration for patches/PRs. |
 
 The engine and pure policy tests establish their bounded contracts. Fake/injected
 adapters do not prove that Android or an AI provider performed an action. Android
@@ -162,6 +206,7 @@ Personal-app-only controls:
 - `the routine worked` / `the routine failed` for an explicitly checked current routine result; reports remain user evidence, not device verification or installation proof
 - `improvement status`
 - `review improvement proposals`
+- `review task history` / `clear reviewed task history`
 
 These controls cannot be taught as command aliases or saved routine names. They
 run locally and do not authorize unrelated pending actions. Routine status and
@@ -218,8 +263,8 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
 2. Pass the existing CI unit/build, gateway, theme and optimized voice emulator jobs
-   on the final source. The voice runner now requires the original five tests plus
-   four isolated foundation service/storage acceptance tests. Broad visual-layout
+   on the final source. The voice runner requires all 16 voice/settings and isolated
+   foundation service/storage acceptance tests. Broad visual-layout
    smoke remains disabled upstream; do not count it as a pass.
 3. On a disposable emulator, verify exact commands, no unintended actions for
    command questions, storage reconstruction/deletion and unchanged local controls.
