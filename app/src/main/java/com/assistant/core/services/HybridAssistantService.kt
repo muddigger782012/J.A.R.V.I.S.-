@@ -1148,6 +1148,28 @@ class HybridAssistantService(
             reply.contains("shall i verify", ignoreCase = true) &&
                 reply.contains("manual", ignoreCase = true)
         } == true
+        // Report observed network capability rather than inventing provider connectivity.
+        val capabilityQuestion = rawInput.trim().lowercase(Locale.ROOT).trimEnd('.', '?', '!')
+        val updateQuestion = listOf("new update", "the update", "the upgrade", "what changed", "couldn't before").any { capabilityQuestion.contains(it) }
+        val connectionQuestion = capabilityQuestion in setOf(
+            "are you online", "are you still offline", "do you have internet access",
+            "do you have online access", "so you're telling me you don't have online access still"
+        )
+        if (updateQuestion || connectionQuestion) {
+            val network = systemService.context().getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val capabilities = network.getNetworkCapabilities(network.activeNetwork)
+            val internetCapable = capabilities?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            val networkStatus = if (internetCapable)
+                "Android reports an internet-capable network, but website and provider reachability have not been verified."
+            else "Android does not currently report an internet-capable active network."
+            val geminiStatus = if (directOnlineClient.hasGeminiKey()) "Gemini has a configured key, but its availability has not been tested." else "Gemini has no configured key."
+            val response = if (updateQuestion)
+                "This build supports local device commands, live chat, and independent web, image, and video search requests without a Gemini key. Search results depend on provider availability. I cannot verify which features were added by your latest installed update. $networkStatus $geminiStatus"
+            else "$networkStatus Jarvis supports independent web search without Gemini. $geminiStatus"
+            remember(rawInput, response)
+            callback(HybridAssistantReply(response))
+            return
+        }
         val resolvedInput = if (manualConfirmation) {
             "Find and verify the official service manual for the equipment in the preceding conversation. " +
                 "Check any serial-number applicability against official documentation; if no serial number was provided, ask for it. " +
