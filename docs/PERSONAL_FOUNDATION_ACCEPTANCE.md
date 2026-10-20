@@ -136,10 +136,10 @@ physical-device execution/upgrade acceptance. No phase percentage is claimed.
 
 ## Phase 5 and 6 follow-up: reviewed history and saved proposals
 
-The next personal increment adds two local management flows without changing themes,
-provider selection, saved routines or permissions. Verification and publication for
-this increment are recorded in its pull request; physical-phone acceptance remains
-pending. Previous release evidence above applies to its named release only.
+Personal build 3.5.441 delivers two local management flows through the existing
+updater and versioned signed downloads, preserving themes, provider selection, saved
+routines and permissions. Physical-phone acceptance remains pending. Previous release
+evidence above applies to its named release only.
 
 `review task history` displays retained/eligible counts and groups the exact older
 completed records by name and outcome. `clear reviewed task history` must immediately
@@ -177,6 +177,19 @@ No private free text, conversation, provider result or screenshot is stored in b
 These commands neither run tests nor prepare/apply code, send to GitHub, or deploy.
 The app still has no developer write integration; updater read credentials remain
 unrelated. Preparing actual patches and reviewed pull requests remains future work.
+
+Verified evidence for build 3.5.441: all 454 JVM tests across 83 suites passed with
+no failures, errors or skips; all debug ABI and instrumentation APKs assembled.
+Final-source CI unit/build, gateway and theme checks passed, together with all 16
+optimized Android acceptance cases. The two new Android cases exercise actual-file
+cleanup and review invalidation across assistant instances, plus evidence-preserving
+proposal reconstruction and dismissal. All three downloaded production-signed APKs
+passed independent package/version/signer, ABI, ZIP, runtime and wake-asset checks.
+The signed source matches the merged app source. Broad UI-layout smoke remains
+skipped upstream; physical execution, live-provider quality and installed-data upgrade
+checks remain pending under the owner's existing publication authorization. The
+[follow-up pull request](https://github.com/muddigger782012/J.A.R.V.I.S.-/pull/151)
+records automated evidence and publication. No measured phase percentage is claimed.
 
 ## Delivered behavior and acceptance evidence
 
@@ -249,7 +262,7 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.440 (versionCode 440) replaces the previously distributed 3.5.435
+Personal build 3.5.441 (versionCode 441) replaces the previously distributed 3.5.440
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
