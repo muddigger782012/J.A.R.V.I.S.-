@@ -25,7 +25,9 @@ class PersonalControlSafetyTest {
             "the goal worked", "the goal failed", "help me focus for 25 minutes", "prepare a music session",
             "enable improvement evaluation", "disable improvement evaluation", "clear improvement evaluation",
             "review improvement evaluation", "save improvement baseline", "compare improvement evaluation",
-            "record improvement feedback for correction handling as failed", "prepare improvement proposal for correction handling")) {
+            "record improvement feedback for correction handling as failed", "prepare improvement proposal for correction handling",
+            "review task history", "clear reviewed task history", "review improvement proposal for correction handling",
+            "dismiss improvement proposal for correction handling", "clear improvement proposals")) {
             assertTrue(text, LearnedCommandReviewCommands.isReserved(text))
             assertFalse(text, memory.recordSuccess(text, "volume_up", setOf("volume_up")))
             assertNull(text, registry.propose(text, listOf("volume_up")))

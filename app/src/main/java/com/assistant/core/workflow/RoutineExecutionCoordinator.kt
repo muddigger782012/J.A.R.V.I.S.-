@@ -33,6 +33,8 @@ class RoutineExecutionCoordinator(
         val previous = current(engine.routineCheckpoints())
         if (previous != null && blocks(previous)) {
             Result(previous, message = "Resolve this execution before approving another goal. The new goal has not run.")
+        } else if (engine.routineCheckpoints().size >= RoutineWorkflowLimits.MAX_RETAINED_WORKFLOWS) {
+            Result(previous, message = "Task history is full. Say 'review task history' to review completed records for cleanup. The pending goal approval was not consumed and no new steps ran.")
         } else {
             check(confirmDefinition()) { "The reviewed goal changed, expired or could not be saved." }
             val plan = engine.planApprovedRoutine(phrase, requestKey)
@@ -70,6 +72,24 @@ class RoutineExecutionCoordinator(
 
     /** Recovery only inspects checkpoints. Reading status never starts pending actions. */
     fun status(): Result = exclusive { engine -> Result(current(engine.routineCheckpoints())) }
+
+    data class HistoryResult(val review: RoutineHistory.Review? = null, val cleared: Int = 0, val message: String = "")
+
+    fun reviewHistory(): HistoryResult = access.tryExclusive {
+        HistoryResult(RoutineHistory.Review(engine().routineCheckpoints(), access.store.retiredFingerprintCount()))
+    } ?: HistoryResult(message = "Another assistant is processing a task. Review task history after it returns; no history was changed.")
+
+    /** A full fresh snapshot must equal the review; this never dispatches or cancels actions. */
+    fun clearHistory(reviewed: RoutineHistory.Review): HistoryResult = access.tryExclusive {
+        val fresh = RoutineHistory.Review(engine().routineCheckpoints(), access.store.retiredFingerprintCount())
+        when {
+            fresh != reviewed -> HistoryResult(message = "Task history changed. Say 'review task history' before clearing it; nothing was removed.")
+            fresh.removable.isEmpty() -> HistoryResult(message = "No completed history is eligible for cleanup. The latest task and unresolved tasks are retained.")
+            !access.store.archiveCompleted(fresh.removable) -> HistoryResult(message = "History cleanup could not be saved, or its duplicate-prevention storage is full. Existing task records remain protected; no actions were run.")
+            else -> HistoryResult(cleared = fresh.removable.size,
+                message = "Cleared ${fresh.removable.size} completed task records. The latest status, unfinished or uncertain tasks, and duplicate-prevention fingerprints remain. No device action was run or undone.")
+        }
+    } ?: HistoryResult(message = "Another assistant is processing a task. No history was changed; review again after it returns.")
 
     fun resume(expectedId: String? = null): Result = exclusive { engine ->
         val saved = current(engine.routineCheckpoints()) ?: return@exclusive Result(null)

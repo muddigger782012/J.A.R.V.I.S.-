@@ -14,12 +14,22 @@ class JsonRoutineWorkflowStore(
     private val read: () -> String?,
     private val write: (String) -> Boolean
 ) : RoutineWorkflowStore {
-    @Synchronized override fun load(): List<RoutineWorkflowCheckpoint> {
+    private data class Journal(val entries: List<RoutineWorkflowCheckpoint>, val retired: Set<String>)
+
+    private fun journal(): Journal {
         val raw = read() ?: "[]"
         require(raw.length <= MAX_STORAGE_CHARS) { "Workflow journal is oversized." }
-        val entries = JSONArray(raw)
+        // Read installed version-one arrays without rewriting them on inspection.
+        val root = if (raw.trimStart().startsWith("[")) null else JSONObject(raw)
+        if (root != null) require(root.getInt("version") == 2) { "Unsupported workflow journal version." }
+        val retiredRows = root?.getJSONArray("retired") ?: JSONArray()
+        require(retiredRows.length() <= RoutineWorkflowLimits.MAX_RETIRED_FINGERPRINTS)
+        val retired = (0 until retiredRows.length()).map { retiredRows.getString(it) }
+        require(retired.distinct().size == retired.size && retired.all { Regex("[0-9a-f]{64}").matches(it) })
+        val retiredSet = retired.toSet()
+        val entries = root?.getJSONArray("entries") ?: JSONArray(raw)
         require(entries.length() <= RoutineWorkflowLimits.MAX_RETAINED_WORKFLOWS) { "Too many stored workflows." }
-        return (0 until entries.length()).map { index ->
+        val checkpoints = (0 until entries.length()).map { index ->
             val json = entries.getJSONObject(index)
             require(json.getInt("version") == 1) { "Unsupported workflow journal version." }
             val keys = json.getJSONArray("requestKeys")
@@ -53,10 +63,33 @@ class JsonRoutineWorkflowStore(
                 detail = json.getString("detail")
             )
         }
+        require(checkpoints.distinctBy { it.id }.size == checkpoints.size)
+        val keys = checkpoints.flatMap { it.requestKeys }
+        require(keys.distinct().size == keys.size)
+        require(checkpoints.none { RoutineHistory.fingerprints(it).any { key -> key in retiredSet } })
+        return Journal(checkpoints, retiredSet)
     }
 
+    @Synchronized override fun load(): List<RoutineWorkflowCheckpoint> = journal().entries
+    @Synchronized override fun isRetiredRequest(key: String) = RoutineHistory.requestFingerprint(key) in journal().retired
+    @Synchronized override fun retiredFingerprintCount() = journal().retired.size
+
     @Synchronized override fun save(checkpoint: RoutineWorkflowCheckpoint): Boolean = runCatching {
-        val retained = load().filter { it.id != checkpoint.id } + checkpoint
+        val saved = journal()
+        require(RoutineHistory.fingerprints(checkpoint).none { it in saved.retired })
+        persist(saved.copy(entries = saved.entries.filter { it.id != checkpoint.id } + checkpoint))
+    }.getOrDefault(false)
+
+    @Synchronized override fun archiveCompleted(reviewed: List<RoutineWorkflowCheckpoint>): Boolean = runCatching {
+        val saved = journal()
+        require(reviewed.isNotEmpty() && RoutineHistory.candidates(saved.entries) == reviewed)
+        val retired = saved.retired + reviewed.flatMap(RoutineHistory::fingerprints)
+        require(retired.size <= RoutineWorkflowLimits.MAX_RETIRED_FINGERPRINTS)
+        persist(Journal(saved.entries.filterNot { entry -> reviewed.any { it.id == entry.id } }, retired))
+    }.getOrDefault(false)
+
+    private fun persist(journal: Journal): Boolean {
+        val retained = journal.entries
         require(retained.size <= RoutineWorkflowLimits.MAX_RETAINED_WORKFLOWS)
         val output = JSONArray()
         retained.forEach { entry ->
@@ -74,12 +107,13 @@ class JsonRoutineWorkflowStore(
                 .put("status", entry.status.name).put("approved", entry.approved)
                 .put("cancelled", entry.cancellationRequested).put("detail", entry.detail))
         }
-        val serialized = output.toString()
+        val serialized = if (journal.retired.isEmpty()) output.toString() else JSONObject().put("version", 2)
+            .put("entries", output).put("retired", JSONArray(journal.retired.toList())).toString()
         require(serialized.length <= MAX_STORAGE_CHARS)
         // Validate the same bounded structure before committing it to the production journal.
         JsonRoutineWorkflowStore({ serialized }, { false }).load()
-        write(serialized)
-    }.getOrDefault(false)
+        return write(serialized)
+    }
 
     private companion object {
         const val MAX_STORAGE_CHARS = 2_000_000

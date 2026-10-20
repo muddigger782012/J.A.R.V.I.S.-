@@ -49,6 +49,7 @@ internal class ApprovedRoutineExecutor(
 
     fun plan(phrase: String, requestKey: String): RoutineWorkflowCheckpoint = synchronized(lock) {
         require(requestKey.isNotBlank() && requestKey.length <= 200) { "A stable invocation key is required." }
+        check(!store.isRetiredRequest(requestKey)) { "This invocation was already archived. No action was repeated; use a fresh explicit request." }
         entries.values.firstOrNull { requestKey in it.requestKeys }?.let {
             require(it.phrase.equals(phrase.trim().replace(Regex("\\s+"), " "), ignoreCase = true)) {
                 "An invocation key cannot be reused for a different routine."
@@ -66,7 +67,7 @@ internal class ApprovedRoutineExecutor(
             return@synchronized aliased.detached()
         }
         check(entries.size < RoutineWorkflowLimits.MAX_RETAINED_WORKFLOWS) {
-            "The workflow journal is full. Existing status, cancellation and safe resume remain available; no actions were run."
+            "The workflow journal is full. Say 'review task history' to review completed entries for cleanup. Existing status, cancellation and safe resume remain available; no actions were run."
         }
         val steps = routine.actions.mapIndexed { index, action ->
             val slot = RoutineSteps.preferredSlot(action)

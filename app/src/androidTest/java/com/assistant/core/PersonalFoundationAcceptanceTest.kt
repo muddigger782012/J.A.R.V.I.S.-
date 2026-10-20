@@ -205,6 +205,57 @@ class PersonalFoundationAcceptanceTest {
         assertEquals(0, context.activityRequests)
     }
 
+    @Test fun completedHistoryCleanupRequiresFreshLocalReviewAndRetainsUncertainActionsAndDedupe() {
+        val access = LocalRoutineWorkflowAccess(context)
+        fun checkpoint(index: Int) = RoutineWorkflowCheckpoint("history-$index", setOf("history-turn-$index"), "focus time",
+            listOf(RoutineStepCheckpoint(RoutineWorkflowStep(0, "volume_down"), RoutineStepStatus.VERIFIED, 1)),
+            RoutineWorkflowStatus.VERIFIED, approved = true)
+        access.store.save(checkpoint(0))
+        val uncertain = checkpoint(1).copy(status = RoutineWorkflowStatus.CANCELLED, cancellationRequested = true,
+            steps = checkpoint(1).steps.map { it.copy(status = RoutineStepStatus.AMBIGUOUS) })
+        access.store.save(uncertain)
+        access.store.save(checkpoint(2))
+        val chat = assistant()
+        assertTrue(chat.handleUserInput("review task history").text.contains("1 older completed"))
+        assertTrue(assistant().handleUserInput("clear reviewed task history").text.contains("before clearing"))
+        chat.handleUserInput("review improvement evaluation")
+        assertTrue(chat.handleUserInput("clear reviewed task history").text.contains("before clearing"))
+        assertFalse(chat.handleUserInput("clear reviewed task history then reboot").needsInterpretation)
+        assertEquals(3, access.store.load().size)
+        chat.handleUserInput("review task history")
+        assertTrue(chat.handleUserInput("clear reviewed task history").text.contains("Cleared 1"))
+        val restored = LocalRoutineWorkflowAccess(context).store
+        assertEquals(listOf(uncertain, checkpoint(2)), restored.load())
+        assertTrue(restored.isRetiredRequest("history-turn-0"))
+        assertFalse(restored.save(checkpoint(0)))
+        assertTrue(chat.getConversationSnapshot().isEmpty())
+        assertEquals(0, executions)
+        assertEquals(0, context.activityRequests)
+    }
+
+    @Test fun savedImprovementBriefsSurviveCorrectionAndDismissalWithoutLosingExistingSuggestions() {
+        val chat = assistant()
+        chat.handleUserInput("enable improvement evaluation")
+        chat.handleUserInput("record improvement feedback for update status as failed")
+        assertTrue(chat.handleUserInput("prepare improvement proposal for update status").text.contains("saved locally"))
+        val restored = assistant()
+        assertTrue(restored.handleUserInput("review improvement proposals").text.contains("Saved local improvement proposals"))
+        restored.handleUserInput("record improvement feedback for update status as passed")
+        val brief = restored.handleUserInput("review improvement proposal for update status").text
+        assertTrue(brief.contains("owner reported failed"))
+        assertTrue(brief.contains("newer report supersedes this source (passed)"))
+        restored.handleUserInput("dismiss improvement proposal for update status")
+        assertEquals(ImprovementEvaluation.ProposalStatus.DISMISSED, ImprovementEvaluation(context).snapshot().proposals.single().status)
+        restored.handleUserInput("clear improvement proposals")
+        val evaluation = ImprovementEvaluation(context).snapshot()
+        assertTrue(evaluation.proposals.isEmpty())
+        assertTrue(evaluation.enabled)
+        assertEquals(ImprovementEvaluation.Outcome.PASSED, evaluation.samples.single().outcome)
+        assertTrue(chat.getConversationSnapshot().isEmpty())
+        assertEquals(0, executions)
+        assertEquals(0, context.activityRequests)
+    }
+
     private fun assistant(): HybridAssistantService {
         val capabilities = CapabilityState(true, false, false, false, false, false, false)
         val registry = ActionRegistry()

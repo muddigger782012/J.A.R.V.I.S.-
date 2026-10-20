@@ -46,6 +46,7 @@ class HybridAssistantService(
     private val goalPlans = if (personalAssistant) GoalPlanStore(systemService.context()) else null
     @Volatile private var reviewedGoalKey: String? = null
     private val improvementEvaluation = if (personalAssistant) ImprovementEvaluation(systemService.context()) else null
+    private val taskHistory = TaskHistoryCommands({ routineCoordinator })
     private var pendingLearningReset: Boolean = false
     private val routineConfirmations = RoutineConfirmationStore(systemService.context())
     private val routineRegistry = com.assistant.core.learning.ApprovedRoutineRegistry(systemService.context())
@@ -79,6 +80,16 @@ class HybridAssistantService(
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
+        val taskHistoryCommand = if (personalAssistant) TaskHistoryCommands.parse(userInput) else null
+        if (taskHistoryCommand == null) taskHistory.discardReview()
+        if (personalAssistant && TaskHistoryCommands.isManagementInput(userInput)) {
+            clearPendingActionPrompts()
+            runCatching { goalPlans?.discardPending() }
+            return HybridAssistantReply(if (taskHistoryCommand == null) "Use 'review task history', then 'clear reviewed task history' to remove only reviewed completed records. Nothing was changed."
+                else runCatching { taskHistory.reply(taskHistoryCommand) }.getOrElse {
+                "Task history could not be accessed. No history was cleared or action started. Restore local storage access and review again."
+            })
+        }
         val geminiFailure = GeminiFailureMemory(systemService.context())
         if (geminiFailure.shouldAnswer(userInput)) {
             runCatching { goalPlans?.discardPending() }
@@ -129,7 +140,12 @@ class HybridAssistantService(
                 pendingPrompt = PendingPrompt.NONE
                 pendingShellCommand = null
                 pendingLearningReset = false
-                return HybridAssistantReply(SupervisedImprovement.render(SupervisedImprovement.generate(resultHistory.snapshot()), command))
+                val report = SupervisedImprovement.render(SupervisedImprovement.generate(resultHistory.snapshot()), command)
+                // Keep existing journal-derived suggestions alongside the saved, opt-in briefs.
+                val savedBriefs = if (command == SupervisedImprovement.Command.REVIEW_PROPOSALS) runCatching {
+                    improvementEvaluation!!.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.PROPOSALS))
+                }.getOrElse { "Saved improvement briefs could not be read. No reports were changed." } else null
+                return HybridAssistantReply(report + (savedBriefs?.let { "\n\n$it" } ?: ""))
             }
             if (ImprovementEvaluation.isManagementInput(userInput)) {
                 clearPendingActionPrompts()
@@ -1239,7 +1255,7 @@ class HybridAssistantService(
             val result = routineCoordinator.invoke(phrase, java.util.UUID.randomUUID().toString())
             if (!result.busy) sessionRoutineId = result.checkpoint?.id
             renderRoutineControl(result)
-        }.getOrElse { "This routine could not start safely. Check its saved apps and preferences, then review 'routine execution status'. No automatic retry was made." }
+        }.getOrElse { "This routine could not start safely. Check its saved apps and preferences, then review 'routine execution status'. If task history is full, say 'review task history' to review completed records for cleanup. No automatic retry was made." }
 
     private fun clearPendingActionPrompts() {
         pendingPrompt = PendingPrompt.NONE

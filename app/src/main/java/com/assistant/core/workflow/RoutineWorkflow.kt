@@ -7,6 +7,7 @@ import com.assistant.core.services.RoutineExecution
 object RoutineWorkflowLimits {
     const val MAX_RETAINED_WORKFLOWS = 100
     const val MAX_REQUEST_KEYS_PER_WORKFLOW = 32
+    const val MAX_RETIRED_FINGERPRINTS = 8192
 }
 
 /** A host-bound action from the existing RoutineSteps allowlist, never executable text. */
@@ -80,16 +81,33 @@ enum class RoutineOutcomeObservation { DEVICE_VERIFIED, USER_CONFIRMED, FAILED }
 interface RoutineWorkflowStore {
     fun load(): List<RoutineWorkflowCheckpoint>
     fun save(checkpoint: RoutineWorkflowCheckpoint): Boolean
+    /** Unsupported adapters fail closed: cleanup must never silently erase deduplication. */
+    fun isRetiredRequest(key: String): Boolean = false
+    fun retiredFingerprintCount(): Int = 0
+    fun archiveCompleted(reviewed: List<RoutineWorkflowCheckpoint>): Boolean = false
 }
 
 /** Default is process-local. Do not claim restart recovery without a durable adapter. */
 class InMemoryRoutineWorkflowStore : RoutineWorkflowStore {
     private val entries = linkedMapOf<String, RoutineWorkflowCheckpoint>()
+    private val retired = linkedSetOf<String>()
 
     @Synchronized override fun load(): List<RoutineWorkflowCheckpoint> = entries.values.map { it.detached() }
 
     @Synchronized override fun save(checkpoint: RoutineWorkflowCheckpoint): Boolean {
+        if (RoutineHistory.fingerprints(checkpoint).any { it in retired }) return false
         entries[checkpoint.id] = checkpoint.detached()
+        return true
+    }
+
+    @Synchronized override fun isRetiredRequest(key: String) = RoutineHistory.requestFingerprint(key) in retired
+    @Synchronized override fun retiredFingerprintCount() = retired.size
+    @Synchronized override fun archiveCompleted(reviewed: List<RoutineWorkflowCheckpoint>): Boolean {
+        if (reviewed.isEmpty() || RoutineHistory.candidates(load()) != reviewed) return false
+        val next = retired + reviewed.flatMap(RoutineHistory::fingerprints)
+        if (next.size > RoutineWorkflowLimits.MAX_RETIRED_FINGERPRINTS) return false
+        retired.addAll(next)
+        reviewed.forEach { entries.remove(it.id) }
         return true
     }
 }

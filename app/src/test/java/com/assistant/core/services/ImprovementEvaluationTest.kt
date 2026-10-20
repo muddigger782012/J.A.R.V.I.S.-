@@ -139,4 +139,78 @@ class ImprovementEvaluationTest {
         failure.get()?.let { throw AssertionError(it) }
         assertEquals(ImprovementEvaluation.Scenario.values().toSet(), store(directory).snapshot().samples.map { it.scenario }.toSet())
     }
+
+    @Test fun savedProposalsKeepOriginalEvidenceAcrossCorrectionRestartAndDismissal() = fixture { directory ->
+        val evaluation = store(directory)
+        val scenario = ImprovementEvaluation.Scenario.CORRECTIONS
+        evaluation.setEnabled(true)
+        evaluation.record(scenario, ImprovementEvaluation.Outcome.FAILED)
+        val prepare = ImprovementEvaluation.Command(ImprovementEvaluation.Action.PROPOSAL, scenario)
+        val original = evaluation.reply(prepare)
+        assertTrue(original.contains("saved locally"))
+        assertEquals(1, store(directory).snapshot().proposals.size)
+        assertEquals(original, store(directory).reply(prepare))
+        evaluation.record(scenario, ImprovementEvaluation.Outcome.PASSED)
+        val review = store(directory).reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.REVIEW_PROPOSAL, scenario))
+        assertTrue(review.contains("owner reported failed"))
+        assertTrue(review.contains("newer report supersedes this source (passed)"))
+        assertTrue(evaluation.reply(prepare).contains("positive regression case"))
+        val nextBuild = store(directory, 436)
+        assertTrue(nextBuild.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.REVIEW_PROPOSAL, scenario)).contains("previous build"))
+        assertTrue(nextBuild.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.DISMISS_PROPOSAL, scenario)).contains("Dismissed"))
+        val retained = store(directory).snapshot().proposals.single()
+        assertEquals(ImprovementEvaluation.ProposalStatus.DISMISSED, retained.status)
+        assertEquals(ImprovementEvaluation.Outcome.FAILED, retained.source.outcome)
+        assertTrue(evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.PROPOSALS)).contains("dismissed"))
+    }
+
+    @Test fun proposalCapacityNeverSilentlyOverwritesEvidenceAndExplicitClearPreservesEvaluation() = fixture { directory ->
+        store(directory).setEnabled(true)
+        for (build in 1..ImprovementEvaluation.MAX_PROPOSALS) {
+            val evaluation = store(directory, build)
+            evaluation.record(ImprovementEvaluation.Scenario.UPDATES, ImprovementEvaluation.Outcome.UNCLEAR)
+            evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.PROPOSAL, ImprovementEvaluation.Scenario.UPDATES))
+        }
+        val next = store(directory, 100)
+        next.record(ImprovementEvaluation.Scenario.UPDATES, ImprovementEvaluation.Outcome.FAILED)
+        next.saveBaseline()
+        val before = next.snapshot()
+        assertEquals(ImprovementEvaluation.MAX_PROPOSALS, before.proposals.size)
+        assertTrue(next.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.PROPOSAL, ImprovementEvaluation.Scenario.UPDATES)).contains("full"))
+        assertEquals(before, next.snapshot())
+        next.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.CLEAR_PROPOSALS))
+        assertEquals(before.copy(proposals = emptyList()), next.snapshot())
+        next.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.PROPOSAL, ImprovementEvaluation.Scenario.UPDATES))
+        assertEquals(1, next.snapshot().proposals.size)
+        assertTrue(next.clear())
+        assertTrue(next.snapshot().proposals.isEmpty())
+        assertFalse(next.snapshot().enabled)
+    }
+
+    @Test fun legacyEvaluationMigratesWithoutChangingConsentReportsOrBaseline() = fixture { directory ->
+        val evaluation = store(directory)
+        evaluation.setEnabled(true)
+        evaluation.record(ImprovementEvaluation.Scenario.RECOVERY, ImprovementEvaluation.Outcome.FAILED)
+        evaluation.saveBaseline()
+        val before = evaluation.snapshot()
+        val file = File(directory, "improvement-evaluation.json")
+        val legacy = org.json.JSONObject(file.readText()).put("version", 1).also { it.remove("proposals") }
+        file.writeText(legacy.toString())
+        assertEquals(before, store(directory).snapshot())
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.PROPOSAL, ImprovementEvaluation.Scenario.RECOVERY))
+        assertEquals(before.samples, evaluation.snapshot().samples)
+        assertEquals(before.baseline, evaluation.snapshot().baseline)
+        assertTrue(evaluation.snapshot().enabled)
+        assertEquals(2, org.json.JSONObject(file.readText()).getInt("version"))
+    }
+
+    @Test fun proposalControlsAcceptOnlyKnownScenariosAndCannotApproveCodeExecution() {
+        assertEquals(ImprovementEvaluation.Action.PROPOSALS, ImprovementEvaluation.command("review improvement proposals")!!.action)
+        assertEquals(ImprovementEvaluation.Action.REVIEW_PROPOSAL, ImprovementEvaluation.command("review improvement proposal for maps discovery")!!.action)
+        assertEquals(ImprovementEvaluation.Action.DISMISS_PROPOSAL, ImprovementEvaluation.command("dismiss improvement proposal for update status")!!.action)
+        for (text in listOf("review improvement proposal for my private transcript", "dismiss improvement proposal for maps discovery then reboot", "apply improvement proposal for maps discovery")) {
+            assertNull(ImprovementEvaluation.command(text))
+        }
+        assertTrue(ImprovementEvaluation.isManagementInput("review improvement proposal for my private transcript"))
+    }
 }
