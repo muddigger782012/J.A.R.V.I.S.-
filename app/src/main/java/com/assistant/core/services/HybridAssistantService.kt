@@ -1188,6 +1188,19 @@ class HybridAssistantService(
             callback(HybridAssistantReply(response, local.actionResult))
             return
         }
+        if (manualRetrieval && !directOnlineClient.hasGeminiKey()) {
+            Thread {
+                val retrieved = SearchRouter.configured("", "", "web").search(resolvedInput.take(300))
+                val response = if (retrieved.items.isNotEmpty())
+                    ChatSearchResults.encode(rawInput, retrieved.items,
+                        "Web results are unverified. Confirm the publisher, model, and serial-number applicability before using any manual.",
+                        retrievedAt = System.currentTimeMillis())
+                else SearchRouter.configured("", "", "web").failureMessage(retrieved, "web")
+                remember(rawInput, response)
+                callback(HybridAssistantReply(response))
+            }.start()
+            return
+        }
         if (directOnlineClient.hasGeminiKey()) {
             val previousResearch = synchronized(this) { lastResearchQuery }
             val researchDecision = ConversationalResearchPolicy.decide(resolvedInput, online = true,
