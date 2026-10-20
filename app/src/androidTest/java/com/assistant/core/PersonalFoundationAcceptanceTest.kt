@@ -190,6 +190,21 @@ class PersonalFoundationAcceptanceTest {
         assertEquals(0, context.activityRequests)
     }
 
+    @Test fun approvalFromAnotherAssistantCannotRunAChangedOrUnreviewedGoal() {
+        val voice = assistant()
+        voice.handleUserInput("help me focus for 25 minutes")
+        val chat = assistant()
+        chat.handleUserInput("help me focus for five minutes")
+        val current = GoalPlanStore(context).pending()!!
+        assertEquals("timer:300", current.actions.last())
+        assertTrue(voice.handleUserInput("approve goal plan").text.contains("current goal plan"))
+        assertEquals(current, GoalPlanStore(context).pending())
+        assertTrue(assistant().handleUserInput("approve goal plan").text.contains("before approving again"))
+        assertEquals(current, GoalPlanStore(context).pending())
+        assertEquals(0, executions)
+        assertEquals(0, context.activityRequests)
+    }
+
     private fun assistant(): HybridAssistantService {
         val capabilities = CapabilityState(true, false, false, false, false, false, false)
         val registry = ActionRegistry()

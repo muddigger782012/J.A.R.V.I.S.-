@@ -44,6 +44,7 @@ class HybridAssistantService(
     private val personalAssistant = systemService.context().packageName == "com.assistant.core"
     private val conversationMemory = if (personalAssistant) ConversationMemory(systemService.context()) else null
     private val goalPlans = if (personalAssistant) GoalPlanStore(systemService.context()) else null
+    @Volatile private var reviewedGoalKey: String? = null
     private val improvementEvaluation = if (personalAssistant) ImprovementEvaluation(systemService.context()) else null
     private var pendingLearningReset: Boolean = false
     private val routineConfirmations = RoutineConfirmationStore(systemService.context())
@@ -1250,6 +1251,11 @@ class HybridAssistantService(
         preferenceConfirmations.consume("")
     }
 
+    private fun reviewGoalPlan(plan: GoalPlanning.Plan): String {
+        reviewedGoalKey = plan.key
+        return GoalPlanning.review(plan)
+    }
+
     private fun handleGoalInput(input: String): String? {
         val plans = goalPlans ?: return null
         if (ConfirmationWords.isConfirmation(input)) {
@@ -1259,7 +1265,7 @@ class HybridAssistantService(
                 if (ConfirmationWords.cancels(input)) {
                     check(plans.discardPending())
                     "Discarded the pending goal plan. No steps were run for that proposal."
-                } else GoalPlanning.review(pending) + " Use the exact approval phrase for this plan; this reply has not executed it."
+                } else reviewGoalPlan(pending) + " Use the exact approval phrase for this plan; this reply has not executed it."
             }.getOrElse { "The pending goal review could not be accessed safely. Nothing was approved or automatically retried." }
         }
         GoalPlanning.command(input)?.let { command ->
@@ -1267,10 +1273,12 @@ class HybridAssistantService(
                 clearPendingActionPrompts()
                 val pending = plans.pending()
                 when (command) {
-                    GoalPlanning.Command.REVIEW, GoalPlanning.Command.STATUS -> if (pending != null) GoalPlanning.review(pending)
+                    GoalPlanning.Command.REVIEW, GoalPlanning.Command.STATUS -> if (pending != null) reviewGoalPlan(pending)
                         else if (plans.durationDraft() != null) "How long should the focus session last? Give a duration such as '25 minutes'; I will show the proposed steps before execution."
                         else renderCurrentGoal()
                     GoalPlanning.Command.APPROVE -> {
+                        if (pending != null && reviewedGoalKey != pending.key)
+                            return@runCatching reviewGoalPlan(pending) + " This is the current goal plan. Review these steps before approving again."
                         val result = if (pending != null) routineCoordinator.invokePrepared(pending.key, java.util.UUID.randomUUID().toString()) { plans.approve(pending) }
                         else {
                             val checkpoint = routineCoordinator.status().checkpoint
@@ -1278,6 +1286,10 @@ class HybridAssistantService(
                                 (checkpoint.status == RoutineWorkflowStatus.FAILED && !checkpoint.approved && !checkpoint.cancellationRequested && checkpoint.steps.all { it.attempts == 0 }))
                             if (checkpoint == null || plans.find(checkpoint.phrase) == null || !canApprove)
                                 return@runCatching "No current goal plan is awaiting approval. Ask for a focus, music or navigation session and review its exact steps first."
+                            if (reviewedGoalKey != checkpoint.phrase) {
+                                reviewedGoalKey = checkpoint.phrase
+                                return@runCatching renderRoutineExecution(checkpoint) + " Review these steps before approving again."
+                            }
                             routineCoordinator.approvePrepared(checkpoint.id, checkpoint.steps.map { it.step })
                         }
                         if (!result.busy) sessionRoutineId = result.checkpoint?.id
@@ -1297,6 +1309,7 @@ class HybridAssistantService(
             runCatching { plans.durationDraft()?.copy(seconds = seconds) }.getOrNull()
         }
         if (request == null) {
+            reviewedGoalKey = null
             // A new topic invalidates a pending review; an unrelated yes cannot revive it.
             runCatching { plans.discardPending() }
             return null
@@ -1311,7 +1324,7 @@ class HybridAssistantService(
             }
             val plan = GoalPlanning.plan(request, assistantMemory::preferred, androidAssistant::resolveLearnableApp, androidAssistant::canLaunchApp)
                 ?: return@runCatching "I can prepare the volume step and app launch once one launchable target is available. Save a preferred ${if (request.kind == GoalPlanning.Kind.MUSIC) "music" else "maps"} app, or repeat this goal using its exact installed app name. Nothing has run."
-            if (plans.propose(plan)) GoalPlanning.review(plan) else "Could not retain this goal for review. Nothing has run."
+            if (plans.propose(plan)) reviewGoalPlan(plan) else "Could not retain this goal for review. Nothing has run."
         }.getOrElse { "This goal could not be prepared safely. Check its duration, installed app or saved preference and local storage, then request the plan again. Nothing has run." }
     }
 
@@ -1356,6 +1369,7 @@ class HybridAssistantService(
 
     private fun renderRoutineExecution(checkpoint: RoutineWorkflowCheckpoint): String {
         val goal = runCatching { goalPlans?.current()?.takeIf { it.key == checkpoint.phrase } }.getOrNull()
+        if (goal != null) reviewedGoalKey = goal.key
         val resumeCommand = if (goal == null) "resume routine execution" else "resume goal plan"
         val outcomeCommand = if (goal == null) "the routine" else "the goal"
         val steps = checkpoint.steps.joinToString("; ") { state ->

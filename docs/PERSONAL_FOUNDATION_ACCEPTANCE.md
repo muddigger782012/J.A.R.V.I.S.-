@@ -79,6 +79,9 @@ effects still require explicit authorization and existing Android permissions.
 Goal dialogue uses the existing bounded conversation window so it becomes the
 current topic; that dialogue never supplies execution approval. Evaluation
 management/report replies remain outside conversational memory.
+Each assistant instance binds approval to the exact goal it displayed. If another
+voice/chat instance replaces the plan, or the reviewing instance restarts, the
+current steps must be presented again before a subsequent approval can execute.
 
 Phase 6 adds explicitly enabled manual evaluation, separate from automatic
 read-only recurrence analysis of the existing outcome journal. Recording is off
@@ -119,8 +122,8 @@ preferences, learned commands and the result journal separate.
 Automated evidence for this increment is recorded on its follow-up pull request:
 planner/input boundaries, shared approval/expiry state, failure recovery, duplicate
 and stale-control prevention, opt-in/reset, bounded reports, matched comparisons,
-concurrent updates and explicit-only developer briefs. Two new Android cases
-exercise goal review/clarification and evaluation/baseline state through reconstructed
+concurrent updates and explicit-only developer briefs. Three new Android cases
+exercise goal review/clarification, cross-instance review binding and evaluation/baseline state through reconstructed
 assistant services. These tests do not establish live-provider naturalness or
 physical-device execution/upgrade acceptance. No phase percentage is claimed.
 
