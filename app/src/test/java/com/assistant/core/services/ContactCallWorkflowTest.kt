@@ -57,6 +57,20 @@ class ContactCallWorkflowTest {
         restored.reply(ContactCallCommands.parse("approve contact call")!!)
         assertEquals(1, f.platform.calls)
     }
+    @Test fun aConcurrentReplacementBetweenReadingAndRenderingCannotBindAnUnseenRecipient() = fixture { f ->
+        f.prepared(); val old = f.path.readText()
+        f.manager().prepare("2025550199"); val replacement = f.path.readText()
+        f.path.writeText(old)
+        var replace = true
+        val manager = ContactCallWorkflow(PersonalStateFile(f.directory, f.path.name), f.platform) {
+            if (replace) { replace = false; f.path.writeText(replacement) }
+            f.time
+        }
+        val commands = ContactCallCommands { manager }
+        assertTrue(commands.reply(ContactCallCommands.parse("review contact call")!!).contains("0101"))
+        assertTrue(commands.reply(ContactCallCommands.parse("approve contact call")!!).contains("0199"))
+        assertEquals(0, f.platform.calls)
+    }
     @Test fun malformedControlsCannotBindAnUnseenReview() = fixture { f ->
         f.prepared(); val commands = f.commands()
         commands.reply(ContactCallCommands.parse("approve contact call then search the service manual")!!)

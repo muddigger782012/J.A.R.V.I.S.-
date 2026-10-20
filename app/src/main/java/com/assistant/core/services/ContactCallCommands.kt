@@ -7,38 +7,48 @@ class ContactCallCommands(private val workflow: () -> ContactCallWorkflow) {
     @Synchronized fun discardReview() { reviewed = null }
     @Synchronized fun reply(input: Input): String {
         val manager = workflow()
+        fun present(plan: ContactCallWorkflow.Plan?): String {
+            reviewed = plan
+            return plan?.let(manager::render) ?: manager.review()
+        }
         val result = when (input.command) {
             Command.PREPARE -> {
                 reviewed = null
-                input.query?.takeIf { it.length in 1..160 && it.none(Char::isISOControl) }?.let(manager::prepare)
+                val response = input.query?.takeIf { it.length in 1..160 && it.none(Char::isISOControl) }?.let(manager::prepare)
                     ?: manager.cancel() + " Use 'prepare a call to' followed by a full contact name or phone number."
+                val plan = manager.pending()
+                if (plan != null) present(plan) else response
             }
-            Command.REVIEW -> manager.review()
+            Command.REVIEW -> present(manager.pending())
             Command.SELECT -> {
                 val current = manager.pending()
-                if (current != reviewed || current == null) manager.review() + " Review these choices before selecting again."
-                else if (input.number == null || input.number !in 1..current.recipients.size) manager.review() + " Choose a listed number."
-                else manager.select(current.id, input.number)
+                if (current != reviewed || current == null) present(current) + " Review these choices before selecting again."
+                else if (input.number == null || input.number !in 1..current.recipients.size) present(current) + " Choose a listed number."
+                else {
+                    val response = manager.select(current.id, input.number)
+                    val plan = manager.pending()
+                    if (plan != null) present(plan) else { reviewed = null; response }
+                }
             }
             Command.APPROVE -> {
                 val current = manager.pending()
-                if (current == null) manager.review()
-                else if (reviewed != current) manager.review() + " Review these current details before approving again."
-                else manager.approve(current)
+                if (current == null) present(null)
+                else if (reviewed != current) present(current) + " Review these current details before approving again."
+                else { reviewed = null; manager.approve(current) }
             }
-            Command.CANCEL -> manager.cancel()
-            Command.STATUS -> manager.status()
-            Command.INVALID -> "Use 'review contact call', 'choose contact 1', 'approve contact call' or 'cancel contact call'. No call was requested."
+            Command.CANCEL -> { reviewed = null; manager.cancel() }
+            Command.STATUS -> { reviewed = null; manager.status() }
+            Command.INVALID -> { reviewed = null; "Use 'review contact call', 'choose contact 1', 'approve contact call' or 'cancel contact call'. No call was requested." }
         }
-        reviewed = if (input.command == Command.INVALID) null else manager.pending()
         return result
     }
     @Synchronized fun confirmation(text: String): String? {
-        if (!ConfirmationWords.isConfirmation(text) || workflow().pending() == null) return null
+        if (!ConfirmationWords.isConfirmation(text)) return null
+        val plan = workflow().pending() ?: return null
         return if (ConfirmationWords.cancels(text)) reply(Input(Command.CANCEL))
         else {
-            val result = workflow().review()
-            reviewed = workflow().pending()
+            val result = workflow().render(plan)
+            reviewed = plan
             result + " A bare confirmation does not place a call; use the exact approval phrase."
         }
     }

@@ -76,7 +76,7 @@ class ContactCallWorkflow(private val file: PersonalStateFile, private val platf
             (saved.last?.let(::describe) ?: "No contact-call request is recorded.")
     }
     private fun fresh(plan: Plan) = now() >= plan.createdAt && now() - plan.createdAt < 120_000
-    private fun render(plan: Plan): String = if (plan.selected == null)
+    fun render(plan: Plan): String = if (plan.selected == null)
         "Contact choices:\n" + plan.recipients.mapIndexed { i, r -> "${i + 1}. ${r.name}: ${r.number}" }.joinToString("\n") +
             "\nSay 'choose contact' and its listed number. No call was requested. This review expires in two minutes."
     else plan.recipients[plan.selected].let {
