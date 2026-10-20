@@ -1236,6 +1236,37 @@ class HybridAssistantService(
             callback(HybridAssistantReply(response))
             return
         }
+        // Explicit diagnostics perform an actual HTTPS reachability check; do not
+        // equate an Android network flag or a configured AI key with connectivity.
+        if (rawInput.trim().lowercase(Locale.ROOT).trimEnd('.', '?', '!') in setOf(
+                "test internet connection", "diagnose internet connection",
+                "check online connectivity", "run connectivity diagnostics",
+                "test search connection", "check search connection"
+            )) {
+            Thread {
+                val response = try {
+                    val connection = java.net.URL("https://www.google.com/generate_204").openConnection() as java.net.HttpURLConnection
+                    try {
+                        connection.connectTimeout = 5000
+                        connection.readTimeout = 5000
+                        connection.instanceFollowRedirects = false
+                        val status = connection.responseCode
+                        if (status == 204)
+                            "Internet probe succeeded (HTTPS 204). This confirms one endpoint is reachable, not that search or Gemini is available."
+                        else "Internet probe returned HTTP $status. Internet and search availability remain unverified."
+                    } finally {
+                        connection.disconnect()
+                    }
+                } catch (_: java.io.IOException) {
+                    "Internet probe failed. This does not prove the device is offline; check DNS, network filtering, and connectivity."
+                } catch (_: Exception) {
+                    "Internet probe could not complete. Connectivity remains unverified."
+                }
+                remember(rawInput, response)
+                callback(HybridAssistantReply(response))
+            }.start()
+            return
+        }
         val resolvedInput = if (manualConfirmation) {
             "Find and verify the official service manual for the equipment in the preceding conversation. " +
                 "Check any serial-number applicability against official documentation; if no serial number was provided, ask for it. " +
