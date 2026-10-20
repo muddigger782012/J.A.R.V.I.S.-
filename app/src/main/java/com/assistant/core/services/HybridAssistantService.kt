@@ -1154,7 +1154,7 @@ class HybridAssistantService(
                 "AI routine proposals require an online connection and configured AI provider. Existing approved routines still run offline. Nothing was saved or run."
             else if (com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).isPaused(rawInput))
                 "You're offline. This learned phrase is paused after an unsuccessful result. Go online and complete a verified successful lesson, or use 'forget learned command' followed by the phrase before teaching a different meaning."
-            else ConversationPolicy.fallback(rawInput, ConversationPolicy.Obstacle.OFFLINE)
+            else "Android does not currently report an internet-capable active network to J.A.R.V.I.S. Online AI was not contacted for this request. Check network access, then retry; local commands remain available."
             remember(rawInput, response)
             callback(HybridAssistantReply(response, local.actionResult))
             return
