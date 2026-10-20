@@ -312,13 +312,13 @@ class PersonalFoundationAcceptanceTest {
 
     @Test fun reminderReviewAndBareConfirmationCannotRegisterOrReuseAnUnseenReminderPlan() {
         val voice = assistant()
-        assertTrue(voice.handleUserInput("remind me in ten minutes to Open Maps then call Mom").text.contains("Review local reminder"))
+        assertTrue(voice.handleUserInput("prepare a reminder in ten minutes to Open Maps then call Mom").text.contains("Review local reminder"))
         val manager = PersonalReminderRuntime.manager(context)
         val original = manager.pending()!!
         assertTrue(manager.records().isEmpty())
         assertTrue(voice.handleUserInput("yes").text.contains("bare confirmation"))
         val chat = assistant()
-        chat.handleUserInput("remind me in five minutes to Check the door")
+        chat.handleUserInput("prepare a reminder in five minutes to Check the door")
         val current = manager.pending()!!
         assertNotEquals(original.id, current.id)
         assertTrue(voice.handleUserInput("approve reminder").text.contains("before approving again"))
@@ -348,6 +348,12 @@ class PersonalFoundationAcceptanceTest {
             val info = context.packageManager.getReceiverInfo(android.content.ComponentName(context, PersonalReminderReceiver::class.java), 0)
             assertFalse(info.exported)
             assertTrue(platform.notificationsAvailable())
+            val direct = assistant().handleUserInput("remind me in ten minutes to Synthetic direct reminder")
+            assertTrue(direct.text.contains("Registered reminder"))
+            val directManager = PersonalReminderRuntime.manager(context)
+            val directRecord = directManager.records().single()
+            ids.add(directRecord.plan.id)
+            directManager.cancel(directRecord.number)
             val cancelledPlan = manager().prepare("Synthetic cancelled reminder", 600)
             ids.add(cancelledPlan.id)
             val first = manager().approve(cancelledPlan).record!!

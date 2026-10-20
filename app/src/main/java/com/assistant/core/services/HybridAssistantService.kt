@@ -98,7 +98,8 @@ class HybridAssistantService(
                 return HybridAssistantReply(reminderReply)
             }
             reminderCommands.discardReview()
-            runCatching { personalReminders.discardPending() }
+            if (userInput.lowercase(Locale.ROOT).trimEnd('.', '?', '!') !in setOf("notification settings", "open notification settings", "manage notifications"))
+                runCatching { personalReminders.discardPending() }
         }
         val taskHistoryCommand = if (personalAssistant) TaskHistoryCommands.parse(userInput) else null
         if (taskHistoryCommand == null) taskHistory.discardReview()

@@ -246,8 +246,10 @@ pending under existing owner authorization. No measured phase percentage is clai
 This follow-up starts broader Phase 5 workflows with an actual local notification
 reminder. `remind me in ten minutes to check the oven` freezes a title and due time
 (`remind me to check the oven in ten minutes` is also supported)
-for review; `approve reminder` registers it only after that exact review. A bare
-yes, restored conversation or an unseen/replaced review cannot authorize an alarm.
+and directly authorizes that reversible local notification. `prepare a reminder in
+ten minutes to check the oven` instead presents a review, followed by exact
+`approve reminder`. A bare yes, restored conversation or an unseen/replaced review
+cannot authorize a prepared alarm.
 Reviews expire after two minutes or at the due time. Titles are inert notification
 data, not executable commands. Durations are strict English/digits from one second
 to 24 hours; titles are bounded to 160 characters. Untimed `remind me to ...` keeps

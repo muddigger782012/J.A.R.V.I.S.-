@@ -79,6 +79,21 @@ class PersonalRemindersTest {
         assertEquals(PersonalReminders.Status.SCHEDULED, f.manager().approve(plan).record!!.status)
     }
 
+    @Test fun fullySpecifiedReminderRequestsAuthorizeSchedulingWhilePrepareRequestsOnlyReview() = fixture { f ->
+        val commands = ReminderCommands { f.manager() }
+        assertTrue(commands.reply(ReminderCommands.parse("remind me in ten minutes to Check the oven")!!).contains("Registered reminder"))
+        assertEquals(1, f.platform.registrations)
+        assertNull(f.manager().pending())
+        assertTrue(commands.reply(ReminderCommands.parse("prepare a reminder in ten minutes to Check the door")!!).contains("Review local reminder"))
+        assertEquals(1, f.platform.registrations)
+        assertNotNull(f.manager().pending())
+        f.platform.allowed = false
+        val denied = commands.reply(ReminderCommands.parse("remind me in five minutes to Check notifications")!!)
+        assertTrue(denied.contains("Allow Jarvis notifications"))
+        assertEquals(1, f.platform.registrations)
+        assertNotNull(f.manager().pending())
+    }
+
     @Test fun expiredOrAlreadyDueReviewsCannotRegisterAnAlarm() = fixture { f ->
         var plan = f.manager().prepare("Short reminder", 1)
         f.time += 1_001

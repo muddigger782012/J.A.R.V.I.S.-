@@ -25,7 +25,16 @@ class ReminderCommands(private val reminders: () -> PersonalReminders) {
                 if (input.seconds == null || input.title == null || !PersonalReminders.validTitle(input.title)) {
                     check(manager.discardPending())
                     "Use 'remind me in ten minutes to check the oven', with a duration from one second to 24 hours and a title up to 160 characters. No new reminder was approved."
-                } else review(manager.prepare(input.title, input.seconds))
+                } else {
+                    val plan = manager.prepare(input.title, input.seconds)
+                    if (!input.directRequest) review(plan) else {
+                        // A fully specified "remind me" request is already authorization for
+                        // this reversible local notification. "Prepare" keeps explicit review.
+                        val result = manager.approve(plan)
+                        if (result.record == null && manager.pending() == plan) review(plan) + " " + result.message
+                        else "Local reminder '${plan.title}' for ${time(plan.dueAt)}. ${result.message}"
+                    }
+                }
             }
             Command.REVIEW_PLAN -> manager.pending()?.let(::review) ?: "No unexpired reminder plan is awaiting approval. Request a new reminder with its duration and title."
             Command.APPROVE -> {
@@ -70,7 +79,7 @@ class ReminderCommands(private val reminders: () -> PersonalReminders) {
     } + "\nUse 'cancel reminder 1' or 'retry reminder 1' with a listed number. After checking an uncertain notification, 'reminder 1 was shown' records your report without dispatch. 'Clear completed reminder history' removes only posted, owner-confirmed, cancelled or missed records."
 
     enum class Command { PREPARE, REVIEW_PLAN, APPROVE, CANCEL_PLAN, REVIEW, CANCEL, RETRY, CONFIRM_SHOWN, CLEAR, INVALID }
-    data class Input(val command: Command, val seconds: Int? = null, val title: String? = null, val number: Int? = null)
+    data class Input(val command: Command, val seconds: Int? = null, val title: String? = null, val number: Int? = null, val directRequest: Boolean = false)
     companion object {
         private fun clean(text: String) = text.trim().lowercase(Locale.ROOT).trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
         private fun time(value: Long) = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(value))
@@ -86,17 +95,17 @@ class ReminderCommands(private val reminders: () -> PersonalReminders) {
                 else -> null
             }
             if (command != null) return Input(command)
-            if (Regex("^remind me in\\b").containsMatchIn(value)) {
-                val match = Regex("^remind me in (.+?) to (.+)$", RegexOption.IGNORE_CASE).matchEntire(text.trim())
-                return Input(Command.PREPARE, match?.groupValues?.get(1)?.takeIf { text.length <= 400 }?.let(SpokenTimerDuration::seconds),
-                    match?.groupValues?.get(2)?.trim())
+            if (Regex("^(?:remind me|prepare (?:a )?(?:local )?reminder) in\\b").containsMatchIn(value)) {
+                val match = Regex("^(remind me|prepare (?:a )?(?:local )?reminder) in (.+?) to (.+)$", RegexOption.IGNORE_CASE).matchEntire(text.trim())
+                return Input(Command.PREPARE, match?.groupValues?.get(2)?.takeIf { text.length <= 400 }?.let(SpokenTimerDuration::seconds),
+                    match?.groupValues?.get(3)?.trim(), directRequest = value.startsWith("remind me "))
             }
             Regex("^remind me to (.+) in (.+)$", RegexOption.IGNORE_CASE).matchEntire(text.trim())?.let { match ->
                 val duration = match.groupValues[2]
                 val seconds = duration.takeIf { text.length <= 400 }?.let(SpokenTimerDuration::seconds)
                 // Preserve untimed calendar requests such as "review the report in French".
                 if (seconds != null || Regex("(?i)\\b(?:seconds?|minutes?|hours?|days?|weeks?|months?)\\b|^[0-9]").containsMatchIn(duration))
-                    return Input(Command.PREPARE, seconds, match.groupValues[1].trim())
+                    return Input(Command.PREPARE, seconds, match.groupValues[1].trim(), directRequest = true)
             }
             Regex("^(cancel|retry) reminder ([0-9]{1,9})$").matchEntire(value)?.let {
                 return Input(if (it.groupValues[1] == "cancel") Command.CANCEL else Command.RETRY, number = it.groupValues[2].toIntOrNull()?.takeIf { n -> n > 0 })
