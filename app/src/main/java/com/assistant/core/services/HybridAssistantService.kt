@@ -1146,6 +1146,10 @@ class HybridAssistantService(
     }
 
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+        if (personalAssistant && ConfirmationWords.isConfirmation(rawInput) &&
+            runCatching { contactCalls.pending() != null }.getOrDefault(false)) {
+            callback(handleUserInput(rawInput)); return
+        }
         val research = if (personalAssistant) ResearchBriefCommands.parse(rawInput) else null
         if (research != null) {
             if (research.command !in setOf(ResearchBriefCommands.Command.START, ResearchBriefCommands.Command.RETRY)) {

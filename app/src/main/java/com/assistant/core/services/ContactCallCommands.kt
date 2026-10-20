@@ -34,6 +34,7 @@ class ContactCallCommands(private val workflow: () -> ContactCallWorkflow) {
                 val current = manager.pending()
                 if (current == null) present(null)
                 else if (reviewed != current) present(current) + " Review these current details before approving again."
+                else if (current.selected == null) present(current) + " Choose a recipient before approving the call."
                 else { reviewed = null; manager.approve(current) }
             }
             Command.CANCEL -> { reviewed = null; manager.cancel() }

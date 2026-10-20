@@ -57,3 +57,4 @@
 -keep,allowoptimization class com.assistant.core.services.ContactCallWorkflow** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ResearchBriefs** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ChatSearchResults** { public *; }
+-keep,allowoptimization class com.assistant.core.services.SearchRouter** { public *; }

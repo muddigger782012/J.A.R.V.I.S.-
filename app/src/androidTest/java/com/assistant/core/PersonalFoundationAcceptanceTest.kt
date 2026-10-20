@@ -415,6 +415,9 @@ class PersonalFoundationAcceptanceTest {
         val service = assistant()
         assertTrue(service.handleUserInput("prepare a call to +1 202 555 0100").text.contains("Review call"))
         service.handleUserInput("yes")
+        var bare: HybridAssistantReply? = null
+        service.handleUserInputAsync("yes") { bare = it }
+        assertNotNull(bare); assertTrue(bare!!.text.contains("bare confirmation"))
         assertEquals(0, context.activityRequests)
         val restored = assistant()
         assertTrue(restored.handleUserInput("approve contact call").text.contains("before approving again"))
