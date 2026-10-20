@@ -411,7 +411,65 @@ class PersonalFoundationAcceptanceTest {
         assertEquals(0, executions)
     }
 
-    private fun assistant(): HybridAssistantService {
+    @Test fun contactCallReviewsReconstructAndOnlyCurrentApprovalCanRequestAnInterceptedPhoneIntent() {
+        val service = assistant()
+        assertTrue(service.handleUserInput("prepare a call to +1 202 555 0100").text.contains("Review call"))
+        service.handleUserInput("yes")
+        var bare: HybridAssistantReply? = null
+        service.handleUserInputAsync("yes") { bare = it }
+        assertNotNull(bare); assertTrue(bare!!.text.contains("bare confirmation"))
+        assertEquals(0, context.activityRequests)
+        val restored = assistant()
+        assertTrue(restored.handleUserInput("approve contact call").text.contains("before approving again"))
+        assertEquals(0, context.activityRequests)
+        context.allowActivityRequests = true // Captures the intent; never delegates to Android or places a call.
+        assertTrue(restored.handleUserInput("approve contact call").text.contains("Requested"))
+        assertEquals(1, context.activityRequests)
+        assertTrue(context.lastActivityIntent!!.action in setOf(Intent.ACTION_CALL, Intent.ACTION_DIAL))
+        assertEquals("tel", context.lastActivityIntent!!.data!!.scheme)
+        restored.handleUserInput("approve contact call")
+        var malformed: HybridAssistantReply? = null
+        restored.handleUserInputAsync("approve contact call then search the service manual") { malformed = it }
+        assertNotNull(malformed); assertFalse(malformed!!.needsInterpretation)
+        assertEquals(1, context.activityRequests)
+        assertTrue(restored.getConversationSnapshot().isEmpty())
+        assertEquals(0, executions)
+    }
+
+    @Test fun syntheticResearchSavesLinkedExcerptsAndActualServiceRestoresThemOfflineWithoutAnotherFetch() {
+        var fetches = 0
+        val service = assistant { fetches++; SearchRouter.Response("synthetic", listOf(SearchRouter.Result("Synthetic guide", "An isolated source excerpt.", "https://example.com/guide"))) }
+        val done = CountDownLatch(1); val result = AtomicReference<HybridAssistantReply>()
+        service.handleUserInputAsync("research solar panels and summarize") { result.set(it); done.countDown() }
+        assertTrue(done.await(20, TimeUnit.SECONDS))
+        val decoded = ChatSearchResults.decode(result.get().text)!!
+        assertEquals(1, fetches); assertEquals("solar panels", decoded.query)
+        assertTrue(decoded.answer!!.contains("not independently verified"))
+        assertEquals(result.get().text, assistant().handleUserInput("review research brief").text)
+        assertFalse(ChatSearchResults.forSpeech(result.get().text).contains("search-results-v1"))
+        assertTrue(service.getConversationSnapshot().isEmpty())
+        assertTrue(assistant().handleUserInput("clear research brief").text.startsWith("Cleared"))
+        assertEquals(1, fetches); assertEquals(0, context.activityRequests); assertEquals(0, executions)
+    }
+
+    @Test fun cancellingResearchThroughTheActualServiceRejectsLateSyntheticResults() {
+        val briefs = ResearchBriefs(PersonalStateFile(context, "research-brief.json"))
+        val old = briefs.run(briefs.start("old synthetic topic")) { SearchRouter.Response("synthetic", listOf(SearchRouter.Result("Old source", "Old excerpt", "https://example.com/old"))) }
+        val entered = CountDownLatch(1); val release = CountDownLatch(1); val done = CountDownLatch(1)
+        val result = AtomicReference<HybridAssistantReply>()
+        val service = assistant { entered.countDown(); check(release.await(20, TimeUnit.SECONDS)); SearchRouter.Response("synthetic", listOf(SearchRouter.Result("New source", "New excerpt", "https://example.com/new"))) }
+        service.handleUserInputAsync("research new synthetic topic and summarize") { result.set(it); done.countDown() }
+        try {
+            assertTrue(entered.await(20, TimeUnit.SECONDS))
+            assertTrue(service.handleUserInput("cancel research").text.contains("late results will not replace"))
+        } finally { release.countDown() }
+        assertTrue(done.await(20, TimeUnit.SECONDS))
+        assertTrue(result.get().text.contains("late results were not saved"))
+        assertEquals(old, assistant().handleUserInput("review research brief").text)
+        assertEquals(0, context.activityRequests); assertEquals(0, executions)
+    }
+
+    private fun assistant(researchFetch: ((String) -> SearchRouter.Response)? = null): HybridAssistantService {
         val capabilities = CapabilityState(true, false, false, false, false, false, false)
         val registry = ActionRegistry()
         val broker = CapabilityBroker { _, request, _ ->
@@ -420,7 +478,7 @@ class PersonalFoundationAcceptanceTest {
         }
         val engine = AssistantEngine(IntentClassifier(), registry, PolicyGate(), ActionExecutor(broker),
             ActionRepository(database), AuditService(AuditRepository(database)), { capabilities })
-        return HybridAssistantService(engine, registry, SystemService(context), { capabilities })
+        return HybridAssistantService(engine, registry, SystemService(context), { capabilities }, researchFetch)
     }
 
     private class IsolatedContext(base: Context) : ContextWrapper(base) {

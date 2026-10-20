@@ -37,7 +37,8 @@ class HybridAssistantService(
     private val assistantEngine: AssistantEngine,
     private val actionRegistry: ActionRegistry,
     private val systemService: SystemService,
-    private val capabilityProvider: () -> CapabilityState
+    private val capabilityProvider: () -> CapabilityState,
+    private val researchFetch: ((String) -> SearchRouter.Response)? = null
 ) {
 
     private var pendingPrompt: PendingPrompt = PendingPrompt.NONE
@@ -49,6 +50,9 @@ class HybridAssistantService(
     private val taskHistory = TaskHistoryCommands({ routineCoordinator })
     private val personalReminders by lazy { PersonalReminderRuntime.manager(systemService.context()) }
     private val reminderCommands = ReminderCommands { personalReminders }
+    private val contactCalls by lazy { ContactCallWorkflow(PersonalStateFile(systemService.context(), "contact-call.json"), androidAssistant.contactCallPlatform()) }
+    private val contactCallCommands = ContactCallCommands { contactCalls }
+    private val researchBriefs by lazy { ResearchBriefs(PersonalStateFile(systemService.context(), "research-brief.json")) }
     private var pendingLearningReset: Boolean = false
     private val routineConfirmations = RoutineConfirmationStore(systemService.context())
     private val routineRegistry = com.assistant.core.learning.ApprovedRoutineRegistry(systemService.context())
@@ -83,6 +87,29 @@ class HybridAssistantService(
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
         if (personalAssistant) {
+            ResearchBriefCommands.parse(userInput)?.let { input ->
+                clearPendingActionPrompts()
+                taskHistory.discardReview()
+                contactCallCommands.discardReview()
+                reminderCommands.discardReview()
+                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+                return HybridAssistantReply(runCatching { ResearchBriefCommands.local(input, researchBriefs) }
+                    .getOrElse { "Research storage could not be read safely. No automatic lookup or reset was attempted; review local storage access before retrying." })
+            }
+            val contactInput = ContactCallCommands.parse(userInput)
+            val contactReply = if (contactInput != null) runCatching { contactCallCommands.reply(contactInput) }
+                .getOrElse { "Contact-call storage or Android access could not be confirmed. Check the Phone app before retrying; no automatic call retry is allowed." }
+            else runCatching { contactCallCommands.confirmation(userInput) }.getOrNull()
+            if (contactReply != null) {
+                clearPendingActionPrompts()
+                taskHistory.discardReview()
+                reminderCommands.discardReview()
+                runCatching { personalReminders.discardPending(); goalPlans?.discardPending() }
+                // Recipient details remain in local review storage, outside provider dialogue memory.
+                return HybridAssistantReply(contactReply)
+            }
+            contactCallCommands.discardReview()
+            runCatching { contactCalls.discardReview() }
             val reminderInput = ReminderCommands.parse(userInput)
             val reminderReply = if (reminderInput != null) runCatching {
                 clearPendingActionPrompts()
@@ -925,7 +952,7 @@ class HybridAssistantService(
         parseCallTarget(normalized)?.let { rawTarget ->
             val target = cleanContactTarget(resolveConversationContact(rawTarget))
             lastContactTarget = target
-            val directNumber = target.filter { it.isDigit() || it == '+' }.takeIf { it.any(Char::isDigit) }
+            val directNumber = ContactCallWorkflow.phone(target)
             if (directNumber == null && !hasContactsPermission()) {
                 val response = "I need Contacts permission before I can look up $target. Please allow Contacts access for J.A.R.V.I.S., then try again."
                 remember(userInput, response); return HybridAssistantReply(response)
@@ -941,7 +968,7 @@ class HybridAssistantService(
             val ok = number?.let { if (dialOnly) androidAssistant.dial(it) else androidAssistant.call(it) } ?: false
             val response = when {
                 ok && dialOnly -> "Opening the dialer for $target."
-                ok -> "Starting the call to $target."
+                ok -> "Requested the call to $target. Connection or completion is not verified."
                 number == null && contactResult?.status == ContactNameMatcher.MatchStatus.AMBIGUOUS -> "I found more than one possible phone number or contact for $target. Please specify the exact contact and number in your Contacts app before calling."
                 number == null -> "I couldn't find $target in your contacts with a phone number."
                 else -> "Android couldn't start the call. Check Phone permission and your phone app."
@@ -951,7 +978,7 @@ class HybridAssistantService(
         parseMessageRequest(userInput)?.let { (rawTarget, body) ->
             val target = resolveConversationContact(rawTarget)
             lastContactTarget = target
-            val number = target.filter { it.isDigit() || it == '+' }.takeIf { it.any(Char::isDigit) }
+            val number = ContactCallWorkflow.phone(target)
                 ?: androidAssistant.resolveContactPhone(target)
             val ok = number?.let { androidAssistant.composeSms(it, body) } ?: false
             val response = if (ok) "Opening your messaging app with the message ready for $target." else "I couldn't find a phone number for $target. Contact access may be required."
@@ -1119,10 +1146,49 @@ class HybridAssistantService(
     }
 
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+        if (personalAssistant && ConfirmationWords.isConfirmation(rawInput) &&
+            runCatching { contactCalls.pending() != null }.getOrDefault(false)) {
+            callback(handleUserInput(rawInput)); return
+        }
+        val research = if (personalAssistant) ResearchBriefCommands.parse(rawInput) else null
+        if (research != null) {
+            if (research.command !in setOf(ResearchBriefCommands.Command.START, ResearchBriefCommands.Command.RETRY)) {
+                callback(handleUserInput(rawInput)); return
+            }
+            clearPendingActionPrompts()
+            taskHistory.discardReview()
+            contactCallCommands.discardReview()
+            reminderCommands.discardReview()
+            runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+            val ticket = try {
+                if (research.command == ResearchBriefCommands.Command.RETRY) researchBriefs.retry()
+                else researchBriefs.start(research.query.orEmpty())
+            } catch (_: Exception) {
+                callback(HybridAssistantReply("The research query or its storage could not be validated. Use a topic of 2–300 characters and check local storage access. No lookup was started."))
+                return
+            }
+            if (ticket == null) { callback(HybridAssistantReply("No research query is saved to retry. Request a topic first.")); return }
+            Thread {
+                val response = runCatching { researchBriefs.run(ticket) { query ->
+                    researchFetch?.invoke(query) ?: run {
+                        val context = systemService.context()
+                        val tavily = runCatching { ApiKeyStore(context, "tavily_search").read() }.getOrDefault("")
+                        val brave = runCatching { ApiKeyStore(context, "brave_search").read() }.getOrDefault("")
+                        val router = SearchRouter.configured(tavily, brave, "web")
+                        val coordinator = SearchCoordinator({ q, kind -> if (directOnlineClient.hasGeminiKey()) directOnlineClient.groundedSearch(q, kind) else null }, router)
+                        val result = coordinator.search(query, "web")
+                        SearchRouter.Response(null, result.items, result.failures)
+                    }
+                } }.getOrElse { "Research results could not be confirmed or saved. Review research status before explicitly retrying; no automatic retry or claim of a completed brief is made." }
+                callback(HybridAssistantReply(response))
+            }.start()
+            return
+        }
         // Local evaluation/correction controls must not be reinterpreted as a manual search
         // when malformed trailing text happens to mention documentation or a provider.
         if (personalAssistant && (ImprovementEvaluation.isManagementInput(rawInput) ||
-                TaskHistoryCommands.isManagementInput(rawInput) || GoalPlanning.edit(rawInput) != null || ReminderCommands.parse(rawInput) != null)) {
+                TaskHistoryCommands.isManagementInput(rawInput) || GoalPlanning.edit(rawInput) != null || ReminderCommands.parse(rawInput) != null ||
+                ContactCallCommands.parse(rawInput) != null)) {
             callback(handleUserInput(rawInput))
             return
         }

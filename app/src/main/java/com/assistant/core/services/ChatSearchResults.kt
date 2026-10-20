@@ -14,6 +14,15 @@ object ChatSearchResults {
         uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.rawUserInfo == null
     }.getOrDefault(false)
 
+    /** Structured source cards are for the screen; speech reads their answer instead of JSON. */
+    fun forSpeech(message: String): String {
+        val result = decode(message)
+        if (result == null) return if (message.startsWith(PREFIX)) "Search results could not be read. Review them in chat." else message
+        return result.answer?.takeIf { it.isNotBlank() }?.let { SearchReadableText.format(it).text
+            .replace(Regex("https?://[^\\s]+"), "linked source").take(4000) }
+            ?: "Found ${result.items.size} linked sources for ${result.query}. Review the sources in chat; no answer is verified."
+    }
+
     fun encode(query: String, items: List<SearchRouter.Result>, answer: String? = null, searchSuggestions: String? = null, kind: String = "web", retrievedAt: Long = 0L): String {
         val results = JSONArray()
         items.take(11).filter { safeUrl(it.url) }.forEach {
