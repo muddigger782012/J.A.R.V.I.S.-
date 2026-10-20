@@ -1553,6 +1553,7 @@ class MainActivity : ThemedActivity() {
             })
             if (searchResults == null) card.addView(TextView(this).apply {
                 text = when { user -> line.removePrefix("You:").trimStart(); assistant -> line.removePrefix("J.A.R.V.I.S.:").trimStart().substringBefore("\nhttps://www.google.com/search?"); else -> line }
+                setTextIsSelectable(!assistant)
                 if (assistant) {
                     val answerText = line.removePrefix("J.A.R.V.I.S.:").trimStart()
                         .substringBefore("\nhttps://www.google.com/search?")
@@ -1576,7 +1577,6 @@ class MainActivity : ThemedActivity() {
                 textSize = if (user || assistant) 16f else 12f
                 setTextColor(ThemePreferences.color(this@MainActivity, if (user || assistant) R.color.jarvis_on_dark else R.color.jarvis_on_dark_muted))
                 setLineSpacing(dp(4).toFloat(), 1f)
-                setTextIsSelectable(!assistant)
                 if (assistant && line.startsWith("J.A.R.V.I.S.: Search results for ")) {
                     android.text.util.Linkify.addLinks(this, android.text.util.Linkify.WEB_URLS)
                     movementMethod = android.text.method.LinkMovementMethod.getInstance()
