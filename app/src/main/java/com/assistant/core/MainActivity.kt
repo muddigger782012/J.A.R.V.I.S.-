@@ -1553,37 +1553,36 @@ class MainActivity : ThemedActivity() {
             })
             if (searchResults == null) card.addView(TextView(this).apply {
                 text = when { user -> line.removePrefix("You:").trimStart(); assistant -> line.removePrefix("J.A.R.V.I.S.:").trimStart().substringBefore("\nhttps://www.google.com/search?"); else -> line }
+                if (assistant) {
+                    val answerText = line.removePrefix("J.A.R.V.I.S.:").trimStart()
+                        .substringBefore("\nhttps://www.google.com/search?")
+                    val inline = android.text.SpannableStringBuilder(answerText).append("  ⧉")
+                    val start = inline.length - 1
+                    inline.setSpan(object : android.text.style.ClickableSpan() {
+                        override fun onClick(widget: View) {
+                            val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Jarvis answer", answerText))
+                            android.widget.Toast.makeText(this@MainActivity, "Answer copied", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        override fun updateDrawState(ds: android.text.TextPaint) {
+                            ds.color = ThemePreferences.color(this@MainActivity, R.color.jarvis_primary)
+                            ds.isUnderlineText = false
+                        }
+                    }, start, inline.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    text = inline
+                    movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                    contentDescription = answerText + ". Copy answer button at end."
+                }
                 textSize = if (user || assistant) 16f else 12f
                 setTextColor(ThemePreferences.color(this@MainActivity, if (user || assistant) R.color.jarvis_on_dark else R.color.jarvis_on_dark_muted))
                 setLineSpacing(dp(4).toFloat(), 1f)
-                setTextIsSelectable(true)
+                setTextIsSelectable(!assistant)
                 if (assistant && line.startsWith("J.A.R.V.I.S.: Search results for ")) {
                     android.text.util.Linkify.addLinks(this, android.text.util.Linkify.WEB_URLS)
                     movementMethod = android.text.method.LinkMovementMethod.getInstance()
                     linksClickable = true
                 }
             })
-            if (assistant && searchResults == null) {
-                val answerText = line.removePrefix("J.A.R.V.I.S.:").trimStart()
-                    .substringBefore("\nhttps://www.google.com/search?")
-                val copyAction = TextView(this).apply {
-                    text = "⧉"
-                    textSize = 18f
-                    minHeight = dp(32)
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                    setPadding(dp(4), dp(2), dp(4), dp(2))
-                    setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
-                    isClickable = true
-                    isFocusable = true
-                    contentDescription = "Copy this Jarvis answer"
-                    setOnClickListener {
-                        val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Jarvis answer", answerText))
-                        android.widget.Toast.makeText(this@MainActivity, "Answer copied", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                }
-                card.addView(copyAction)
-            }
             if (searchResults != null) card.addView(ChatSearchResultsView.create(this, searchResults, conversationSessionId))
             if (assistant) {
                 val searchUrl = if (listOf("Web", "Image", "Video").any { line.startsWith("J.A.R.V.I.S.: $it search ready:") } && line.contains("\nhttps://www.google.com/search?"))
