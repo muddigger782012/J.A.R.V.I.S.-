@@ -197,7 +197,11 @@ class DirectOnlineClient(private val context: Context) {
                     ?: GeminiResponse("Gemini returned no usable text answer. Try rephrasing the question.")
             } else GeminiResponse(OnlineAnswers.geminiError(code, json))
         } catch (_: IllegalArgumentException) { GeminiResponse("The request or an attachment could not be read. Review it and try again.") }
-        catch (_: Exception) { GeminiResponse("I couldn't connect to Gemini. Check your internet connection and try again.") }
+        catch (error: java.net.SocketTimeoutException) { GeminiResponse("Gemini request timed out. Your phone may have internet access, but the provider did not respond in time. Retry shortly.") }
+        catch (error: java.net.UnknownHostException) { GeminiResponse("Gemini hostname could not be resolved. Check DNS or network connectivity, then retry.") }
+        catch (error: javax.net.ssl.SSLException) { GeminiResponse("Gemini secure connection failed. Check network filtering and device time, then retry.") }
+        catch (_: java.io.IOException) { GeminiResponse("Gemini transport failed. Internet access and provider availability have not been confirmed; retry or check connection diagnostics.") }
+        catch (_: Exception) { GeminiResponse("Gemini request failed unexpectedly. No online answer was verified; check AI settings and retry.") }
     }
 
     companion object {
