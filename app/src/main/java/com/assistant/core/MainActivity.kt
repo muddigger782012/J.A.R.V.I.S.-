@@ -2109,7 +2109,7 @@ class MainActivity : ThemedActivity() {
     private fun handleLiveChatControl(command: String): Boolean {
         return when (com.assistant.core.services.LiveChatCommands.parse(command)) {
             com.assistant.core.services.LiveChatCommands.Control.START -> {
-                appendOutput("J.A.R.V.I.S.: " + if (liveChatStarted) "Live chat is already active." else "Starting live chat.")
+                appendOutput("J.A.R.V.I.S.: " + if (liveChatStarted) "Live chat is already active." else "Live chat requested. Checking microphone permission and starting the voice service; session status will confirm when it is active.")
                 if (!liveChatStarted) requestLiveChat()
                 true
             }
