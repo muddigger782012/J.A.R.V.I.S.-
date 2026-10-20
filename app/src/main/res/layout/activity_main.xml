@@ -113,7 +113,7 @@
             android:paddingStart="8dp" android:paddingEnd="8dp" android:paddingBottom="8dp">
             <FrameLayout android:id="@+id/conversationToolbar"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginBottom="-48dp">
+                android:layout_marginBottom="-48dp" android:elevation="12dp">
                 <Button android:id="@+id/btnOpenJarvisChat"
                     style="@style/Widget.AssistantPlatform.QuietButton"
                     android:layout_width="52dp" android:layout_height="48dp"
@@ -122,12 +122,12 @@
                 <Button android:id="@+id/btnNewAssistantChat"
                     style="@style/Widget.AssistantPlatform.QuietButton"
                     android:layout_width="48dp" android:layout_height="48dp"
-                    android:layout_gravity="top|end" android:text="+"
+                    android:layout_gravity="top|start" android:layout_marginTop="48dp" android:text="+"
                     android:contentDescription="New chat" />
                 <Button android:id="@+id/btnAssistantHistory"
                     style="@style/Widget.AssistantPlatform.QuietButton"
                     android:layout_width="48dp" android:layout_height="48dp"
-                    android:layout_gravity="top|end" android:visibility="gone"
+                    android:layout_gravity="top|start" android:layout_marginTop="96dp" android:visibility="gone"
                     android:contentDescription="Chat history" />
             </FrameLayout>
             <LinearLayout android:id="@+id/micPermissionCard" android:layout_width="match_parent" android:layout_height="wrap_content"
