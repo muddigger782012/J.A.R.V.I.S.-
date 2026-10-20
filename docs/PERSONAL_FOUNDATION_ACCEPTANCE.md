@@ -13,9 +13,9 @@ not represented as passed. No Beta or Developer release is part of this publicat
 
 ## Follow-up: personal routine recovery
 
-Personal build 3.5.435 delivers this verified increment through the existing updater
-and versioned downloads, under the owner's instruction to publish after automated
-verification while physical acceptance remains follow-up work.
+Personal build 3.5.435 delivered this verified recovery increment through the
+existing updater and versioned downloads. Build 3.5.440 retains it and adds the
+Phase 5 and 6 follow-up below; physical acceptance remains follow-up work.
 
 This increment replaces the personal service's session-only routine
 adapter with a bounded, atomic journal outside Android backup. Typed chat and voice
@@ -52,8 +52,10 @@ planner. Physical-device acceptance remains outstanding.
 
 ## Phase 5 and 6 follow-up: reviewed goals and supervised evaluation
 
-The next source increment adds three bounded offline goal templates. The currently
-published recovery APK remains unchanged until a new verified update is delivered.
+Personal build 3.5.440 delivers these three bounded offline goal templates and
+supervised evaluation through the existing personal updater and versioned signed
+downloads. The owner authorized publication after automated verification, with
+physical execution, live-provider quality and installed-data upgrade checks pending.
 
 | Goal request | Proposed steps | Acceptance boundary |
 | --- | --- | --- |
@@ -119,7 +121,12 @@ repurposed. Actual patch preparation/developer integration and live-model qualit
 evaluation remain future work. Clear evaluation leaves goals, conversation,
 preferences, learned commands and the result journal separate.
 
-Automated evidence for this increment is recorded on its follow-up pull request:
+Verified evidence for build 3.5.440: all 445 JVM tests across 82 suites, all supported
+debug ABI and test APK builds, final-source CI unit/build, gateway, theme and all
+14 optimized Android acceptance tests passed. The production-signed personal build
+and independent package/version/signer, ABI, ZIP, native-runtime and wake-asset
+checks passed for every APK. Broad UI-layout smoke remains skipped upstream.
+The follow-up pull request records these specific contracts:
 planner/input boundaries, shared approval/expiry state, failure recovery, duplicate
 and stale-control prevention, opt-in/reset, bounded reports, matched comparisons,
 concurrent updates and explicit-only developer briefs. Three new Android cases
@@ -135,8 +142,8 @@ physical-device execution/upgrade acceptance. No phase percentage is claimed.
 | 2: conversation | Explicit interpretation state replaces response-text matching. Questions mentioning commands stay conversational. Personal solution-first instructions apply in both persona modes. One configured gateway alternative can answer after a failed Gemini interpretation. | Intent, local query, fallback, personality and provider-routing tests; Android service acceptance cases. | Live provider behavior, naturalness and three-turn voice/text evaluation on the personal phone. Prompt contract tests do not prove model behavior. |
 | 3: memory/offline | A bounded local dialogue window survives service/process reconstruction. Latest corrections follow older dialogue. Exact review/reset controls; confirmed device memory and validated command learning remain separate. Local arithmetic, date/time, commands and approved routines remain available offline. | Reconstruction, expiry, malformed data, deletion, write-failure and command-control tests; actual Android storage acceptance cases. | Physical restart and foreground/voice-process smoke tests. No offline generative model or arbitrary fact-learning is claimed. |
 | 4: device integration | Selects implemented Standard fallbacks before an unavailable/unsupported privileged route is attempted. Maintains risk confirmations. Does not repeat uncertain adapter effects. Android rejecting an Accessibility action cannot become success. | Broker tests with injected adapters exercise actual selection, disabled fallback, denied policy, unsupported actions, failures and exceptions. | Standard, Accessibility, Shizuku and Dhizuku permission/device matrix. An advertised capability is not proof of permission or a working service. |
-| 5: execution | Personal approved routines use durable checkpoints and a shared dispatch lease across voice/chat. Supports restart review, bounded explicit resume, persisted cancellation, duplicate prevention and distinct requested/user-confirmed/device-verified results. | Engine/coordinator tests, an independent-JVM lease/death case, and Android service/atomic-storage recovery and concurrent cancellation acceptance. | Physical-device execution of three representative workflows; broader goal decomposition and reviewed terminal-history management. |
-| 6: improvement | Read-only proposals from recurring existing local result history: failure categories, bounded evidence, synthetic regression cases, recovery and recurrence. | Deterministic journal evaluation tests cover insufficient evidence, duplicates, conflicts, later verification and reopening. | Reviewed real-world feedback dataset, conversational failure collection with opt-in, developer integration for proposed patches/PRs and before/after behavioral evaluation. |
+| 5: execution | Approved routines and reviewed focus/music/navigation goals share durable checkpoints and a voice/chat dispatch lease, bounded resume, cancellation, duplicate prevention and honest outcome types. | Engine/coordinator/planner tests, independent-JVM lease/death checks and actual Android service/storage cases, including changed/unseen cross-chat review. | Physical workflow execution; broader goal decomposition and reviewed terminal-history management. |
+| 6: improvement | Read-only recurrence proposals plus opt-in manual synthetic evaluation, bounded build/scenario reports, matched baselines and evidence-linked developer briefs. | Deterministic journal and evaluation tests cover recurrence, uncertainty, opt-in/reset, concurrent/bounded reports and honest comparison; Android reconstruction and baseline acceptance. | Live behavioral evaluation, broader reviewed feedback coverage and actual developer write integration for patches/PRs. |
 
 The engine and pure policy tests establish their bounded contracts. Fake/injected
 adapters do not prove that Android or an AI provider performed an action. Android
@@ -177,13 +184,15 @@ execution, generic autonomous planner or unattended consequential action is adde
 An uncertain launch cannot be resumed automatically. Cancellation stops subsequent
 steps and does not undo effects already requested.
 
-Improvement review reads the existing bounded result journal only. There is no new
+Automatic recurrence review reads the existing bounded result journal only. The
+separate opt-in manual synthetic evaluation above adds no automatic conversation
 collector, telemetry, external submission, automatic code edit or deployment.
 User reports remain distinct from device readback. Timestamp/target-based attempt
 deduplication is conservative; independent retries with different times cannot
 always be identified. Counts are recorded evidence, not measured reliability or a
 proven root cause. Proposals exclude raw transcript/detail fields and use synthetic
-regression scenarios. Existing result-history deletion remains the data reset.
+regression scenarios. Existing result-history deletion resets recurrence evidence; evaluation has its own
+explicit reset and does not erase the result journal.
 
 ## Product and upgrade preservation
 
@@ -195,7 +204,7 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.435 (versionCode 435) replaces the previously distributed 3.5.434
+Personal build 3.5.440 (versionCode 440) replaces the previously distributed 3.5.435
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
