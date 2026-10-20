@@ -76,6 +76,9 @@ and duration clarification expire after two minutes; another topic invalidates
 them. One current approved definition is retained independently of the routine
 registry so an interrupted execution can be reviewed/recovered. All execution
 effects still require explicit authorization and existing Android permissions.
+Goal dialogue uses the existing bounded conversation window so it becomes the
+current topic; that dialogue never supplies execution approval. Evaluation
+management/report replies remain outside conversational memory.
 
 Phase 6 adds explicitly enabled manual evaluation, separate from automatic
 read-only recurrence analysis of the existing outcome journal. Recording is off

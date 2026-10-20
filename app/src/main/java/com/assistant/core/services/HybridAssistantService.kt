@@ -149,7 +149,12 @@ class HybridAssistantService(
                 pendingLearningReset = false
                 return HybridAssistantReply(controlRoutineExecution(command))
             }
-            handleGoalInput(userInput)?.let { return HybridAssistantReply(it) }
+            handleGoalInput(userInput)?.let {
+                // A goal is the current conversation topic, not an older provider offer.
+                // Dialogue remains untrusted; only the separate exact review can authorize it.
+                remember(userInput, it)
+                return HybridAssistantReply(it)
+            }
         }
         routineConfirmations.consume(userInput)?.let { resolution ->
             pendingPrompt = PendingPrompt.NONE

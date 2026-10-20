@@ -153,6 +153,8 @@ class PersonalFoundationAcceptanceTest {
         val review = assistant().handleUserInput("twenty five minutes").text
         assertTrue(review.contains("approve goal plan"))
         assertTrue(review.contains("25%"))
+        assertTrue(service.getConversationSnapshot().contains("twenty five minutes"))
+        assertTrue(service.getConversationSnapshot().contains("approve goal plan"))
         service.handleUserInput("yes")
         assertTrue(assistant().handleUserInput("approve goal plan").text.contains("No current goal plan"))
         service.handleUserInput("help me focus for five minutes")
