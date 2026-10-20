@@ -63,8 +63,10 @@ object GoalPlanning {
         return Plan("goal plan ${UUID.randomUUID()}", request.kind, listOf("volume:${request.volume}", last))
     }
 
-    fun valid(plan: Plan): Boolean = plan.key.startsWith("goal plan ") &&
-        runCatching { UUID.fromString(plan.key.removePrefix("goal plan ")).toString() == plan.key.removePrefix("goal plan ") }.getOrDefault(false) &&
+    fun isKey(key: String): Boolean = key.startsWith("goal plan ") &&
+        runCatching { UUID.fromString(key.removePrefix("goal plan ")).toString() == key.removePrefix("goal plan ") }.getOrDefault(false)
+
+    fun valid(plan: Plan): Boolean = isKey(plan.key) &&
         plan.actions.size == 2 && RoutineSteps.isValid(plan.actions) && RoutineSteps.volumePercent(plan.actions[0]) != null &&
         (if (plan.kind == Kind.FOCUS) RoutineSteps.timerAction(plan.actions[1]) != null else RoutineSteps.appAction(plan.actions[1]) != null)
 

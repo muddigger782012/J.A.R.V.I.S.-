@@ -1366,7 +1366,7 @@ class HybridAssistantService(
             RoutineWorkflowStatus.CANCELLED, RoutineWorkflowStatus.CANCELLING -> " Subsequent steps are cancelled. Already requested actions are not undone."
             else -> ""
         }
-        val title = if (goal != null) "Goal '${goal.kind.title}'" else if (checkpoint.phrase.startsWith("goal plan ")) "Goal execution"
+        val title = if (goal != null) "Goal '${goal.kind.title}'" else if (GoalPlanning.isKey(checkpoint.phrase)) "Goal execution"
             else "Routine '${checkpoint.phrase}'"
         return "$title: $steps. ${checkpoint.detail}$next".trim()
     }

@@ -99,6 +99,7 @@ class GoalPlanningTest {
             val store = GoalPlanStore(PersonalStateFile(directory, file.name))
             for (invalid in listOf("invalid", "{\"version\":999}", " ".repeat(256_001))) {
                 file.writeText(invalid)
+                assertNull(store.find("goal plan morning")) // Ordinary saved names are not internal goal keys.
                 try { store.propose(plan("help me focus for 5 minutes")!!); fail("Must preserve corruption") } catch (_: Exception) { }
                 assertEquals(invalid, file.readText())
             }

@@ -39,7 +39,7 @@ class GoalPlanStore(private val file: PersonalStateFile, private val now: () -> 
     }
 
     fun find(key: String): ApprovedRoutineRegistry.Routine? {
-        if (!key.startsWith("goal plan ")) return null
+        if (!GoalPlanning.isKey(key)) return null
         return current()?.takeIf { it.key == key }?.let { ApprovedRoutineRegistry.Routine(it.key, it.actions) }
     }
 
