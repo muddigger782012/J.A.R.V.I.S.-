@@ -332,9 +332,22 @@ class MainActivity : ThemedActivity() {
             insets
         }
         setupTabs()
-        findViewById<android.widget.Button>(R.id.btnOpenJarvisChat).setOnClickListener {
-            showTab(0, animate = true, direction = if (currentTabIndex == 0) 0 else -1)
-            commandInput.requestFocus()
+        findViewById<android.widget.Button>(R.id.btnOpenJarvisChat).setOnClickListener { anchor ->
+            android.widget.PopupMenu(this, anchor).apply {
+                menu.add("Chat").setIcon(android.R.drawable.ic_menu_edit).setOnMenuItemClickListener {
+                    showTab(0, animate = true, direction = if (currentTabIndex == 0) 0 else -1)
+                    true
+                }
+                menu.add("New chat").setIcon(android.R.drawable.ic_input_add).setOnMenuItemClickListener {
+                    findViewById<Button>(R.id.btnNewAssistantChat).performClick()
+                    true
+                }
+                menu.add("History").setIcon(android.R.drawable.ic_menu_recent_history).setOnMenuItemClickListener {
+                    findViewById<Button>(R.id.btnAssistantHistory).performClick()
+                    true
+                }
+                show()
+            }
         }
 
         val database = Database(this)
@@ -1540,37 +1553,36 @@ class MainActivity : ThemedActivity() {
             })
             if (searchResults == null) card.addView(TextView(this).apply {
                 text = when { user -> line.removePrefix("You:").trimStart(); assistant -> line.removePrefix("J.A.R.V.I.S.:").trimStart().substringBefore("\nhttps://www.google.com/search?"); else -> line }
+                setTextIsSelectable(!assistant)
+                if (assistant) {
+                    val answerText = line.removePrefix("J.A.R.V.I.S.:").trimStart()
+                        .substringBefore("\nhttps://www.google.com/search?")
+                    val inline = android.text.SpannableStringBuilder(answerText).append("  ⧉")
+                    val start = inline.length - 1
+                    inline.setSpan(object : android.text.style.ClickableSpan() {
+                        override fun onClick(widget: View) {
+                            val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Jarvis answer", answerText))
+                            android.widget.Toast.makeText(this@MainActivity, "Answer copied", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        override fun updateDrawState(ds: android.text.TextPaint) {
+                            ds.color = ThemePreferences.color(this@MainActivity, R.color.jarvis_primary)
+                            ds.isUnderlineText = false
+                        }
+                    }, start, inline.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    text = inline
+                    movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                    contentDescription = answerText + ". Copy answer button at end."
+                }
                 textSize = if (user || assistant) 16f else 12f
                 setTextColor(ThemePreferences.color(this@MainActivity, if (user || assistant) R.color.jarvis_on_dark else R.color.jarvis_on_dark_muted))
                 setLineSpacing(dp(4).toFloat(), 1f)
-                setTextIsSelectable(true)
                 if (assistant && line.startsWith("J.A.R.V.I.S.: Search results for ")) {
                     android.text.util.Linkify.addLinks(this, android.text.util.Linkify.WEB_URLS)
                     movementMethod = android.text.method.LinkMovementMethod.getInstance()
                     linksClickable = true
                 }
             })
-            if (assistant && searchResults == null) {
-                val answerText = line.removePrefix("J.A.R.V.I.S.:").trimStart()
-                    .substringBefore("\nhttps://www.google.com/search?")
-                val copyAction = TextView(this).apply {
-                    text = "Copy answer"
-                    textSize = 12f
-                    minHeight = dp(48)
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                    setPadding(dp(8), dp(8), dp(8), dp(8))
-                    setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
-                    isClickable = true
-                    isFocusable = true
-                    contentDescription = "Copy this Jarvis answer"
-                    setOnClickListener {
-                        val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Jarvis answer", answerText))
-                        android.widget.Toast.makeText(this@MainActivity, "Answer copied", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                }
-                card.addView(copyAction)
-            }
             if (searchResults != null) card.addView(ChatSearchResultsView.create(this, searchResults, conversationSessionId))
             if (assistant) {
                 val searchUrl = if (listOf("Web", "Image", "Video").any { line.startsWith("J.A.R.V.I.S.: $it search ready:") } && line.contains("\nhttps://www.google.com/search?"))
