@@ -18,6 +18,20 @@ class PersonalControlSafetyTest {
         }
     }
 
+    @Test fun goalAndEvaluationControlsCannotBecomeAliasesOrSavedRoutines() {
+        val memory = ValidatedCommandMemory({ "[]" }, { fail("Must not teach controls"); false })
+        val registry = ApprovedRoutineRegistry({ "[]" }, { fail("Must not save controls"); false })
+        for (text in listOf("review goal plan", "approve goal plan", "cancel goal plan", "goal plan status", "resume goal plan",
+            "the goal worked", "the goal failed", "help me focus for 25 minutes", "prepare a music session",
+            "enable improvement evaluation", "disable improvement evaluation", "clear improvement evaluation",
+            "review improvement evaluation", "save improvement baseline", "compare improvement evaluation",
+            "record improvement feedback for correction handling as failed", "prepare improvement proposal for correction handling")) {
+            assertTrue(text, LearnedCommandReviewCommands.isReserved(text))
+            assertFalse(text, memory.recordSuccess(text, "volume_up", setOf("volume_up")))
+            assertNull(text, registry.propose(text, listOf("volume_up")))
+        }
+    }
+
     @Test fun personalProfileDoesNotImposeItsPersonalityOrRoutingOnOtherProducts() {
         assertTrue(AssistantPersonalityPreferences.isPersonal("com.assistant.core"))
         assertFalse(AssistantPersonalityPreferences.isPersonal("com.assistant.core.beta"))

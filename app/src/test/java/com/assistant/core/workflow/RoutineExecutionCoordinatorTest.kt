@@ -178,4 +178,17 @@ class RoutineExecutionCoordinatorTest {
         try { coordinator.invoke("focus time", "turn"); fail("Must preserve failure") } catch (_: IllegalStateException) { }
         assertEquals(0, dispatches)
     }
+
+    @Test fun controlsForAStaleGoalCannotChangeTheNewCurrentExecution() {
+        val f = Fixture(listOf("volume_down"))
+        val previous = f.coordinator().invoke("focus time", "first").checkpoint!!
+        f.effect = { _, _ -> RoutineStepOutcome.Requested }
+        val current = f.coordinator().invoke("focus time", "second").checkpoint!!
+        assertNotEquals(previous.id, current.id)
+        assertFalse(f.coordinator().cancel(previous.id).checkpoint!!.cancellationRequested)
+        assertEquals(RoutineWorkflowStatus.AWAITING_OUTCOME,
+            f.coordinator().report(RoutineOutcomeObservation.USER_CONFIRMED, previous.id).checkpoint!!.status)
+        f.coordinator().resume(previous.id)
+        assertEquals(2, f.calls.size)
+    }
 }
