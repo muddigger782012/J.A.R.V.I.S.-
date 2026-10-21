@@ -64,11 +64,13 @@ object PersonalReminderRuntime {
             if (!notificationsAvailable()) return PersonalReminders.Delivery.BLOCKED
             val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java)
                 .setData(Uri.parse("jarvis-reminder://open/${record.plan.id}")), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val detail = record.plan.title + if (record.plan.research != null)
+                "\nIn Jarvis, say 'review reminder research ${record.number}' for the saved sources." else ""
             val notification = NotificationCompat.Builder(context, CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_popup_reminder)
                 .setContentTitle("Jarvis reminder")
                 .setContentText(record.plan.title)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(record.plan.title))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
                 .setWhen(record.plan.dueAt).setShowWhen(true)
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                 .setAutoCancel(true).setOnlyAlertOnce(true).setContentIntent(open).build()
