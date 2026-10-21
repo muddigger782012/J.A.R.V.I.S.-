@@ -16,6 +16,17 @@ class NetworkHudView(context: Context) : View(context) {
     private val dim = Color.argb(115, 21, 133, 170)
     private val blue = Color.rgb(6, 50, 84)
     private var phase = 0f
+    private var networkValidated: Boolean? = null
+
+    fun setNetworkValidated(value: Boolean?) {
+        networkValidated = value
+        contentDescription = when (value) {
+            true -> "Network HUD: Android reports a validated network"
+            false -> "Network HUD: Android network is not validated"
+            null -> "Network HUD: validation not tested"
+        }
+        invalidate()
+    }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
@@ -49,6 +60,14 @@ class NetworkHudView(context: Context) : View(context) {
             val x = cx + longitude * radius / 3.3f
             canvas.drawOval(RectF(x-radius*.10f, cy-radius, x+radius*.10f, cy+radius), paint)
         }
+        paint.style = Paint.Style.FILL
+        paint.color = when (networkValidated) {
+            true -> Color.rgb(59, 239, 176)
+            false -> Color.rgb(255, 177, 74)
+            null -> dim
+        }
+        canvas.drawCircle(cx, cy + radius * .03f, radius * .075f, paint)
+        paint.style = Paint.Style.STROKE
         paint.color = cyan
         for (i in 0..11) {
             val a = (i * 30 + phase) * Math.PI / 180
@@ -57,7 +76,7 @@ class NetworkHudView(context: Context) : View(context) {
             canvas.drawLine(cx + (cos(a)*inner).toFloat(), cy + (sin(a)*inner).toFloat(), cx + (cos(a)*outer).toFloat(), cy + (sin(a)*outer).toFloat(), paint)
         }
         phase = (phase + .15f) % 360f
-        postInvalidateDelayed(32L)
+        if (isAttachedToWindow && visibility == VISIBLE) postInvalidateDelayed(32L)
     }
 
     override fun onDetachedFromWindow() {
