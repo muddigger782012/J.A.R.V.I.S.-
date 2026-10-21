@@ -1238,10 +1238,17 @@ class HybridAssistantService(
         }
         // Explicit diagnostics perform an actual HTTPS reachability check; do not
         // equate an Android network flag or a configured AI key with connectivity.
-        if (rawInput.trim().lowercase(Locale.ROOT).trimEnd('.', '?', '!') in setOf(
-                "test internet connection", "diagnose internet connection",
+        val diagnosticPhrase = rawInput.trim().lowercase(Locale.ROOT).trimEnd('.', '?', '!')
+            .replace(Regex("\\s+"), " ")
+        if (diagnosticPhrase in setOf(
+                "test internet connection", "test internet connections",
+                "test my internet connection", "test my internet connections",
+                "check internet connection", "check internet connections",
+                "diagnose internet connection", "diagnose internet connections",
                 "check online connectivity", "run connectivity diagnostics",
-                "test search connection", "check search connection"
+                "test search connection", "check search connection",
+                "test network connection", "test network connections",
+                "test my network connection", "test my network connections"
             )) {
             Thread {
                 val response = try {
