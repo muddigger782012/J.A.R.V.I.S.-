@@ -20,6 +20,7 @@ class MainActivity : Activity() {
     private val bg = Color.rgb(1, 12, 21)
     private lateinit var root: LinearLayout
     private lateinit var status: TextView
+    private lateinit var networkHud: NetworkHudView
     private lateinit var events: LinearLayout
     private val cards = mutableMapOf<String, TextView>()
     private lateinit var scroller: ScrollView
@@ -43,7 +44,9 @@ class MainActivity : Activity() {
         section("NETWORK STATUS")
         status = label("NOT TESTED", 24, pale, true)
         label("Connection health and service diagnostics", 13, pale)
-        root.addView(NetworkHudView(this), LinearLayout.LayoutParams(-1, -2))
+        networkHud = NetworkHudView(this)
+        networkHud.setNetworkValidated(null)
+        root.addView(networkHud, LinearLayout.LayoutParams(-1, -2))
         section("SERVICE STATUS")
         providerSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(providerSection)
@@ -291,6 +294,7 @@ class MainActivity : Activity() {
             else -> "Unknown or disconnected"
         }
         status.text = if (validated) "ANDROID NETWORK VALIDATED" else "NETWORK NOT VALIDATED"
+        networkHud.setNetworkValidated(validated)
         log("Android validated network: $validated; transport: $transport")
         listOf("INTERNET", "WEB SEARCH", "GEMINI AI", "GITHUB UPDATES").forEach { cards[it]?.text = "$it\nTESTING..." }
         thread {
