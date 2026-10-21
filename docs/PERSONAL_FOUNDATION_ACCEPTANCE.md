@@ -550,6 +550,59 @@ are preserved. Broad visual layout remains skipped upstream; real-phone voice/ap
 switching, playback/navigation, permissions and installed-data upgrade remain pending.
 No measured phase maturity percentage is claimed.
 
+## Phase 5 and 6 follow-up: research reminders with frozen sources
+
+`remind me about this research in ten minutes` and `remind me to review this
+research in ten minutes` now create an explicitly requested local reminder with
+a private copy of the saved source-linked brief. `remind me in ten minutes to
+review this research` works too. No second lookup or cloud model is required.
+The attachment is taken from the successfully saved report, never the latest
+attempted query: failed, cancelled or unfinished newer research cannot relabel an
+older brief. Notification delivery remains approximate and is not proof of reading
+or completing the follow-up.
+
+`prepare a research reminder in ten minutes` keeps the existing review-first path.
+Its review displays the full research query, retrieval date and source count;
+`approve reminder` approves only that exact frozen reminder. A bare confirmation
+redisplays the review, including through asynchronous chat/voice routing. A new
+service instance or changed attachment must present its current review before
+approval. A fully specified direct `remind me` request retains the existing
+authorization behavior for reversible local notifications.
+
+`review reminders` lists each attached brief's command, such as `review reminder
+research 1`. That command reopens its original source cards offline even after
+the main research brief is replaced or cleared. Expanded reminder notifications
+include the same command. The snapshot is data only: neither source excerpts nor
+queries become commands, learned aliases or provider dialogue context. Reminder
+management replies, including ordinary reminders, now stay outside that provider
+context. Malformed follow-up and source-review controls stay local before generic
+manual searches or AI interpretation.
+
+The optional attachment extends the existing reminder journal without changing
+legacy records, identifiers, due times, notification channels, approval expiry or
+interrupted-delivery protections. It uses private no-backup atomic storage with
+the existing bounded document size. Storage exhaustion refuses the new plan
+before alarm dispatch and preserves the prior journal; there is no silent history
+eviction. Clearing completed reminder history also removes those records' saved
+research copies; clearing the main research brief does not remove them. Cancellation
+and uncertain-delivery rules continue to prevent automatic duplicate notifications.
+
+Manual improvement evaluation adds `research follow-up` as a fixed synthetic
+scenario for feedback and frozen developer proposals. It remains off by default
+and does not enable categorical workflow diagnostics. Existing opted-in reminder
+diagnostics receive only their usual typed checkpoints, never attached queries,
+excerpts or URLs. No code submission or deployment is automated by this feature.
+
+Acceptance covers exact snapshot binding, old-brief/new-query failures, replacement
+and clearing, reconstruction, competing approvals, permission needs, uncertain
+delivery, legacy records, corrupt and full storage, literal reminder titles and
+reserved malformed controls. Two additional Android cases exercise actual isolated
+service storage, async routing, real Android alarm registration/cancellation and
+the separately consented evaluation path. The optimized emulator gate now requires
+30 cases. Verification and delivery results are recorded after the checks complete;
+physical-phone voice, notification usability and installed-data upgrade remain
+outstanding. No measured maturity percentage is claimed.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |

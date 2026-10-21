@@ -17,15 +17,16 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
     }
     enum class Delivery { POSTED, BLOCKED, UNKNOWN }
     enum class Status { SCHEDULING, SCHEDULED, SCHEDULE_FAILED, DELIVERING, POSTED, USER_CONFIRMED, BLOCKED, DELIVERY_UNKNOWN, CANCELLED, MISSED }
-    data class Plan(val id: String, val title: String, val created: Long, val dueAt: Long)
+    data class Plan(val id: String, val title: String, val created: Long, val dueAt: Long,
+                    val research: ResearchBriefs.Snapshot? = null)
     data class Record(val number: Int, val plan: Plan, val status: Status)
     data class Result(val message: String, val record: Record? = null)
     private data class State(val next: Int = 1, val pending: Plan? = null, val records: List<Record> = emptyList())
 
-    fun prepare(title: String, seconds: Int): Plan = file.access {
+    fun prepare(title: String, seconds: Int, research: ResearchBriefs.Snapshot? = null): Plan = file.access {
         require(validTitle(title) && seconds in 1..86400)
         val time = now().also { require(it >= 0) }
-        val plan = Plan(UUID.randomUUID().toString(), title.trim(), time, Math.addExact(time, seconds.toLong() * 1000))
+        val plan = Plan(UUID.randomUUID().toString(), title.trim(), time, Math.addExact(time, seconds.toLong() * 1000), research)
         check(write(encode(decode(read()).copy(pending = plan)))) { "Reminder review could not be saved." }
         plan
     }
@@ -35,6 +36,11 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
         state.pending == null || write(encode(state.copy(pending = null)))
     }
     fun records(): List<Record> = file.access { recoverInterrupted(this, decode(read())).records }
+    fun research(number: Int): String = file.access {
+        val record = decode(read()).records.firstOrNull { it.number == number }
+        record?.plan?.research?.report ?: if (record == null) "No reminder with that number is saved. Say 'review reminders'."
+            else "Reminder $number has no saved research attached. No lookup was started."
+    }
 
     fun approve(expected: Plan): Result = file.access {
         val state = recoverInterrupted(this, decode(read()))
@@ -169,7 +175,8 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
         if (raw == null) return State()
         val json = JSONObject(raw)
         require(json.getInt("version") == 1)
-        fun plan(item: JSONObject) = Plan(item.getString("id"), item.getString("title"), item.getLong("created"), item.getLong("dueAt")).also {
+        fun plan(item: JSONObject) = Plan(item.getString("id"), item.getString("title"), item.getLong("created"), item.getLong("dueAt"),
+            if (item.has("researchReport")) ResearchBriefs.Snapshot(item.getString("researchReport")) else null).also {
             require(validId(it.id) && validTitle(it.title) && it.created >= 0 && it.dueAt > it.created && it.dueAt - it.created in 1..DAY)
         }
         val rows = json.getJSONArray("records")
@@ -185,7 +192,9 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
         return State(next, pending, records)
     }
     private fun encode(state: State): String {
-        fun plan(value: Plan) = JSONObject().put("id", value.id).put("title", value.title).put("created", value.created).put("dueAt", value.dueAt)
+        fun plan(value: Plan) = JSONObject().put("id", value.id).put("title", value.title).put("created", value.created).put("dueAt", value.dueAt).also {
+            value.research?.let { research -> it.put("researchReport", research.report) }
+        }
         val rows = JSONArray().also { output -> state.records.forEach {
             output.put(JSONObject().put("number", it.number).put("plan", plan(it.plan)).put("status", it.status.name))
         } }

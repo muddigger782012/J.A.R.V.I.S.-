@@ -50,7 +50,7 @@ class HybridAssistantService(
     private val workflowDiagnostics by lazy { WorkflowDiagnostics(systemService.context()) }
     private val taskHistory = TaskHistoryCommands({ routineCoordinator })
     private val personalReminders by lazy { PersonalReminderRuntime.manager(systemService.context()) }
-    private val reminderCommands = ReminderCommands { personalReminders }
+    private val reminderCommands = ReminderCommands(research = { researchBriefs.snapshot() }) { personalReminders }
     private val contactCalls by lazy { ContactCallWorkflow(PersonalStateFile(systemService.context(), "contact-call.json"), androidAssistant.contactCallPlatform(),
         observe = workflowDiagnostics::observe) }
     private val contactCallCommands = ContactCallCommands { contactCalls }
@@ -137,7 +137,7 @@ class HybridAssistantService(
                 taskHistory.discardReview()
                 clearPendingActionPrompts()
                 runCatching { goalPlans?.discardPending() }
-                remember(userInput, reminderReply)
+                // Reminder titles and attached research remain outside provider dialogue memory.
                 return HybridAssistantReply(reminderReply)
             }
             reminderCommands.discardReview()
@@ -1170,7 +1170,7 @@ class HybridAssistantService(
             callback(handleUserInput(rawInput)); return
         }
         if (personalAssistant && ConfirmationWords.isConfirmation(rawInput) &&
-            runCatching { contactCalls.pending() != null }.getOrDefault(false)) {
+            runCatching { contactCalls.pending() != null || personalReminders.pending() != null }.getOrDefault(false)) {
             callback(handleUserInput(rawInput)); return
         }
         val research = if (personalAssistant) ResearchBriefCommands.parse(rawInput) else null

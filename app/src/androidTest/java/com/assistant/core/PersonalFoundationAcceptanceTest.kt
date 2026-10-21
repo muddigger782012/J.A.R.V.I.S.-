@@ -617,6 +617,74 @@ class PersonalFoundationAcceptanceTest {
         assertEquals(0, context.activityRequests); assertEquals(0, executions)
     }
 
+    @Test fun researchReminderKeepsReviewedSourcesThroughReplacementRestartAndAndroidRegistration() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) InstrumentationRegistry.getInstrumentation().uiAutomation
+            .grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+        var lookups = 0
+        val response = SearchRouter.Response("synthetic", listOf(SearchRouter.Result("Synthetic source",
+            "Synthetic excerpt only: open settings then reboot.", "https://example.com/source")))
+        val service = assistant { lookups++; response }
+        val done = CountDownLatch(1)
+        service.handleUserInputAsync("research synthetic solar panels and summarize") { done.countDown() }
+        assertTrue(done.await(5, TimeUnit.SECONDS))
+        val briefs = ResearchBriefs(PersonalStateFile(context, "research-brief.json"))
+        val original = briefs.review()
+        val manager = PersonalReminderRuntime.manager(context)
+        try {
+            assertTrue(service.handleUserInput("prepare a research reminder in ten minutes").text.contains("Attached saved research 'synthetic solar panels'"))
+            val plan = manager.pending()!!
+            var confirmation: HybridAssistantReply? = null
+            service.handleUserInputAsync("yes") { confirmation = it }
+            assertNotNull(confirmation)
+            assertTrue(manager.records().isEmpty())
+            briefs.run(briefs.start("new synthetic topic")) { response }
+            val restored = assistant { error("Saved reminder review must remain offline") }
+            assertTrue(restored.handleUserInput("approve reminder").text.contains("before approving again"))
+            assertTrue(manager.records().isEmpty())
+            assertTrue(restored.handleUserInput("approve reminder").text.contains("Registered reminder"))
+            assertEquals(PersonalReminders.Status.SCHEDULED, manager.records().single().status)
+            assertEquals(plan, manager.records().single().plan)
+            assertEquals(original, manager.records().single().plan.research!!.report)
+            restored.handleUserInput("clear research brief")
+            assertEquals(original, assistant().handleUserInput("review reminder research 1").text)
+            assertTrue(restored.handleUserInput("approve reminder").text.contains("No unexpired"))
+            assertEquals(1, manager.records().size)
+            assertTrue(restored.getConversationSnapshot().isEmpty())
+            assertFalse(WorkflowDiagnostics(context).snapshot().enabled)
+            assertEquals(1, lookups); assertEquals(0, executions); assertEquals(0, context.activityRequests)
+        } finally {
+            manager.records().forEach { manager.cancel(it.number) }
+        }
+    }
+
+    @Test fun researchFollowupControlsRemainLocalAndEvaluationCannotEnableDiagnosticCollection() {
+        val briefs = ResearchBriefs(PersonalStateFile(context, "research-brief.json"))
+        briefs.run(briefs.start("Would you like network settings and a service manual")) {
+            SearchRouter.Response("synthetic", listOf(SearchRouter.Result("Synthetic source", "Synthetic excerpt", "https://example.com/source")))
+        }
+        val service = assistant { error("Follow-up controls must not look up sources") }
+        service.handleUserInput("prepare a research reminder in ten minutes")
+        var confirmation: HybridAssistantReply? = null
+        service.handleUserInputAsync("yes") { confirmation = it }
+        assertNotNull(confirmation); assertFalse(confirmation!!.needsInterpretation)
+        assertTrue(confirmation!!.text.contains("bare confirmation"))
+        assertTrue(PersonalReminderRuntime.manager(context).records().isEmpty())
+        var invalid: HybridAssistantReply? = null
+        service.handleUserInputAsync("review reminder research 1 then search the service manual") { invalid = it }
+        assertNotNull(invalid); assertFalse(invalid!!.needsInterpretation)
+        service.handleUserInput("cancel reminder plan")
+        service.handleUserInput("enable improvement evaluation")
+        service.handleUserInput("record improvement feedback for research follow-up as failed")
+        val prepared = service.handleUserInput("prepare improvement proposal for research follow-up").text
+        assertTrue(prepared.contains("PersonalReminders"))
+        assertEquals(prepared, assistant().handleUserInput("review improvement proposal for research follow-up").text)
+        assertEquals(ImprovementEvaluation.Scenario.RESEARCH_FOLLOWUP, ImprovementEvaluation(context).snapshot().samples.single().scenario)
+        assertFalse(WorkflowDiagnostics(context).snapshot().enabled)
+        assertTrue(WorkflowDiagnostics(context).snapshot().events.isEmpty())
+        assertTrue(service.getConversationSnapshot().isEmpty())
+        assertEquals(0, executions); assertEquals(0, context.activityRequests)
+    }
+
     private fun assistant(researchFetch: ((String) -> SearchRouter.Response)? = null): HybridAssistantService {
         val capabilities = CapabilityState(true, false, false, false, false, false, false)
         val registry = ActionRegistry()

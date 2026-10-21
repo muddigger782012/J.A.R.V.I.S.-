@@ -11,6 +11,15 @@ class ResearchBriefs(private val file: PersonalStateFile,
                      private val observe: (String, WorkflowDiagnostics.Code) -> Unit = { _, _ -> },
                      private val now: () -> Long = System::currentTimeMillis) {
     data class Ticket(val id: String, val query: String, val createdAt: Long)
+    /** Frozen source data, never an instruction or a reference to the latest attempted query. */
+    data class Snapshot(val report: String) {
+        val message: ChatSearchResults.Message = requireNotNull(ChatSearchResults.decode(report))
+        init {
+            require(report.length <= 16000 && validQuery(message.query) && message.retrievedAt > 0)
+            require(message.kind == "web" && message.items.size in 1..5 &&
+                message.items.all { it.kind == "web" && it.url.length <= 2048 })
+        }
+    }
     private enum class State { IDLE, PREPARED, RUNNING, COMPLETED, FAILED, CANCELLED }
     private data class Saved(val pending: Ticket? = null, val started: Boolean = false, val report: String? = null,
                              val query: String? = null, val state: State = State.IDLE)
@@ -62,6 +71,7 @@ class ResearchBriefs(private val file: PersonalStateFile,
         }
     }
     fun review(): String = file.access { load().report ?: "No research brief is saved. Try 'research solar panels and summarize'. An online lookup is required to create a brief; saved briefs can be reviewed offline." }
+    fun snapshot(): Snapshot? = file.access { load().report?.let(::Snapshot) }
     fun status(): String = file.access {
         when (load().state) {
             State.PREPARED -> "The research query is prepared; no lookup is confirmed. Use 'retry research' to make an explicit attempt, or 'cancel research'."
@@ -91,9 +101,7 @@ class ResearchBriefs(private val file: PersonalStateFile,
         }
         val report = root.optString("report").takeIf { it.isNotBlank() }
         if (report != null) {
-            require(report.length <= 16000)
-            val decoded = requireNotNull(ChatSearchResults.decode(report))
-            require(validQuery(decoded.query) && decoded.items.size in 1..5 && decoded.retrievedAt > 0)
+            Snapshot(report)
         }
         val query = root.optString("query").takeIf { it.isNotBlank() }; require(query == null || validQuery(query))
         val state = State.valueOf(root.getString("state")); val started = root.getBoolean("started")
