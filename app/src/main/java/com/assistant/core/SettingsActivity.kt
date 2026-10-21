@@ -16,6 +16,7 @@ class SettingsActivity : ThemedActivity() {
             setBackgroundResource(R.drawable.glass_panel_surface)
             setPadding(SettingsMenuViews.dp(this@SettingsActivity, 12), 0, SettingsMenuViews.dp(this@SettingsActivity, 12), SettingsMenuViews.dp(this@SettingsActivity, 24))
         }
+        UnifiedContentPanel.apply(panel)
         fun section(title: String) { panel.addView(SettingsMenuViews.heading(this, title)) }
         fun destination(title: String, detail: String, icon: Int, target: Class<*>) {
             panel.addView(SettingsMenuViews.row(this, title, detail, icon) { startActivity(Intent(this, target)) })
