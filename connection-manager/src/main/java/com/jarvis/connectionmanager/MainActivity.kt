@@ -99,6 +99,13 @@ class MainActivity : Activity() {
                 connection.instanceFollowRedirects = false
                 try { "HTTPS ${connection.responseCode} · ${android.os.SystemClock.elapsedRealtime() - started} ms" } finally { connection.disconnect() }
             } catch (e: Exception) { "FAILED: ${e.javaClass.simpleName}" }
+            val github = try {
+                val request = URL("https://api.github.com/repos/muddigger782012/J.A.R.V.I.S.-").openConnection() as HttpURLConnection
+                request.connectTimeout = 5000
+                request.readTimeout = 5000
+                request.setRequestProperty("User-Agent", "JarvisConnectionManager/0.1")
+                try { "GitHub HTTP ${request.responseCode}" } finally { request.disconnect() }
+            } catch (e: Exception) { "GitHub FAILED: ${e.javaClass.simpleName}" }
             runOnUiThread {
                 cards["INTERNET"]?.text = "INTERNET\n$result"
                 log("Internet probe: $result (single endpoint only)")
