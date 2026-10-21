@@ -89,7 +89,15 @@ try:
     capture('conversation')
     tap('btnVoiceSettings')
     capture('settings')
-    assert any(n.get('text', '').casefold() == 'ai and weather' for n in hierarchy().iter('node')), 'AI and weather is not visible in settings'
+    # Settings rows may be below the fold; scroll before treating them as missing.
+    weather_found = False
+    for attempt in range(6):
+        if any(n.get('text', '').strip().casefold() == 'ai and weather' for n in hierarchy().iter('node')):
+            weather_found = True
+            break
+        adb('shell', 'input', 'swipe', '500', '1450', '500', '550', '300')
+        time.sleep(1)
+    assert weather_found, 'AI and weather not found after scrolling Settings'
     # Confirm the new learning control opens its diagnostics without deleting data.
     learning_button = None
     for attempt in range(4):
