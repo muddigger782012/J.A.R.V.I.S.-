@@ -6,16 +6,16 @@ import java.util.Locale
 
 class ReminderCommands(private val research: () -> ResearchBriefs.Snapshot? = { null },
                        private val reminders: () -> PersonalReminders) {
-    private var reviewedPlan: PersonalReminders.Plan? = null
+    private var reviewedPlan: PersonalReminders.Review? = null
     @Synchronized fun discardReview() { reviewedPlan = null }
     @Synchronized fun confirmation(text: String): String? {
         if (!ConfirmationWords.isConfirmation(text)) return null
-        val plan = reminders().pending() ?: return null
+        val plan = reminders().review() ?: return null
         return if (ConfirmationWords.cancels(text)) {
             reviewedPlan = null
             check(reminders().discardPending())
             "Discarded the pending reminder review. No alarm was registered for that proposal."
-        } else review(plan) + " A bare confirmation does not register it; use the exact approval phrase."
+        } else review(plan) + " A bare confirmation does not register or change an alarm; use the exact approval phrase."
     }
 
     @Synchronized fun reply(input: Input): String {
@@ -47,14 +47,30 @@ class ReminderCommands(private val research: () -> ResearchBriefs.Snapshot? = { 
                     }
                 }
             }
-            Command.REVIEW_PLAN -> manager.pending()?.let(::review) ?: "No unexpired reminder plan is awaiting approval. Request a new reminder with its duration and title."
+            Command.EDIT_TIME -> {
+                reviewedPlan = null
+                val current = manager.review() ?: return "No pending reminder review is available to correct. For an approved reminder, say 'review reminders', then 'change reminder 1 to five minutes' with its number."
+                val revised = manager.revise(current, input.seconds)
+                if (revised != null) review(revised)
+                else "The reminder review changed, expired or could not accept that duration. Use one second to 24 hours and request a fresh review. No alarm was registered or changed by this correction."
+            }
+            Command.CHANGE_TIME -> {
+                reviewedPlan = null
+                if (input.number == null || input.seconds == null) {
+                    check(manager.discardPending())
+                    "Use 'change reminder 1 to five minutes' or 'reschedule reminder one in ten minutes', with a listed number and one second to 24 hours. The old approval review was discarded; approved alarms are unchanged."
+                } else manager.prepareChange(input.number, input.seconds)?.let(::review)
+                    ?: "That reminder cannot currently change time. Review reminders and choose a scheduled reminder or an unconfirmed alarm registration. Posted, cancelled, blocked or uncertain delivery needs its existing result/recovery controls; no alarm was changed."
+            }
+            Command.REVIEW_PLAN -> manager.review()?.let(::review) ?: "No unexpired reminder plan is awaiting approval. Request a new reminder with its duration and title."
             Command.APPROVE -> {
-                val plan = manager.pending() ?: return "No unexpired reminder plan is awaiting approval. Request and review a new reminder first."
+                val plan = manager.review() ?: return "No unexpired reminder plan is awaiting approval. Request and review a new reminder first."
                 val displayed = reviewedPlan
                 if (displayed == null || displayed != plan) review(plan) + " Review these current details before approving again."
-                else manager.approve(displayed).let { result ->
+                else manager.approve(displayed.plan, displayed.replacing).let { result ->
                     if (result.record != null) reviewedPlan = null
-                    result.message + result.record?.takeIf { displayed.research != null }?.let {
+                    (if (displayed.replacing != null && result.record != null) "Time change for reminder ${displayed.replacing.number}: " else "") +
+                        result.message + result.record?.takeIf { displayed.plan.research != null }?.let {
                         " Say 'review reminder research ${it.number}' to reopen its exact saved sources offline."
                     }.orEmpty()
                 }
@@ -70,15 +86,23 @@ class ReminderCommands(private val research: () -> ResearchBriefs.Snapshot? = { 
             Command.RETRY -> input.number?.let { manager.retry(it).message } ?: "Use 'retry reminder' followed by its number from 'review reminders'."
             Command.CONFIRM_SHOWN -> input.number?.let { manager.confirmShown(it).message } ?: "Report a listed uncertain reminder number only after checking that its notification was shown."
             Command.CLEAR -> "Cleared ${manager.clearCompleted()} completed reminder records. Active, blocked, unconfirmed and uncertain reminders remain; posted notifications are not recalled."
-            Command.INVALID -> "Use 'review reminders', 'approve reminder', 'cancel reminder plan', or 'cancel reminder' followed by a listed number. No reminder action was performed."
+            Command.INVALID -> {
+                reviewedPlan = null
+                check(manager.discardPending())
+                "Use 'review reminders', 'approve reminder', 'cancel reminder plan', or 'change reminder 1 to five minutes' with a listed number. No reminder action was performed; the pending review was discarded and approved alarms are unchanged."
+            }
         }
     }
-    private fun review(plan: PersonalReminders.Plan): String {
-        reviewedPlan = plan
+    private fun review(plan: PersonalReminders.Plan): String = review(PersonalReminders.Review(plan))
+    private fun review(proposal: PersonalReminders.Review): String {
+        reviewedPlan = proposal
+        val plan = proposal.plan
         val attachment = plan.research?.message?.let {
             " Attached saved research '${it.query}', retrieved ${time(it.retrievedAt)}, with ${it.items.size} linked sources. This copy stays with the reminder if later research changes; excerpts are not independently verified."
         }.orEmpty()
-        return "Review local reminder: '${plan.title}' at ${time(plan.dueAt)}.$attachment It will be a notification; Android may delay delivery. Nothing is registered for this proposal yet. Say 'approve reminder' or 'cancel reminder plan'. This review expires in two minutes or when its due time passes."
+        val header = proposal.replacing?.let { "Review time change for reminder ${it.number}: '${plan.title}', from ${time(it.plan.dueAt)} to ${time(plan.dueAt)}. The existing approved alarm is unchanged until approval; 'cancel reminder plan' discards only this proposed change." }
+            ?: "Review local reminder: '${plan.title}' at ${time(plan.dueAt)}. Nothing is registered for this proposal yet."
+        return "$header$attachment It will be a notification; Android may delay delivery. Say 'approve reminder' or 'cancel reminder plan'. This review expires in two minutes or when its due time passes."
     }
     private fun render(records: List<PersonalReminders.Record>): String = if (records.isEmpty())
         "No local reminders are saved. Try 'remind me in ten minutes to check the oven'."
@@ -94,15 +118,32 @@ class ReminderCommands(private val research: () -> ResearchBriefs.Snapshot? = { 
             PersonalReminders.Status.CANCELLED -> "cancelled; later delivery suppressed."
             PersonalReminders.Status.MISSED -> "more than a day overdue; notification was not posted."
         } + if (record.plan.research != null) " Saved sources: 'review reminder research ${record.number}'." else ""
-    } + "\nUse 'cancel reminder 1' or 'retry reminder 1' with a listed number. After checking an uncertain notification, 'reminder 1 was shown' records your report without dispatch. 'Clear completed reminder history' removes only posted, owner-confirmed, cancelled or missed records."
+    } + "\nUse 'change reminder 1 to five minutes' to review a time change, or 'cancel reminder 1' or 'retry reminder 1' with a listed number. After checking an uncertain notification, 'reminder 1 was shown' records your report without dispatch. 'Clear completed reminder history' removes only posted, owner-confirmed, cancelled or missed records."
 
-    enum class Command { PREPARE, PREPARE_RESEARCH, REVIEW_PLAN, APPROVE, CANCEL_PLAN, REVIEW, REVIEW_RESEARCH, CANCEL, RETRY, CONFIRM_SHOWN, CLEAR, INVALID }
+    enum class Command { PREPARE, PREPARE_RESEARCH, EDIT_TIME, CHANGE_TIME, REVIEW_PLAN, APPROVE, CANCEL_PLAN, REVIEW, REVIEW_RESEARCH, CANCEL, RETRY, CONFIRM_SHOWN, CLEAR, INVALID }
     data class Input(val command: Command, val seconds: Int? = null, val title: String? = null, val number: Int? = null, val directRequest: Boolean = false)
     companion object {
         private fun clean(text: String) = text.trim().lowercase(Locale.ROOT).trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
         private fun time(value: Long) = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(value))
+        /** Short corrections belong to a live reminder review, otherwise other dialogue may own them. */
+        fun contextualEdit(text: String): Input? {
+            val value = clean(text).replace(Regex("^actually(?:,|:)?\\s+"), "")
+            val match = Regex("^make (?:that|it)(?: (.*))?$").matchEntire(value) ?: return null
+            return Input(Command.EDIT_TIME, seconds = match.groupValues[1].takeIf { text.length <= 200 }?.let(SpokenTimerDuration::seconds))
+        }
         fun parse(text: String): Input? {
             val value = clean(text)
+            val correction = value.replace(Regex("^actually(?:,|:)?\\s+"), "")
+            Regex("^change (?:the )?reminder(?: (?:time|duration))? to(?: (.*))?$").matchEntire(correction)?.let {
+                return Input(Command.EDIT_TIME, seconds = it.groupValues[1].takeIf { text.length <= 200 }?.let(SpokenTimerDuration::seconds))
+            }
+            Regex("^(?:change|reschedule) (?:the )?reminder (.+?) (?:to|in|for) (.*)$").matchEntire(correction)?.let {
+                val numberText = it.groupValues[1].replace('-', ' ')
+                val number = (if (Regex("[0-9]{1,10}").matches(numberText)) numberText.toIntOrNull()
+                    else if (numberText !in setOf("a", "an")) SpokenTimerDuration.number(numberText) else null)?.takeIf { n -> n > 0 }
+                return Input(Command.CHANGE_TIME, seconds = it.groupValues[2].takeIf { text.length <= 300 }?.let(SpokenTimerDuration::seconds), number = number)
+            }
+            if (Regex("^(?:change|reschedule) (?:the )?reminder\\b").containsMatchIn(correction)) return Input(Command.INVALID)
             val command = when (value) {
                 "review reminders", "list reminders", "show reminders", "show my reminders", "list my reminders",
                 "what reminders do i have", "what are my reminders" -> Command.REVIEW

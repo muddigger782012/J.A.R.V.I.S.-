@@ -674,6 +674,65 @@ and signed feature exactly. Broad visual-layout remains skipped upstream.
 Real-phone handoff usability, live-provider quality and installed-data upgrade
 remain pending; no measured phase maturity percentage is claimed.
 
+## Phase 5 and 6 follow-up: reminder corrections and reviewed time changes
+
+During a pending reminder review, `actually make that five minutes`, `actually,
+make it five minutes` or `change reminder time to five minutes` changes only its
+duration. The title and exact saved research copy remain bound to a new review
+token; the old review cannot approve the correction. This works across chat/voice
+service reconstruction. Bare corrections belong to a live reminder review;
+existing goal-duration corrections retain their own routing when no reminder
+review owns the turn. Malformed corrections discard only the matching review,
+without changing approved alarms or reaching AI/manual-search interpretation.
+
+For an approved reminder, `change reminder one to five minutes` or `reschedule
+reminder 1 in ten minutes` prepares an exact before/after time review. Times are
+calculated from preparation, then displayed as due dates; approval does not move
+the due time again. The existing approved alarm remains unchanged until exact
+`approve reminder`. A bare yes only reviews, a reconstructed reviewer must display
+the current proposal, and `cancel reminder plan` discards the proposed change
+while keeping the original alarm. The same two-minute/due-time expiry applies.
+
+Approval revalidates the entire original record, status and displayed replacement.
+Only scheduled reminders and unconfirmed alarm registrations are eligible; posted,
+owner-confirmed, cancelled, blocked, missed or uncertain delivery cannot be
+rescheduled through this path. A status change during review invalidates it.
+Notification permission denial and failed pre-dispatch storage leave the prior
+alarm intact. After an approved checkpoint, registration failures/interruptions
+remain explicit and recover using the same alarm identity.
+
+An approved change retains the reminder number, title, research attachment and
+Android alarm ID; it replaces the pending alarm rather than adding another record.
+No new history slot is needed. Old callbacks read the current approved due time:
+an early callback re-registers that same alarm, and posted/uncertain delivery is
+never automatically repeated. Planning, correction, cancellation and status reads
+do not dispatch replacement alarms. Cancellation cannot undo an already posted
+notification, and registration still does not prove reading or task completion.
+
+Reminder journal format 2 reads format 1 lazily and preserves identifiers, counters,
+records and research. It stores the full expected original record with the pending
+change; older app readers reject the new format rather than treating a time-change
+review as authorization to create a second reminder. Standard forward updates
+remain the supported path; a phone downgrade or installed-data upgrade has not
+been verified. Corrupt/oversized data and failed writes retain the existing
+fail-closed behavior. Clearing an expired/stale review never cancels its approved
+reminder. These local controls and source data remain outside provider dialogue.
+
+Opt-in manual improvement evaluation adds the fixed `reminder changes` scenario
+for owner feedback and saved developer briefs. It does not enable diagnostic
+collection or run device workflows automatically. Existing categorical reminder
+observations retain their privacy boundaries.
+
+Acceptance covers the reproduced missing correction, title/research preservation,
+fresh review tokens, replacement binding, old callbacks, interruption, permission
+needs, expiry, storage failures, concurrency, capacity, lazy migration and corrupt
+data. Two Android cases exercise actual isolated service reconstruction, short
+async corrections, unchanged goal correction, real alarm replacement and synthetic
+notification readback. The emulator gate now requires 34 cases. Final verification
+and delivery results will be recorded after the checks complete. Real-phone voice,
+alarm timing through doze/reboot and installed-data upgrade remain pending; no
+measured phase maturity percentage is claimed.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |

@@ -126,7 +126,9 @@ class HybridAssistantService(
             }
             contactCallCommands.discardReview()
             runCatching { contactCalls.discardReview() }
-            val reminderInput = ReminderCommands.parse(userInput)
+            val reminderInput = ReminderCommands.parse(userInput) ?: ReminderCommands.contextualEdit(userInput)?.takeIf {
+                runCatching { personalReminders.pending() != null }.getOrDefault(false)
+            }
             val reminderReply = if (reminderInput != null) runCatching {
                 clearPendingActionPrompts()
                 goalPlans?.discardPending()
@@ -1166,6 +1168,10 @@ class HybridAssistantService(
     }
 
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+        if (personalAssistant && ReminderCommands.contextualEdit(rawInput) != null &&
+            runCatching { personalReminders.pending() != null }.getOrDefault(false)) {
+            callback(handleUserInput(rawInput)); return
+        }
         if (personalAssistant && GoalPlanning.isReviewReply(rawInput) && runCatching { goalPlans?.pending() != null }.getOrDefault(false)) {
             callback(handleUserInput(rawInput)); return
         }

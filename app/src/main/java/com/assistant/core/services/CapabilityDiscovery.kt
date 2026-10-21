@@ -47,6 +47,7 @@ object CapabilityDiscovery {
         |• Goal plans: prepare my drive using saved music/maps apps, or plan a task to set media volume to twenty percent then open my music app then open my maps app. Review before approval; check each requested app result before explicitly resuming.
         |• Review: show saved commands; show assistant memory; show capability requests. To assess a saved idea: review capability request followed by its exact description.
         |• Research follow-up: research solar panels and summarize; remind me about this research in ten minutes. To review before scheduling: prepare a research reminder in ten minutes, then approve reminder. Review reminders lists the saved sources command for each linked reminder; those copies remain available offline after newer research replaces the main brief.
+        |• Reminder corrections: during a pending reminder review, actually make that five minutes. For an approved reminder, review reminders, then change reminder one to five minutes; approve reminder changes only the reviewed alarm time. Cancel reminder plan keeps its existing approved time.
         |• Try: try capability request followed by its exact saved description or number 1 from the current list; supported timers, apps and exact volume levels ask approval before execution. Review also accepts number 1. This does not create a learned alias or mark the request complete.
         |• Name a saved action: teach capability request number one as work break; review, approve and verify before the alias is learned.
         |
