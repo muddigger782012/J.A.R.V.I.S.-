@@ -48,7 +48,7 @@ class MainActivity : Activity() {
                     setTextColor(pale)
                     setPadding(dp(12), dp(17), dp(8), dp(17))
                     background = panel()
-                    setOnClickListener { log("$name: dedicated test not configured") }
+                    setOnClickListener { log("$name: run diagnostics to refresh; authentication and local AI require integration") }
                 }
                 cards[name] = card
                 row.addView(card, LinearLayout.LayoutParams(0, dp(92), 1f).apply { setMargins(dp(3), dp(4), dp(3), dp(4)) })
@@ -89,7 +89,7 @@ class MainActivity : Activity() {
         val validated = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         status.text = if (validated) "ANDROID NETWORK VALIDATED" else "NETWORK NOT VALIDATED"
         log("Android validated network: $validated")
-        cards["INTERNET"]?.text = "INTERNET\nTESTING..."
+        listOf("INTERNET", "WEB SEARCH", "GEMINI AI", "GITHUB UPDATES").forEach { cards[it]?.text = "$it\nTESTING..." }
         thread {
             val started = android.os.SystemClock.elapsedRealtime()
             val result = try {
@@ -111,10 +111,10 @@ class MainActivity : Activity() {
             runOnUiThread {
                 cards["INTERNET"]?.text = "INTERNET\n$result"
                 log("Internet probe: $result (single endpoint only)")
-                cards["GITHUB UPDATES"]?.text = "GITHUB UPDATES\\n$github"
+                cards["GITHUB UPDATES"]?.text = "GITHUB UPDATES\n$github"
                 log("Repository API probe: $github (does not verify update manifest)")
-                cards["WEB SEARCH"]?.text = "WEB SEARCH\\n${search.detail} (${search.latencyMs} ms)"
-                cards["GEMINI AI"]?.text = "GEMINI AI\\n${gemini.detail} (${gemini.latencyMs} ms)"
+                cards["WEB SEARCH"]?.text = "WEB SEARCH\n${search.detail} (${search.latencyMs} ms)"
+                cards["GEMINI AI"]?.text = "GEMINI AI\n${gemini.detail} (${gemini.latencyMs} ms)"
                 log("Search and Gemini: public reachability only; provider API calls not authenticated")
                 listOf("AI FALLBACK", "LOCAL AI").forEach {
                     cards[it]?.text = "$it\nNOT TESTED"
@@ -126,6 +126,7 @@ class MainActivity : Activity() {
         val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
         val entry = TextView(this).apply { text = "$time   $message"; textSize = 12f; setTextColor(pale); setPadding(0, dp(6), 0, dp(6)) }
         events.addView(entry, 0)
+        if (events.childCount > 50) events.removeViewAt(events.childCount - 1)
     }
     private fun section(text: String) {
         val view = label(text, 17, cyan, true)
