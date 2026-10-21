@@ -22,12 +22,14 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var events: LinearLayout
     private val cards = mutableMapOf<String, TextView>()
+    private lateinit var scroller: ScrollView
+    private lateinit var providerSection: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = bg
         window.navigationBarColor = bg
-        val scroller = ScrollView(this).apply { setBackgroundColor(bg); isFillViewport = true }
+        scroller = ScrollView(this).apply { setBackgroundColor(bg); isFillViewport = true }
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(18), dp(14), dp(22)) }
         scroller.addView(root)
         setContentView(scroller)
@@ -39,6 +41,8 @@ class MainActivity : Activity() {
         label("Connection health and service diagnostics", 13, pale)
         root.addView(NetworkHudView(this), LinearLayout.LayoutParams(-1, -2))
         section("SERVICE STATUS")
+        providerSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(providerSection)
         listOf("INTERNET", "WEB SEARCH", "GEMINI AI", "AI FALLBACK", "GITHUB UPDATES", "LOCAL AI").chunked(2).forEach { pair ->
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             pair.forEach { name ->
@@ -53,7 +57,7 @@ class MainActivity : Activity() {
                 cards[name] = card
                 row.addView(card, LinearLayout.LayoutParams(0, dp(92), 1f).apply { setMargins(dp(3), dp(4), dp(3), dp(4)) })
             }
-            root.addView(row)
+            providerSection.addView(row)
         }
         section("QUICK ACTIONS")
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -94,12 +98,10 @@ class MainActivity : Activity() {
                         0 -> scroller.smoothScrollTo(0, 0)
                         1 -> diagnose()
                         2 -> {
-                            log("Provider endpoints are reachability checks; authenticated tests are not configured")
-                            scroller.post { scroller.smoothScrollTo(0, dp(280)) }
+                            log("Provider status: public reachability only; authenticated tests not configured")
+                            scroller.post { scroller.smoothScrollTo(0, providerSection.top) }
                         }
-                        else -> {
-                            startActivity(android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS))
-                        }
+                        else -> showSettings()
                     }
                 }
             }
@@ -108,6 +110,25 @@ class MainActivity : Activity() {
             })
         }
         root.addView(tabs)
+    }
+
+    private fun showSettings() {
+        val options = arrayOf("Open Android wireless settings", "About diagnostics", "Clear activity log")
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Connection Manager Settings")
+            .setItems(options) { _, selected ->
+                when (selected) {
+                    0 -> startActivity(android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS))
+                    1 -> android.app.AlertDialog.Builder(this)
+                        .setTitle("Diagnostic scope")
+                        .setMessage("Internet, search, Gemini, and GitHub checks test public endpoint reachability only. They do not confirm API credentials, model access, or update availability. Local AI and fallback are not connected yet.")
+                        .setPositiveButton("OK", null).show()
+                    2 -> {
+                        events.removeAllViews()
+                        log("Activity log cleared")
+                    }
+                }
+            }.setNegativeButton("Close", null).show()
     }
 
     private fun diagnose() {
