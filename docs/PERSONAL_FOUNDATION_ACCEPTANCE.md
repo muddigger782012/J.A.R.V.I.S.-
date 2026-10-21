@@ -374,6 +374,17 @@ case explicitly asks about a new update so the concurrent host-state connectivit
 correction cannot swallow a research request as an update-status question. Final
 combined-source CI, signing and publication evidence is retained in the workflow
 implementation and delivery-validation pull requests.
+Final evidence for personal build 3.5.473: all 502 JVM tests across 87 suites
+passed with no failures, errors or skips; all debug ABI APKs and instrumentation
+compiled. Final-source CI unit/build, gateway, theme and optimized emulator
+acceptance passed, with `OK (24 tests)` and all three contact/research cases in the
+actual log. All three production APKs independently passed package/version/ABI,
+distributed-signer compatibility, archive integrity and wake runtime/model checks
+against the freshly downloaded 3.5.472 updater. The verified source includes the
+latest compact utility menus, HUD refinements and connectivity diagnostics.
+The signed-artifact manifest retains provenance; a normal fast-forward publication
+of the locally prepared merge prevents concurrent main changes from being silently
+included after verification. Broad visual-layout smoke remains skipped upstream.
 Actual personal contacts, physical call/permission behavior, live search/model
 quality, real phone voice interaction and installed-data upgrade remain pending.
 
@@ -448,7 +459,7 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.451 (versionCode 451) replaces the previously distributed 3.5.450
+Personal build 3.5.473 (versionCode 473) replaces the previously distributed 3.5.472
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
