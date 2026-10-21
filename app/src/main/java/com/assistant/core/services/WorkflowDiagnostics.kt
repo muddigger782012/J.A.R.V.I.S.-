@@ -42,7 +42,7 @@ class WorkflowDiagnostics(private val file: PersonalStateFile, private val build
                         val preparedAt: Long, val dismissed: Boolean = false)
     data class Snapshot(val enabled: Boolean = false, val events: List<Event> = emptyList(), val proposals: List<Proposal> = emptyList())
     enum class Action { ENABLE, DISABLE, CLEAR, REVIEW, IMPROVEMENTS, PREPARE, REVIEW_PROPOSAL, DISMISS, CLEAR_PROPOSALS, SHARE, INVALID }
-    data class Command(val action: Action, val family: Family? = null)
+    data class Command(val action: Action, val family: Family? = null, val number: Int? = null)
 
     fun snapshot(): Snapshot = file.access { decode(read()) }
     /** Best effort: diagnostics failure must never change a workflow's action or returned outcome. */
@@ -75,11 +75,16 @@ class WorkflowDiagnostics(private val file: PersonalStateFile, private val build
             val groups = recurrent(saved)
             "Workflow improvement review: ${groups.size} recurrent category/build groups in the retained window.\n" +
                 groups.joinToString("\n") { rows -> "${rows.first().code.family.label}: ${rows.first().code.label} on ${rows.first().buildName}; ${rows.size} distinct workflows. Review: ${rows.first().code.review}" } +
-                "\nA recurrence is a reason to investigate, not a proven code defect. Permissions, configuration or unavailable results may explain it. Say 'prepare workflow improvement for research', 'contact calls' or 'reminders' to freeze current-build evidence into a local developer brief. Saved briefs: ${saved.proposals.size}."
+                "\nA recurrence is a reason to investigate, not a proven code defect. Permissions, configuration or unavailable results may explain it. Say 'prepare workflow improvement for research', 'contact calls' or 'reminders' to freeze current-build evidence into a local developer brief. Saved briefs: ${saved.proposals.size}.\n" +
+                saved.proposals.mapIndexed { index, p -> "${index + 1}. ${p.code.label} on ${p.evidence.first().buildName}; ${p.occurrences} workflows; ${if (p.dismissed) "dismissed" else "prepared"}." }.joinToString("\n") +
+                "\nUse 'review workflow improvement 1' with a listed number to inspect any retained brief, including earlier or dismissed evidence."
         }
         Action.PREPARE -> prepare(command.family!!)
-        Action.REVIEW_PROPOSAL -> snapshot().let { saved -> saved.proposals.lastOrNull { it.code.family == command.family }?.let(::render)
-            ?: "No saved workflow improvement for ${command.family!!.label}. Review workflow improvements first." }
+        Action.REVIEW_PROPOSAL -> snapshot().let { saved ->
+            val proposal = if (command.number != null) saved.proposals.getOrNull(command.number - 1)
+                else saved.proposals.lastOrNull { it.code.family == command.family }
+            proposal?.let(::render) ?: "No matching saved workflow improvement. Review workflow improvements for the current archive."
+        }
         Action.DISMISS -> file.access {
             val saved = decode(read()); val last = saved.proposals.indexOfLast { it.code.family == command.family }
             if (last < 0) "No saved workflow improvement for ${command.family!!.label}."
@@ -163,6 +168,8 @@ class WorkflowDiagnostics(private val file: PersonalStateFile, private val build
                 else -> null
             }
             if (exact != null) return Command(exact)
+            Regex("^review workflow improvement ([0-9]{1,2})$").matchEntire(value)?.groupValues?.get(1)?.toIntOrNull()
+                ?.takeIf { it in 1..MAX_PROPOSALS }?.let { return Command(Action.REVIEW_PROPOSAL, number = it) }
             for ((prefix, action) in listOf("prepare" to Action.PREPARE, "review" to Action.REVIEW_PROPOSAL, "dismiss" to Action.DISMISS, "share" to Action.SHARE)) {
                 val label = value.removePrefix("$prefix workflow improvement for ")
                 if (label != value) Family.values().firstOrNull { it.label == label }?.let { return Command(action, it) }

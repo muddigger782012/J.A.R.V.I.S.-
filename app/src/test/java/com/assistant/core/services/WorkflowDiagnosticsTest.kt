@@ -91,6 +91,27 @@ class WorkflowDiagnosticsTest {
         assertEquals(WorkflowDiagnostics.Action.ENABLE, WorkflowDiagnostics.command("Enable workflow diagnostics!")!!.action)
     }
 
+    @Test fun everyRetainedBriefRemainsReviewableAfterANewerBriefAndCapacityNeverSilentlyOverwritesEvidence() = fixture { f ->
+        f.reply("enable workflow diagnostics")
+        for (build in 1..WorkflowDiagnostics.MAX_PROPOSALS + 1) {
+            repeat(2) { f.observe(WorkflowDiagnostics.Code.NO_SOURCES, build = build) }
+            val reply = f.store(build).reply(WorkflowDiagnostics.Command(WorkflowDiagnostics.Action.PREPARE, WorkflowDiagnostics.Family.RESEARCH))
+            assertTrue(if (build <= WorkflowDiagnostics.MAX_PROPOSALS) reply.contains("2 distinct workflows") else reply.contains("briefs are full"))
+        }
+        val saved = f.store().snapshot().proposals
+        assertEquals(WorkflowDiagnostics.MAX_PROPOSALS, saved.size)
+        val listing = f.reply("review workflow improvements")
+        assertTrue(listing.contains("1. No usable sources returned on 3.5.1"))
+        for (index in saved.indices) {
+            val archived = f.reply("review workflow improvement ${index + 1}")
+            assertTrue(archived.contains(saved[index].id))
+            assertTrue(archived.contains("on 3.5.${index + 1};"))
+        }
+        assertEquals(WorkflowDiagnostics.Action.INVALID, WorkflowDiagnostics.command("review workflow improvement 99")!!.action)
+        assertEquals(WorkflowDiagnostics.Action.INVALID, WorkflowDiagnostics.command("review workflow improvement 1 then share")!!.action)
+        assertEquals(saved, f.store().snapshot().proposals)
+    }
+
     @Test fun corruptedDataCannotTurnConsentOnAndDiagnosticsFailureCannotBreakResearch() = fixture { f ->
         f.path.writeText("corrupt private diagnostics")
         f.observe(WorkflowDiagnostics.Code.NO_SOURCES)

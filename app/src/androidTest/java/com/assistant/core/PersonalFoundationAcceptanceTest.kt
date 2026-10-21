@@ -432,6 +432,7 @@ class PersonalFoundationAcceptanceTest {
         val prepared = assistant().handleUserInput("prepare workflow improvement for research").text
         assertTrue(prepared.contains("2 distinct workflows"))
         assertFalse(prepared.contains("private acceptance topic"))
+        assertEquals(prepared, assistant().handleUserInput("review workflow improvement 1").text)
         val before = diagnostics.snapshot()
         context.allowActivityRequests = true // Capture the chooser without launching any external app.
         val shared = assistant().handleUserInput("share workflow improvement for research").text

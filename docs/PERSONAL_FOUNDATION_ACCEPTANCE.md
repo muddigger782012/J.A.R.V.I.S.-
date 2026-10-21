@@ -423,6 +423,8 @@ specific investigation steps and synthetic regression expectations. Older-build
 recurrence alone cannot create a current-build proposal. At most 16 immutable
 briefs are retained; full storage requires explicit cleanup rather than silent
 replacement. New observations and window rollover do not rewrite prepared evidence.
+The improvement review lists every retained brief with an archive number; `review
+workflow improvement 1` with a listed number can inspect earlier or dismissed briefs.
 `review workflow improvement for research` and the corresponding contact/reminder
 commands inspect the saved brief; `dismiss workflow improvement for research`
 retains its evidence and prevents sharing that dismissed brief. `clear workflow
