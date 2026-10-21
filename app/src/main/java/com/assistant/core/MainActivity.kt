@@ -724,6 +724,7 @@ class MainActivity : ThemedActivity() {
         val title = findViewById<TextView>(R.id.tvScreenTitle)
         title.text = listOf("", "Projects", "Device tools", "System", "Terminal", "Activity log", "Permissions", "Device administration")[index]
         title.visibility = if (index == 0) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.conversationToolbar).visibility = if (index == 0) View.VISIBLE else View.GONE
         findViewById<ImageButton>(R.id.btnOpenJarvisChat).imageTintList = android.content.res.ColorStateList.valueOf(
             ThemePreferences.color(this, if (index == 0) R.color.jarvis_primary else R.color.jarvis_on_dark_muted)
         )
