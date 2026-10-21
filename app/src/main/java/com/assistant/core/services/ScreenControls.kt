@@ -75,7 +75,7 @@ class ScreenControls(private val platform: Platform, private val now: () -> Long
     }
     private fun propose(snapshot: Snapshot, control: Control): String {
         review = Review(snapshot.copy(controls = listOf(control), text = emptyList()), control, now())
-        return "Review screen tap in ${snapshot.packageName}: '${control.label}'. Tapping can send, delete or buy depending on this app. Say 'confirm screen action' for one attempt on this unchanged screen, or 'cancel screen action'. Nothing was tapped."
+        return "Review screen tap in ${snapshot.packageName}: '${control.label}'. Say 'confirm screen action' for one attempt on this unchanged screen, or 'cancel screen action'. Nothing was tapped."
     }
     private fun confirm(): String {
         val saved = review

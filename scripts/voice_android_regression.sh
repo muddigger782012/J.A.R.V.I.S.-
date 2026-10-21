@@ -17,6 +17,11 @@ adb logcat -c
 adb logcat -v threadtime > voice-regression-logcat.txt &
 voice_log_pid=$!
 trap 'kill "$voice_log_pid" 2>/dev/null || true' EXIT
+# Exercise the new real-service bridge before the longer voice suite. A failed
+# preflight blocks delivery; the full acceptance gate below is still required.
+timeout 120s adb shell am instrument -w -r -e class com.assistant.core.ScreenControlAcceptanceTest com.assistant.core.test/androidx.test.runner.AndroidJUnitRunner > voice-screen-preflight.txt 2>&1
+cat voice-screen-preflight.txt
+grep -Eq 'OK \(2 tests\)' voice-screen-preflight.txt
 set +e
 timeout 360s adb shell am instrument -w -r com.assistant.core.test/androidx.test.runner.AndroidJUnitRunner > voice-regression-results.txt 2>&1 &
 voice_test_pid=$!

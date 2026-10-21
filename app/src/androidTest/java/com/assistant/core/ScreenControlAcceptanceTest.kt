@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
+import android.os.Parcel
 import android.os.ResultReceiver
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -37,18 +38,23 @@ class ScreenControlAcceptanceTest {
         val services = shell("settings get secure enabled_accessibility_services")
         val setting = shell("settings get secure accessibility_enabled")
         check(services == "null" || services.matches(Regex("[a-zA-Z0-9_./:$-]*")))
-        val own = ComponentName(context, JarvisAccessibilityService::class.java).flattenToString()
-        val names = services.takeUnless { it == "null" }.orEmpty().split(':').filter { it.isNotBlank() && it != own }.toMutableList()
+        val ownComponent = ComponentName(context, JarvisAccessibilityService::class.java)
+        val own = ownComponent.flattenToString()
+        val names = services.takeUnless { it == "null" }.orEmpty().split(':')
+            .filter { it.isNotBlank() && ComponentName.unflattenFromString(it) != ownComponent }.toMutableList()
         if (enabled) names.add(own)
         try {
-            shell("settings put secure enabled_accessibility_services '${names.joinToString(":")}'")
+            // UiAutomation uses Runtime.exec argv tokenization, not a shell quote parser.
+            if (names.isEmpty()) shell("settings delete secure enabled_accessibility_services")
+            else shell("settings put secure enabled_accessibility_services ${names.joinToString(":")}")
             shell("settings put secure accessibility_enabled ${if (names.isEmpty()) 0 else 1}")
+            assertEquals(names.joinToString(":"), shell("settings get secure enabled_accessibility_services").takeUnless { it == "null" }.orEmpty())
             waitUntil { ScreenAccessClient(context).connected() == enabled }
             return block()
         } finally {
             ScreenAccessClient(context).discard()
-            if (services == "null") shell("settings delete secure enabled_accessibility_services")
-            else shell("settings put secure enabled_accessibility_services '$services'")
+            if (services == "null" || services.isEmpty()) shell("settings delete secure enabled_accessibility_services")
+            else shell("settings put secure enabled_accessibility_services $services")
             if (setting == "null") shell("settings delete secure accessibility_enabled")
             else { check(setting in setOf("0", "1")); shell("settings put secure accessibility_enabled $setting") }
         }
@@ -58,7 +64,13 @@ class ScreenControlAcceptanceTest {
         val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
             override fun onReceiveResult(resultCode: Int, resultData: Bundle?) { result.set(resultData); done.countDown() }
         }
-        context.startService(Intent(context, ScreenControlProbeService::class.java).putExtra("command", command).putExtra("receiver", receiver))
+        // Marshal the platform ResultReceiver wrapper, not an instrumentation-only subclass.
+        val parcel = Parcel.obtain()
+        val transport = try {
+            receiver.writeToParcel(parcel, 0); parcel.setDataPosition(0)
+            ResultReceiver.CREATOR.createFromParcel(parcel)
+        } finally { parcel.recycle() }
+        context.startService(Intent(context, ScreenControlProbeService::class.java).putExtra("command", command).putExtra("receiver", transport))
         assertTrue(done.await(8, TimeUnit.SECONDS))
         assertNotEquals(Process.myPid(), result.get().getInt("pid"))
         return result.get().getString("reply")!!
