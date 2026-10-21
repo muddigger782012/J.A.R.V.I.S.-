@@ -915,6 +915,18 @@ Authorized real privileged actions, owner reboot and physical sensor behavior ar
 certified by emulator/fake-adapter cases. Semantic installed-app discovery, reviewed
 navigation destinations and opt-in notification reading/replies remain Phase 4 work.
 
+Final verification for the Phase 4 device-report increment: all 602 JVM tests across
+97 suites passed with no failures, errors or skipped tests after integrating the current
+HUD, widgets and chat header. All three debug ABI APKs, instrumentation compilation,
+Beta manifest, gateway (16), APK archive (6) and theme checks passed. Final-source CI
+unit/build, gateway, theme and all 40 optimized emulator cases passed, including three
+new device-report/access cases. All production-signed personal ABI APKs passed package,
+version, archive, native-runtime, wake-asset and current distributed-signer verification.
+The signed personal build is delivered through the normal updater and versioned downloads
+after earlier main publishers finished. Broad visual-layout smoke remains skipped upstream.
+Physical phone sensors, permission/bridge transitions, real privileged actions and installed-data
+upgrade acceptance remain pending; no actual reboot or phase maturity score is claimed.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -986,7 +998,7 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.484 (versionCode 484) replaces the previously distributed 3.5.483
+Personal build 3.5.492 (versionCode 492) replaces the previously distributed 3.5.489
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
