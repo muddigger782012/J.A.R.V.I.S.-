@@ -106,12 +106,17 @@ class MainActivity : Activity() {
                 request.setRequestProperty("User-Agent", "JarvisConnectionManager/0.1")
                 try { "GitHub HTTP ${request.responseCode}" } finally { request.disconnect() }
             } catch (e: Exception) { "GitHub FAILED: ${e.javaClass.simpleName}" }
+            val search = ProviderDiagnostics.checkPublicEndpoint("WEB SEARCH", "https://www.google.com/search?q=connectivity")
+            val gemini = ProviderDiagnostics.checkPublicEndpoint("GEMINI AI", "https://generativelanguage.googleapis.com/")
             runOnUiThread {
                 cards["INTERNET"]?.text = "INTERNET\n$result"
                 log("Internet probe: $result (single endpoint only)")
                 cards["GITHUB UPDATES"]?.text = "GITHUB UPDATES\\n$github"
                 log("Repository API probe: $github (does not verify update manifest)")
-                listOf("WEB SEARCH", "GEMINI AI", "AI FALLBACK", "LOCAL AI").forEach {
+                cards["WEB SEARCH"]?.text = "WEB SEARCH\\n${search.detail} (${search.latencyMs} ms)"
+                cards["GEMINI AI"]?.text = "GEMINI AI\\n${gemini.detail} (${gemini.latencyMs} ms)"
+                log("Search and Gemini: public reachability only; provider API calls not authenticated")
+                listOf("AI FALLBACK", "LOCAL AI").forEach {
                     cards[it]?.text = "$it\nNOT TESTED"
                 }
             }
