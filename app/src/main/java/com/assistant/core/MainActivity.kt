@@ -350,6 +350,30 @@ class MainActivity : ThemedActivity() {
             ), R.drawable.ic_composer_tools
         )
         UnifiedMenuSection.group(
+            findViewById(R.id.tabShizukuSection),
+            listOf(
+                Triple(R.id.tvShizukuRuntimeStatus, "Connection status", "Shizuku runtime and authorization"),
+                Triple(R.id.btnRefreshShizukuStatus, "Connection controls", "Refresh, launch and authorize"),
+                Triple(R.id.etShizukuCommand, "Command execution", "Run supported Shizuku commands")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabAuditSection),
+            listOf(
+                Triple(R.id.etAuditLimit, "Log filters", "Limit and filter activity records"),
+                Triple(R.id.btnAuditRefresh, "Log actions", "Refresh, copy and clear the view"),
+                Triple(R.id.tvAuditDebugOutput, "Activity output", "Inspect recorded events")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabDhizukuSection),
+            listOf(
+                Triple(R.id.btnRefreshPrivileges, "Delegated access", "Inspect and request administrator scopes"),
+                Triple(R.id.switchCameraDisabled, "Device policies", "Manage camera, capture and application restrictions"),
+                Triple(R.id.etLockScreenMessage, "Security actions", "Lock-screen message, package policy and device actions")
+            ), R.drawable.ic_tools_settings
+        )
+        UnifiedMenuSection.group(
             findViewById(R.id.tabPermissionsSection),
             listOf(
                 Triple(R.id.btnRequestAllRuntimePermissions, "Permission requests", "Grant required access"),
