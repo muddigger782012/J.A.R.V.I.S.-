@@ -58,33 +58,52 @@ object UnifiedMenuSection {
         sections.forEach { content.addView(it) }
     }
 
-    /**
-     * Compact the existing action buttons without changing their IDs or listeners.
-     * This only affects utility-page controls; header and chat controls are untouched.
-     */
+    /** Replace legacy utility buttons with Settings-style rows while retaining their listeners. */
     fun compactActions(scroll: ScrollView) {
-        val density = scroll.resources.displayMetrics.density
-        fun dp(value: Int) = (value * density + .5f).toInt()
-        fun visit(view: View) {
-            if (view is Button) {
-                view.minimumHeight = dp(48)
-                view.minHeight = dp(48)
-                view.setPadding(dp(12), dp(8), dp(12), dp(8))
-                view.textSize = 13f
-                view.isAllCaps = false
-                view.layoutParams?.let { params ->
-                    if (params is LinearLayout.LayoutParams) {
-                        params.topMargin = dp(3)
-                        params.bottomMargin = dp(3)
-                        view.layoutParams = params
-                    }
-                }
-            }
-            if (view is ViewGroup) {
-                for (i in 0 until view.childCount) visit(view.getChildAt(i))
-            }
+        val context = scroll.context
+        val actions = mutableListOf<Button>()
+        fun collect(view: View) {
+            if (view is Button) actions.add(view)
+            if (view is ViewGroup) for (i in 0 until view.childCount) collect(view.getChildAt(i))
         }
-        visit(scroll)
+        collect(scroll)
+        actions.forEach { button ->
+            val parent = button.parent as? LinearLayout ?: return@forEach
+            val index = parent.indexOfChild(button)
+            if (index < 0) return@forEach
+            val originalParams = button.layoutParams
+            val title = button.text?.toString()?.trim().orEmpty()
+            if (title.isBlank()) return@forEach
+            val detail = button.contentDescription?.toString()?.takeIf { it.isNotBlank() && it != title }
+                ?: "Tap to " + title.lowercase(java.util.Locale.getDefault())
+            val row = SettingsMenuViews.row(
+                context, title, detail, R.drawable.ic_composer_tools
+            ) { if (button.isEnabled) button.performClick() }
+            row.isEnabled = button.isEnabled
+            row.visibility = button.visibility
+            // Keep the visible action synchronized with runtime capability changes.
+            row.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (row.isEnabled != button.isEnabled) row.isEnabled = button.isEnabled
+                    if (row.visibility != button.visibility) row.visibility = button.visibility
+                    return true
+                }
+            })
+            parent.removeViewAt(index)
+            val wrapper = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(row, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ))
+                button.alpha = 0f
+                button.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                addView(button, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0
+                ))
+            }
+            parent.addView(wrapper, index, originalParams)
+        }
     }
 
     fun create(
