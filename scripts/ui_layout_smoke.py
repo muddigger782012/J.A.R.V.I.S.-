@@ -41,7 +41,12 @@ def tap_scrolling(identifier, attempts=6):
                 adb('shell', 'input', 'tap', str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
                 time.sleep(1)
                 return
-        adb('shell', 'input', 'swipe', '500', '1350', '500', '420', '300')
+        # Appearance embeds the theme picker inside a second ScrollView.
+        # Alternate gestures to move the outer and inner scrolling regions.
+        if attempt % 2 == 0:
+            adb('shell', 'input', 'swipe', '800', '1050', '800', '350', '400')
+        else:
+            adb('shell', 'input', 'swipe', '500', '1450', '500', '450', '400')
         time.sleep(1)
     raise AssertionError(f'{identifier} missing after scrolling')
 
