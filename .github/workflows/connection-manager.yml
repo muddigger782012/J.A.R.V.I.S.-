@@ -19,7 +19,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - name: Verify Android SDK
+        run: test -d "$ANDROID_HOME/platforms" && echo "Android SDK available"
       - uses: gradle/actions/setup-gradle@v4
       - name: Build Connection Manager
         run: bash ./gradlew :connection-manager:assembleDebug --stacktrace
