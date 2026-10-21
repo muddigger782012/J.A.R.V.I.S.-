@@ -30,6 +30,7 @@ import android.view.ViewGroup
 import android.view.GestureDetector
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.LinearInterpolator
+import android.widget.ImageButton
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -406,8 +407,8 @@ class MainActivity : ThemedActivity() {
             insets
         }
         setupTabs()
-        val chatMenuButton = findViewById<Button>(R.id.btnOpenJarvisChat)
-        val chatHistoryShortcut = findViewById<Button>(R.id.btnAssistantHistory)
+        val chatMenuButton = findViewById<ImageButton>(R.id.btnOpenJarvisChat)
+        val chatHistoryShortcut = findViewById<ImageButton>(R.id.btnAssistantHistory)
         val chatMenuBackHandler = object : androidx.activity.OnBackPressedCallback(false) {
             override fun handleOnBackPressed() {
                 chatHistoryShortcut.visibility = View.GONE
@@ -723,7 +724,10 @@ class MainActivity : ThemedActivity() {
         val title = findViewById<TextView>(R.id.tvScreenTitle)
         title.text = listOf("", "Projects", "Device tools", "System", "Terminal", "Activity log", "Permissions", "Device administration")[index]
         title.visibility = if (index == 0) View.GONE else View.VISIBLE
-        findViewById<Button>(R.id.btnOpenJarvisChat).setTextColor(ThemePreferences.color(this, if (index == 0) R.color.jarvis_primary else R.color.jarvis_on_dark_muted))
+        findViewById<View>(R.id.conversationToolbar).visibility = if (index == 0) View.VISIBLE else View.GONE
+        findViewById<ImageButton>(R.id.btnOpenJarvisChat).imageTintList = android.content.res.ColorStateList.valueOf(
+            ThemePreferences.color(this, if (index == 0) R.color.jarvis_primary else R.color.jarvis_on_dark_muted)
+        )
         val activeColor = ThemePreferences.color(this, R.color.jarvis_neon_green)
         val inactiveColor = ThemePreferences.color(this, R.color.jarvis_on_dark)
         headerTabButtons.forEachIndexed { i, button ->
@@ -887,9 +891,9 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun bindUiListeners() {
-        findViewById<Button>(R.id.btnNewAssistantChat).setOnClickListener {
+        findViewById<ImageButton>(R.id.btnNewAssistantChat).setOnClickListener {
             if (findViewById<View>(R.id.btnAssistantHistory).visibility == View.VISIBLE) {
-                findViewById<Button>(R.id.btnOpenJarvisChat).performClick()
+                findViewById<ImageButton>(R.id.btnOpenJarvisChat).performClick()
             }
             if (attachmentBusy) { attachmentNotice("Wait for the attachment request to finish."); return@setOnClickListener }
             clearAttachmentDraft()
