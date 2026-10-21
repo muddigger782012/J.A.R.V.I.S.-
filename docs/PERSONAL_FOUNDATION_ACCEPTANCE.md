@@ -659,9 +659,20 @@ storage, failed writes, full archives, chronology, mismatched revisions and comp
 refreshes. Two additional Android cases use actual isolated service storage,
 reconstruction, intercepted chooser contents and asynchronous malformed controls;
 no external submission or device action is allowed. The optimized emulator gate now
-requires 32 cases. Final verification and delivery evidence will be recorded after
-the checks complete. Real-phone handoff usability and installed-data upgrade remain
-pending; no measured phase maturity percentage is claimed.
+requires 32 cases. Final-source evidence for personal build 3.5.480: all 550
+JVM tests across 92 suites passed with no failures, errors or skips. All debug ABI
+APKs, instrumentation and the Beta manifest built locally; gateway/archive tests
+and theme checks passed. Required final-source CI unit/build, gateway, theme and
+optimized Android acceptance passed. The actual emulator log records `OK (32 tests)`
+including both new evidence/archive service cases. All three signed production
+APKs independently passed completed-build provenance, package/version/ABI,
+production signer compatibility against the freshly downloaded 3.5.479 updater,
+archive integrity and wake runtime/model checks. The reviewed signed manifest
+retains exact provenance. Main remained the tested base before the normal
+fast-forward merge and updater publication; production sources match the tested
+and signed feature exactly. Broad visual-layout remains skipped upstream.
+Real-phone handoff usability, live-provider quality and installed-data upgrade
+remain pending; no measured phase maturity percentage is claimed.
 
 ## Delivered behavior and acceptance evidence
 
@@ -672,7 +683,7 @@ pending; no measured phase maturity percentage is claimed.
 | 3: memory/offline | A bounded local dialogue window survives service/process reconstruction. Latest corrections follow older dialogue. Exact review/reset controls; confirmed device memory and validated command learning remain separate. Local arithmetic, date/time, commands and approved routines remain available offline. | Reconstruction, expiry, malformed data, deletion, write-failure and command-control tests; actual Android storage acceptance cases. | Physical restart and foreground/voice-process smoke tests. No offline generative model or arbitrary fact-learning is claimed. |
 | 4: device integration | Selects implemented Standard fallbacks before an unavailable/unsupported privileged route is attempted. Maintains risk confirmations. Does not repeat uncertain adapter effects. Android rejecting an Accessibility action cannot become success. | Broker tests with injected adapters exercise actual selection, disabled fallback, denied policy, unsupported actions, failures and exceptions. | Standard, Accessibility, Shizuku and Dhizuku permission/device matrix. An advertised capability is not proof of permission or a working service. |
 | 5: execution | Approved routines and reviewed focus/music/navigation goals share durable checkpoints and a voice/chat dispatch lease, bounded resume, cancellation, duplicate prevention and honest outcome types. Pending duration/volume corrections require a new exact review. Explicit reviewed cleanup retains latest/unresolved status and invocation fingerprints. | Engine/coordinator/planner tests, independent-JVM lease/death checks, bounded/migrated history tests and actual Android service/storage cases. | Physical workflow execution and broader goal decomposition. |
-| 6: improvement | Read-only recurrence proposals plus opt-in manual synthetic evaluation, matched baselines, isolated on-demand logic checks with separate results/baselines, and persistent evidence-linked developer briefs with review/dismissal controls. | Deterministic tests cover recurrence, uncertainty, opt-in/reset, migration, bounded reports/briefs and honest comparison; Android reconstruction and proposal acceptance. | Live behavioral evaluation, broader reviewed feedback coverage and actual developer write integration for patches/PRs. |
+| 6: improvement | Read-only recurrence proposals plus opt-in manual synthetic evaluation, matched baselines, isolated on-demand logic checks with separate results/baselines, and persistent developer briefs with captured owner/check baselines, explicit evidence refresh and stable numbered archive review/dismissal controls. | Deterministic tests cover recurrence, uncertainty, opt-in/reset, migration, bounded reports/briefs and honest comparison; Android reconstruction and proposal acceptance. | Live behavioral evaluation, broader reviewed feedback coverage and actual developer write integration for patches/PRs. |
 
 The engine and pure policy tests establish their bounded contracts. Fake/injected
 adapters do not prove that Android or an AI provider performed an action. Android
@@ -734,7 +745,7 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.479 (versionCode 479) replaces the previously distributed 3.5.478
+Personal build 3.5.480 (versionCode 480) replaces the previously distributed 3.5.479
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
@@ -753,7 +764,7 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
 2. Pass the existing CI unit/build, gateway, theme and optimized voice emulator jobs
-   on the final source. The voice runner requires all 30 voice/settings and isolated
+   on the final source. The voice runner requires all 32 voice/settings and isolated
    foundation service/storage acceptance tests. Broad visual-layout
    smoke remains disabled upstream; do not count it as a pass.
 3. On a disposable emulator, verify exact commands, no unintended actions for
@@ -767,7 +778,10 @@ A debug APK is build evidence, not a same-signer personal update candidate.
    then reopen the reminder's original sources offline. Check notification text,
    permission denial, cancellation and uncertain outcomes without duplicate delivery.
    Clearing completed reminder history removes those attached copies separately
-   from clearing the main research brief.
+   from clearing the main research brief. For supervised improvement, prepare a brief
+   after local checks, clear current checks, reconstruct and review/share that same
+   numbered proposal. Confirm its original results and explicit chooser destination;
+   refresh separately, dismiss an earlier brief and verify old numbers after cleanup.
 5. Measure wake detection on at least 20 controlled ordinary/deep-voice utterances
    per condition, aiming for at least 95% in that controlled sample. Separately
    record false activations and listening time under a reproducible negative-audio
