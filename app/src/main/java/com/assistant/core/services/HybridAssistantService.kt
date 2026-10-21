@@ -64,6 +64,7 @@ class HybridAssistantService(
     private val history = ArrayDeque<Pair<String, String>>()
     private var lastResearchQuery: String? = null
     private val androidAssistant = AndroidAssistantService(systemService.context())
+    private val screenAccess = ScreenAccessClient(systemService.context())
     private val appDiscovery by lazy { AppDiscovery(AndroidInstalledApps(systemService.context()),
         open = { action -> requestContextAction("open selected installed app", action) }) }
     private val learningStore = IntentLearningStore(systemService.context())
@@ -92,6 +93,16 @@ class HybridAssistantService(
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
         if (personalAssistant) {
+            val screenCommand = ScreenControls.parse(userInput)
+            if (screenCommand != null) {
+                appDiscovery.discard()
+                clearPendingActionPrompts()
+                taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+                reviewedGoalKey = null
+                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+                return HybridAssistantReply(screenAccess.reply(userInput))
+            }
+            screenAccess.discard()
             val appCommand = AppDiscovery.parse(userInput)
             if (appCommand != null) {
                 clearPendingActionPrompts()
@@ -1181,6 +1192,7 @@ class HybridAssistantService(
     fun canAnalyzeAttachments(): Boolean = directOnlineClient.hasGeminiKey()
 
     fun handleAttachmentsAsync(question: String, attachments: List<ChatAttachment>, callback: (HybridAssistantReply) -> Unit) {
+        if (personalAssistant) screenAccess.discard()
         if (personalAssistant) appDiscovery.discard()
         routineConfirmations.consume("")
         Thread {
@@ -1191,6 +1203,10 @@ class HybridAssistantService(
     }
 
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+        if (personalAssistant && ScreenControls.parse(rawInput) != null) {
+            Thread { callback(handleUserInput(rawInput)) }.start(); return
+        }
+        if (personalAssistant) screenAccess.discard()
         if (personalAssistant && AppDiscovery.parse(rawInput) == null) appDiscovery.discard()
         if (personalAssistant && (DeviceReport.command(rawInput) != null || AppDiscovery.parse(rawInput) != null)) {
             callback(handleUserInput(rawInput)); return

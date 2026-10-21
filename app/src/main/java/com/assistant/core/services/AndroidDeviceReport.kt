@@ -83,6 +83,8 @@ class AndroidDeviceReport(private val context: Context) : DeviceReport.Platform 
     }
     override fun accessibility(): DeviceReport.Reading<DeviceReport.Accessibility> = DeviceReport.read {
         if (JarvisAccessibilityService.active() != null) return@read DeviceReport.Reading(DeviceReport.Accessibility.CONNECTED)
+        if (context.packageName == "com.assistant.core" && ScreenAccessClient(context).connected())
+            return@read DeviceReport.Reading(DeviceReport.Accessibility.REMOTE_CONNECTED)
         val manager = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
             ?: return@read DeviceReport.Reading(problem = DeviceReport.Problem.UNAVAILABLE)
         val enabled = manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).any {

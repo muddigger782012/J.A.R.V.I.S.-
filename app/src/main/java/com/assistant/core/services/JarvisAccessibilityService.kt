@@ -12,8 +12,10 @@ import android.view.accessibility.AccessibilityNodeInfo
  * Sensitive actions remain subject to the assistant policy/confirmation layer.
  */
 class JarvisAccessibilityService : AccessibilityService() {
+    @Volatile var screenGeneration: String = java.util.UUID.randomUUID().toString(); private set
     override fun onServiceConnected() {
         super.onServiceConnected()
+        screenGeneration = java.util.UUID.randomUUID().toString()
         instance = this
     }
 
@@ -21,9 +23,15 @@ class JarvisAccessibilityService : AccessibilityService() {
         if (event == null) return
         lastPackage = event.packageName?.toString().orEmpty()
         lastEventType = event.eventType
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) screenGeneration = java.util.UUID.randomUUID().toString()
     }
 
     override fun onInterrupt() = Unit
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        if (instance === this) instance = null
+        return super.onUnbind(intent)
+    }
 
     override fun onDestroy() {
         if (instance === this) instance = null
@@ -33,20 +41,11 @@ class JarvisAccessibilityService : AccessibilityService() {
     fun performGlobal(action: Int): Boolean = performGlobalAction(action)
 
     fun currentWindowSummary(maxNodes: Int = 80): String {
-        val root = rootInActiveWindow ?: return "No active accessibility window."
-        val out = mutableListOf<String>()
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-        while (queue.isNotEmpty() && out.size < maxNodes) {
-            val node = queue.removeFirst()
-            val text = node.text?.toString()?.trim().orEmpty()
-            val description = node.contentDescription?.toString()?.trim().orEmpty()
-            if (text.isNotBlank() || description.isNotBlank()) {
-                out += listOf(text, description).filter { it.isNotBlank() }.distinct().joinToString(" | ")
-            }
-            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::addLast)
-        }
-        return out.joinToString("\n").ifBlank { "Active window contains no readable accessibility text." }
+        return runCatching {
+            val snapshot = AndroidScreenPlatform(this).snapshot()
+            if (snapshot.blocked) "Protected or password-entry screen; no content was read out."
+            else snapshot.text.take(maxNodes.coerceIn(1, 80)).joinToString("\n").ifBlank { "Active window contains no readable accessibility text." }
+        }.getOrElse { "Active accessibility window could not be read within its limits." }
     }
 
     companion object {

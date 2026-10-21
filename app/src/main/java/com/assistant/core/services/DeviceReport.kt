@@ -19,7 +19,7 @@ object DeviceReport {
                        val metered: Boolean? = null, val transports: Set<Transport> = emptySet())
     enum class Thermal(val label: String) { NONE("no thermal throttling reported"), LIGHT("light"), MODERATE("moderate"),
         SEVERE("severe"), CRITICAL("critical"), EMERGENCY("emergency"), SHUTDOWN("shutdown threshold") }
-    enum class Accessibility { CONNECTED, CONFIGURED, OFF }
+    enum class Accessibility { CONNECTED, REMOTE_CONNECTED, CONFIGURED, OFF }
     data class App(val version: String?, val code: Long)
     interface Platform {
         fun battery(): Reading<Battery>
@@ -112,6 +112,7 @@ object DeviceReport {
             lines += "Notification reading/replies: not implemented in this personal assistant; posting permission does not provide access to other apps' notifications."
             lines += line("Accessibility", platform::accessibility) { when (it) {
                 Accessibility.CONNECTED -> "service connected in this process; an explicit supported screen/navigation request is still required."
+                Accessibility.REMOTE_CONNECTED -> "service connected through Jarvis's private screen bridge; supported voice screen commands can reach it. Taps still require a current review and explicit screen confirmation."
                 Accessibility.CONFIGURED -> "enabled in Android, but this process has no connected service. Reconnect Jarvis Accessibility or use the main app; action availability is unverified."
                 Accessibility.OFF -> "not enabled; enable Jarvis in Android Accessibility settings only if you want supported screen/navigation access."
             } }

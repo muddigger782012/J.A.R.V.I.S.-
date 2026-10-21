@@ -76,3 +76,13 @@
 -keep,allowoptimization class com.assistant.core.services.InstalledApps** { public *; }
 -keep,allowoptimization class com.assistant.core.services.AppDiscovery** { public *; }
 -keep,allowoptimization class com.assistant.core.services.AndroidInstalledApps** { public *; }
+
+# Explicit screen-controller and same-UID bridge acceptance.
+-keep,allowoptimization class com.assistant.core.services.ScreenControls** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ScreenAccessClient** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AndroidScreenPlatform** { public *; }
+-keep,allowoptimization class com.assistant.core.services.JarvisAccessibilityService** { public *; }
+
+# Debug/optimized-host-only real-window and separate-process acceptance fixtures.
+-keep,allowoptimization class com.assistant.core.ScreenControlFixtureActivity** { public *; }
+-keep,allowoptimization class com.assistant.core.ScreenControlProbeService** { public *; }
