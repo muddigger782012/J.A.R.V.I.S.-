@@ -1262,6 +1262,24 @@ class HybridAssistantService(
         val diagnosticPhrase = rawInput.trim().lowercase(Locale.ROOT).trimEnd('.', '?', '!')
             .replace(Regex("\\s+"), " ")
         if (diagnosticPhrase in setOf(
+                "open network settings", "open my network settings",
+                "show network settings", "show my network settings",
+                "open wifi settings", "open wi-fi settings",
+                "check my device network settings", "check my device's network settings"
+            )) {
+            val response = try {
+                val intent = android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                systemService.context().startActivity(intent)
+                "Opened Android network settings. No settings were changed and internet reachability has not been tested."
+            } catch (_: Exception) {
+                "Unable to open Android network settings. Open Settings, then Connections, to inspect Wi-Fi and mobile data."
+            }
+            remember(rawInput, response)
+            callback(HybridAssistantReply(response))
+            return
+        }
+        if (diagnosticPhrase in setOf(
                 "test internet connection", "test internet connections",
                 "test my internet connection", "test my internet connections",
                 "check internet connection", "check internet connections",
@@ -1269,7 +1287,9 @@ class HybridAssistantService(
                 "check online connectivity", "run connectivity diagnostics",
                 "test search connection", "check search connection",
                 "test network connection", "test network connections",
-                "test my network connection", "test my network connections"
+                "test my network connection", "test my network connections",
+                "test my device network settings", "test my devices network settings",
+                "test my device\u0027s network settings"
             )) {
             Thread {
                 val response = try {
