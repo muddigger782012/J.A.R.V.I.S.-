@@ -64,6 +64,8 @@ class HybridAssistantService(
     private val history = ArrayDeque<Pair<String, String>>()
     private var lastResearchQuery: String? = null
     private val androidAssistant = AndroidAssistantService(systemService.context())
+    private val appDiscovery by lazy { AppDiscovery(AndroidInstalledApps(systemService.context()),
+        open = { action -> requestContextAction("open selected installed app", action) }) }
     private val learningStore = IntentLearningStore(systemService.context())
     private val directOnlineClient = DirectOnlineClient(systemService.context())
     private val assistantConnections = AssistantConnections(systemService.context())
@@ -90,6 +92,15 @@ class HybridAssistantService(
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
         if (personalAssistant) {
+            val appCommand = AppDiscovery.parse(userInput)
+            if (appCommand != null) {
+                clearPendingActionPrompts()
+                taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+                reviewedGoalKey = null
+                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+                return HybridAssistantReply(appDiscovery.reply(appCommand))
+            }
+            appDiscovery.discard()
             DeviceReport.command(userInput)?.let { command ->
                 clearPendingActionPrompts()
                 taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
@@ -1025,9 +1036,12 @@ class HybridAssistantService(
             remember(userInput, response); return HybridAssistantReply(response)
         }
 
-        parseAppName(normalized)?.let { appName ->
+        parseAppName(if (personalAssistant) userInput else normalized)?.let { appName ->
             val target = androidAssistant.resolveLearnableApp(appName)
-            if (target == null) return HybridAssistantReply("No unique installed app matched $appName. I can help identify the app or another way to reach your objective.", needsInterpretation = true)
+            if (target == null) {
+                if (personalAssistant) return HybridAssistantReply(appDiscovery.find(appName))
+                return HybridAssistantReply("No unique installed app matched $appName. I can help identify the app or another way to reach your objective.", needsInterpretation = true)
+            }
             val response = requestContextAction(userInput, LearnableDeviceAction("open_app", mapOf("package" to target.first, "label" to target.second)))
             remember(userInput, response); return HybridAssistantReply(response)
         }
@@ -1167,6 +1181,7 @@ class HybridAssistantService(
     fun canAnalyzeAttachments(): Boolean = directOnlineClient.hasGeminiKey()
 
     fun handleAttachmentsAsync(question: String, attachments: List<ChatAttachment>, callback: (HybridAssistantReply) -> Unit) {
+        if (personalAssistant) appDiscovery.discard()
         routineConfirmations.consume("")
         Thread {
             val response = directOnlineClient.gemini(question, getConversationSnapshot(), attachments)
@@ -1176,7 +1191,8 @@ class HybridAssistantService(
     }
 
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
-        if (personalAssistant && DeviceReport.command(rawInput) != null) {
+        if (personalAssistant && AppDiscovery.parse(rawInput) == null) appDiscovery.discard()
+        if (personalAssistant && (DeviceReport.command(rawInput) != null || AppDiscovery.parse(rawInput) != null)) {
             callback(handleUserInput(rawInput)); return
         }
         if (personalAssistant && GoalAppCorrections.contextual(rawInput) != null &&

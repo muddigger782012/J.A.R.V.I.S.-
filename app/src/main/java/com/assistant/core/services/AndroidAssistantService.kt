@@ -148,6 +148,9 @@ class AndroidAssistantService(private val context: Context) {
 
     /** Resolve one visible launcher app; ambiguous names never select the first match. */
     fun resolveLearnableApp(label: String): Pair<String, String>? {
+        if (context.packageName == "com.assistant.core") return runCatching {
+            InstalledApps.unique(label, AndroidInstalledApps(context).apps())?.let { it.packageName to it.label }
+        }.getOrNull()
         val pm = context.packageManager
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val candidates = pm.queryIntentActivities(launcher, 0).map {

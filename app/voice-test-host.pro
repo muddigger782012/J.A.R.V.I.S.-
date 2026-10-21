@@ -71,3 +71,8 @@
 -keep,allowoptimization class com.assistant.core.services.RoutineSteps** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ChatSearchResults** { public *; }
 -keep,allowoptimization class com.assistant.core.services.SearchRouter** { public *; }
+
+# Local installed-app identity and numbered-choice acceptance APIs.
+-keep,allowoptimization class com.assistant.core.services.InstalledApps** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AppDiscovery** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AndroidInstalledApps** { public *; }

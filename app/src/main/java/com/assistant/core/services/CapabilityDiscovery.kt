@@ -39,7 +39,7 @@ object CapabilityDiscovery {
     fun help(): String = """Available local learning workflows:
         |• Media volume: set media volume to 25%; exact levels use device readback.
         |• Timers: start a timer for 5 minutes; results need your outcome confirmation.
-        |• Apps: open Chrome using a uniquely named installed launcher app.
+        |• Apps: open Chrome using one installed launcher identity. Maps and Google Maps recognize the Google Maps package even with a localized label. To discover alternatives: find installed app maps, then open app choice 1. App details Maps reads its installed version; choices remain local and expire.
         |• Device health: device report reads current battery, app-data storage, RAM, network flags and Android thermal status locally. Device capabilities checks permissions, Accessibility and Shizuku/Dhizuku readiness; installed Jarvis version reads Android's package record. Nothing is uploaded, changed or granted by these reports.
         |• Preferences: remember Chrome as my preferred browser; asks approval. Browser/maps/music slots are supported.
         |• Repeat: do that again; uses the most recent confirmed app or timer and asks approval.

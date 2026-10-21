@@ -1014,6 +1014,64 @@ class PersonalFoundationAcceptanceTest {
         }
     }
 
+    @Test fun installedAppDiscoveryReadsRealPackageDataWithoutDispatchingOrRememberingInventory() {
+        val platform = AndroidInstalledApps(context)
+        val own = platform.apps().first { it.packageName == context.packageName }
+        assertTrue(own.valid()); assertTrue(platform.canLaunch(own.packageName))
+        val version = platform.version(own.packageName)
+        assertTrue(version.code > 0)
+        val service = assistant()
+        val choices = service.handleUserInput("find installed app ${own.packageName}")
+        assertFalse(choices.needsInterpretation)
+        assertTrue(choices.text.contains(own.packageName)); assertTrue(choices.text.contains("open app choice 1"))
+        assertEquals(0, context.activityRequests)
+        val answer = AtomicReference<HybridAssistantReply>(); val answered = CountDownLatch(1)
+        service.handleUserInputAsync("app details choice one") { answer.set(it); answered.countDown() }
+        assertTrue(answered.await(3, TimeUnit.SECONDS))
+        assertTrue(answer.get().text.contains("version code ${version.code}"))
+        assertTrue(answer.get().text.contains("update availability and installation progress were not checked"))
+        assertTrue(service.getConversationSnapshot().isEmpty())
+        assertTrue(ConversationMemory(context).snapshot().isEmpty())
+        assertEquals(0, context.activityRequests); assertEquals(0, executions)
+        context.allowActivityRequests = true // Intercept the request; do not open a foreground app.
+        assertTrue(service.handleUserInput("open app choice one").text.startsWith("Requested:"))
+        assertEquals(own.packageName, context.lastActivityIntent!!.component!!.packageName)
+        assertEquals(1, context.activityRequests)
+        assertTrue(service.handleUserInput("open app choice one").text.contains("No current app choice"))
+        assertEquals(1, context.activityRequests)
+        assertNull(AssistantMemory(context).mostRecentConfirmed())
+        assertTrue(service.getConversationSnapshot().isEmpty())
+    }
+
+    @Test fun installedAppChoicesCannotSurviveTopicChangesOrAuthorizeRequestsInAnotherAssistant() {
+        val query = "find installed app ${context.packageName}"
+        val service = assistant()
+        service.handleUserInput(query)
+        assertTrue(assistant().handleUserInput("open app choice 1").text.contains("No current app choice"))
+        service.handleUserInput("battery status")
+        assertTrue(service.handleUserInput("open app choice 1").text.contains("No current app choice"))
+        service.handleUserInput(query)
+        service.handleUserInput("open app choice one then search docs")
+        assertTrue(service.handleUserInput("open app choice 1").text.contains("No current app choice"))
+        service.handleUserInput("help me focus for five minutes")
+        assertNotNull(GoalPlanStore(context).pending())
+        service.handleUserInput(query)
+        assertNull(GoalPlanStore(context).pending())
+        assertTrue(service.handleUserInput("yes").needsInterpretation)
+        assertTrue(service.handleUserInput("open app choice 1").text.contains("No current app choice"))
+        assertEquals(0, context.activityRequests); assertEquals(0, executions)
+        val researchService = assistant { SearchRouter.Response(null,
+            listOf(SearchRouter.Result("Fixture", "Controlled result", "https://example.com/fixture")), emptyList()) }
+        researchService.handleUserInput(query)
+        val researched = CountDownLatch(1)
+        researchService.handleUserInputAsync("research app visibility and summarize") { researched.countDown() }
+        assertTrue(researched.await(20, TimeUnit.SECONDS))
+        assertTrue(researchService.handleUserInput("open app choice 1").text.contains("No current app choice"))
+        val maps = InstalledApps.App("com.google.android.apps.maps", "Cartes")
+        assertEquals(maps, InstalledApps.unique("Google Maps", listOf(maps)))
+        assertEquals(maps, InstalledApps.unique("maps", listOf(maps)))
+    }
+
     private fun assistant(researchFetch: ((String) -> SearchRouter.Response)? = null): HybridAssistantService {
         val capabilities = CapabilityState(true, false, false, false, false, false, false)
         val registry = ActionRegistry()

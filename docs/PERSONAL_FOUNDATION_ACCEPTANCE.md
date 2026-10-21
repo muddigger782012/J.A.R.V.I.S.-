@@ -927,6 +927,43 @@ after earlier main publishers finished. Broad visual-layout smoke remains skippe
 Physical phone sensors, permission/bridge transitions, real privileged actions and installed-data
 upgrade acceptance remain pending; no actual reboot or phase maturity score is claimed.
 
+## Phase 4 follow-up: installed app identities and local choices
+
+Personal-only app resolution now reads Android-visible, enabled, exported launcher
+activities. Exact normalized launcher names and exact package identities bind only
+one package; partial names produce a local list instead of selecting the first app.
+Google Maps aliases (`Google Maps`, `googlemaps`, `g maps`, `gmaps`, `maps`) use
+`com.google.android.apps.maps`, including localized launcher labels. A bare `maps`
+remains ambiguous when another visible launcher has that exact name. Alias rules
+survive service restarts; they do not install an app, override a saved preferred app,
+or certify a package's publisher/signature. Existing preference/learning approvals remain.
+
+Use `find installed app maps`, `app details Google Maps`, `show app choices`,
+`app details choice one`, `open app choice one`, or `cancel app choices`.
+Lookup/details do not launch an app. At most five matching package identities are
+shown; refine the name for other matches. No complete inventory is displayed or
+saved to assistant/provider memory. Android visibility can limit discovery; absence
+is not proof that a package is uninstalled. Installed version/code are read from
+PackageManager, separately from update availability or installation progress.
+
+Choices live in one assistant instance, expire after two minutes or another topic,
+and require their displayed number rather than bare yes/first one. Before an explicit
+open request, the exact package/label and launchability are read again. Renamed,
+removed or disabled choices are rejected. A choice is consumed before dispatch;
+failed or uncertain requests never automatically retry or claim the app actually
+opened. Existing requested/user-confirmed action evidence is retained. Discovery
+invalidates unrelated pending reviews without running or modifying approved tasks.
+The package visibility declaration, installed settings, current UI/themes, personal
+manual provider controls and production optimizer configuration are unchanged.
+
+Acceptance covers localized Maps identity, ambiguous/duplicate names, package
+queries, normalization, stable numbering, removal/rename/disable, expiry/restart,
+unknown dispatch outcomes, bounded metadata, malformed controls and real Android
+launcher/version reads. Automated and publication results are recorded with the
+increment's pull request. Physical-phone voice names, work profiles, OEM visibility,
+real foreground launch results and in-place data upgrade remain pending. Destination
+search/review/navigation and opt-in notification reading/replies remain follow-up work.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -1017,7 +1054,7 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
 2. Pass the existing CI unit/build, gateway, theme and optimized voice emulator jobs
-   on the final source. The voice runner requires all 40 voice/settings and isolated
+   on the final source. The voice runner requires all 42 voice/settings and isolated
    foundation service/storage acceptance tests. Broad visual-layout
    smoke remains disabled upstream; do not count it as a pass.
 3. On a disposable emulator, verify exact commands, no unintended actions for
