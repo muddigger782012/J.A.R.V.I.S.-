@@ -25,6 +25,7 @@ class MainActivity : Activity() {
     private lateinit var scroller: ScrollView
     private lateinit var providerSection: LinearLayout
     private lateinit var providerActions: LinearLayout
+    private lateinit var providerScreen: LinearLayout
     private var runningDiagnostics = false
     private var sessionGeminiKey: String? = null
 
@@ -48,6 +49,14 @@ class MainActivity : Activity() {
         root.addView(providerSection)
         providerActions = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(providerActions)
+        providerScreen = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(dp(8), dp(12), dp(8), dp(12))
+            background = panel()
+        }
+        root.addView(providerScreen)
+        buildProviderScreen()
         listOf("INTERNET", "WEB SEARCH", "GEMINI AI", "AI FALLBACK", "GITHUB UPDATES", "LOCAL AI").chunked(2).forEach { pair ->
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             pair.forEach { name ->
@@ -116,8 +125,9 @@ class MainActivity : Activity() {
                         0 -> scroller.smoothScrollTo(0, 0)
                         1 -> diagnose()
                         2 -> {
-                            log("Provider status: public reachability only; authenticated tests not configured")
-                            scroller.post { scroller.smoothScrollTo(0, providerSection.top) }
+                            providerScreen.visibility = if (providerScreen.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                            log("Provider configuration ${if (providerScreen.visibility == View.VISIBLE) "opened" else "closed"}")
+                            if (providerScreen.visibility == View.VISIBLE) scroller.post { scroller.smoothScrollTo(0, providerScreen.top) }
                         }
                         else -> showSettings()
                     }
@@ -128,6 +138,49 @@ class MainActivity : Activity() {
             })
         }
         root.addView(tabs)
+    }
+
+    private fun buildProviderScreen() {
+        fun providerRow(name: String, detail: String, action: (() -> Unit)? = null) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+            }
+            row.addView(TextView(this).apply {
+                text = name
+                textSize = 15f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(cyan)
+            })
+            row.addView(TextView(this).apply {
+                text = detail
+                textSize = 12f
+                setTextColor(pale)
+                setPadding(0, dp(4), 0, dp(4))
+            })
+            if (action != null) {
+                row.addView(TextView(this).apply {
+                    text = "CONFIGURE / TEST"
+                    textSize = 12f
+                    setTextColor(cyan)
+                    setPadding(0, dp(8), 0, dp(8))
+                    contentDescription = "Configure or test $name"
+                    setOnClickListener { action() }
+                })
+            }
+            providerScreen.addView(row)
+            providerScreen.addView(View(this).apply {
+                setBackgroundColor(Color.rgb(15, 90, 110))
+                layoutParams = LinearLayout.LayoutParams(-1, dp(1))
+            })
+        }
+        providerRow("GEMINI AI", "Authenticated model listing supported with a session-only key.") {
+            configureGeminiKey()
+        }
+        providerRow("WEB SEARCH", "Public endpoint reachability only. Search API authentication not connected.")
+        providerRow("GITHUB UPDATES", "Repository API reachability only. Release/update manifest not connected.")
+        providerRow("AI FALLBACK", "Not configured. No fallback provider requests are made.")
+        providerRow("LOCAL AI", "Not configured. No local model is currently tested.")
     }
 
     private fun showSettings() {
