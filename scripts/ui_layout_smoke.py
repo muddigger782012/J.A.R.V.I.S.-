@@ -88,6 +88,13 @@ try:
         print('Chat arithmetic response not observed; continuing independent UI checks', flush=True)
     capture('conversation')
     tap('btnVoiceSettings')
+    # The toolbar button opens the Tools & Settings popup, not SettingsActivity.
+    settings_entry = next((n for n in hierarchy().iter('node')
+        if n.get('text', '').strip() == 'Settings'), None)
+    assert settings_entry is not None, 'Settings entry missing from Tools & Settings menu'
+    x1, y1, x2, y2 = map(int, re.findall(r'\\d+', settings_entry.get('bounds')))
+    adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
+    time.sleep(1)
     capture('settings')
     # Settings rows may be below the fold; scroll before treating them as missing.
     weather_found = False
