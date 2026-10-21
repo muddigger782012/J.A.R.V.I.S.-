@@ -33,7 +33,7 @@ object UnifiedMenuSection {
         icon: Int
     ) {
         val wrapper = scroll.getChildAt(0) as? LinearLayout ?: return
-        val content = wrapper.getChildAt(1) as? LinearLayout ?: return
+        val content = wrapper.getChildAt(wrapper.childCount - 1) as? LinearLayout ?: return
         val markers = groups.mapNotNull { (id, title, detail) ->
             val child = content.findViewById<View>(id)
             if (child?.parent === content) Triple(child, title, detail) else null
