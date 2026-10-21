@@ -20,20 +20,49 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
     data class Plan(val id: String, val title: String, val created: Long, val dueAt: Long,
                     val research: ResearchBriefs.Snapshot? = null)
     data class Record(val number: Int, val plan: Plan, val status: Status)
+    /** A new review token is distinct from the stable alarm ID of a replaced reminder. */
+    data class Review(val plan: Plan, val replacing: Record? = null)
     data class Result(val message: String, val record: Record? = null)
-    private data class State(val next: Int = 1, val pending: Plan? = null, val records: List<Record> = emptyList())
+    private data class State(val next: Int = 1, val pending: Plan? = null, val records: List<Record> = emptyList(), val replacing: Record? = null)
 
     fun prepare(title: String, seconds: Int, research: ResearchBriefs.Snapshot? = null): Plan = file.access {
         require(validTitle(title) && seconds in 1..86400)
         val time = now().also { require(it >= 0) }
         val plan = Plan(UUID.randomUUID().toString(), title.trim(), time, Math.addExact(time, seconds.toLong() * 1000), research)
-        check(write(encode(decode(read()).copy(pending = plan)))) { "Reminder review could not be saved." }
+        check(write(encode(decode(read()).copy(pending = plan, replacing = null)))) { "Reminder review could not be saved." }
         plan
     }
-    fun pending(): Plan? = file.access { decode(read()).pending?.takeIf(::fresh) }
+    fun pending(): Plan? = review()?.plan
+    fun review(): Review? = file.access { decode(read()).activeReview() }
+    fun prepareChange(number: Int, seconds: Int): Review? = file.access {
+        require(number > 0 && seconds in 1..86400)
+        val state = recoverInterrupted(this, decode(read()))
+        val before = state.records.firstOrNull { it.number == number && changeable(it) }
+        if (before == null) {
+            check(write(encode(state.copy(pending = null, replacing = null))))
+            return@access null
+        }
+        val time = now().also { require(it >= 0) }
+        val plan = Plan(UUID.randomUUID().toString(), before.plan.title, time, Math.addExact(time, seconds.toLong() * 1000), before.plan.research)
+        check(write(encode(state.copy(pending = plan, replacing = before)))) { "Reminder change review could not be saved." }
+        Review(plan, before)
+    }
+    fun revise(expected: Review, seconds: Int?): Review? = file.access {
+        val state = decode(read())
+        if (state.activeReview() != expected) return@access null
+        if (seconds == null || seconds !in 1..86400) {
+            check(write(encode(state.copy(pending = null, replacing = null))))
+            return@access null
+        }
+        val time = now().also { require(it >= 0) }
+        val plan = expected.plan.copy(id = UUID.randomUUID().toString(), created = time,
+            dueAt = Math.addExact(time, seconds.toLong() * 1000))
+        check(write(encode(state.copy(pending = plan)))) { "Reminder correction could not be saved." }
+        Review(plan, expected.replacing)
+    }
     fun discardPending(): Boolean = file.access {
         val state = decode(read())
-        state.pending == null || write(encode(state.copy(pending = null)))
+        state.pending == null || write(encode(state.copy(pending = null, replacing = null)))
     }
     fun records(): List<Record> = file.access { recoverInterrupted(this, decode(read())).records }
     fun research(number: Int): String = file.access {
@@ -42,16 +71,20 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
             else "Reminder $number has no saved research attached. No lookup was started."
     }
 
-    fun approve(expected: Plan): Result = file.access {
+    fun approve(expected: Plan, replacing: Record? = null): Result = file.access {
         val state = recoverInterrupted(this, decode(read()))
-        if (state.pending != expected || !fresh(expected)) return@access Result("The reminder review changed or expired. Request and review it again; no alarm was registered by this approval.")
+        if (state.activeReview() != Review(expected, replacing)) return@access Result("The reminder review changed or expired. Request and review it again; no alarm was registered by this approval.")
         if (!platform.notificationsAvailable()) {
             diagnostic(expected.id, WorkflowDiagnostics.Code.NOTIFICATIONS_BLOCKED)
-            return@access Result("Allow Jarvis notifications in notification settings, then review and approve the reminder again. No alarm was registered; the pending review still expires after two minutes.")
+            return@access Result("Allow Jarvis notifications in notification settings, then review and approve the reminder again. " +
+                (if (replacing == null) "No alarm was registered; " else "This approval did not change the existing approved alarm; ") +
+                "the pending review still expires after two minutes.")
         }
-        if (state.records.size >= MAX_RECORDS || state.next == Int.MAX_VALUE) return@access Result("Reminder history is full. Review reminders, then clear completed reminder history before approving a new one.")
-        val record = Record(state.next, expected, Status.SCHEDULING)
-        val authorized = state.copy(next = state.next + 1, pending = null, records = state.records + record)
+        if (replacing == null && (state.records.size >= MAX_RECORDS || state.next == Int.MAX_VALUE)) return@access Result("Reminder history is full. Review reminders, then clear completed reminder history before approving a new one.")
+        val record = if (replacing == null) Record(state.next, expected, Status.SCHEDULING)
+            else replacing.copy(plan = expected.copy(id = replacing.plan.id), status = Status.SCHEDULING)
+        val authorized = if (replacing == null) state.copy(next = state.next + 1, pending = null, replacing = null, records = state.records + record)
+            else state.with(record).copy(pending = null, replacing = null)
         if (!write(encode(authorized))) return@access Result("Could not confirm reminder storage. Review reminders before trying again.")
         register(this, authorized, record)
     }
@@ -148,7 +181,9 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
     fun clearCompleted(): Int = file.access {
         val state = recoverInterrupted(this, decode(read()))
         val kept = state.records.filterNot { it.status in setOf(Status.POSTED, Status.USER_CONFIRMED, Status.CANCELLED, Status.MISSED) }
-        check(write(encode(state.copy(records = kept))))
+        val removedChangeTarget = state.replacing?.let { before -> kept.none { it.number == before.number } } == true
+        check(write(encode(state.copy(records = kept, pending = if (removedChangeTarget) null else state.pending,
+            replacing = if (removedChangeTarget) null else state.replacing))))
         state.records.size - kept.size
     }
 
@@ -170,36 +205,43 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
     private fun diagnostic(id: String, code: WorkflowDiagnostics.Code) { runCatching { observe(id, code) } }
     private fun State.with(record: Record) = copy(records = records.map { if (it.plan.id == record.plan.id) record else it })
     private fun fresh(plan: Plan) = now() - plan.created in 0..120_000 && now() < plan.dueAt
+    private fun changeable(record: Record) = record.status in setOf(Status.SCHEDULED, Status.SCHEDULE_FAILED)
+    private fun State.activeReview(): Review? = pending?.takeIf { fresh(it) }?.let { plan ->
+        if (replacing == null || (changeable(replacing) && records.any { it == replacing })) Review(plan, replacing) else null
+    }
 
     private fun decode(raw: String?): State {
         if (raw == null) return State()
         val json = JSONObject(raw)
-        require(json.getInt("version") == 1)
+        val version = json.getInt("version"); require(version in 1..2)
         fun plan(item: JSONObject) = Plan(item.getString("id"), item.getString("title"), item.getLong("created"), item.getLong("dueAt"),
             if (item.has("researchReport")) ResearchBriefs.Snapshot(item.getString("researchReport")) else null).also {
             require(validId(it.id) && validTitle(it.title) && it.created >= 0 && it.dueAt > it.created && it.dueAt - it.created in 1..DAY)
         }
         val rows = json.getJSONArray("records")
         require(rows.length() <= MAX_RECORDS)
-        val records = (0 until rows.length()).map { index -> rows.getJSONObject(index).let {
-            Record(it.getInt("number"), plan(it.getJSONObject("plan")), Status.valueOf(it.getString("status")))
-        } }
+        fun record(item: JSONObject) = Record(item.getInt("number"), plan(item.getJSONObject("plan")), Status.valueOf(item.getString("status")))
+        val records = (0 until rows.length()).map { index -> record(rows.getJSONObject(index)) }
         val next = json.getInt("next")
         require(next > 0 && records.all { it.number in 1 until next })
         require(records.distinctBy { it.number }.size == records.size && records.distinctBy { it.plan.id }.size == records.size)
         val pending = if (json.has("pending")) plan(json.getJSONObject("pending")) else null
         require(pending == null || records.none { it.plan.id == pending.id })
-        return State(next, pending, records)
+        require(version == 2 || !json.has("replacing"))
+        val replacing = if (json.has("replacing")) record(json.getJSONObject("replacing")) else null
+        require(replacing == null || (pending != null && changeable(replacing) && replacing.number in 1 until next &&
+            replacing.plan.id != pending.id && replacing.plan.title == pending.title && replacing.plan.research == pending.research))
+        return State(next, pending, records, replacing)
     }
     private fun encode(state: State): String {
         fun plan(value: Plan) = JSONObject().put("id", value.id).put("title", value.title).put("created", value.created).put("dueAt", value.dueAt).also {
             value.research?.let { research -> it.put("researchReport", research.report) }
         }
-        val rows = JSONArray().also { output -> state.records.forEach {
-            output.put(JSONObject().put("number", it.number).put("plan", plan(it.plan)).put("status", it.status.name))
-        } }
-        return JSONObject().put("version", 1).put("next", state.next).put("records", rows).also {
+        fun record(value: Record) = JSONObject().put("number", value.number).put("plan", plan(value.plan)).put("status", value.status.name)
+        val rows = JSONArray().also { output -> state.records.forEach { output.put(record(it)) } }
+        return JSONObject().put("version", 2).put("next", state.next).put("records", rows).also {
             state.pending?.let { pending -> it.put("pending", plan(pending)) }
+            state.replacing?.let { before -> it.put("replacing", record(before)) }
         }.toString()
     }
     companion object {

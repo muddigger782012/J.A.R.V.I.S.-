@@ -740,6 +740,80 @@ class PersonalFoundationAcceptanceTest {
         assertTrue(restored.getConversationSnapshot().isEmpty())
     }
 
+    @Test fun pendingReminderCorrectionsStayLocalAcrossServiceReconstructionAndDoNotConsumeGoalCorrections() {
+        val service = assistant()
+        val manager = PersonalReminderRuntime.manager(context)
+        service.handleUserInput("prepare a reminder in ten minutes to Would you like network settings")
+        val original = manager.pending()!!
+        var correction: HybridAssistantReply? = null
+        assistant().handleUserInputAsync("actually, make it five minutes") { correction = it }
+        assertNotNull(correction); assertFalse(correction!!.needsInterpretation)
+        val changed = manager.pending()!!
+        assertNotEquals(original.id, changed.id)
+        assertEquals(original.title, changed.title)
+        assertEquals(300_000L, changed.dueAt - changed.created)
+        assertNull(manager.approve(original).record)
+        var confirmation: HybridAssistantReply? = null
+        assistant().handleUserInputAsync("yes") { confirmation = it }
+        assertNotNull(confirmation); assertTrue(confirmation!!.text.contains("bare confirmation"))
+        assertTrue(manager.records().isEmpty())
+        var invalid: HybridAssistantReply? = null
+        assistant().handleUserInputAsync("actually make that ten minutes then search the service manual") { invalid = it }
+        assertNotNull(invalid); assertFalse(invalid!!.needsInterpretation)
+        assertNull(manager.pending()); assertTrue(manager.records().isEmpty())
+        assertTrue(service.getConversationSnapshot().isEmpty())
+        service.handleUserInput("help me focus for 25 minutes")
+        val goal = GoalPlanStore(context).pending()!!
+        assistant().handleUserInput("actually make that ten minutes")
+        val revised = GoalPlanStore(context).pending()!!
+        assertNotEquals(goal.key, revised.key)
+        assertEquals(goal.actions.first(), revised.actions.first())
+        assertEquals("timer:600", revised.actions.last())
+        assertEquals(0, context.activityRequests); assertEquals(0, executions)
+    }
+
+    @Test fun reviewedReminderTimeChangesRetainOneAndroidAlarmAndRejectEarlyOrRepeatedCallbacks() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) InstrumentationRegistry.getInstrumentation().uiAutomation
+            .grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+        val platform = PersonalReminderRuntime.platform(context)
+        val notifications = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        var time = System.currentTimeMillis()
+        fun manager() = PersonalReminders(PersonalStateFile(context, "personal-reminders.json"), platform) { time }
+        val service = assistant()
+        val created = service.handleUserInput("remind me in ten minutes to Synthetic time change")
+        assertTrue(created.text.contains("Registered reminder"))
+        val old = manager().records().single()
+        try {
+            assertTrue(service.handleUserInput("reschedule reminder one in twenty minutes").text.contains("existing approved alarm is unchanged"))
+            assertEquals(old, manager().records().single())
+            val restored = assistant()
+            assertTrue(restored.handleUserInput("approve reminder").text.contains("before approving again"))
+            assertEquals(old, manager().records().single())
+            assertTrue(restored.handleUserInput("approve reminder").text.contains("Time change for reminder"))
+            val changed = manager().records().single()
+            assertEquals(old.number, changed.number); assertEquals(old.plan.id, changed.plan.id)
+            assertEquals(1_200_000L, changed.plan.dueAt - changed.plan.created)
+            assertEquals(PersonalReminders.Status.SCHEDULED, changed.status)
+            time = old.plan.dueAt + 1
+            manager().deliver(old.plan.id)
+            assertFalse(notifications.activeNotifications.any { it.tag == old.plan.id })
+            time = changed.plan.dueAt + 1
+            assertEquals(PersonalReminders.Status.POSTED, manager().deliver(old.plan.id).record!!.status)
+            manager().deliver(old.plan.id)
+            assertEquals(1, notifications.activeNotifications.count { it.tag == old.plan.id })
+            assertNull(manager().prepareChange(old.number, 300))
+            service.handleUserInput("enable improvement evaluation")
+            service.handleUserInput("record improvement feedback for reminder changes as failed")
+            assertTrue(service.handleUserInput("prepare improvement proposal for reminder changes").text.contains("PersonalReminders"))
+            assertFalse(WorkflowDiagnostics(context).snapshot().enabled)
+            assertTrue(service.getConversationSnapshot().isEmpty())
+            assertEquals(0, context.activityRequests); assertEquals(0, executions)
+        } finally {
+            platform.cancel(old.plan.id)
+            notifications.cancel(old.plan.id, 7141)
+        }
+    }
+
     private fun assistant(researchFetch: ((String) -> SearchRouter.Response)? = null): HybridAssistantService {
         val capabilities = CapabilityState(true, false, false, false, false, false, false)
         val registry = ActionRegistry()
