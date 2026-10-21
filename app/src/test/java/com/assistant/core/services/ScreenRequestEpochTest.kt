@@ -42,4 +42,11 @@ class ScreenRequestEpochTest {
         gate.cancel(); resume.countDown()
         assertTrue(done.await(2, TimeUnit.SECONDS)); assertFalse(couldDispatch)
     }
+    @Test fun pausingCanRetainIntentButAResultTimeoutMustDiscardApproval() {
+        val gate = ScreenRequestEpoch(); val beforePause = gate.token()
+        gate.cancel(preserveTask = true)
+        assertTrue(gate.state().preserveTask); assertFalse(gate.valid(beforePause))
+        gate.timeout(beforePause); assertTrue(gate.state().preserveTask)
+        gate.timeout(gate.token()); assertFalse(gate.state().preserveTask)
+    }
 }

@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.os.Build
 import android.text.InputType
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import java.security.MessageDigest
 
 /** On-demand, bounded node access. No gestures, injected events, files or network traffic. */
@@ -30,10 +31,13 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
         try {
             check(root.refresh())
             val pkg = root.packageName?.toString()?.takeIf { it.length in 1..200 } ?: error("No active package")
-            val protected = pkg in setOf("com.android.settings", "com.android.systemui", "com.android.packageinstaller",
+            val window = root.window ?: error("No stable app window")
+            @Suppress("DEPRECATION") val windowType = try { window.type } finally { window.recycle() }
+            val appLabel = appLabel(pkg)
+            val protected = windowType != AccessibilityWindowInfo.TYPE_APPLICATION || pkg in setOf("android", "com.android.settings", "com.android.systemui", "com.android.packageinstaller",
                 "com.google.android.packageinstaller", "com.samsung.android.settings") ||
                 listOf("permissioncontroller", "packageinstaller", "securitycenter").any { pkg.contains(it, true) }
-            if (protected) return Capture(ScreenControls.Snapshot("protected", pkg, emptyList(), emptyList(), true), emptyMap(), owned)
+            if (protected) return Capture(ScreenControls.Snapshot("protected", pkg, emptyList(), emptyList(), true, appLabel), emptyMap(), owned)
             val deadline = minOf(SystemClock.uptimeMillis() + 1500, requestDeadline.get() ?: Long.MAX_VALUE)
             val queue = ArrayDeque<Pair<String, AccessibilityNodeInfo>>()
             queue.add("0" to root)
@@ -41,6 +45,8 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
             val text = mutableListOf<String>()
             val controls = mutableListOf<ScreenControls.Control>()
             val nodeLabels = linkedMapOf<String, String>()
+            val boundsByPath = linkedMapOf<String, Rect>()
+            val headings = linkedMapOf<String, String>()
             val digest = MessageDigest.getInstance("SHA-256")
             var characters = 0
             var sensitive = false
@@ -59,31 +65,54 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                 if (password) { sensitive = true; continue } // Never read this node or its descendants.
                 val label = node.text?.toString()?.trim().orEmpty()
                 val description = node.contentDescription?.toString()?.trim().orEmpty()
-                check(label.length <= 2000 && description.length <= 2000)
-                characters += label.length + description.length; check(characters <= 50_000)
+                val hint = node.hintText?.toString()?.trim().orEmpty()
+                check(label.length <= 2000 && description.length <= 2000 && hint.length <= 2000)
+                characters += label.length + description.length + hint.length; check(characters <= 50_000)
                 nodeLabels[path] = label.ifBlank { description }
                 val bounds = Rect(); node.getBoundsInScreen(bounds)
-                val click = node.isEnabled && node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }
-                val scroll = node.isEnabled && node.actionList.any { it.id in setOf(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD, AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) }
+                boundsByPath[path] = bounds
+                val click = node.isClickable || node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }
+                val scroll = node.isScrollable || node.actionList.any { it.id in setOf(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD, AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) }
+                val role = ScreenSemantics.role(node.className?.toString().orEmpty(), node.isEditable, scroll)
+                val heading = Build.VERSION.SDK_INT >= 28 && node.isHeading
+                if (heading && nodeLabels[path].orEmpty().isNotBlank()) headings[path] = display(nodeLabels.getValue(path), 100)
                 hash(path); hash(node.className?.toString().orEmpty()); hash(node.viewIdResourceName.orEmpty())
-                hash(label); hash(description); hash(bounds.flattenToString()); hash("${node.isEnabled}:$click:$scroll")
-                listOf(label, description).filter { it.isNotBlank() }.forEach { text.add(display(it, 200)) }
-                if (click || scroll) controls.add(ScreenControls.Control(path,
-                    display(label.ifBlank { description }.ifBlank { if (scroll) "Scrollable area" else "Unlabelled control" }, 100), click, scroll))
+                hash(label); hash(description); hash(hint); hash(bounds.flattenToString())
+                hash("${node.isEnabled}:$click:$scroll:$heading:${node.isCheckable}:${node.isChecked}:${node.isSelected}")
+                listOf(label, description, hint).filter { it.isNotBlank() }.forEach { text.add(display(it, 200)) }
+                if (click || scroll || node.isEditable || node.isCheckable || role in setOf(ScreenSemantics.Role.BUTTON,
+                        ScreenSemantics.Role.SWITCH, ScreenSemantics.Role.CHECKBOX, ScreenSemantics.Role.RADIO_BUTTON, ScreenSemantics.Role.MENU_ITEM)) {
+                    val controlLabel = if (role == ScreenSemantics.Role.TEXT_FIELD) description.ifBlank { hint }.ifBlank { "Text field" }
+                        else label.ifBlank { description }.ifBlank { if (scroll) "Scrollable area" else "Unlabelled control" }
+                    controls.add(ScreenControls.Control(path, display(controlLabel, 100), click, scroll, role,
+                        enabled = node.isEnabled, checked = if (node.isCheckable) node.isChecked else null, selected = node.isSelected))
+                }
                 check(path.count { it == '/' } < 30 && node.childCount <= 300)
                 for (index in 0 until node.childCount) node.getChild(index)?.let {
                     owned.add(it); check(owned.size <= 300); queue.add("$path/$index" to it)
                 }
             }
             // Password-entry windows expose neither surrounding text nor executable targets.
-            val labelled = controls.map { control ->
-                if (control.label != "Unlabelled control") control else {
-                    val nested = nodeLabels.filter { (path, label) -> path.startsWith(control.path + "/") && label.isNotBlank() }.values.take(3).joinToString(" ")
-                    if (nested.isBlank()) control else control.copy(label = display(nested, 100))
+            val labelled = controls.map { original ->
+                val control = if (original.label != "Unlabelled control") original else {
+                    val nested = nodeLabels.filter { (path, label) -> path.startsWith(original.path + "/") && label.isNotBlank() }.values.take(3).joinToString(" ")
+                    if (nested.isBlank()) original else original.copy(label = display(nested, 100))
                 }
+                val parentLabel = generateSequence(control.path.substringBeforeLast('/', "")) {
+                    it.substringBeforeLast('/', "").takeIf(String::isNotBlank)
+                }.mapNotNull { nodeLabels[it]?.takeIf { value -> value.isNotBlank() && value != control.label } }.firstOrNull()
+                val bounds = boundsByPath.getValue(control.path)
+                val preceding = headings.keys.filter { path ->
+                    val header = boundsByPath.getValue(path)
+                    header.top <= bounds.top && header.left < bounds.right && header.right > bounds.left && path != control.path
+                }
+                val sameSection = preceding.filter { it.substringBeforeLast('/') == control.path.substringBeforeLast('/') }
+                val headingPath = (sameSection.ifEmpty { preceding }).maxByOrNull { boundsByPath.getValue(it).top }
+                control.copy(contextLabel = display(parentLabel ?: headingPath?.let { headings[it] }.orEmpty(), 100))
             }
             val snapshot = ScreenControls.Snapshot(digest.digest().joinToString("") { "%02x".format(it) }, pkg,
-                if (sensitive) emptyList() else labelled, if (sensitive) emptyList() else text.distinct(), sensitive)
+                if (sensitive) emptyList() else labelled, if (sensitive) emptyList() else text.distinct(), sensitive,
+                appLabel, if (sensitive) emptyList() else headings.values.distinct().take(20))
             return Capture(snapshot, nodes, owned)
         } catch (failure: Exception) {
             @Suppress("DEPRECATION") owned.forEach { it.recycle() }
@@ -93,7 +122,7 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
     override fun snapshot(): ScreenControls.Snapshot = capture().use { it.snapshot }
     override fun perform(snapshot: ScreenControls.Snapshot, control: ScreenControls.Control, scroll: ScreenControls.Kind?): ScreenControls.Result = try {
         capture().use { current ->
-            if (current.snapshot.blocked || current.snapshot.key != snapshot.key || control !in current.snapshot.controls)
+            if (current.snapshot.blocked || current.snapshot.key != snapshot.key || control !in current.snapshot.controls || !control.enabled)
                 return@use ScreenControls.Result.CHANGED
             val node = current.nodes[control.path] ?: return@use ScreenControls.Result.CHANGED
             val action = when (scroll) {
@@ -107,6 +136,10 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
             if (node.performAction(action)) ScreenControls.Result.ACCEPTED else ScreenControls.Result.REJECTED
         }
     } catch (_: Exception) { ScreenControls.Result.UNKNOWN }
+    private fun appLabel(pkg: String): String = if (pkg == "android") "Android system" else runCatching {
+        display(context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString(), 80)
+            .ifBlank { "the active app" }
+    }.getOrDefault("the active app")
     override fun global(kind: ScreenControls.Kind): ScreenControls.Result = try {
         if (locked()) ScreenControls.Result.REJECTED else {
             val action = when (kind) {

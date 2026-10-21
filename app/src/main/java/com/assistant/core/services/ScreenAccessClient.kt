@@ -10,10 +10,18 @@ class ScreenAccessClient(private val context: Context) {
     private fun call(method: String, text: String? = null) = context.contentResolver.call(
         Uri.parse("content://${context.packageName}.screen-access"), method, text, null)
     fun connected(): Boolean = runCatching { call("connected")?.getBoolean("connected") == true }.getOrDefault(false)
+    data class TaskState(val active: Boolean = false, val awaitingInput: Boolean = false)
+    fun taskState(): TaskState = runCatching { call("task_state")?.let {
+        TaskState(it.getBoolean("active"), it.getBoolean("awaiting_input"))
+    } ?: TaskState() }.getOrDefault(TaskState())
+    fun accepts(text: String) = ScreenSession.recognizes(text) ||
+        (ScreenTaskCommands.contextual(text) != null && taskState().active)
     fun discard() { runCatching { call("discard") } }
     fun reply(text: String): String {
-        val command = ScreenControls.parse(text) ?: return "No supported screen command was requested."
-        if (command.kind == ScreenControls.Kind.SETUP) {
+        if (!accepts(text)) return "No supported screen command was requested."
+        if (text.length > 400) { discard(); return "Keep screen requests short and bounded. " + ScreenTaskCommands.help() }
+        val command = ScreenControls.parse(text)
+        if (command?.kind == ScreenControls.Kind.SETUP) {
             discard()
             val details = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS").putExtra("android.intent.extra.COMPONENT_NAME",
                 ComponentName(context, JarvisAccessibilityService::class.java).flattenToString())

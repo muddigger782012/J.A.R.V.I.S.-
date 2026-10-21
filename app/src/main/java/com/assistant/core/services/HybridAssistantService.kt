@@ -93,8 +93,7 @@ class HybridAssistantService(
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
         if (personalAssistant) {
-            val screenCommand = ScreenControls.parse(userInput)
-            if (screenCommand != null) {
+            if (screenAccess.accepts(userInput)) {
                 appDiscovery.discard()
                 clearPendingActionPrompts()
                 taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
@@ -1203,7 +1202,7 @@ class HybridAssistantService(
     }
 
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
-        if (personalAssistant && ScreenControls.parse(rawInput) != null) {
+        if (personalAssistant && screenAccess.accepts(rawInput)) {
             Thread { callback(handleUserInput(rawInput)) }.start(); return
         }
         if (personalAssistant) screenAccess.discard()

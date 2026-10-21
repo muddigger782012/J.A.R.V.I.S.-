@@ -164,4 +164,59 @@ class ScreenControlAcceptanceTest {
             assertTrue(remote("tap screen item one then run shell reboot").contains("Nothing was run"))
         }
     }
+
+    @Test fun realScreenTaskChecksEachPageAndCannotReuseAnEarlierStepConfirmation(): Unit = withAccess(true) {
+        ActivityScenario.launch(ScreenControlFixtureActivity::class.java).use { scenario ->
+            scenario.onActivity { it.showTaskStart() }; instrumentation.waitForIdleSync(); settled()
+            assertTrue(remote("help me open Menu then Downloads and verify Downloads page").contains("approve screen task"))
+            assertTrue(remote("approve screen task").contains("confirm screen step one"))
+            scenario.onActivity { assertEquals(0, it.taskTapCount) }
+            remote("yes"); remote("confirm screen action")
+            scenario.onActivity { assertEquals(0, it.taskTapCount) }
+            assertTrue(remote("confirm screen step one").contains("Android accepted step 1"))
+            waitUntil { var count = 0; scenario.onActivity { count = it.taskTapCount }; count == 1 }
+            remote("confirm screen step one"); scenario.onActivity { assertEquals(1, it.taskTapCount) }
+            settled(); assertTrue(remote("continue screen task").contains("confirm screen step two"))
+            remote("confirm screen step one"); scenario.onActivity { assertEquals(1, it.taskTapCount) }
+            assertTrue(remote("confirm screen step two").contains("Android accepted step 2"))
+            waitUntil { var count = 0; scenario.onActivity { count = it.taskTapCount }; count == 2 }
+            settled(); assertTrue(remote("continue screen task").contains("Verified the requested visible screen text"))
+            assertFalse(ScreenAccessClient(context).taskState().active)
+            remote("confirm screen step two"); scenario.onActivity { assertEquals(2, it.taskTapCount) }
+        }
+    }
+
+    @Test fun realRolesAndSectionLabelsAreLocalAndNotificationCancellationStopsAReviewedTask(): Unit = withAccess(true) {
+        ActivityScenario.launch(ScreenControlFixtureActivity::class.java).use { scenario ->
+            // A disposable emulator grants its own notification permission; production never does.
+            if (android.os.Build.VERSION.SDK_INT >= 33) automation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+            scenario.onActivity { it.showTaskAccounts() }; instrumentation.waitForIdleSync(); settled()
+            val snapshot = AndroidScreenPlatform(context).snapshot()
+            val accounts = snapshot.controls.filter { it.label == "Account" }
+            assertEquals(2, accounts.size)
+            assertTrue(accounts.all { it.role == ScreenSemantics.Role.BUTTON })
+            assertEquals(setOf("Work", "Personal"), accounts.map { it.contextLabel }.toSet())
+            assertFalse(snapshot.controls.single { it.label == "Unavailable" }.enabled)
+            assertFalse(snapshot.appLabel.isBlank())
+            remote("screen task tap button named Account under Personal and verify Personal account page")
+            assertTrue(remote("approve screen task").contains("under Personal"))
+            val manager = context.getSystemService(android.app.NotificationManager::class.java)
+            waitUntil { manager.activeNotifications.any { it.id == ScreenTaskNotifications.ID } }
+            val notification = manager.activeNotifications.single { it.id == ScreenTaskNotifications.ID }.notification
+            assertEquals(android.app.Notification.VISIBILITY_PRIVATE, notification.visibility)
+            val cancel = notification.actions.single { it.title.toString() == "Cancel screen task" }
+            val receiver = context.packageManager.getReceiverInfo(ComponentName(context, ScreenTaskCancelReceiver::class.java), 0)
+            assertFalse(receiver.exported); assertTrue(receiver.processName.endsWith(":wake"))
+            cancel.actionIntent.send()
+            waitUntil { !ScreenAccessClient(context).taskState().active }
+            remote("confirm screen step one")
+            scenario.onActivity { assertEquals(0, it.taskTapCount) }
+            waitUntil { manager.activeNotifications.none { it.id == ScreenTaskNotifications.ID } }
+            settled()
+            remote("screen task tap button named Account under Personal and verify Personal account page")
+            remote("approve screen task"); remote("confirm screen step one")
+            waitUntil { var count = 0; scenario.onActivity { count = it.taskTapCount }; count == 1 }
+            settled(); assertTrue(remote("continue screen task").contains("Verified the requested visible screen text"))
+        }
+    }
 }
