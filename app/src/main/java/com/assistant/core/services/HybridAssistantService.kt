@@ -1208,6 +1208,27 @@ class HybridAssistantService(
         // Resolve a short affirmative reply against an immediately preceding manual-verification offer.
         // Never infer a serial number or an equipment-specific procedure from the offer.
         val priorTurn = conversationTurns().lastOrNull()
+        val affirmativeFollowup = rawInput.trim().lowercase(Locale.ROOT).trimEnd('.', '!', '?') in
+            setOf("yes", "yes please", "please", "sure", "go ahead", "please do", "do it")
+        val offeredNetworkSettings = priorTurn?.second?.let { reply ->
+            reply.contains("network settings", ignoreCase = true) &&
+                (reply.contains("would you like", ignoreCase = true) ||
+                    reply.contains("shall i", ignoreCase = true) ||
+                    reply.contains("want me to", ignoreCase = true))
+        } == true
+        if (affirmativeFollowup && offeredNetworkSettings) {
+            val response = try {
+                val intent = android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                systemService.context().startActivity(intent)
+                "Opened Android network settings. I have not changed any settings or verified internet reachability."
+            } catch (_: Exception) {
+                "I could not open network settings automatically. Open Android Settings, then Connections, to inspect Wi-Fi and mobile data."
+            }
+            remember(rawInput, response)
+            callback(HybridAssistantReply(response))
+            return
+        }
         val manualConfirmation = rawInput.trim().lowercase() in setOf(
             "yes", "yes please", "please", "sure", "go ahead", "please do", "do it"
         ) && priorTurn?.second?.let { reply ->
