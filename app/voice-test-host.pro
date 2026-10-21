@@ -57,6 +57,12 @@
 -keep,allowoptimization class com.assistant.core.services.ContactCallWorkflow** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ResearchBriefs** { public *; }
 -keep,allowoptimization class com.assistant.core.services.WorkflowDiagnostics** { public *; }
+-keep,allowoptimization class com.assistant.core.services.DeviceReport** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AndroidDeviceReport** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.PrivilegedAccess** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.CapabilityDetector { public *; }
+-keep,allowoptimization class com.assistant.core.engine.PolicyDecision { public *; }
+-keep,allowoptimization class com.assistant.core.adapters.DhizukuAdapter { public *; }
 -keep,allowoptimization class com.assistant.core.services.ComposableGoalPlanning** { public *; }
 # Staged-goal fixtures save synthetic preferences and inspect intercepted launcher bindings.
 -keep,allowoptimization class com.assistant.core.services.AssistantMemory** { public *; }

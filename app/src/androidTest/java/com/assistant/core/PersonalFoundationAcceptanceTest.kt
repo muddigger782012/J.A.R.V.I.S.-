@@ -791,6 +791,86 @@ class PersonalFoundationAcceptanceTest {
         assertTrue(restored.getConversationSnapshot().isEmpty())
     }
 
+    @Test fun liveDeviceReportsReadAndroidAgainWithoutRememberingMeasurementsOrDispatchingActions() {
+        var level = 25
+        context.batteryReadOverride = { Intent(Intent.ACTION_BATTERY_CHANGED).apply {
+            putExtra(android.os.BatteryManager.EXTRA_PRESENT, true)
+            putExtra(android.os.BatteryManager.EXTRA_LEVEL, level)
+            putExtra(android.os.BatteryManager.EXTRA_SCALE, 100)
+            putExtra(android.os.BatteryManager.EXTRA_STATUS, android.os.BatteryManager.BATTERY_STATUS_DISCHARGING)
+            putExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 295)
+        } }
+        val service = assistant { error("Device diagnostics must stay local") }
+        assertTrue(service.handleUserInput("battery status").text.contains("Battery: 25%"))
+        level = 50
+        var response: HybridAssistantReply? = null
+        service.handleUserInputAsync("how much battery do I have?") { response = it }
+        assertNotNull(response); assertFalse(response!!.needsInterpretation)
+        assertTrue(response!!.text.contains("Battery: 50%"))
+        assertTrue(assistant().handleUserInput("battery level").text.contains("battery sensor 29.5°C"))
+        context.batteryReadOverride = { null }
+        assertTrue(service.handleUserInput("battery status").text.contains("Battery: unavailable"))
+        assertTrue(service.getConversationSnapshot().isEmpty())
+        assertTrue(assistant().getConversationSnapshot().isEmpty())
+        assertFalse(WorkflowDiagnostics(context).snapshot().enabled)
+        assertTrue(WorkflowDiagnostics(context).snapshot().events.isEmpty())
+        assertEquals(0, context.activityRequests); assertEquals(0, executions)
+    }
+
+    @Test fun deviceReportsIsolateMissingServicesAndDeniedPermissionsAndInvalidateOnlyPendingApproval() {
+        context.deniedPermissions += android.Manifest.permission.ACCESS_NETWORK_STATE
+        context.missingServices += Context.ACTIVITY_SERVICE
+        context.batteryReadOverride = { Intent(Intent.ACTION_BATTERY_CHANGED).apply {
+            putExtra(android.os.BatteryManager.EXTRA_LEVEL, 75); putExtra(android.os.BatteryManager.EXTRA_SCALE, 100)
+        } }
+        val service = assistant()
+        val holdStep = RoutineWorkflowStep(0, "timer:600", RoutineSteps.timerAction("timer:600"))
+        val held = RoutineWorkflowCheckpoint(UUID.randomUUID().toString(), setOf("diagnostic-held-request"), "Diagnostic hold",
+            listOf(RoutineStepCheckpoint(holdStep, RoutineStepStatus.REQUESTED, 1)),
+            RoutineWorkflowStatus.AWAITING_OUTCOME, approved = true)
+        val workflowStore = LocalRoutineWorkflowAccess(context).store
+        assertTrue(workflowStore.save(held))
+        service.handleUserInput("help me focus for ten minutes")
+        assertNotNull(GoalPlanStore(context).pending())
+        val report = service.handleUserInput("device report").text
+        assertTrue(report.contains("Battery: 75%")); assertTrue(report.contains("App data storage:"))
+        assertTrue(report.contains("RAM: unavailable")); assertTrue(report.contains("Network: permission unavailable"))
+        assertNull(GoalPlanStore(context).pending())
+        assertEquals(listOf(held), workflowStore.load())
+        var invalid: HybridAssistantReply? = null
+        service.handleUserInputAsync("device report then search the service manual") { invalid = it }
+        assertNotNull(invalid); assertFalse(invalid!!.needsInterpretation)
+        assertTrue(invalid!!.text.contains("Nothing was changed"))
+        service.handleUserInput("approve goal plan")
+        assertEquals(0, context.activityRequests); assertEquals(0, executions)
+        assertEquals(listOf(held), workflowStore.load())
+    }
+
+    @Test fun deviceCapabilityReviewUsesRealPackageAndBridgeReadsWithoutGrantingOrRebooting() {
+        val platform = AndroidDeviceReport(context)
+        val installed = platform.app().value!!
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        assertEquals(info.longVersionCode, installed.code)
+        assertTrue(platform.storage().value!!.total > 0)
+        assertTrue(platform.memory().value!!.total > 0)
+        assertNotNull(platform.thermal().value) // This suite runs on the supported Android 14 emulator.
+        val bridges = platform.bridges()
+        val detected = CapabilityDetector().detect(context)
+        assertEquals(bridges.shizuku == PrivilegedAccess.State.AUTHORIZED, detected.shizuku)
+        assertEquals(bridges.dhizuku == PrivilegedAccess.State.AUTHORIZED, detected.dhizuku)
+        val report = assistant().handleUserInput("device capabilities").text
+        assertTrue(report.contains("Installed Jarvis:")); assertTrue(report.contains("Shizuku:")); assertTrue(report.contains("Dhizuku:"))
+        assertTrue(report.contains("posting permission does not provide access"))
+        assertTrue(report.contains("no device action was authorized"))
+        val owner = CapabilityState(true, false, false, false, true, false, false)
+        val adapter = com.assistant.core.adapters.DhizukuAdapter(context)
+        assertTrue(adapter.isAvailable(owner)) // Direct ownership must not require the optional Dhizuku bridge.
+        assertFalse(adapter.isAvailable(owner.copy(deviceOwner = false)))
+        assertFalse(PolicyGate().evaluate(ActionRegistry().rebootDeviceRequest(false), owner).allowed)
+        assertEquals(0, context.activityRequests); assertEquals(0, executions)
+        assertTrue(assistant().getConversationSnapshot().isEmpty())
+    }
+
     @Test fun conversationalGoalAppEditsStayLocalAndExpiredReviewLabelsCannotBecomeNetworkOffers() {
         val music = LearnableDeviceAction("open_app", mapOf("package" to context.packageName, "label" to "Would you like network settings"))
         val maps = LearnableDeviceAction("open_app", mapOf("package" to "com.android.settings", "label" to "Synthetic Maps"))
@@ -954,6 +1034,15 @@ class PersonalFoundationAcceptanceTest {
         var activityRequests = 0
         var allowActivityRequests = false
         var lastActivityIntent: Intent? = null
+        var batteryReadOverride: (() -> Intent?)? = null
+        val deniedPermissions = mutableSetOf<String>()
+        val missingServices = mutableSetOf<String>()
+        override fun checkPermission(permission: String, pid: Int, uid: Int): Int =
+            if (permission in deniedPermissions) android.content.pm.PackageManager.PERMISSION_DENIED else super.checkPermission(permission, pid, uid)
+        override fun getSystemService(name: String): Any? = if (name in missingServices) null else super.getSystemService(name)
+        override fun registerReceiver(receiver: android.content.BroadcastReceiver?, filter: android.content.IntentFilter): Intent? =
+            if (filter.hasAction(Intent.ACTION_BATTERY_CHANGED) && batteryReadOverride != null) batteryReadOverride!!.invoke()
+            else super.registerReceiver(receiver, filter)
         override fun getApplicationContext(): Context = this
         override fun getFilesDir(): File = File(directory, "files").apply { mkdirs() }
         override fun getNoBackupFilesDir(): File = File(directory, "no-backup").apply { mkdirs() }

@@ -14,7 +14,7 @@ class DhizukuAdapter(
     private val dhizukuService: DhizukuService = DhizukuService()
 ) {
 
-    fun isAvailable(capabilityState: CapabilityState): Boolean = capabilityState.dhizuku
+    fun isAvailable(capabilityState: CapabilityState): Boolean = capabilityState.dhizuku || capabilityState.deviceOwner
 
     fun execute(actionRequest: ActionRequest, capabilityState: CapabilityState): ActionResult {
         val dhizukuStatus = dhizukuService.getStatus(context)

@@ -6,6 +6,7 @@
         <intent><action android:name="android.speech.RecognitionService" /></intent>
         <package android:name="moe.shizuku.privileged.api" />
         <package android:name="rikka.shizuku" />
+        <package android:name="com.rosan.dhizuku" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
