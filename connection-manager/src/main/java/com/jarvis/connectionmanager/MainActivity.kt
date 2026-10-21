@@ -199,7 +199,7 @@ class MainActivity : Activity() {
                 cards["GITHUB UPDATES"]?.text = "GITHUB UPDATES\n$github"
                 log("Repository API probe: $github (does not verify update manifest)")
                 cards["WEB SEARCH"]?.text = "WEB SEARCH\n${search.detail} (${search.latencyMs} ms)"
-                cards["GEMINI AI"]?.text = "GEMINI AI\n${gemini.detail} (${gemini.latencyMs} ms)"
+                cards["GEMINI AI"]?.text = "GEMINI AI\n${gemini?.detail ?: geminiPublic?.detail ?: "NOT TESTED"} (${gemini?.latencyMs ?: geminiPublic?.latencyMs ?: 0} ms)"
                 log(if (gemini != null) "Gemini: authenticated model listing checked; search remains public reachability only" else "Search and Gemini: public reachability only; provider API calls not authenticated")
                 listOf("AI FALLBACK", "LOCAL AI").forEach {
                     cards[it]?.text = "$it\nNOT TESTED"
