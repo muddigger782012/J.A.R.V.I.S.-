@@ -114,27 +114,30 @@
             <FrameLayout android:id="@+id/conversationToolbar"
                 android:layout_width="match_parent" android:layout_height="108dp"
                 android:layout_marginBottom="-108dp" android:elevation="12dp">
-                <Button android:id="@+id/btnOpenJarvisChat"
-                    android:layout_width="48dp" android:layout_height="48dp"
+                <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btnOpenJarvisChat"
+                    android:layout_width="40dp" android:layout_height="48dp"
                     android:layout_gravity="top|end"
-                   
+                    android:padding="9dp" android:scaleType="fitCenter"
                     android:background="@drawable/composer_icon_ring"
-                    android:contentDescription="Expand chat navigation" android:foreground="@drawable/ic_chat_menu" android:foregroundGravity="center" android:foregroundTint="?attr/jarvis_primary" />
-                <Button android:id="@+id/btnNewAssistantChat"
-                    android:layout_width="48dp" android:layout_height="48dp"
+                    android:contentDescription="Expand chat navigation"
+                    app:backgroundTint="@null" app:srcCompat="@drawable/ic_chat_menu"
+                    app:tint="?attr/jarvis_primary" />
+                <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btnNewAssistantChat"
+                    android:layout_width="40dp" android:layout_height="48dp"
                     android:layout_gravity="top|end" android:layout_marginTop="50dp"
-                   
-                   
+                    android:padding="9dp" android:scaleType="fitCenter"
                     android:background="@drawable/composer_icon_ring"
-                    android:contentDescription="New chat" android:foreground="@drawable/ic_chat_new" android:foregroundGravity="center" android:foregroundTint="?attr/jarvis_primary" />
-                <Button android:id="@+id/btnAssistantHistory"
-                    android:layout_width="48dp" android:layout_height="48dp"
-                    android:layout_gravity="top|end" android:layout_marginEnd="50dp"
-                   
-                   
+                    android:contentDescription="New chat"
+                    app:backgroundTint="@null" app:srcCompat="@drawable/ic_chat_new"
+                    app:tint="?attr/jarvis_primary" />
+                <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btnAssistantHistory"
+                    android:layout_width="40dp" android:layout_height="48dp"
+                    android:layout_gravity="top|end" android:layout_marginEnd="50dp" android:visibility="gone"
+                    android:padding="9dp" android:scaleType="fitCenter"
                     android:background="@drawable/composer_icon_ring"
-                    android:visibility="gone"
-                    android:contentDescription="Chat history" android:foreground="@drawable/ic_chat_history" android:foregroundGravity="center" android:foregroundTint="?attr/jarvis_primary" />
+                    android:contentDescription="Chat history"
+                    app:backgroundTint="@null" app:srcCompat="@drawable/ic_chat_history"
+                    app:tint="?attr/jarvis_primary" />
             </FrameLayout>
             <LinearLayout android:id="@+id/micPermissionCard" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:background="@drawable/glass_panel_surface" android:padding="12dp" android:orientation="vertical" android:visibility="gone">
