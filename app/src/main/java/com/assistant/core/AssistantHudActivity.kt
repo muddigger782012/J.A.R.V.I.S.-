@@ -3,6 +3,7 @@ package com.assistant.core
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
+import android.util.TypedValue
 import android.os.BatteryManager
 import android.os.Bundle
 import android.view.Gravity
@@ -12,16 +13,21 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /** Optional HUD surface. MainActivity remains the default Jarvis launcher. */
-class AssistantHudActivity : Activity() {
-    private val cyan = Color.rgb(54, 222, 255)
+class AssistantHudActivity : ThemedActivity() {
+    private fun themeColor(attribute: Int): Int {
+        val value = TypedValue()
+        theme.resolveAttribute(attribute, value, true)
+        return value.data
+    }
+    private val cyan get() = themeColor(android.R.attr.textColorPrimary)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.rgb(3, 13, 23)
-        window.navigationBarColor = Color.rgb(3, 13, 23)
+        window.statusBarColor = themeColor(android.R.attr.colorBackground)
+        window.navigationBarColor = themeColor(android.R.attr.colorBackground)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(20, 24, 20, 24)
-            setBackgroundColor(Color.rgb(3, 13, 23))
+            setBackgroundColor(themeColor(android.R.attr.colorBackground))
         }
         val scroll = ScrollView(this).apply { addView(root) }
         setContentView(scroll)
@@ -55,7 +61,7 @@ class AssistantHudActivity : Activity() {
         val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         listOf(left, right).forEachIndexed { i, title ->
             line.addView(label(title, 15).apply {
-                setBackgroundColor(Color.rgb(9, 39, 56))
+                setBackgroundColor(themeColor(android.R.attr.colorBackground))
                 setOnClickListener { action(i) }
             }, LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(4, 8, 4, 8) })
         }
