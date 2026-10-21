@@ -129,10 +129,19 @@ try:
     open_settings_destination('Appearance')
     assert any(n.get('resource-id') == 'com.assistant.core:id/appearanceTabs' for n in hierarchy().iter('node')), 'Appearance screen did not open'
     capture('appearance')
+    # The theme grid may be nested in a scrolling container; first capture
+    # its hierarchy so a missing tile is diagnosable instead of silently skipped.
+    theme_ids = {'btnThemeStark', 'btnThemeCybertron', 'btnThemeDefault'}
+    visible_ids = {n.get('resource-id', '').split('/')[-1] for n in hierarchy().iter('node')}
+    print('Visible theme controls: ' + repr(sorted(visible_ids & theme_ids)), flush=True)
+    capture('theme-picker-initial')
     for name in ('Stark', 'Cybertron', 'Default'):
-        # Exercise the existing theme picker without relying on obsolete Settings buttons.
-        tap_scrolling('btnTheme' + name)
-        capture('theme-picker-' + name.lower())
+        try:
+            tap_scrolling('btnTheme' + name)
+            capture('theme-picker-' + name.lower())
+        except AssertionError:
+            capture('theme-picker-missing-' + name.lower())
+            raise
     adb('shell', 'input', 'keyevent', '4')
     time.sleep(1)
     adb('shell', 'input', 'keyevent', '4')
