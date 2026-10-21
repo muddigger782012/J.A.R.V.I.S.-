@@ -183,10 +183,32 @@ class MainActivity : Activity() {
                 }
                 .show()
         }
-        providerRow("WEB SEARCH", "Public endpoint reachability only. Search API authentication not connected.")
-        providerRow("GITHUB UPDATES", "Repository API reachability only. Release/update manifest not connected.")
+        providerRow("WEB SEARCH", "Public endpoint reachability only. Search API authentication not connected.") {
+            testPublicProvider("WEB SEARCH", "https://www.google.com/search?q=connectivity")
+        }
+        providerRow("GITHUB UPDATES", "Repository API reachability only. Release/update manifest not connected.") {
+            testPublicProvider("GITHUB UPDATES", "https://api.github.com/repos/muddigger782012/J.A.R.V.I.S.-")
+        }
         providerRow("AI FALLBACK", "Not configured. No fallback provider requests are made.")
         providerRow("LOCAL AI", "Not configured. No local model is currently tested.")
+    }
+
+    private fun testPublicProvider(name: String, endpoint: String) {
+        if (runningDiagnostics) {
+            log("Wait for current diagnostics to finish")
+            return
+        }
+        runningDiagnostics = true
+        cards[name]?.text = "$name\\nTESTING..."
+        thread {
+            val result = ProviderDiagnostics.checkPublicEndpoint(name, endpoint)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                runningDiagnostics = false
+                cards[name]?.text = "$name\\n${result.detail} (${result.latencyMs} ms)"
+                log("$name: ${result.detail} (${result.latencyMs} ms); public reachability only")
+            }
+        }
     }
 
     private fun testGeminiOnly() {
