@@ -175,12 +175,43 @@ class MainActivity : Activity() {
             })
         }
         providerRow("GEMINI AI", "Authenticated model listing supported with a session-only key.") {
-            configureGeminiKey()
+            val choices = arrayOf("Configure session key", "Test Gemini now")
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Gemini AI")
+                .setItems(choices) { _, which ->
+                    if (which == 0) configureGeminiKey() else testGeminiOnly()
+                }
+                .show()
         }
         providerRow("WEB SEARCH", "Public endpoint reachability only. Search API authentication not connected.")
         providerRow("GITHUB UPDATES", "Repository API reachability only. Release/update manifest not connected.")
         providerRow("AI FALLBACK", "Not configured. No fallback provider requests are made.")
         providerRow("LOCAL AI", "Not configured. No local model is currently tested.")
+    }
+
+    private fun testGeminiOnly() {
+        if (runningDiagnostics) {
+            log("Wait for current diagnostics to finish")
+            return
+        }
+        runningDiagnostics = true
+        cards["GEMINI AI"]?.text = "GEMINI AI\\nTESTING..."
+        val key = sessionGeminiKey
+        thread {
+            val auth = if (key != null) GeminiDiagnostics.checkModels(key) else null
+            val public = if (auth == null) ProviderDiagnostics.checkPublicEndpoint(
+                "GEMINI AI", "https://generativelanguage.googleapis.com/"
+            ) else null
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                runningDiagnostics = false
+                val detail = auth?.detail ?: public?.detail ?: "NOT TESTED"
+                val latency = auth?.latencyMs ?: public?.latencyMs ?: 0
+                cards["GEMINI AI"]?.text = "GEMINI AI\\n$detail ($latency ms)"
+                log(if (auth != null) "Gemini authenticated check: $detail ($latency ms)" else
+                    "Gemini public reachability: $detail ($latency ms); key not configured")
+            }
+        }
     }
 
     private fun showSettings() {
