@@ -317,6 +317,14 @@ class MainActivity : ThemedActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        // Apply the contrast increase only to the seven green-bordered content panels.
+        UnifiedContentPanel.apply(findViewById(R.id.tabProjectSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabShizukuSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabStatusSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabTerminalSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabAuditSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabPermissionsSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabDhizukuSection))
 
         initViews()
         com.assistant.core.services.PersonalReminderRuntime.restoreAsync(applicationContext)
