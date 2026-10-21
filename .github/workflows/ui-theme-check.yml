@@ -3,13 +3,8 @@ on:
   pull_request:
   push:
     branches: [main]
-    paths:
-      - 'app/src/main/**'
-      - 'scripts/check_ui_theme.py'
-      - 'scripts/ui_theme_baseline.json'
-      - '.github/workflows/ui-theme-check.yml'
-      - 'AGENTS.md'
-      - 'docs/UI_THEMING.md'
+    paths-ignore:
+      - 'artifacts/**'
 permissions:
   contents: read
 jobs:

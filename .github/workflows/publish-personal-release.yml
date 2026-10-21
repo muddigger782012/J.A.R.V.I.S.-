@@ -1,10 +1,18 @@
 name: Publish verified personal release
 on:
+  workflow_run:
+    workflows: [Build Jarvis APK]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
+      build_run_id:
+        description: Completed production build run (manifest is generated automatically)
+        required: false
+        type: string
       version:
-        description: Personal version with a reviewed artifacts/personal-VERSION.json manifest
-        required: true
+        description: Optional historical version with a reviewed artifacts/personal-VERSION.json
+        required: false
         type: string
 permissions:
   actions: read
@@ -14,86 +22,41 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
-      - name: Validate reviewed build provenance
-        id: source
-        env:
-          VERSION: ${{ inputs.version }}
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json, os, pathlib, re, subprocess
-          version = os.environ['VERSION']
-          assert re.fullmatch(r'3\.5\.[0-9]+', version), 'Invalid personal version'
-          manifest = json.loads(pathlib.Path(f'artifacts/personal-{version}.json').read_text())
-          assert manifest['version'] == version
-          run_id = manifest['buildRunId']
-          commit = manifest['buildCommit']
-          assert isinstance(run_id, int) and run_id > 0
-          assert re.fullmatch(r'[0-9a-f]{40}', commit)
-          run = json.loads(subprocess.check_output(['gh', 'api', f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{run_id}']))
-          assert run['status'] == 'completed' and run['conclusion'] == 'success'
-          assert run['head_sha'] == commit and run['path'] == '.github/workflows/build-jarvis.yml'
-          assert manifest['apks'] and all(row['versionName'] == version and row['versionCode'] == run['run_number'] for row in manifest['apks'])
-          subprocess.run(['git', 'diff', '--exit-code', commit, 'HEAD', '--', 'app/src', 'app/build.gradle', 'app/proguard-rules.pro', 'build.gradle', 'settings.gradle', 'gradle.properties', 'gradle'], check=True)
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f'run_id={run_id}\n')
-          PY
-      - uses: actions/download-artifact@v4
+      - uses: actions/setup-java@v4
         with:
-          name: Jarvis-release-APK
-          path: downloaded
-          run-id: ${{ steps.source.outputs.run_id }}
-          github-token: ${{ github.token }}
-      - name: Verify exact signed artifacts and prepare downloads
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - run: sdkmanager 'build-tools;34.0.0'
+      - name: Verify, prepare and publish the Personal release
         env:
-          VERSION: ${{ inputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import hashlib, json, os, pathlib, re, shutil, zipfile
-          version = os.environ['VERSION']
-          manifest = json.loads(pathlib.Path(f'artifacts/personal-{version}.json').read_text())
-          rows = manifest['apks']
-          assert len(rows) == 3 and {row['abi'] for row in rows} == {'arm64-v8a', 'armeabi-v7a', 'x86_64'}
-          destination = pathlib.Path('release-assets')
-          destination.mkdir()
-          for row in rows:
-              assert row['artifact'] == f'app-{row["abi"]}-release.apk'
-              assert re.fullmatch(r'[0-9a-f]{64}', row['sha256'])
-              source = pathlib.Path('downloaded') / row['artifact']
-              assert source.stat().st_size == row['bytes']
-              assert hashlib.sha256(source.read_bytes()).hexdigest() == row['sha256'], 'Artifact differs from reviewed signed APK'
-              with zipfile.ZipFile(source) as archive:
-                  assert archive.testzip() is None
-              shutil.copyfile(source, destination / f'Jarvis-{version}-{row["abi"]}.apk')
-          arm = destination / f'Jarvis-{version}-arm64-v8a.apk'
-          assert hashlib.sha256(arm.read_bytes()).digest() == hashlib.sha256(pathlib.Path('artifacts/app-debug.apk').read_bytes()).digest(), 'Personal updater differs from release'
-          archive_path = destination / f'Jarvis-{version}.zip'
-          with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as archive:
-              archive.write(arm, f'Jarvis-{version}.apk')
-          with zipfile.ZipFile(archive_path) as archive:
-              assert archive.testzip() is None
-              assert hashlib.sha256(archive.read(f'Jarvis-{version}.apk')).digest() == hashlib.sha256(arm.read_bytes()).digest()
-          files = sorted([*destination.glob('*.apk'), *destination.glob('*.zip')])
-          (destination / 'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in files))
-          PY
-      - name: Publish the prepared personal release
-        env:
-          VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
+          BUILD_RUN: ${{ github.event.workflow_run.id || inputs.build_run_id }}
+          REVIEWED_VERSION: ${{ inputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          tag="jarvis-$VERSION"
-          test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true
-          gh release upload "$tag" release-assets/*.apk release-assets/*.zip release-assets/SHA256SUMS.txt --clobber
-          gh release edit "$tag" --draft=false --latest=false
+          arguments=()
+          if [ -n "$BUILD_RUN" ]; then
+            [[ "$BUILD_RUN" =~ ^[1-9][0-9]*$ ]] || { echo 'Invalid build run.'; exit 1; }
+            arguments+=(--run "$BUILD_RUN")
+          fi
+          if [ -n "$REVIEWED_VERSION" ]; then
+            arguments+=(--version "$REVIEWED_VERSION")
+          fi
+          python3 scripts/personal_release.py publish "${arguments[@]}"
+      - name: Retain the verified publication receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Personal-publication-receipt
+          path: personal-publication-receipt.json
+          if-no-files-found: ignore
