@@ -412,7 +412,8 @@ class PersonalFoundationAcceptanceTest {
     }
 
     @Test fun composedAppGoalsPauseForEachCurrentResultAcrossActualServiceReconstruction() {
-        val first = LearnableDeviceAction("open_app", mapOf("package" to context.packageName, "label" to "Synthetic Music"))
+        // Untrusted display wording must not become a network-settings offer on a bare reply.
+        val first = LearnableDeviceAction("open_app", mapOf("package" to context.packageName, "label" to "Would you like network settings"))
         val second = LearnableDeviceAction("open_app", mapOf("package" to "com.android.settings", "label" to "Synthetic Maps"))
         assertTrue(AndroidAssistantService(context).canLaunchApp(first.parameters.getValue("package")))
         assertTrue(AndroidAssistantService(context).canLaunchApp(second.parameters.getValue("package")))
@@ -426,6 +427,14 @@ class PersonalFoundationAcceptanceTest {
         assertEquals(listOf(first, second), pending.actions.map(RoutineSteps::appAction))
         service.handleUserInput("yes")
         assertEquals(0, context.activityRequests)
+        for (word in listOf("yes", "please", "go ahead", "please do")) {
+            var confirmation: HybridAssistantReply? = null
+            assistant().handleUserInputAsync(word) { confirmation = it }
+            assertNotNull(confirmation); assertFalse(confirmation!!.needsInterpretation)
+            assertTrue(confirmation!!.text.contains("exact approval phrase"))
+            assertEquals(0, context.activityRequests)
+            assertNotNull(GoalPlanStore(context).pending())
+        }
         val restored = assistant()
         assertTrue(restored.handleUserInput("approve goal plan").text.contains("before approving again"))
         assertEquals(0, context.activityRequests)

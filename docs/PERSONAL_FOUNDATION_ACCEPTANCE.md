@@ -493,6 +493,9 @@ and `make that ...` corrections update only an existing volume/timer field and
 generate a fresh approval key. A missing field requires a new plan. Malformed
 management controls stay local before search, AI and learned aliases, and discard
 the earlier pending review.
+Bare affirmative replies are bound to a pending goal before text-based follow-up
+offers are considered. An app label containing network-settings offer wording
+cannot authorize an unrelated Android settings launch.
 
 App and timer requests pause independently. After checking the current requested
 step, use `the goal step worked` or `the goal step failed`; the earlier `the goal

@@ -126,5 +126,8 @@ object GoalPlanning {
     fun isManagementInput(text: String) = command(text) != null || parse(text) != null ||
         Regex("^(?:review|approve|cancel|resume) goal plan\\b|^goal plan status\\b|^the goal(?: step)? (?:worked|failed)\\b").containsMatchIn(clean(text))
 
+    /** These replies can redisplay a pending review, never authorize it or another offer. */
+    fun isReviewReply(text: String) = ConfirmationWords.isConfirmation(text) || clean(text) in setOf("please", "go ahead", "please do")
+
     private fun clean(text: String) = text.trim().lowercase(Locale.ROOT).trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
 }

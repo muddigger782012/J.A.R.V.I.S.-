@@ -49,6 +49,8 @@ class ComposableGoalPlanningTest {
             assertNull(GoalPlanning.command(text)); assertTrue(GoalPlanning.isManagementInput(text))
             assertTrue(LearnedCommandReviewCommands.isReserved(text))
         }
+        for (word in listOf("yes", "please", "go ahead", "please do", "no")) assertTrue(GoalPlanning.isReviewReply(word))
+        assertFalse(GoalPlanning.isReviewReply("go ahead and open settings"))
         for (text in listOf("What would you plan a task to do?", "Don't prepare my drive", "Tell me about Maps"))
             assertNull(text, GoalPlanning.parse(text))
     }

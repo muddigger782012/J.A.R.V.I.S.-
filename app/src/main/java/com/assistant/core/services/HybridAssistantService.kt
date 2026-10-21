@@ -1166,6 +1166,9 @@ class HybridAssistantService(
     }
 
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+        if (personalAssistant && GoalPlanning.isReviewReply(rawInput) && runCatching { goalPlans?.pending() != null }.getOrDefault(false)) {
+            callback(handleUserInput(rawInput)); return
+        }
         if (personalAssistant && ConfirmationWords.isConfirmation(rawInput) &&
             runCatching { contactCalls.pending() != null }.getOrDefault(false)) {
             callback(handleUserInput(rawInput)); return
@@ -1537,7 +1540,7 @@ class HybridAssistantService(
                 reviewGoalPlan(revised) + " This replaces the earlier pending review; approval must refer to these revised steps."
             }.getOrElse { "The correction could not be saved safely. Review 'goal plan status' before approving anything; no steps were run by this correction." }
         }
-        if (ConfirmationWords.isConfirmation(input)) {
+        if (GoalPlanning.isReviewReply(input)) {
             val pending = runCatching { plans.pending() }.getOrNull()
             if (pending != null) return runCatching {
                 clearPendingActionPrompts()
