@@ -5,7 +5,7 @@ import com.assistant.core.workflow.*
 
 /** On-demand synthetic logic checks. Every dispatcher is a counter; no host tools or user state. */
 object LocalFoundationChecks {
-    const val REVISION = 2
+    const val REVISION = 3
     enum class Case(val label: String, val expected: String) {
         CORRECTIONS("goal corrections", "A duration correction preserves volume and generates a new review; appended commands are rejected."),
         APPROVAL("approval guard", "Planning and execution before approval dispatch nothing; only exact reviewed steps can be approved."),
@@ -13,7 +13,8 @@ object LocalFoundationChecks {
         RETRIES("bounded retry", "A known not-applied failure can retry only within the attempt limit."),
         HISTORY("history duplicate guard", "Cleanup keeps the latest status and rejects archived invocation keys after reconstruction."),
         CONTACTS("contact selection logic", "Exact names take precedence, distinct numbers need selection, and malformed review controls stay local."),
-        RESEARCH("research fallback logic", "A failed synthetic search method falls back to safe source URLs; malformed research controls stay local.")
+        RESEARCH("research fallback logic", "A failed synthetic search method falls back to safe source URLs; malformed research controls stay local."),
+        COMPOSITION("composed goal stages", "A frozen multi-app goal pauses for each requested result; reconstruction, failed results and cancellation never repeat an uncertain step.")
     }
     enum class Outcome { PASSED, FAILED, ERROR }
     data class Result(val case: Case, val outcome: Outcome)
@@ -36,11 +37,41 @@ object LocalFoundationChecks {
                 Case.HISTORY -> history()
                 Case.CONTACTS -> contacts()
                 Case.RESEARCH -> research()
+                Case.COMPOSITION -> composition()
             }
             Outcome.PASSED
         } catch (_: CheckFailed) { Outcome.FAILED }
           catch (_: Exception) { Outcome.ERROR }
         Result(case, outcome)
+    }
+
+    private fun composition() {
+        val music = LearnableDeviceAction("open_app", mapOf("package" to "com.example.music", "label" to "Synthetic Music"))
+        val maps = LearnableDeviceAction("open_app", mapOf("package" to "com.example.maps", "label" to "Synthetic Maps"))
+        val plan = GoalPlanning.plan(GoalPlanning.parse("prepare my drive")!!, { if (it == "music") music else maps }, { null }, { true })!!
+        verify(GoalPlanning.valid(plan) && !RoutineSteps.isValid(plan.actions))
+        var raw: String? = null
+        val calls = mutableListOf<RoutineWorkflowStep>()
+        val routine = ApprovedRoutineRegistry.Routine(plan.key, plan.actions)
+        fun engine() = WorkflowEngine(approvedRoutine = { routine }, canLaunchApp = { true },
+            store = JsonRoutineWorkflowStore({ raw }, { raw = it; true }), executeRoutineStep = { _, step ->
+                calls.add(step)
+                if (step.target == null) RoutineStepOutcome.Verified else RoutineStepOutcome.Requested
+            })
+        val first = engine(); val draft = first.planApprovedRoutine(plan.key, "synthetic-composed")
+        first.runApprovedRoutine(draft.id); verify(calls.isEmpty())
+        first.approveRoutine(draft.id, draft.steps.map { it.step })
+        val requested = first.runApprovedRoutine(draft.id)
+        verify(calls.size == 2 && requested.status == RoutineWorkflowStatus.AWAITING_OUTCOME && requested.steps.last().attempts == 0)
+        engine().resumeApprovedRoutine(draft.id); verify(calls.size == 2)
+        val checked = engine().recordRoutineOutcome(draft.id, 1, RoutineOutcomeObservation.USER_CONFIRMED, "Synthetic checked app request")
+        verify(checked.status == RoutineWorkflowStatus.PAUSED && calls.size == 2)
+        engine().resumeApprovedRoutine(draft.id)
+        verify(calls.size == 3 && calls.last().target == maps)
+        engine().recordRoutineOutcome(draft.id, 2, RoutineOutcomeObservation.FAILED, "Synthetic failed outcome")
+        engine().resumeApprovedRoutine(draft.id); verify(calls.size == 3)
+        engine().cancelApprovedRoutine(draft.id)
+        engine().resumeApprovedRoutine(draft.id); verify(calls.size == 3)
     }
 
     private fun corrections() {

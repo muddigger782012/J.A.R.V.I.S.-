@@ -2,6 +2,7 @@ package com.assistant.core.workflow
 
 import com.assistant.core.learning.ApprovedRoutineRegistry
 import com.assistant.core.services.LearnableDeviceAction
+import com.assistant.core.services.GoalPlanning
 
 /**
  * The execution lease spans planning, write-ahead checkpoints and dispatch. A new engine is
@@ -136,7 +137,8 @@ class RoutineExecutionCoordinator(
         val step = saved.steps.lastOrNull { it.status in unresolved && it.status != RoutineStepStatus.RUNNING }
             ?: return Result(saved, message = "No requested or uncertain routine step is awaiting a result report. No outcome was changed.")
         return Result(engine.recordRoutineOutcome(saved.id, step.step.index, observation,
-            "User reported the current routine result. This is not device verification or proof that an update was installed."))
+            if (GoalPlanning.isKey(saved.phrase)) "User reported the current goal step's result. This is owner feedback, not device verification of the whole objective."
+            else "User reported the current routine result. This is not device verification or proof that an update was installed."))
     }
 
     private fun exclusive(block: (WorkflowEngine) -> Result): Result =

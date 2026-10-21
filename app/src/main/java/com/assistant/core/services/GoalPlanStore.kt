@@ -57,7 +57,7 @@ class GoalPlanStore(private val file: PersonalStateFile, private val now: () -> 
         require(json.getInt("version") == 1)
         fun plan(name: String): GoalPlanning.Plan? = if (!json.has(name)) null else json.getJSONObject(name).let { item ->
             val actions = item.getJSONArray("actions")
-            require(actions.length() == 2)
+            require(actions.length() in 1..3)
             GoalPlanning.Plan(item.getString("key"), GoalPlanning.Kind.valueOf(item.getString("kind")),
                 (0 until actions.length()).map { actions.getString(it) }).also { require(GoalPlanning.valid(it)) }
         }

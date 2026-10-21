@@ -44,6 +44,7 @@ object CapabilityDiscovery {
         |• Repeat: do that again; uses the most recent confirmed app or timer and asks approval.
         |• Teach: teach Jarvis that short break means start a timer for 5 minutes; approve, check, then say 'it worked'.
         |• Routines: saved approved routines can compose existing volume, timer and app actions.
+        |• Goal plans: prepare my drive using saved music/maps apps, or plan a task to set media volume to twenty percent then open my music app then open my maps app. Review before approval; check each requested app result before explicitly resuming.
         |• Review: show saved commands; show assistant memory; show capability requests. To assess a saved idea: review capability request followed by its exact description.
         |• Try: try capability request followed by its exact saved description or number 1 from the current list; supported timers, apps and exact volume levels ask approval before execution. Review also accepts number 1. This does not create a learned alias or mark the request complete.
         |• Name a saved action: teach capability request number one as work break; review, approve and verify before the alias is learned.

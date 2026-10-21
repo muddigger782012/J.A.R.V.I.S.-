@@ -3,6 +3,8 @@ package com.assistant.core.workflow
 import com.assistant.core.learning.ApprovedRoutineRegistry
 import com.assistant.core.services.LearnableDeviceAction
 import com.assistant.core.services.RoutineSteps
+import com.assistant.core.services.GoalPlanning
+import com.assistant.core.services.ComposableGoalPlanning
 import java.util.UUID
 
 /**
@@ -29,7 +31,7 @@ internal class ApprovedRoutineExecutor(
         for (saved in store.load()) {
             require(saved.id !in entries && saved.requestKeys.isNotEmpty() && saved.requestKeys.none { it.isBlank() })
             require(entries.values.none { it.requestKeys.intersect(saved.requestKeys).isNotEmpty() })
-            require(validSteps(saved.steps.map { it.step }) && saved.steps.all { it.attempts in 0..3 })
+            require(validSteps(saved.phrase, saved.steps.map { it.step }) && saved.steps.all { it.attempts in 0..3 })
             val recovered = when {
                 saved.steps.any { it.status == RoutineStepStatus.RUNNING } -> saved.copy(
                     steps = saved.steps.map { if (it.status == RoutineStepStatus.RUNNING)
@@ -57,7 +59,7 @@ internal class ApprovedRoutineExecutor(
             return@synchronized it.detached()
         }
         val routine = approvedRoutine(phrase) ?: throw IllegalArgumentException("No approved routine was found.")
-        require(RoutineSteps.isValid(routine.actions)) { "Unsupported routine steps." }
+        require(validActions(routine.phrase, routine.actions)) { "Unsupported routine steps." }
         entries.values.firstOrNull { it.phrase == routine.phrase && blocksNewInvocation(it) }?.let {
             check(it.requestKeys.size < RoutineWorkflowLimits.MAX_REQUEST_KEYS_PER_WORKFLOW) {
                 "The workflow invocation-key limit was reached. Inspect the existing workflow; no actions were run."
@@ -264,8 +266,11 @@ internal class ApprovedRoutineExecutor(
         target?.capabilityId != "open_app" || runCatching { canLaunchApp(target.parameters.getValue("package")) }.getOrDefault(false)
     }
 
-    private fun validSteps(steps: List<RoutineWorkflowStep>): Boolean =
-        RoutineSteps.isValid(steps.map { it.actionId }) && steps.withIndex().all { (index, step) ->
+    private fun validActions(phrase: String, actions: List<String>) = if (GoalPlanning.isKey(phrase))
+        ComposableGoalPlanning.validActions(actions) else RoutineSteps.isValid(actions)
+
+    private fun validSteps(phrase: String, steps: List<RoutineWorkflowStep>): Boolean =
+        validActions(phrase, steps.map { it.actionId }) && steps.withIndex().all { (index, step) ->
             step.index == index && when {
                 RoutineSteps.preferredSlot(step.actionId) != null -> step.target?.isValid() == true && step.target.capabilityId == "open_app"
                 else -> step.target == (RoutineSteps.appAction(step.actionId) ?: RoutineSteps.timerAction(step.actionId))
