@@ -75,16 +75,26 @@ class ScreenControlAcceptanceTest {
         assertNotEquals(Process.myPid(), result.get().getInt("pid"))
         return result.get().getString("reply")!!
     }
+    private fun launchFixture(): ActivityScenario<ScreenControlFixtureActivity> {
+        if (InstrumentationRegistry.getArguments().getString("jarvis_disposable_emulator") == "true") {
+            // Cold Google emulator launchers can leave their own ANR dialog above the fixture.
+            // Reset only that emulator component; never dismiss errors from the app under test.
+            shell("am force-stop com.google.android.apps.nexuslauncher")
+        }
+        return ActivityScenario.launch(ScreenControlFixtureActivity::class.java)
+    }
     private fun settled() {
         var last = ""
         waitUntil {
-            val key = runCatching { AndroidScreenPlatform(context).snapshot().key }.getOrDefault("")
+            val key = runCatching { AndroidScreenPlatform(context).snapshot().let {
+                if (it.packageName == context.packageName) it.key else ""
+            } }.getOrDefault("")
             val stable = key.isNotBlank() && key == last; last = key; stable
         }
     }
 
     @Test fun realAccessibilityBridgeFromAnotherProcessReviewsTapsRejectsStaleScreensAndScrolls(): Unit = withAccess(true) {
-        ActivityScenario.launch(ScreenControlFixtureActivity::class.java).use { scenario ->
+        launchFixture().use { scenario ->
             instrumentation.waitForIdleSync(); settled()
             assertEquals(DeviceReport.Accessibility.REMOTE_CONNECTED.name, remote("fixture accessibility state"))
             val read = remote("read my screen")
@@ -155,7 +165,7 @@ class ScreenControlAcceptanceTest {
     }
 
     @Test fun disabledAccessibilityAndPrivateProviderCannotSupplyUnreviewedScreenActions(): Unit = withAccess(false) {
-        ActivityScenario.launch(ScreenControlFixtureActivity::class.java).use {
+        launchFixture().use {
             val info = context.packageManager.getProviderInfo(ComponentName(context, ScreenAccessProvider::class.java), 0)
             assertFalse(info.exported); assertFalse(info.grantUriPermissions)
             assertTrue(remote("screen control status").contains("Enable Jarvis"))
