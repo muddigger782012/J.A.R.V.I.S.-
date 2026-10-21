@@ -58,5 +58,9 @@
 -keep,allowoptimization class com.assistant.core.services.ResearchBriefs** { public *; }
 -keep,allowoptimization class com.assistant.core.services.WorkflowDiagnostics** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ComposableGoalPlanning** { public *; }
+# Staged-goal fixtures save synthetic preferences and inspect intercepted launcher bindings.
+-keep,allowoptimization class com.assistant.core.services.AssistantMemory** { public *; }
+-keep,allowoptimization class com.assistant.core.services.LearnableDeviceAction** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AndroidAssistantService** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ChatSearchResults** { public *; }
 -keep,allowoptimization class com.assistant.core.services.SearchRouter** { public *; }
