@@ -21,6 +21,7 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
         @Suppress("DEPRECATION") override fun close() { owned.forEach { it.recycle() } }
     }
     private fun capture(): Capture {
+        check(!requestExpired())
         val service = JarvisAccessibilityService.active() ?: error("Accessibility disconnected")
         if (locked()) return Capture(ScreenControls.Snapshot("locked", "Android", emptyList(), emptyList(), true), emptyMap(), emptyList())
         if (Build.VERSION.SDK_INT >= 33) service.clearCache()
@@ -46,7 +47,7 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
             fun hash(value: String) { digest.update(value.toByteArray(Charsets.UTF_8)); digest.update(0.toByte()) }
             hash(service.screenGeneration); hash(root.windowId.toString()); hash(pkg)
             while (queue.isNotEmpty()) {
-                check(nodes.size < 300 && SystemClock.uptimeMillis() <= deadline)
+                check(nodes.size < 300 && SystemClock.uptimeMillis() <= deadline && !requestExpired())
                 val (path, node) = queue.removeFirst()
                 nodes[path] = node
                 check(node.refresh())
@@ -102,7 +103,7 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                 else -> return@use ScreenControls.Result.REJECTED
             }
             if (node.actionList.none { it.id == action }) return@use ScreenControls.Result.REJECTED
-            if (SystemClock.uptimeMillis() >= (requestDeadline.get() ?: Long.MAX_VALUE)) return@use ScreenControls.Result.REJECTED
+            if (requestExpired()) return@use ScreenControls.Result.REJECTED
             if (node.performAction(action)) ScreenControls.Result.ACCEPTED else ScreenControls.Result.REJECTED
         }
     } catch (_: Exception) { ScreenControls.Result.UNKNOWN }
@@ -116,15 +117,19 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                 ScreenControls.Kind.QUICK_SETTINGS -> AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS
                 else -> -1
             }
-            if (action < 0 || SystemClock.uptimeMillis() >= (requestDeadline.get() ?: Long.MAX_VALUE)) ScreenControls.Result.REJECTED
+            if (action < 0 || requestExpired()) ScreenControls.Result.REJECTED
             else if (JarvisAccessibilityService.active()?.performGlobal(action) == true) ScreenControls.Result.ACCEPTED else ScreenControls.Result.REJECTED
         }
     } catch (_: Exception) { ScreenControls.Result.UNKNOWN }
     companion object {
         private val requestDeadline = ThreadLocal<Long>()
-        fun <T> withDeadline(deadline: Long, block: () -> T): T {
+        private val requestCancelled = ThreadLocal<() -> Boolean>()
+        private fun requestExpired() = SystemClock.uptimeMillis() >= (requestDeadline.get() ?: Long.MAX_VALUE) ||
+            requestCancelled.get()?.invoke() == true
+        fun <T> withDeadline(deadline: Long, cancelled: () -> Boolean = { false }, block: () -> T): T {
             requestDeadline.set(deadline)
-            return try { block() } finally { requestDeadline.remove() }
+            requestCancelled.set(cancelled)
+            return try { block() } finally { requestDeadline.remove(); requestCancelled.remove() }
         }
         private fun display(value: String, limit: Int) = value.replace(Regex("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]+"), " ")
             .replace(Regex("\\s+"), " ").trim().take(limit)

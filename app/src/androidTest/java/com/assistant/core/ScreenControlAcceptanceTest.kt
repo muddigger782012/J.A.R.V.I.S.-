@@ -112,7 +112,36 @@ class ScreenControlAcceptanceTest {
             } finally { release.countDown() }
             instrumentation.waitForIdleSync()
             scenario.onActivity { assertEquals(2, it.tapCount) }
-            remote("cancel screen action")
+            assertTrue(remote("confirm screen action").contains("No current"))
+            settled(); remote("tap Practice button")
+            val cancellationEntered = CountDownLatch(1)
+            val cancellationRelease = CountDownLatch(1)
+            val confirmationFinished = CountDownLatch(1)
+            val confirmationReply = AtomicReference<String>()
+            val confirmationFailure = AtomicReference<Throwable>()
+            Handler(Looper.getMainLooper()).post {
+                cancellationEntered.countDown(); cancellationRelease.await(6, TimeUnit.SECONDS)
+            }
+            assertTrue(cancellationEntered.await(3, TimeUnit.SECONDS))
+            try {
+                Thread {
+                    try { confirmationReply.set(remote("confirm screen action")) }
+                    catch (failure: Throwable) { confirmationFailure.set(failure) }
+                    finally { confirmationFinished.countDown() }
+                }.start()
+                val started = android.os.SystemClock.uptimeMillis()
+                val cancelled = ScreenAccessClient(context).reply("cancel screen action")
+                assertTrue(cancelled, cancelled.contains("Cancelled"))
+                assertTrue("Cancellation waited for the blocked UI queue",
+                    android.os.SystemClock.uptimeMillis() - started < 2500)
+            } finally { cancellationRelease.countDown() }
+            assertTrue(confirmationFinished.await(8, TimeUnit.SECONDS))
+            assertNull(confirmationFailure.get())
+            assertNotNull(confirmationReply.get())
+            assertFalse(confirmationReply.get(), confirmationReply.get().contains("Android accepted"))
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { assertEquals(2, it.tapCount) }
+            assertTrue(remote("confirm screen action").contains("No current"))
             assertTrue(remote("tap Duplicate sample").contains("several controls"))
             val scrolled = remote("scroll down")
             assertTrue(scrolled, scrolled.contains("Android accepted"))
