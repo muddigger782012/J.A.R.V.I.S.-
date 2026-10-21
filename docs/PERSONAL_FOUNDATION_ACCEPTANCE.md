@@ -396,8 +396,9 @@ observations; manual improvement evaluation consent does not enable this collect
 `review workflow diagnostics` shows the setting and categorical observations.
 `disable workflow diagnostics` stops recording and retains existing evidence;
 `clear workflow diagnostics` removes observations and briefs and turns recording
-off. Neither command deletes reminders, the saved research brief, contact review,
-conversation memory, preferences or manual evaluation results.
+off. Neither command deletes reminder records, the saved research brief,
+conversation memory, preferences or manual evaluation results. Entering diagnostic
+controls discards unrelated pending action approvals, including contact reviews.
 
 The no-backup diagnostic document contains only fixed enum categories, random
 workflow references, build and time. It never receives contact names/numbers,
@@ -431,7 +432,7 @@ retains its evidence and prevents sharing that dismissed brief. `clear workflow
 improvements` explicitly removes briefs while keeping observations and consent.
 
 `share workflow improvement for research` requests Android's destination chooser
-for the latest active saved brief. It selects no recipient and verifies no submission,
+for the latest saved brief when active. It selects no recipient and verifies no submission,
 issue, pull request or deployment. The brief asks the reviewer to reproduce with
 synthetic fixtures, verify regression tests before/after a focused fix and retain
 normal review, CI, signing and update verification. Exact management controls,
@@ -448,6 +449,21 @@ failures, reconstructed proposal review, intercepted chooser contents, disable/r
 malformed asynchronous controls and invalidation of pending call approvals. The
 optimized emulator gate now requires all 26 acceptance cases. Physical phone,
 live provider, alarm timing and installed-data upgrade acceptance remain pending.
+
+Final automated evidence for personal build 3.5.475: all 511 JVM tests across
+88 suites passed locally with no failures, errors or skips; all debug ABI APKs,
+instrumentation and the Beta manifest compiled. Gateway, archive and theme checks
+passed. Final-source CI unit/build, gateway, theme and optimized emulator acceptance
+passed; the actual log records `OK (26 tests)` and both new diagnostic service cases.
+All three production APKs passed package/version/ABI, signer compatibility against
+the freshly downloaded 3.5.473 updater, archive integrity and wake runtime/model
+checks. The source retains the delivered compact utility menus, HUD, connectivity
+diagnostics, contact review, saved research and reminders. The reviewed signed
+manifest records exact artifact provenance. Publication uses a normal fast-forward
+of the locally prepared merge plus updater, preventing untested concurrent source
+from being silently included. Broad visual layout remains skipped upstream;
+physical calls, live providers, alarm/boot/doze timing and installed-data upgrade
+remain pending. No measured phase completion percentage is claimed.
 
 ## Delivered behavior and acceptance evidence
 
@@ -520,7 +536,7 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.473 (versionCode 473) replaces the previously distributed 3.5.472
+Personal build 3.5.475 (versionCode 475) replaces the previously distributed 3.5.473
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
