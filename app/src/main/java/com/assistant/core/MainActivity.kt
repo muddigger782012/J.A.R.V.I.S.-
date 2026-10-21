@@ -325,6 +325,14 @@ class MainActivity : ThemedActivity() {
         UnifiedContentPanel.apply(findViewById(R.id.tabAuditSection))
         UnifiedContentPanel.apply(findViewById(R.id.tabPermissionsSection))
         UnifiedContentPanel.apply(findViewById(R.id.tabDhizukuSection))
+        // Preserve the original screen controls and handlers inside Settings-style sections.
+        UnifiedMenuSection.install(findViewById(R.id.tabProjectSection), "Projects", "Project actions and files", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabShizukuSection), "Device tools", "Shizuku access and diagnostics", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabStatusSection), "System", "Status and updates", R.drawable.ic_jarvis_core)
+        UnifiedMenuSection.install(findViewById(R.id.tabTerminalSection), "Terminal", "Commands and output", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabAuditSection), "Activity log", "Events and history", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabPermissionsSection), "Permissions", "Access and authorization", R.drawable.ic_tools_settings)
+        UnifiedMenuSection.install(findViewById(R.id.tabDhizukuSection), "Device administration", "Delegated access and controls", R.drawable.ic_tools_settings)
 
         initViews()
         com.assistant.core.services.PersonalReminderRuntime.restoreAsync(applicationContext)
