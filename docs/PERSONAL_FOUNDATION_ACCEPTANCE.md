@@ -964,6 +964,18 @@ increment's pull request. Physical-phone voice names, work profiles, OEM visibil
 real foreground launch results and in-place data upgrade remain pending. Destination
 search/review/navigation and opt-in notification reading/replies remain follow-up work.
 
+Final verification for the Phase 4 app-discovery increment: all 611 JVM tests across
+98 suites passed with no failures, errors or skipped tests with the existing
+HUD, widgets and chat header preserved. All three debug ABI APKs, instrumentation compilation,
+Beta manifest, gateway (16), APK archive (6) and theme checks passed. Final-source CI
+unit/build, gateway, theme and all 42 optimized emulator cases passed, including two
+new installed-app identity and choice cases. All production-signed personal ABI APKs passed package,
+version, archive, native-runtime, wake-asset and current distributed-signer verification.
+The signed personal build is delivered through the normal updater and versioned downloads
+after earlier main publishers finished. Broad visual-layout smoke remains skipped upstream.
+Physical phone voice names, OEM/work-profile visibility, actual foreground launch and installed-data
+upgrade acceptance remain pending; no phase maturity score is claimed.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -1035,7 +1047,7 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.492 (versionCode 492) replaces the previously distributed 3.5.489
+Personal build 3.5.493 (versionCode 493) replaces the previously distributed 3.5.492
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
