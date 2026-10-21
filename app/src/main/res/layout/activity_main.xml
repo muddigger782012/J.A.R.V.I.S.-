@@ -191,7 +191,7 @@
                     style="@style/Widget.MaterialComponents.Button.TextButton" android:layout_width="40dp" android:layout_height="48dp"
                     android:layout_marginHorizontal="2dp" android:minWidth="0dp" android:minHeight="0dp" android:padding="9dp"
                     android:insetTop="4dp" android:insetBottom="4dp" android:text="" android:contentDescription="Start live chat"
-                    android:background="@drawable/composer_icon_plain" app:backgroundTint="@null"
+                    android:background="@drawable/composer_icon_ring" app:backgroundTint="@null"
                     app:icon="@drawable/ic_composer_live" app:iconSize="22dp" app:iconPadding="0dp"
                     app:iconGravity="textStart" app:iconTint="?attr/jarvis_primary" />
                 <com.google.android.material.button.MaterialButton android:id="@+id/btnLiveChatControls"
