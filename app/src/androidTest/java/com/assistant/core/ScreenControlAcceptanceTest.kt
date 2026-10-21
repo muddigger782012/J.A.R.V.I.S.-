@@ -176,7 +176,7 @@ class ScreenControlAcceptanceTest {
     }
 
     @Test fun realScreenTaskChecksEachPageAndCannotReuseAnEarlierStepConfirmation(): Unit = withAccess(true) {
-        ActivityScenario.launch(ScreenControlFixtureActivity::class.java).use { scenario ->
+        launchFixture().use { scenario ->
             scenario.onActivity { it.showTaskStart() }; instrumentation.waitForIdleSync(); settled()
             assertTrue(remote("help me open Menu then Downloads and verify Downloads page").contains("approve screen task"))
             assertTrue(remote("approve screen task").contains("confirm screen step one"))
@@ -197,7 +197,7 @@ class ScreenControlAcceptanceTest {
     }
 
     @Test fun realRolesAndSectionLabelsAreLocalAndNotificationCancellationStopsAReviewedTask(): Unit = withAccess(true) {
-        ActivityScenario.launch(ScreenControlFixtureActivity::class.java).use { scenario ->
+        launchFixture().use { scenario ->
             // A disposable emulator grants its own notification permission; production never does.
             if (android.os.Build.VERSION.SDK_INT >= 33) automation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
             scenario.onActivity { it.showTaskAccounts() }; instrumentation.waitForIdleSync(); settled()

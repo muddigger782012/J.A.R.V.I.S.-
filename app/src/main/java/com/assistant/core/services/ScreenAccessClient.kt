@@ -10,12 +10,12 @@ class ScreenAccessClient(private val context: Context) {
     private fun call(method: String, text: String? = null) = context.contentResolver.call(
         Uri.parse("content://${context.packageName}.screen-access"), method, text, null)
     fun connected(): Boolean = runCatching { call("connected")?.getBoolean("connected") == true }.getOrDefault(false)
-    data class TaskState(val active: Boolean = false, val awaitingInput: Boolean = false)
+    data class TaskState(val active: Boolean = false, val awaitingInput: Boolean = false, val contextual: Boolean = false)
     fun taskState(): TaskState = runCatching { call("task_state")?.let {
-        TaskState(it.getBoolean("active"), it.getBoolean("awaiting_input"))
+        TaskState(it.getBoolean("active"), it.getBoolean("awaiting_input"), it.getBoolean("contextual"))
     } ?: TaskState() }.getOrDefault(TaskState())
     fun accepts(text: String) = ScreenSession.recognizes(text) ||
-        (ScreenTaskCommands.contextual(text) != null && taskState().active)
+        (ScreenTaskCommands.contextual(text) != null && taskState().contextual)
     fun discard() { runCatching { call("discard") } }
     fun reply(text: String): String {
         if (!accepts(text)) return "No supported screen command was requested."

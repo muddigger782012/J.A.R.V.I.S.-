@@ -71,13 +71,16 @@ class ScreenTasks(private val platform: ScreenControls.Platform, private val now
     private var choiceCreated = 0L
     private var approved = false
     @Volatile var phase = Phase.NONE; private set
+    @Volatile private var focused = false
     val active get() = phase !in setOf(Phase.NONE, Phase.COMPLETE, Phase.UNCERTAIN) && now() - created in 0..300_000
-    val awaitingInput get() = active && phase in setOf(Phase.OUTCOME, Phase.REVIEW, Phase.TARGET, Phase.CONFIRM, Phase.PAUSED)
+    val contextual get() = active && focused
+    val awaitingInput get() = contextual && phase in setOf(Phase.OUTCOME, Phase.REVIEW, Phase.TARGET, Phase.CONFIRM, Phase.PAUSED)
     @Synchronized fun discard() {
-        taps.discard(); steps = emptyList(); expected = ""; app = ""; beforeKey = null; choices = emptyList(); approved = false; phase = Phase.NONE
+        taps.discard(); steps = emptyList(); expected = ""; app = ""; beforeKey = null; choices = emptyList(); approved = false; focused = false; phase = Phase.NONE
     }
     @Synchronized fun pause() {
         if (expire()) return
+        focused = false
         taps.discard(); choices = emptyList()
         if (phase in setOf(Phase.CONFIRM, Phase.TARGET)) phase = Phase.PAUSED
     }
@@ -87,9 +90,10 @@ class ScreenTasks(private val platform: ScreenControls.Platform, private val now
     }
     @Synchronized fun reply(request: ScreenTaskCommands.Request): String {
         if (expire() && request.kind != ScreenTaskCommands.Kind.START) return "The screen task expired. Review a new task; no step was resumed."
+        focused = true
         return try { when (request.kind) {
             ScreenTaskCommands.Kind.START -> {
-                discard(); steps = request.steps; expected = request.text; created = now()
+                discard(); steps = request.steps; expected = request.text; created = now(); focused = true
                 if (steps.isEmpty()) return ScreenTaskCommands.help()
                 phase = if (expected.isBlank()) Phase.OUTCOME else Phase.REVIEW
                 if (phase == Phase.OUTCOME) "What exact visible text should I check after the final tap? Say 'screen task outcome' followed by that text. Nothing has run."
@@ -239,11 +243,12 @@ class ScreenSession(platform: ScreenControls.Platform, now: () -> Long = System:
     private val direct = ScreenControls(platform, now)
     private val tasks = ScreenTasks(platform, now)
     val active get() = tasks.active
+    val contextual get() = tasks.contextual
     val awaitingInput get() = tasks.awaitingInput
     fun discard() { direct.discard(); tasks.discard() }
     fun pause() { direct.discard(); tasks.pause() }
     fun reply(text: String): String {
-        ScreenTaskCommands.parse(text, tasks.active)?.let { direct.discard(); return tasks.reply(it) }
+        ScreenTaskCommands.parse(text, tasks.contextual)?.let { direct.discard(); return tasks.reply(it) }
         val command = ScreenControls.parse(text) ?: return "No supported screen request was recognized."
         if (command.kind == ScreenControls.Kind.CONFIRM && tasks.active)
             return "The active task needs its exact numbered step confirmation. Say 'screen task status' to review it; a generic screen confirmation cannot run a task step."

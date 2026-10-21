@@ -113,7 +113,9 @@ class ScreenTasksTest {
     @Test fun pauseRetainsIntentWhileDiscardingTheOldApprovalAndCancellationEndsLaterSteps() {
         val phone = Phone(); val session = ScreenSession(phone)
         start(session); session.reply("approve screen task"); session.pause()
-        assertTrue(session.active); assertTrue(session.reply("what's next").contains("paused"))
+        assertTrue(session.active); assertFalse(session.contextual)
+        assertNull(ScreenTaskCommands.parse("yes", session.contextual))
+        assertTrue(session.reply("screen task status").contains("paused"))
         session.reply("confirm screen step one"); assertEquals(0, phone.actions)
         session.reply("continue screen task"); session.reply("confirm screen step one"); assertEquals(1, phone.actions)
         session.reply("cancel")

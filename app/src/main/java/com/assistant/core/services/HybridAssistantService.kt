@@ -90,17 +90,19 @@ class HybridAssistantService(
             observe = { id, observation -> if (personalAssistant) workflowDiagnostics.observeTask(id, observation) })
     }
 
+    private fun handleScreenInput(userInput: String): HybridAssistantReply {
+        appDiscovery.discard()
+        clearPendingActionPrompts()
+        taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+        reviewedGoalKey = null
+        runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+        return HybridAssistantReply(screenAccess.reply(userInput))
+    }
+
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
         if (personalAssistant) {
-            if (screenAccess.accepts(userInput)) {
-                appDiscovery.discard()
-                clearPendingActionPrompts()
-                taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
-                reviewedGoalKey = null
-                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
-                return HybridAssistantReply(screenAccess.reply(userInput))
-            }
+            if (screenAccess.accepts(userInput)) return handleScreenInput(userInput)
             screenAccess.discard()
             val appCommand = AppDiscovery.parse(userInput)
             if (appCommand != null) {
@@ -1203,7 +1205,8 @@ class HybridAssistantService(
 
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
         if (personalAssistant && screenAccess.accepts(rawInput)) {
-            Thread { callback(handleUserInput(rawInput)) }.start(); return
+            // Freeze the accepted screen route: a delayed contextual yes must never fall into another action's approval.
+            Thread { callback(handleScreenInput(rawInput)) }.start(); return
         }
         if (personalAssistant) screenAccess.discard()
         if (personalAssistant && AppDiscovery.parse(rawInput) == null) appDiscovery.discard()

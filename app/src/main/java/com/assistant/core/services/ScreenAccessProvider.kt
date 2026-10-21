@@ -45,18 +45,19 @@ class ScreenAccessProvider : ContentProvider() {
             val invalidation = epoch.state()
             val cancelled = appliedCancellation != invalidation.value && !invalidation.preserveTask
             putBoolean("active", !cancelled && controls.active)
+            putBoolean("contextual", !cancelled && appliedCancellation == invalidation.value && controls.contextual)
             putBoolean("awaiting_input", !cancelled && appliedCancellation == invalidation.value && controls.awaitingInput)
         }
         val command = if (method == "command") {
             require(arg != null && arg.length <= 400)
             ScreenControls.parse(arg)
         } else null
-        val cancelTask = method == "command" && ScreenTaskCommands.parse(requireNotNull(arg), controls.active)?.kind == ScreenTaskCommands.Kind.CANCEL
+        val cancelTask = method == "command" && ScreenTaskCommands.parse(requireNotNull(arg), controls.contextual)?.kind == ScreenTaskCommands.Kind.CANCEL
         if (method == "discard" || command?.kind == ScreenControls.Kind.CANCEL || cancelTask) {
             epoch.cancel(preserveTask = method == "discard") // Never queue cancellation behind a confirmed tap.
             clearCancelledState()
             return if (method == "discard") Bundle.EMPTY else Bundle().apply {
-                putString("reply", "Cancelled the pending screen action and numbered controls. An Android action already submitted cannot be undone.")
+                putString("reply", if (cancelTask) "Cancelled the screen task. No later steps will run; already submitted Android actions cannot be undone." else "Cancelled the pending screen action and numbered controls. An Android action already submitted cannot be undone.")
             }
         }
         val token = epoch.token()
