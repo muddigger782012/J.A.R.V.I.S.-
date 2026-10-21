@@ -317,6 +317,80 @@ class MainActivity : ThemedActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        // Apply the contrast increase only to the seven green-bordered content panels.
+        UnifiedContentPanel.apply(findViewById(R.id.tabProjectSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabShizukuSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabStatusSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabTerminalSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabAuditSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabPermissionsSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabDhizukuSection))
+        // Preserve the original screen controls and handlers inside Settings-style sections.
+        UnifiedMenuSection.install(findViewById(R.id.tabProjectSection), "Projects", "Project actions and files", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabShizukuSection), "Device tools", "Shizuku access and diagnostics", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabStatusSection), "System", "Status and updates", R.drawable.ic_jarvis_core)
+        UnifiedMenuSection.install(findViewById(R.id.tabTerminalSection), "Terminal", "Commands and output", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabAuditSection), "Activity log", "Events and history", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabPermissionsSection), "Permissions", "Access and authorization", R.drawable.ic_tools_settings)
+        UnifiedMenuSection.install(findViewById(R.id.tabDhizukuSection), "Device administration", "Delegated access and controls", R.drawable.ic_tools_settings)
+        // Subsections reuse existing controls, IDs, and listeners without changing behavior.
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabStatusSection),
+            listOf(
+                Triple(R.id.btnShowStatus, "Capability status", "Inspect system capabilities"),
+                Triple(R.id.btnAutoUpgradeApp, "App updates", "Check and install a newer build")
+            ), R.drawable.ic_jarvis_core
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabTerminalSection),
+            listOf(
+                Triple(R.id.etTerminalCommand, "Command controls", "Run and manage commands"),
+                Triple(R.id.tvTerminalOutput, "Command output", "Review terminal results"),
+                Triple(R.id.tvTerminalHistory, "History", "Previous terminal activity")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabShizukuSection),
+            listOf(
+                Triple(R.id.tvShizukuRuntimeStatus, "Connection status", "Shizuku runtime and authorization"),
+                Triple(R.id.btnRefreshShizukuStatus, "Connection controls", "Refresh, launch and authorize"),
+                Triple(R.id.etShizukuCommand, "Command execution", "Run supported Shizuku commands")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabAuditSection),
+            listOf(
+                Triple(R.id.etAuditLimit, "Log filters", "Limit and filter activity records"),
+                Triple(R.id.btnAuditRefresh, "Log actions", "Refresh, copy and clear the view"),
+                Triple(R.id.tvAuditDebugOutput, "Activity output", "Inspect recorded events")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabDhizukuSection),
+            listOf(
+                Triple(R.id.btnRefreshPrivileges, "Delegated access", "Inspect and request administrator scopes"),
+                Triple(R.id.switchCameraDisabled, "Device policies", "Manage camera, capture and application restrictions"),
+                Triple(R.id.etLockScreenMessage, "Security actions", "Lock-screen message, package policy and device actions")
+            ), R.drawable.ic_tools_settings
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabPermissionsSection),
+            listOf(
+                Triple(R.id.btnRequestAllRuntimePermissions, "Permission requests", "Grant required access"),
+                Triple(R.id.btnOpenOverlayPermission, "Special permissions", "Configure Android access"),
+                Triple(R.id.tvSpecialPermissionsStatus, "Permission status", "Review granted permissions")
+            ), R.drawable.ic_tools_settings
+        )
+
+        // Compact utility-page buttons only; leave the chat toolbar and header unchanged.
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabProjectSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabShizukuSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabStatusSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabTerminalSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabAuditSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabPermissionsSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabDhizukuSection))
+
 
         initViews()
         com.assistant.core.services.PersonalReminderRuntime.restoreAsync(applicationContext)
@@ -332,9 +406,27 @@ class MainActivity : ThemedActivity() {
             insets
         }
         setupTabs()
-        findViewById<android.widget.Button>(R.id.btnOpenJarvisChat).setOnClickListener {
-            showTab(0, animate = true, direction = if (currentTabIndex == 0) 0 else -1)
-            commandInput.requestFocus()
+        val chatMenuButton = findViewById<Button>(R.id.btnOpenJarvisChat)
+        val chatHistoryShortcut = findViewById<Button>(R.id.btnAssistantHistory)
+        val chatMenuBackHandler = object : androidx.activity.OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                chatHistoryShortcut.visibility = View.GONE
+                chatMenuButton.contentDescription = "Expand chat navigation"
+                isEnabled = false
+            }
+        }
+        onBackPressedDispatcher.addCallback(this, chatMenuBackHandler)
+        chatMenuButton.setOnClickListener {
+            val expanded = chatHistoryShortcut.visibility != View.VISIBLE
+            chatHistoryShortcut.visibility = if (expanded) View.VISIBLE else View.GONE
+            chatMenuButton.contentDescription = if (expanded) "Collapse chat navigation" else "Expand chat navigation"
+            chatMenuBackHandler.isEnabled = expanded
+        }
+        chatHistoryShortcut.setOnClickListener {
+            chatHistoryShortcut.visibility = View.GONE
+            chatMenuButton.contentDescription = "Expand chat navigation"
+            chatMenuBackHandler.isEnabled = false
+            showConversationHistory()
         }
 
         val database = Database(this)
@@ -796,6 +888,9 @@ class MainActivity : ThemedActivity() {
 
     private fun bindUiListeners() {
         findViewById<Button>(R.id.btnNewAssistantChat).setOnClickListener {
+            if (findViewById<View>(R.id.btnAssistantHistory).visibility == View.VISIBLE) {
+                findViewById<Button>(R.id.btnOpenJarvisChat).performClick()
+            }
             if (attachmentBusy) { attachmentNotice("Wait for the attachment request to finish."); return@setOnClickListener }
             clearAttachmentDraft()
             if (liveChatStarted) endLiveChat("Live chat ended for the new conversation.")
@@ -808,9 +903,6 @@ class MainActivity : ThemedActivity() {
             renderConversation(forceScroll = true)
         }
 
-        findViewById<Button>(R.id.btnAssistantHistory).setOnClickListener {
-            showConversationHistory()
-        }
 
         commandInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) { runAssistantCommandFromInput(); true } else false
@@ -1540,37 +1632,44 @@ class MainActivity : ThemedActivity() {
             })
             if (searchResults == null) card.addView(TextView(this).apply {
                 text = when { user -> line.removePrefix("You:").trimStart(); assistant -> line.removePrefix("J.A.R.V.I.S.:").trimStart().substringBefore("\nhttps://www.google.com/search?"); else -> line }
+                setTextIsSelectable(!assistant)
+                if (assistant) {
+                    val answerText = line.removePrefix("J.A.R.V.I.S.:").trimStart()
+                        .substringBefore("\nhttps://www.google.com/search?")
+                    val inline = android.text.SpannableStringBuilder(answerText).append("  \uFFFC")
+                    val start = inline.length - 1
+                    val copyDrawable = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.ic_chat_copy)?.mutate()
+                    if (copyDrawable != null) {
+                        copyDrawable.setTint(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
+                        val iconSize = dp(20)
+                        copyDrawable.setBounds(0, 0, iconSize, iconSize)
+                        inline.setSpan(android.text.style.ImageSpan(copyDrawable, android.text.style.DynamicDrawableSpan.ALIGN_BOTTOM),
+                            start, inline.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                    inline.setSpan(object : android.text.style.ClickableSpan() {
+                        override fun onClick(widget: View) {
+                            val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Jarvis answer", answerText))
+                            android.widget.Toast.makeText(this@MainActivity, "Answer copied", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        override fun updateDrawState(ds: android.text.TextPaint) {
+                            ds.color = ThemePreferences.color(this@MainActivity, R.color.jarvis_primary)
+                            ds.isUnderlineText = false
+                        }
+                    }, start, inline.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    text = inline
+                    movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                    contentDescription = answerText + ". Copy answer button at end."
+                }
                 textSize = if (user || assistant) 16f else 12f
                 setTextColor(ThemePreferences.color(this@MainActivity, if (user || assistant) R.color.jarvis_on_dark else R.color.jarvis_on_dark_muted))
                 setLineSpacing(dp(4).toFloat(), 1f)
-                setTextIsSelectable(true)
                 if (assistant && line.startsWith("J.A.R.V.I.S.: Search results for ")) {
                     android.text.util.Linkify.addLinks(this, android.text.util.Linkify.WEB_URLS)
                     movementMethod = android.text.method.LinkMovementMethod.getInstance()
                     linksClickable = true
                 }
             })
-            if (assistant && searchResults == null) {
-                val answerText = line.removePrefix("J.A.R.V.I.S.:").trimStart()
-                    .substringBefore("\nhttps://www.google.com/search?")
-                val copyAction = TextView(this).apply {
-                    text = "Copy answer"
-                    textSize = 12f
-                    minHeight = dp(48)
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                    setPadding(dp(8), dp(8), dp(8), dp(8))
-                    setTextColor(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
-                    isClickable = true
-                    isFocusable = true
-                    contentDescription = "Copy this Jarvis answer"
-                    setOnClickListener {
-                        val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Jarvis answer", answerText))
-                        android.widget.Toast.makeText(this@MainActivity, "Answer copied", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                }
-                card.addView(copyAction)
-            }
             if (searchResults != null) card.addView(ChatSearchResultsView.create(this, searchResults, conversationSessionId))
             if (assistant) {
                 val searchUrl = if (listOf("Web", "Image", "Video").any { line.startsWith("J.A.R.V.I.S.: $it search ready:") } && line.contains("\nhttps://www.google.com/search?"))
