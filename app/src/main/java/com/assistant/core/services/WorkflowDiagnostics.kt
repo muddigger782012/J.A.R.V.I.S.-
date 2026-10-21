@@ -2,6 +2,7 @@ package com.assistant.core.services
 
 import android.content.Context
 import com.assistant.core.BuildConfig
+import com.assistant.core.workflow.RoutineWorkflowObservation
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -19,7 +20,9 @@ class WorkflowDiagnostics(private val file: PersonalStateFile, private val build
         RESEARCH("research", "ResearchBriefs and SearchCoordinator",
             "Use synthetic sources; fail retrieval, offer an available fallback, cancel a delayed response and reconstruct offline. Preserve an older brief and reject late results without automatic retry."),
         REMINDER("reminders", "PersonalReminders and PersonalReminderRuntime",
-            "Use a disposable alarm and notification adapter; test blocked notifications, failed registration, restart and uncertain delivery. Keep stable identities and never repeat an uncertain notification automatically.")
+            "Use a disposable alarm and notification adapter; test blocked notifications, failed registration, restart and uncertain delivery. Keep stable identities and never repeat an uncertain notification automatically."),
+        TASK("tasks", "RoutineExecutionCoordinator, ApprovedRoutineExecutor and GoalPlanStore",
+            "Use synthetic goals and saved routines with counting adapters; test exact approval, failed dispatch, owner feedback, interrupted recovery and cancellation. Resume only explicitly authorized pending steps; never repeat an uncertain effect or treat owner confirmation as device verification.")
     }
     enum class Code(val family: Family, val label: String, val review: String? = null) {
         CONTACTS_UNAVAILABLE(Family.CONTACT, "Contact access unavailable", "Check Contacts permission and lookup failures; offer a complete phone number or Android's contact tools."),
@@ -35,12 +38,21 @@ class WorkflowDiagnostics(private val file: PersonalStateFile, private val build
         NOTIFICATIONS_BLOCKED(Family.REMINDER, "Notifications unavailable", "Check permission and channel settings; offer notification settings and an explicit retry after access is restored."),
         DELIVERY_UNKNOWN(Family.REMINDER, "Notification delivery uncertain", "Reproduce interrupted posting and missing readback; preserve uncertainty and prevent automatic repeat."),
         NOTIFICATION_POSTED(Family.REMINDER, "Notification posted; reading unverified"),
-        MISSED(Family.REMINDER, "Reminder more than a day overdue", "Check restore timing and power restrictions; offer a new current reminder rather than posting a stale one.")
+        MISSED(Family.REMINDER, "Reminder more than a day overdue", "Check restore timing and power restrictions; offer a new current reminder rather than posting a stale one."),
+        TASK_BLOCKED(Family.TASK, "Task stopped before its next dispatch", "Reproduce changed approvals, unavailable app targets and checkpoint write failures; preserve existing outcomes and require a current review before further work."),
+        TASK_NOT_APPLIED(Family.TASK, "Task step confirmed not applied", "Test a dispatcher that positively reports no effect; investigate the available method and allow only explicit bounded retry of that step."),
+        TASK_REQUESTED(Family.TASK, "Task step requested; outcome unverified"),
+        TASK_OUTCOME_UNKNOWN(Family.TASK, "Task step effect uncertain", "Reproduce dispatch interruption and missing outcome evidence; inspect the actual result and reject automatic or blind retry."),
+        TASK_OWNER_FAILED(Family.TASK, "Owner reported a task step failed", "Reproduce the requested step with synthetic targets and compare owner feedback with dispatch evidence; failure after a request is not proof that no effect occurred."),
+        TASK_OWNER_CONFIRMED(Family.TASK, "Owner confirmed a task step; whole objective unverified"),
+        TASK_DEVICE_VERIFIED(Family.TASK, "All task steps device verified; broader objective unverified"),
+        TASK_RECOVERY_PAUSED(Family.TASK, "Interrupted task paused between steps", "Reproduce restart between verified steps; keep completed actions intact and require explicit resume for pending steps. A safe recovery pause is not itself a code defect.")
     }
     data class Event(val attempt: String, val code: Code, val build: Int, val buildName: String, val time: Long)
     data class Proposal(val id: String, val code: Code, val evidence: List<Event>, val occurrences: Int,
                         val preparedAt: Long, val dismissed: Boolean = false)
-    data class Snapshot(val enabled: Boolean = false, val events: List<Event> = emptyList(), val proposals: List<Proposal> = emptyList())
+    data class Snapshot(val enabled: Boolean = false, val events: List<Event> = emptyList(), val proposals: List<Proposal> = emptyList(),
+                        val tasksEnabled: Boolean = false)
     enum class Action { ENABLE, DISABLE, CLEAR, REVIEW, IMPROVEMENTS, PREPARE, REVIEW_PROPOSAL, DISMISS, CLEAR_PROPOSALS, SHARE, INVALID }
     data class Command(val action: Action, val family: Family? = null, val number: Int? = null)
 
@@ -50,32 +62,46 @@ class WorkflowDiagnostics(private val file: PersonalStateFile, private val build
         require(validId(attempt))
         file.access {
             val saved = decode(read())
-            if (!saved.enabled || saved.events.any { it.attempt == attempt && it.code == code }) return@access
+            if (!saved.enabled || (code.family == Family.TASK && !saved.tasksEnabled) ||
+                saved.events.any { it.attempt == attempt && it.code == code }) return@access
             val event = Event(attempt, code, build, buildName, now())
             require(event.time >= 0)
             check(write(encode(saved.copy(events = (saved.events + event).takeLast(MAX_EVENTS)))))
         }
     } }
 
+    /** Receive only the workflow's random identity and a typed checkpoint category. */
+    fun observeTask(attempt: String, observation: RoutineWorkflowObservation) = observe(attempt, when (observation) {
+        RoutineWorkflowObservation.BLOCKED -> Code.TASK_BLOCKED
+        RoutineWorkflowObservation.NOT_APPLIED -> Code.TASK_NOT_APPLIED
+        RoutineWorkflowObservation.REQUESTED -> Code.TASK_REQUESTED
+        RoutineWorkflowObservation.OUTCOME_UNKNOWN -> Code.TASK_OUTCOME_UNKNOWN
+        RoutineWorkflowObservation.OWNER_FAILED -> Code.TASK_OWNER_FAILED
+        RoutineWorkflowObservation.OWNER_CONFIRMED -> Code.TASK_OWNER_CONFIRMED
+        RoutineWorkflowObservation.DEVICE_VERIFIED -> Code.TASK_DEVICE_VERIFIED
+        RoutineWorkflowObservation.RECOVERY_PAUSED -> Code.TASK_RECOVERY_PAUSED
+    })
+
     fun reply(command: Command): String = when (command.action) {
         Action.ENABLE, Action.DISABLE -> file.access {
             val enabled = command.action == Action.ENABLE
-            check(write(encode(decode(read()).copy(enabled = enabled))))
-            if (enabled) "Enabled local workflow diagnostics for future contact-call, research and reminder checkpoints. Only categories, random attempt references, build and time are recorded; no names, phone numbers, reminder titles, queries, source text or errors. Nothing is uploaded. Say 'review workflow diagnostics', 'review workflow improvements', 'disable workflow diagnostics' or 'clear workflow diagnostics'. Manual improvement evaluation is separate."
+            check(write(encode(decode(read()).copy(enabled = enabled, tasksEnabled = enabled))))
+            if (enabled) "Enabled local workflow diagnostics for future contact-call, research, reminder and multistep task checkpoints (goals and saved routines). Only categories, random attempt references, build and time are recorded; no names, phone numbers, reminder titles, task names, app targets, queries, source text or errors. Existing stable task history is not imported. Nothing is uploaded. Say 'review workflow diagnostics', 'review workflow improvements', 'disable workflow diagnostics' or 'clear workflow diagnostics'. Manual improvement evaluation is separate."
             else "Disabled workflow diagnostics. Existing observations and briefs remain available to review or clear; manual evaluation is separate."
         }
         Action.CLEAR -> file.access { check(write(null)); "Cleared workflow observations and developer briefs; workflow diagnostics are off. Saved reminders, contact review, research brief and manual evaluation are separate." }
         Action.REVIEW -> snapshot().let { saved ->
-            "Workflow diagnostics: ${if (saved.enabled) "on" else "off"}; ${saved.events.size} retained categorical checkpoints (newest $MAX_EVENTS maximum).\n" +
+            "Workflow diagnostics: ${if (saved.enabled) "on" else "off"}; task checkpoints: ${if (saved.tasksEnabled) "on" else "off"}; ${saved.events.size} retained categorical checkpoints (newest $MAX_EVENTS maximum).\n" +
                 saved.events.groupBy { it.build to it.code }.entries.joinToString("\n") { (_, rows) ->
                     "${rows.first().buildName}: ${rows.first().code.label}; ${rows.size} distinct workflow references."
-                } + "\nObservations describe checkpoints, not completed calls, read notifications, verified facts or measured reliability. Repeated checkpoints for the same workflow and category count once. No private targets or provider errors are recorded."
+                } + "\nObservations describe checkpoints, not completed calls, read notifications, verified facts, whole-objective success or measured reliability. Task-step owner feedback remains distinct from device verification. Repeated checkpoints for the same workflow and category count once. No private targets or provider errors are recorded." +
+                if (saved.enabled && !saved.tasksEnabled) " Earlier consent covers calls, research and reminders only. Say 'enable workflow diagnostics' to explicitly include future goal and routine checkpoints." else ""
         }
         Action.IMPROVEMENTS -> snapshot().let { saved ->
             val groups = recurrent(saved)
             "Workflow improvement review: ${groups.size} recurrent category/build groups in the retained window.\n" +
                 groups.joinToString("\n") { rows -> "${rows.first().code.family.label}: ${rows.first().code.label} on ${rows.first().buildName}; ${rows.size} distinct workflows. Review: ${rows.first().code.review}" } +
-                "\nA recurrence is a reason to investigate, not a proven code defect. Permissions, configuration or unavailable results may explain it. Say 'prepare workflow improvement for research', 'contact calls' or 'reminders' to freeze current-build evidence into a local developer brief. Saved briefs: ${saved.proposals.size}.\n" +
+                "\nA recurrence is a reason to investigate, not a proven code defect. Permissions, configuration or unavailable results may explain it. Say 'prepare workflow improvement for research', 'contact calls', 'reminders' or 'tasks' to freeze current-build evidence into a local developer brief. Saved briefs: ${saved.proposals.size}.\n" +
                 saved.proposals.mapIndexed { index, p -> "${index + 1}. ${p.code.label} on ${p.evidence.first().buildName}; ${p.occurrences} workflows; ${if (p.dismissed) "dismissed" else "prepared"}." }.joinToString("\n") +
                 "\nUse 'review workflow improvement 1' with a listed number to inspect any retained brief, including earlier or dismissed evidence."
         }
@@ -92,7 +118,7 @@ class WorkflowDiagnostics(private val file: PersonalStateFile, private val build
         }
         Action.CLEAR_PROPOSALS -> file.access { val saved = decode(read()); check(write(encode(saved.copy(proposals = emptyList())))); "Cleared workflow developer briefs; observations and the recording setting remain." }
         Action.SHARE -> "Use the personal assistant to request Android's share chooser for a saved workflow improvement. No submission is verified."
-        Action.INVALID -> "Use an exact workflow diagnostic control: 'review workflow diagnostics', 'review workflow improvements' or 'prepare workflow improvement for research', 'contact calls' or 'reminders'. Nothing was changed or shared."
+        Action.INVALID -> "Use an exact workflow diagnostic control: 'review workflow diagnostics', 'review workflow improvements' or 'prepare workflow improvement for research', 'contact calls', 'reminders' or 'tasks'. Nothing was changed or shared."
     }
 
     fun handoff(family: Family): String? = snapshot().proposals.lastOrNull { it.code.family == family }?.takeUnless { it.dismissed }?.let(::render)
@@ -120,7 +146,7 @@ class WorkflowDiagnostics(private val file: PersonalStateFile, private val build
 
     private fun decode(raw: String?): Snapshot {
         if (raw == null) return Snapshot()
-        val root = JSONObject(raw); require(root.getInt("version") == 1)
+        val root = JSONObject(raw); val version = root.getInt("version"); require(version in 1..2)
         fun events(array: JSONArray, limit: Int): List<Event> {
             require(array.length() <= limit)
             return (0 until array.length()).map { i -> array.getJSONObject(i).let {
@@ -139,7 +165,10 @@ class WorkflowDiagnostics(private val file: PersonalStateFile, private val build
             require(p.evidence.all { it.code == p.code && it.build == p.evidence.first().build && it.buildName == p.evidence.first().buildName })
         } }
         require(briefs.distinctBy { it.id }.size == briefs.size)
-        return Snapshot(root.getBoolean("enabled"), rows, briefs)
+        val enabled = root.getBoolean("enabled")
+        val tasksEnabled = version >= 2 && root.getBoolean("tasksEnabled")
+        require(!tasksEnabled || enabled)
+        return Snapshot(enabled, rows, briefs, tasksEnabled)
     }
     private fun encode(saved: Snapshot): String {
         fun events(values: List<Event>) = JSONArray().also { array -> values.forEach {
@@ -149,7 +178,8 @@ class WorkflowDiagnostics(private val file: PersonalStateFile, private val build
             array.put(JSONObject().put("id", it.id).put("code", it.code.name).put("evidence", events(it.evidence))
                 .put("occurrences", it.occurrences).put("preparedAt", it.preparedAt).put("dismissed", it.dismissed))
         } }
-        return JSONObject().put("version", 1).put("enabled", saved.enabled).put("events", events(saved.events)).put("proposals", proposals).toString()
+        return JSONObject().put("version", 2).put("enabled", saved.enabled).put("tasksEnabled", saved.tasksEnabled)
+            .put("events", events(saved.events)).put("proposals", proposals).toString()
     }
     companion object {
         const val MAX_EVENTS = 200

@@ -549,6 +549,57 @@ class PersonalFoundationAcceptanceTest {
         assertEquals(4, fetches); assertEquals(0, executions)
     }
 
+    @Test fun taskDiagnosticsTrackOnlyNewCheckpointsAndFreezeOwnerFailuresAcrossServiceReconstruction() {
+        val privateLabel = "Private acceptance app"
+        val target = LearnableDeviceAction("open_app", mapOf("package" to context.packageName, "label" to privateLabel))
+        assertTrue(AssistantMemory(context).savePreference("music", target))
+        context.allowActivityRequests = true // Capture launcher and chooser intents without opening an app.
+        val service = assistant()
+        fun prepareAndApprove() {
+            val current = assistant()
+            current.handleUserInput("plan a task to open my music app")
+            current.handleUserInput("approve goal plan")
+            assertEquals(RoutineWorkflowStatus.AWAITING_OUTCOME, LocalRoutineWorkflowAccess(context).store.load().last().status)
+        }
+        prepareAndApprove()
+        assistant().handleUserInput("the goal step worked")
+        val diagnostics = WorkflowDiagnostics(context)
+        assertTrue(diagnostics.snapshot().events.isEmpty())
+        service.handleUserInput("enable workflow diagnostics")
+        assistant().handleUserInput("goal plan status")
+        assertTrue(diagnostics.snapshot().events.isEmpty()) // Do not import the earlier successful goal.
+        repeat(2) {
+            prepareAndApprove()
+            assistant().handleUserInput("the goal step failed")
+            repeat(2) { assistant().handleUserInput("resume goal plan"); assistant().handleUserInput("the goal step failed") }
+            assertEquals(RoutineWorkflowStatus.AMBIGUOUS, LocalRoutineWorkflowAccess(context).store.load().last().status)
+            assistant().handleUserInput("the goal step worked") // Checked owner feedback resolves this step, without retry.
+        }
+        assertEquals(3, context.activityRequests)
+        val events = diagnostics.snapshot().events
+        assertEquals(2, events.count { it.code == WorkflowDiagnostics.Code.TASK_OWNER_FAILED })
+        assertEquals(2, events.count { it.code == WorkflowDiagnostics.Code.TASK_REQUESTED })
+        assertEquals(2, events.count { it.code == WorkflowDiagnostics.Code.TASK_OWNER_CONFIRMED })
+        assertFalse(events.any { it.code == WorkflowDiagnostics.Code.TASK_DEVICE_VERIFIED || it.code == WorkflowDiagnostics.Code.TASK_NOT_APPLIED })
+        val brief = assistant().handleUserInput("prepare workflow improvement for tasks").text
+        assertTrue(brief.contains("Owner reported a task step failed"))
+        assertTrue(brief.contains("2 distinct workflows"))
+        assertFalse(brief.contains(privateLabel)); assertFalse(brief.contains(context.packageName))
+        assertEquals(brief, assistant().handleUserInput("review workflow improvement 1").text)
+        val beforeShare = diagnostics.snapshot()
+        assertTrue(assistant().handleUserInput("share workflow improvement for tasks").text.contains("Requested Android's share chooser"))
+        assertEquals(4, context.activityRequests)
+        assertEquals(Intent.ACTION_CHOOSER, context.lastActivityIntent!!.action)
+        assertEquals(beforeShare, diagnostics.snapshot())
+        assistant().handleUserInput("disable workflow diagnostics")
+        prepareAndApprove(); assistant().handleUserInput("the goal step worked")
+        assertEquals(events, diagnostics.snapshot().events)
+        assistant().handleUserInput("clear workflow diagnostics")
+        assertEquals(WorkflowDiagnostics.Snapshot(), diagnostics.snapshot())
+        assertEquals(4, LocalRoutineWorkflowAccess(context).store.load().size)
+        assertEquals(0, executions)
+    }
+
     @Test fun diagnosticReviewInvalidatesPendingCallApprovalWithoutDispatchingIt() {
         val service = assistant()
         service.handleUserInput("prepare a call to +1 202 555 0100")
