@@ -8,6 +8,30 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicReference
 
 class ImprovementEvaluationTest {
+    @Test fun revisionTwoChecksAndTheirBaselineSurviveTheCompositionUpgradeWithoutLosingManualReports() = fixture { directory ->
+        val evaluation = store(directory)
+        evaluation.setEnabled(true)
+        evaluation.record(ImprovementEvaluation.Scenario.RESEARCH, ImprovementEvaluation.Outcome.FAILED)
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.RUN_LOCAL))
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.BASELINE_LOCAL))
+        val file = File(directory, "improvement-evaluation.json")
+        val json = org.json.JSONObject(file.readText())
+        for (key in listOf("localRun", "localBaseline")) {
+            val run = json.getJSONObject(key); run.put("revision", 2)
+            val rows = run.getJSONArray("results")
+            run.put("results", org.json.JSONArray().also { out -> (0 until rows.length()).forEach { i ->
+                if (rows.getJSONObject(i).getString("case") != "COMPOSITION") out.put(rows.getJSONObject(i))
+            } })
+        }
+        file.writeText(json.toString())
+        assertEquals(7, evaluation.snapshot().localRun!!.results.size)
+        assertEquals(2, evaluation.snapshot().localBaseline!!.revision)
+        assertEquals(ImprovementEvaluation.Outcome.FAILED, evaluation.snapshot().samples.single().outcome)
+        evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.RUN_LOCAL))
+        assertTrue(evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.COMPARE_LOCAL)).contains("revision changed"))
+        assertEquals(7, evaluation.snapshot().localBaseline!!.results.size)
+    }
+
     @Test fun previousLocalCheckRevisionSurvivesUpgradeWithoutLosingOwnerFeedbackOrBaseline() = fixture { directory ->
         val evaluation = store(directory)
         evaluation.setEnabled(true)

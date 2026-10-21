@@ -32,7 +32,9 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
         CONTACT_CALL("contact call review", "Prepare a call to a synthetic contact with two numbers, choose one, reconstruct the service and review before approval.",
             "Require the current recipient review, revalidate the number and request at most one call or dialer; never claim connection.", "ContactCallWorkflow, ContactCallCommands and AndroidAssistantService"),
         RESEARCH("research brief", "Use synthetic sources, fail the first retrieval method, then cancel a delayed follow-up and review the saved brief offline.",
-            "Fall back to an available method, retain source links, reject late cancelled results and distinguish excerpts from verified facts.", "ResearchBriefs, SearchCoordinator and SearchRouter")
+            "Fall back to an available method, retain source links, reject late cancelled results and distinguish excerpts from verified facts.", "ResearchBriefs, SearchCoordinator and SearchRouter"),
+        GOAL_COMPOSITION("composed goal review", "Prepare a task with volume and two fictional apps, correct the volume, reconstruct and approve only the revised review. Check one app result before explicitly resuming the next.",
+            "Freeze every app before execution; pause for each current step result, preserve pending work across restart and never repeat an uncertain request or treat an app launch as objective completion.", "ComposableGoalPlanning, GoalPlanStore and ApprovedRoutineExecutor")
     }
     enum class Outcome { PASSED, FAILED, UNCLEAR }
     enum class Action { ENABLE, DISABLE, CLEAR, REVIEW, BASELINE, COMPARE, RECORD, PROPOSAL, PROPOSALS, REVIEW_PROPOSAL, DISMISS_PROPOSAL, CLEAR_PROPOSALS,
@@ -268,6 +270,7 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
             val revision = item.getInt("revision")
             val expectedCases = if (revision == 1) setOf(LocalFoundationChecks.Case.CORRECTIONS, LocalFoundationChecks.Case.APPROVAL,
                 LocalFoundationChecks.Case.RECOVERY, LocalFoundationChecks.Case.RETRIES, LocalFoundationChecks.Case.HISTORY)
+                else if (revision == 2) LocalFoundationChecks.Case.values().filter { it != LocalFoundationChecks.Case.COMPOSITION }.toSet()
                 else LocalFoundationChecks.Case.values().toSet()
             require(results.length() == expectedCases.size)
             LocalFoundationChecks.Run(item.getInt("build"), item.getString("buildName"), item.getLong("time"), item.getInt("revision"),

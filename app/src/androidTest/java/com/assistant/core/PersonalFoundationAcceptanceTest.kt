@@ -411,6 +411,81 @@ class PersonalFoundationAcceptanceTest {
         assertEquals(0, executions)
     }
 
+    @Test fun composedAppGoalsPauseForEachCurrentResultAcrossActualServiceReconstruction() {
+        val first = LearnableDeviceAction("open_app", mapOf("package" to context.packageName, "label" to "Synthetic Music"))
+        val second = LearnableDeviceAction("open_app", mapOf("package" to "com.android.settings", "label" to "Synthetic Maps"))
+        assertTrue(AndroidAssistantService(context).canLaunchApp(first.parameters.getValue("package")))
+        assertTrue(AndroidAssistantService(context).canLaunchApp(second.parameters.getValue("package")))
+        val memory = AssistantMemory(context)
+        assertTrue(memory.savePreference("music", first)); assertTrue(memory.savePreference("maps", second))
+        val service = assistant()
+        var reply: HybridAssistantReply? = null
+        service.handleUserInputAsync("plan a task to open my music app then open my maps app") { reply = it }
+        assertNotNull(reply); assertFalse(reply!!.needsInterpretation)
+        val pending = GoalPlanStore(context).pending()!!
+        assertEquals(listOf(first, second), pending.actions.map(RoutineSteps::appAction))
+        service.handleUserInput("yes")
+        assertEquals(0, context.activityRequests)
+        val restored = assistant()
+        assertTrue(restored.handleUserInput("approve goal plan").text.contains("before approving again"))
+        assertEquals(0, context.activityRequests)
+        context.allowActivityRequests = true // Capture real launcher intents without opening either app.
+        restored.handleUserInput("approve goal plan")
+        assertEquals(1, context.activityRequests)
+        fun checkpoint() = LocalRoutineWorkflowAccess(context).store.load().last()
+        assertEquals(RoutineWorkflowStatus.AWAITING_OUTCOME, checkpoint().status)
+        assertEquals(RoutineStepStatus.PENDING, checkpoint().steps[1].status)
+        assistant().handleUserInput("resume goal plan")
+        assertEquals(1, context.activityRequests)
+        assistant().handleUserInput("the goal step worked")
+        assertEquals(RoutineWorkflowStatus.PAUSED, checkpoint().status)
+        assertEquals(1, context.activityRequests)
+        assistant().handleUserInput("resume goal plan")
+        assertEquals(2, context.activityRequests)
+        assertEquals("com.android.settings", context.lastActivityIntent!!.component!!.packageName)
+        assertEquals(RoutineWorkflowStatus.AWAITING_OUTCOME, checkpoint().status)
+        assistant().handleUserInput("the goal step failed")
+        assistant().handleUserInput("resume goal plan")
+        assertEquals(RoutineWorkflowStatus.AMBIGUOUS, checkpoint().status)
+        assertEquals(2, context.activityRequests)
+        assistant().handleUserInput("cancel goal plan")
+        assistant().handleUserInput("the goal step worked")
+        assistant().handleUserInput("resume goal plan")
+        assertEquals(RoutineWorkflowStatus.CANCELLED, checkpoint().status)
+        assertEquals(2, context.activityRequests)
+        assertEquals(0, executions)
+    }
+
+    @Test fun driveCorrectionsAndCompositionEvaluationRemainLocalAndKeepSeparateDiagnosticConsent() {
+        val memory = AssistantMemory(context)
+        memory.savePreference("music", LearnableDeviceAction("open_app", mapOf("package" to context.packageName, "label" to "Synthetic Music")))
+        memory.savePreference("maps", LearnableDeviceAction("open_app", mapOf("package" to "com.android.settings", "label" to "Synthetic Maps")))
+        val service = assistant()
+        assertTrue(service.handleUserInput("prepare my drive").text.contains("No playback or navigation completion is verified"))
+        val previous = GoalPlanStore(context).pending()!!
+        service.handleUserInput("change goal volume to thirty percent")
+        val revised = GoalPlanStore(context).pending()!!
+        assertNotEquals(previous.key, revised.key)
+        assertEquals("volume:30", revised.actions.first())
+        assertEquals(previous.actions.drop(1), revised.actions.drop(1))
+        assertFalse(GoalPlanStore(context).approve(previous))
+        var malformed: HybridAssistantReply? = null
+        service.handleUserInputAsync("approve goal plan then search the service manual") { malformed = it }
+        assertNotNull(malformed); assertFalse(malformed!!.needsInterpretation)
+        assertNull(GoalPlanStore(context).pending())
+        service.handleUserInput("enable improvement evaluation")
+        service.handleUserInput("record improvement feedback for composed goal review as failed")
+        val brief = service.handleUserInput("prepare improvement proposal for composed goal review").text
+        assertTrue(brief.contains("ComposableGoalPlanning"))
+        assertTrue(service.handleUserInput("run local foundation checks").text.contains("composed goal stages: passed"))
+        val evaluation = ImprovementEvaluation(context).snapshot()
+        assertEquals(3, evaluation.localRun!!.revision)
+        assertEquals(ImprovementEvaluation.Outcome.FAILED, evaluation.samples.single().outcome)
+        assertFalse(WorkflowDiagnostics(context).snapshot().enabled)
+        assertTrue(WorkflowDiagnostics(context).snapshot().events.isEmpty())
+        assertEquals(0, context.activityRequests); assertEquals(0, executions)
+    }
+
     @Test fun workflowDiagnosticsRequireSeparateConsentAndShareOnlyFrozenCategoricalEvidence() {
         var fetches = 0
         val service = assistant { fetches++; SearchRouter.Response(null, emptyList()) }

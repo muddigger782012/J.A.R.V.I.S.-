@@ -1207,7 +1207,7 @@ class HybridAssistantService(
         // Local evaluation/correction controls must not be reinterpreted as a manual search
         // when malformed trailing text happens to mention documentation or a provider.
         if (personalAssistant && (WorkflowDiagnostics.command(rawInput) != null || ImprovementEvaluation.isManagementInput(rawInput) ||
-                TaskHistoryCommands.isManagementInput(rawInput) || GoalPlanning.edit(rawInput) != null || ReminderCommands.parse(rawInput) != null ||
+                TaskHistoryCommands.isManagementInput(rawInput) || GoalPlanning.isManagementInput(rawInput) || GoalPlanning.edit(rawInput) != null || ReminderCommands.parse(rawInput) != null ||
                 ContactCallCommands.parse(rawInput) != null)) {
             callback(handleUserInput(rawInput))
             return
@@ -1527,11 +1527,12 @@ class HybridAssistantService(
                 clearPendingActionPrompts()
                 val pending = plans.pending() ?: return@runCatching "No pending goal review is available to change. Request a focus, music or navigation plan first. A correction cannot alter a running task."
                 val revised = GoalPlanning.revise(pending, edit)
-                val target = revised?.actions?.lastOrNull()?.let(RoutineSteps::appAction)
-                val available = target == null || androidAssistant.canLaunchApp(target.parameters.getValue("package"))
+                val available = revised?.actions?.mapNotNull(RoutineSteps::appAction)?.all {
+                    androidAssistant.canLaunchApp(it.parameters.getValue("package"))
+                } ?: true
                 if (!plans.replacePending(pending, revised?.takeIf { available }))
                     return@runCatching "The pending goal changed or expired before this correction was saved. Say 'review goal plan' to inspect the current proposal; no steps ran."
-                if (revised == null) return@runCatching "I discarded the previous pending review because that correction could not be applied safely. Use a focus duration from one second to 24 hours, or 'change goal volume to 20 percent'. Request the plan again; no steps ran for this correction."
+                if (revised == null) return@runCatching "I discarded the previous pending review because that correction could not be applied safely. Change an existing timer from one second to 24 hours or an existing volume step from 0 to 100 percent; otherwise request a new task with those steps. No steps ran for this correction."
                 if (!available) return@runCatching "The proposed app is no longer launchable, so I discarded the pending review. Restore it or request a new plan using an available app. No steps ran for this correction."
                 reviewGoalPlan(revised) + " This replaces the earlier pending review; approval must refer to these revised steps."
             }.getOrElse { "The correction could not be saved safely. Review 'goal plan status' before approving anything; no steps were run by this correction." }
@@ -1590,18 +1591,26 @@ class HybridAssistantService(
             reviewedGoalKey = null
             // A new topic invalidates a pending review; an unrelated yes cannot revive it.
             runCatching { plans.discardPending() }
+            if (GoalPlanning.isManagementInput(input)) {
+                clearPendingActionPrompts()
+                return "Use an exact goal control such as 'review goal plan', 'approve goal plan' or 'cancel goal plan'. No steps ran for this input; the previous pending review was discarded."
+            }
             return null
         }
         return runCatching {
             clearPendingActionPrompts()
             check(plans.discardPending()) { "The previous goal review could not be invalidated." }
+            reviewedGoalKey = null
+            if (request.composition?.valid == false) return@runCatching "I can prepare up to three explicit steps using media volume, installed apps and a final timer. Try 'plan a task to set media volume to twenty percent then open my music app then open my maps app'. Every step must be supported before I save a review; nothing has run."
             if (request.volume !in 0..100) return@runCatching "Choose a media-volume percentage from 0 to 100 for this goal. Nothing has run."
             if (request.kind == GoalPlanning.Kind.FOCUS && (request.seconds == null || request.invalidDuration)) {
                 if (!plans.askDuration(request)) return@runCatching "Could not retain this focus request. Restate its duration and volume when local storage is available."
                 return@runCatching "How long should the focus session last? Give a duration from one second to 24 hours, such as '25 minutes'. I propose media volume ${request.volume}%; the exact steps still need review and approval."
             }
             val plan = GoalPlanning.plan(request, assistantMemory::preferred, androidAssistant::resolveLearnableApp, androidAssistant::canLaunchApp)
-                ?: return@runCatching "I can prepare the volume step and app launch once one launchable target is available. Save a preferred ${if (request.kind == GoalPlanning.Kind.MUSIC) "music" else "maps"} app, or repeat this goal using its exact installed app name. Nothing has run."
+                ?: return@runCatching if (request.kind in setOf(GoalPlanning.Kind.COMPOSED, GoalPlanning.Kind.DRIVE))
+                    "I need every app to resolve to one launchable target before preparing this task. Save the requested preferred music/maps/browser apps, or use their exact installed names. Put one volume step first and any timer last; use each app once, with at most three steps. No partial plan was saved and nothing has run."
+                else "I can prepare the volume step and app launch once one launchable target is available. Save a preferred ${if (request.kind == GoalPlanning.Kind.MUSIC) "music" else "maps"} app, or repeat this goal using its exact installed app name. Nothing has run."
             if (plans.propose(plan)) reviewGoalPlan(plan) else "Could not retain this goal for review. Nothing has run."
         }.getOrElse { "This goal could not be prepared safely. Check its duration, installed app or saved preference and local storage, then request the plan again. Nothing has run." }
     }
@@ -1610,7 +1619,7 @@ class HybridAssistantService(
         val result = routineCoordinator.status()
         val checkpoint = result.checkpoint
         return if (checkpoint != null && goalPlans?.find(checkpoint.phrase) != null) renderRoutineControl(result)
-        else "No goal execution is tracked. Try 'help me focus for 25 minutes', 'prepare a music session' or 'prepare a navigation session'. I will propose exact steps before requesting approval."
+        else "No goal execution is tracked. Try 'help me focus for 25 minutes', 'prepare my drive' or 'plan a task to open my music app then open my maps app'. I will propose exact steps before requesting approval."
     }
 
     private fun controlCurrentGoal(command: PersonalRoutineCommands.Command): String {
@@ -1649,7 +1658,7 @@ class HybridAssistantService(
         val goal = runCatching { goalPlans?.current()?.takeIf { it.key == checkpoint.phrase } }.getOrNull()
         if (goal != null) reviewedGoalKey = goal.key
         val resumeCommand = if (goal == null) "resume routine execution" else "resume goal plan"
-        val outcomeCommand = if (goal == null) "the routine" else "the goal"
+        val outcomeCommand = if (goal == null) "the routine" else "the goal step"
         val steps = checkpoint.steps.joinToString("; ") { state ->
             val description = state.step.target?.description() ?: RoutineProposal.describe(state.step.actionId)
             description + ": " + when (state.status) {
@@ -1667,8 +1676,9 @@ class HybridAssistantService(
             RoutineWorkflowStatus.AWAITING_APPROVAL -> if (goal != null) " Review this goal's exact steps, then say 'approve goal plan' to authorize them. Nothing has run."
                 else " Invoke the saved routine by name to authorize its reviewed steps. Nothing has run."
             RoutineWorkflowStatus.READY -> " Say '$resumeCommand' to run the pending steps. Nothing resumes automatically."
-            RoutineWorkflowStatus.AWAITING_OUTCOME -> " Check the requested result, then say '$outcomeCommand worked' or '$outcomeCommand failed'. An updater launch is not proof of installation."
-            RoutineWorkflowStatus.FAILED, RoutineWorkflowStatus.PAUSED -> if (goal != null && !checkpoint.approved && checkpoint.steps.all { it.attempts == 0 })
+            RoutineWorkflowStatus.AWAITING_OUTCOME -> " Check the current requested step, then say '$outcomeCommand worked' or '$outcomeCommand failed'. This reports that step only; it does not start the remaining steps or verify the whole objective."
+            RoutineWorkflowStatus.PAUSED -> " Say '$resumeCommand' to continue pending steps. Completed steps will not repeat; nothing resumes automatically."
+            RoutineWorkflowStatus.FAILED -> if (goal != null && !checkpoint.approved && checkpoint.steps.all { it.attempts == 0 })
                 " Restore storage access, review the exact steps, then say 'approve goal plan' to approve again or 'cancel goal plan' to stop. No step has run."
                 else " Review the cause before saying '$resumeCommand'. Completed steps will not repeat."
             RoutineWorkflowStatus.AMBIGUOUS -> " Inspect the device result before any new request; this workflow will not retry an uncertain effect. Report a checked result with '$outcomeCommand worked' or '$outcomeCommand failed'."

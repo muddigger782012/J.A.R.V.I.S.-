@@ -465,6 +465,70 @@ from being silently included. Broad visual layout remains skipped upstream;
 physical calls, live providers, alarm/boot/doze timing and installed-data upgrade
 remain pending. No measured phase completion percentage is claimed.
 
+## Host-bound task composition and staged drive preparation
+
+The personal assistant can now prepare one to three explicit steps rather than
+requiring a fixed focus/music/navigation template. For example:
+
+- `plan a task to set media volume to twenty percent then open my music app then open my maps app`
+- `prepare a task to open Test Music then start a timer for ten minutes`
+- `plan a task to open Test Maps`
+- `prepare my drive`, or `help me get ready to drive with music and Maps at thirty percent volume`
+
+Each clause must bind to an existing local handler before a plan is saved. Exact
+installed app labels must resolve uniquely; saved browser/music/maps preferences
+are resolved once and frozen as package/label pairs. All apps must be launchable
+before the first effect. Duplicate packages are rejected even if their labels differ.
+One optional exact media-volume step comes first, any timer comes last, and timers
+retain the one-second to 24-hour bound. Unknown clauses, extra steps, calls, messages,
+updater actions, shell/code and unbound package arguments cannot become partial
+executable plans. The existing saved/AI routine allowlist remains unchanged;
+multi-app composition is available only through host-bound goal definitions and
+the checkpointed executor. This is bounded composition, not a generic AI planner.
+
+Planning, a bare yes, status, correction and reconstruction dispatch nothing.
+`approve goal plan` must refer to the exact current review; a newly constructed
+assistant first presents that review again. Existing `change goal volume to ...`
+and `make that ...` corrections update only an existing volume/timer field and
+generate a fresh approval key. A missing field requires a new plan. Malformed
+management controls stay local before search, AI and learned aliases, and discard
+the earlier pending review.
+
+App and timer requests pause independently. After checking the current requested
+step, use `the goal step worked` or `the goal step failed`; the earlier `the goal
+worked/failed` forms remain accepted for compatibility. A report applies only to
+the current step and never dispatches pending work. `resume goal plan` explicitly
+continues eligible pending steps without repeating earlier steps. Drive preparation
+opens the chosen music app first; select music there, return to Jarvis, report the
+checked result and resume to request Maps. Set the destination in Maps. Jarvis does
+not claim playback, navigation, timer completion or the whole objective from a
+launcher intent. User reports remain separate from device readback.
+
+Cancellation stops subsequent steps and cannot undo requested effects. A failed
+reported result, interrupted middle app or missing outcome checkpoint stays uncertain
+and cannot be automatically repeated. Restart/status do not run anything. Every
+target remains frozen; changes/removals or unavailable apps stop continuation rather
+than substituting an unseen target. Existing goal definitions, focus-duration drafts,
+routine journals, settings, provider/model controls and themes remain compatible.
+
+Manual improvement evaluation gains `composed goal review` with synthetic fixtures
+and reviewed developer handoff. Local foundation checks revision 3 runs a staged
+multi-app fixture with counters and isolated state, not Android apps or provider
+requests. Installed revision 1 and 2 reports/baselines remain readable, preserve
+manual feedback and require retesting before a matched revision comparison. This
+adds no goal telemetry or broader automatic diagnostic consent.
+
+New JVM cases cover full-clause validation, exact/frozen app binding, duplicate
+packages, custom corrections, old-state reconstruction, per-step outcomes, loss of
+a later app, changed approval, middle-step interruption, cancellation, failed
+outcome persistence and protection of the original routine allowlist. New Android
+cases use isolated storage and intercepted real launcher intents for two disposable
+emulator apps; no external app is actually launched. They verify service
+reconstruction, pauses/resume, current-step reporting, cancellation, drive corrections,
+malformed asynchronous controls, manual evaluation and isolated checks. The optimized
+emulator gate now requires all 28 cases. Real-phone voice, app switching, playback,
+navigation, permission and in-place upgrade acceptance remain separate work.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -555,7 +619,7 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
 2. Pass the existing CI unit/build, gateway, theme and optimized voice emulator jobs
-   on the final source. The voice runner requires all 26 voice/settings and isolated
+   on the final source. The voice runner requires all 28 voice/settings and isolated
    foundation service/storage acceptance tests. Broad visual-layout
    smoke remains disabled upstream; do not count it as a pass.
 3. On a disposable emulator, verify exact commands, no unintended actions for
