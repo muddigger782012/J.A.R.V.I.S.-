@@ -67,7 +67,7 @@ class MainActivity : Activity() {
                 setOnClickListener {
                     when(index) {
                         0, 1 -> diagnose()
-                        2 -> log("Android system network repair is not available; check Wi-Fi/mobile settings")
+                        2 -> { log("Opening Android wireless settings; system repair requires user action"); startActivity(android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }
                         else -> log("Activity log shown below")
                     }
                 }
@@ -91,17 +91,17 @@ class MainActivity : Activity() {
         log("Android validated network: $validated")
         cards["INTERNET"]?.text = "INTERNET\nTESTING..."
         thread {
-            val result = try {
+            val started = android.os.SystemClock.elapsedRealtime()\n            val result = try {
                 val connection = URL("https://www.google.com/generate_204").openConnection() as HttpURLConnection
                 connection.connectTimeout = 5000
                 connection.readTimeout = 5000
                 connection.instanceFollowRedirects = false
-                try { "HTTPS ${connection.responseCode}" } finally { connection.disconnect() }
+                try { "HTTPS ${connection.responseCode} · ${android.os.SystemClock.elapsedRealtime() - started} ms" } finally { connection.disconnect() }
             } catch (e: Exception) { "FAILED: ${e.javaClass.simpleName}" }
             runOnUiThread {
                 cards["INTERNET"]?.text = "INTERNET\n$result"
-                log("Internet probe: $result (single endpoint only)")
-                listOf("WEB SEARCH", "GEMINI AI", "AI FALLBACK", "GITHUB UPDATES", "LOCAL AI").forEach {
+                log("Internet probe: $result (single endpoint only)")\n                cards["GITHUB UPDATES"]?.text = "GITHUB UPDATES\\n$github"\n                log("Repository API probe: $github (does not verify update manifest)")
+                listOf("WEB SEARCH", "GEMINI AI", "AI FALLBACK", "LOCAL AI").forEach {
                     cards[it]?.text = "$it\nNOT TESTED"
                 }
             }
