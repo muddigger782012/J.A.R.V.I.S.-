@@ -1,13 +1,10 @@
 package com.assistant.core
 
-import android.app.Activity
 import android.content.Intent
-import android.graphics.Color
 import android.util.TypedValue
 import android.os.BatteryManager
 import android.os.Bundle
 import android.view.Gravity
-import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -45,8 +42,9 @@ class AssistantHudActivity : ThemedActivity() {
         row(root, "ASSISTANT", "SETTINGS") { index ->
             if (index == 0) openJarvis() else startActivity(Intent(this, SettingsActivity::class.java))
         }
-        row(root, "VOICE", "CONNECTIONS") { index ->
-            if (index == 0) openJarvis() else startActivity(Intent(this, AssistantConnectionsActivity::class.java))
+        row(root, "VOICE SETTINGS", "CONNECTIONS") { index ->
+            if (index == 0) startActivity(Intent(this, AssistantVoiceSettingsActivity::class.java))
+            else startActivity(Intent(this, AssistantConnectionsActivity::class.java))
         }
         root.addView(label("The HUD is an optional extension. Existing Jarvis screens remain intact.", 13))
     }
