@@ -791,6 +791,75 @@ class PersonalFoundationAcceptanceTest {
         assertTrue(restored.getConversationSnapshot().isEmpty())
     }
 
+    @Test fun conversationalGoalAppEditsStayLocalAndExpiredReviewLabelsCannotBecomeNetworkOffers() {
+        val music = LearnableDeviceAction("open_app", mapOf("package" to context.packageName, "label" to "Would you like network settings"))
+        val maps = LearnableDeviceAction("open_app", mapOf("package" to "com.android.settings", "label" to "Synthetic Maps"))
+        val memory = AssistantMemory(context)
+        assertTrue(memory.savePreference("music", music)); assertTrue(memory.savePreference("maps", maps))
+        val service = assistant { error("A goal app edit must not search or contact a provider") }
+        service.handleUserInput("plan a task to open my maps app")
+        val original = GoalPlanStore(context).pending()!!
+        var reply: HybridAssistantReply? = null
+        service.handleUserInputAsync("actually, use my music app instead") { reply = it }
+        assertNotNull(reply); assertFalse(reply!!.needsInterpretation)
+        assertTrue(reply!!.text.contains("replaces the earlier pending review"))
+        val revised = GoalPlanStore(context).pending()!!
+        assertNotEquals(original.key, revised.key)
+        assertEquals(music, RoutineSteps.appAction(revised.actions.single()))
+        assertFalse(GoalPlanStore(context).approve(original))
+        assertEquals(maps, memory.preferred("maps")); assertEquals(music, memory.preferred("music"))
+        assertTrue(GoalPlanStore(context).discardPending()) // Simulate another owner/expired review without a newer dialogue turn.
+        var confirmation: HybridAssistantReply? = null
+        service.handleUserInputAsync("yes") { confirmation = it }
+        assertNotNull(confirmation); assertEquals(0, context.activityRequests)
+        service.handleUserInput("plan a task to open my maps app")
+        var invalid: HybridAssistantReply? = null
+        service.handleUserInputAsync("use my music app instead then search the service manual") { invalid = it }
+        assertNotNull(invalid); assertFalse(invalid!!.needsInterpretation)
+        assertNull(GoalPlanStore(context).pending())
+        assertEquals(0, context.activityRequests); assertEquals(0, executions)
+    }
+
+    @Test fun numberedGoalAppEditsReconstructAndApproveOnlyTheFrozenReplacementWithoutChangingRunningWork() {
+        val music = LearnableDeviceAction("open_app", mapOf("package" to context.packageName, "label" to "Synthetic Music"))
+        val maps = LearnableDeviceAction("open_app", mapOf("package" to "com.android.settings", "label" to "Synthetic Maps"))
+        val memory = AssistantMemory(context)
+        assertTrue(memory.savePreference("music", music)); assertTrue(memory.savePreference("maps", maps))
+        val service = assistant()
+        service.handleUserInput("plan a task to open my music app then set a timer for ten minutes")
+        val original = GoalPlanStore(context).pending()!!
+        var response: HybridAssistantReply? = null
+        assistant().handleUserInputAsync("change goal step one to open my maps app") { response = it }
+        assertNotNull(response); assertFalse(response!!.needsInterpretation)
+        val changed = GoalPlanStore(context).pending()!!
+        assertNotEquals(original.key, changed.key)
+        assertEquals(maps, RoutineSteps.appAction(changed.actions.first()))
+        assertEquals(original.actions.last(), changed.actions.last())
+        assertFalse(GoalPlanStore(context).approve(original))
+        assertTrue(memory.savePreference("maps", music)) // Preference changes cannot retarget an already reviewed correction.
+        val restored = assistant()
+        assertTrue(restored.handleUserInput("approve goal plan").text.contains("before approving again"))
+        assertEquals(0, context.activityRequests)
+        context.allowActivityRequests = true
+        restored.handleUserInput("approve goal plan")
+        assertEquals(1, context.activityRequests)
+        assertEquals("com.android.settings", context.lastActivityIntent!!.component!!.packageName)
+        val running = LocalRoutineWorkflowAccess(context).store.load().last()
+        assertEquals(RoutineWorkflowStatus.AWAITING_OUTCOME, running.status)
+        assertEquals(RoutineStepStatus.PENDING, running.steps.last().status)
+        assertTrue(restored.handleUserInput("change goal app to Missing App").text.contains("No pending goal review"))
+        assertEquals(running, LocalRoutineWorkflowAccess(context).store.load().last())
+        assertEquals(changed, GoalPlanStore(context).current())
+        restored.handleUserInput("the goal step worked")
+        assertEquals(RoutineWorkflowStatus.PAUSED, LocalRoutineWorkflowAccess(context).store.load().last().status)
+        assertEquals(1, context.activityRequests)
+        restored.handleUserInput("enable improvement evaluation")
+        restored.handleUserInput("record improvement feedback for goal app correction as failed")
+        assertTrue(restored.handleUserInput("prepare improvement proposal for goal app correction").text.contains("GoalAppCorrections"))
+        assertFalse(WorkflowDiagnostics(context).snapshot().enabled)
+        assertEquals(0, executions)
+    }
+
     @Test fun pendingReminderCorrectionsStayLocalAcrossServiceReconstructionAndDoNotConsumeGoalCorrections() {
         val service = assistant()
         val manager = PersonalReminderRuntime.manager(context)

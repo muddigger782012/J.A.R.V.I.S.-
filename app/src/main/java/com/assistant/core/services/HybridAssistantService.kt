@@ -1169,6 +1169,10 @@ class HybridAssistantService(
     }
 
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+        if (personalAssistant && GoalAppCorrections.contextual(rawInput) != null &&
+            runCatching { goalPlans?.pending() != null }.getOrDefault(false)) {
+            callback(handleUserInput(rawInput)); return
+        }
         if (personalAssistant && ReminderCommands.contextualEdit(rawInput) != null &&
             runCatching { personalReminders.pending() != null }.getOrDefault(false)) {
             callback(handleUserInput(rawInput)); return
@@ -1241,7 +1245,7 @@ class HybridAssistantService(
         // Local goal replies may contain arbitrary app labels. They are never network/manual
         // offers, including after their review expires, is cancelled or is replaced.
         val priorGoalTurn = personalAssistant && priorTurn?.let {
-            GoalPlanning.isManagementInput(it.first) || GoalPlanning.edit(it.first) != null ||
+            GoalPlanning.isManagementInput(it.first) || GoalPlanning.edit(it.first) != null || GoalAppCorrections.contextual(it.first) != null ||
                 (GoalPlanning.isReviewReply(it.first) && it.second.contains("Use the exact approval phrase for this plan"))
         } == true
         val affirmativeFollowup = rawInput.trim().lowercase(Locale.ROOT).trimEnd('.', '!', '?') in
@@ -1537,6 +1541,21 @@ class HybridAssistantService(
 
     private fun handleGoalInput(input: String): String? {
         val plans = goalPlans ?: return null
+        val appEdit = GoalAppCorrections.explicit(input) ?: GoalAppCorrections.contextual(input)
+            ?.takeIf { runCatching { plans.pending() != null }.getOrDefault(false) }
+        if (appEdit != null) {
+            reviewedGoalKey = null
+            return runCatching {
+                clearPendingActionPrompts()
+                val pending = plans.pending() ?: return@runCatching "No pending goal review is available to change. Prepare a goal first; an app correction cannot change an approved or running task."
+                val revised = GoalAppCorrections.revise(pending, appEdit, assistantMemory::preferred,
+                    androidAssistant::resolveLearnableApp, androidAssistant::canLaunchApp)
+                if (!plans.replacePending(pending, revised))
+                    return@runCatching "The goal review changed or expired before this app correction was saved. Say 'review goal plan' to inspect the current proposal; no steps ran."
+                if (revised == null) return@runCatching "I discarded the previous pending review because that app change could not be bound safely. Prepare the goal again with one exact installed app or a saved preferred app. For several apps, identify its numbered app step; keep each app distinct and leave volume/timer steps as they are. No steps ran and no preference changed."
+                reviewGoalPlan(revised) + " This replaces the earlier pending review; approve only these revised steps. Your saved app preferences are unchanged."
+            }.getOrElse { "The app correction could not be saved safely. Review 'goal plan status' before approving anything; no steps ran for this correction." }
+        }
         GoalPlanning.edit(input)?.let { edit ->
             reviewedGoalKey = null
             return runCatching {
