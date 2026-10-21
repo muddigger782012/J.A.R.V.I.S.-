@@ -79,7 +79,35 @@ class MainActivity : Activity() {
         events = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = panel(); setPadding(dp(10), dp(8), dp(10), dp(8)) }
         root.addView(events)
         log("Connection Manager initialized; no provider tests have run")
-        section("OVERVIEW      DIAGNOSTICS      PROVIDERS      SETTINGS")
+        section("NAVIGATION")
+        val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        listOf("OVERVIEW", "DIAGNOSTICS", "PROVIDERS", "SETTINGS").forEachIndexed { index, title ->
+            val tab = TextView(this).apply {
+                text = title
+                textSize = 10f
+                gravity = Gravity.CENTER
+                setTextColor(cyan)
+                contentDescription = "Open $title"
+                background = panel()
+                setOnClickListener {
+                    when (index) {
+                        0 -> scroller.smoothScrollTo(0, 0)
+                        1 -> diagnose()
+                        2 -> {
+                            log("Provider endpoints are reachability checks; authenticated tests are not configured")
+                            scroller.post { scroller.smoothScrollTo(0, dp(280)) }
+                        }
+                        else -> {
+                            startActivity(android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS))
+                        }
+                    }
+                }
+            }
+            tabs.addView(tab, LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+                setMargins(dp(2), dp(2), dp(2), dp(2))
+            })
+        }
+        root.addView(tabs)
     }
 
     private fun diagnose() {
