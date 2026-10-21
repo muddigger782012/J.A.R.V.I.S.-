@@ -440,10 +440,10 @@ class PersonalFoundationAcceptanceTest {
         var fetches = 0
         val service = assistant { fetches++; SearchRouter.Response("synthetic", listOf(SearchRouter.Result("Synthetic guide", "An isolated source excerpt.", "https://example.com/guide"))) }
         val done = CountDownLatch(1); val result = AtomicReference<HybridAssistantReply>()
-        service.handleUserInputAsync("research solar panels and summarize") { result.set(it); done.countDown() }
+        service.handleUserInputAsync("research the new update and summarize") { result.set(it); done.countDown() }
         assertTrue(done.await(20, TimeUnit.SECONDS))
         val decoded = ChatSearchResults.decode(result.get().text)!!
-        assertEquals(1, fetches); assertEquals("solar panels", decoded.query)
+        assertEquals(1, fetches); assertEquals("the new update", decoded.query)
         assertTrue(decoded.answer!!.contains("not independently verified"))
         assertEquals(result.get().text, assistant().handleUserInput("review research brief").text)
         assertFalse(ChatSearchResults.forSpeech(result.get().text).contains("search-results-v1"))

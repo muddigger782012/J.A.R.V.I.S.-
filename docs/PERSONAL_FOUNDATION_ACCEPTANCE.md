@@ -369,8 +369,11 @@ dispatch, source validation, provider fallback, duplicate workers, restart and l
 cancelled/superseded research. New Android cases intercept phone intents without
 launching a Phone app, use synthetic retrieval for service reconstruction and
 cancellation, and verify no private review content enters provider dialogue memory.
-The optimized emulator gate now requires all 24 acceptance tests. Final-source CI,
-signing and publication evidence is recorded in this follow-up's pull request.
+The optimized emulator gate now requires all 24 acceptance tests. The research
+case explicitly asks about a new update so the concurrent host-state connectivity
+correction cannot swallow a research request as an update-status question. Final
+combined-source CI, signing and publication evidence is retained in the workflow
+implementation and delivery-validation pull requests.
 Actual personal contacts, physical call/permission behavior, live search/model
 quality, real phone voice interaction and installed-data upgrade remain pending.
 
