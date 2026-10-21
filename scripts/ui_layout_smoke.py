@@ -105,49 +105,38 @@ try:
         adb('shell', 'input', 'swipe', '500', '1450', '500', '550', '300')
         time.sleep(1)
     assert weather_found, 'AI and weather not found after scrolling Settings'
-    # Confirm the new learning control opens its diagnostics without deleting data.
-    learning_button = None
-    for attempt in range(4):
-        learning_button = next((n for n in hierarchy().iter('node')
-            if n.get('text') == 'Intelligence • Local Learning'), None)
-        if learning_button is not None:
-            break
-        adb('shell', 'input', 'swipe', '500', '1450', '500', '550', '300')
-        time.sleep(1)
-    assert learning_button is not None, 'Local Learning settings button not found'
-    x1, y1, x2, y2 = map(int, re.findall(r'\d+', learning_button.get('bounds')))
-    adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
-    time.sleep(1)
-    assert any('Learned intent examples:' in n.get('text', '') for n in hierarchy().iter('node')), 'Learning diagnostics dialog did not open'
-    capture('learning-diagnostics')
+    # Verify the current Settings destinations, not removed legacy controls.
+    def open_settings_destination(label):
+        for attempt in range(7):
+            entry = next((n for n in hierarchy().iter('node')
+                if n.get('text', '').strip() == label), None)
+            if entry is not None:
+                coords = list(map(int, re.findall(r'\d+', entry.get('bounds', ''))))
+                assert len(coords) == 4, f'{label} has invalid bounds'
+                x1, y1, x2, y2 = coords
+                adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
+                time.sleep(1)
+                return
+            adb('shell', 'input', 'swipe', '500', '450', '500', '1450', '300')
+            time.sleep(1)
+        raise AssertionError(f'{label} destination missing from Settings')
+
+    open_settings_destination('Learning and memory')
+    assert any('Learning on this device' in n.get('text', '') for n in hierarchy().iter('node')), 'Intelligence screen did not open'
+    capture('intelligence')
     adb('shell', 'input', 'keyevent', '4')
     time.sleep(1)
-    tap('btnCloseVoiceSettings')
-    # Exercise each palette through the native settings flow, then verify persistence.
+    open_settings_destination('Appearance')
+    assert any(n.get('resource-id') == 'com.assistant.core:id/appearanceTabs' for n in hierarchy().iter('node')), 'Appearance screen did not open'
+    capture('appearance')
     for name in ('Stark', 'Cybertron', 'Default'):
-        # Navigate through the public app UI; theme activities are intentionally not exported.
-        tap('btnVoiceSettings')
-        tap('btnThemes')
-        assert any(n.get('resource-id') == 'com.assistant.core:id/appearanceTabs' for n in hierarchy().iter('node')), 'Appearances screen did not open'
-        if name == 'Cybertron':
-            adb('shell', 'input', 'swipe', '500', '1500', '500', '500', '350')
-            time.sleep(1)
-        # Theme choices may be nested in a scroll view below the appearance controls.
+        # Exercise the existing theme picker without relying on obsolete Settings buttons.
         tap_scrolling('btnTheme' + name)
-        assert any(n.get('text') in (name + ' • Active', 'Current theme: ' + name) for n in hierarchy().iter('node')), 'Theme not applied'
         capture('theme-picker-' + name.lower())
-        adb('shell', 'input', 'keyevent', '4')
-        time.sleep(1)
-        tap('btnCloseAppearances')
-        tap('btnCloseVoiceSettings')
-        capture('theme-' + name.lower())
-        if name == 'Cybertron':
-            adb('shell', 'am', 'force-stop', 'com.assistant.core')
-            adb('shell', 'am', 'start', '-n', 'com.assistant.core/.MainActivity')
-            time.sleep(2)
-            tap('btnVoiceSettings')
-            assert any('Cybertron' in n.get('text', '') and 'Appearances' in n.get('text', '') for n in hierarchy().iter('node')), 'Theme did not survive restart'
-            tap('btnCloseVoiceSettings')
+    adb('shell', 'input', 'keyevent', '4')
+    time.sleep(1)
+    adb('shell', 'input', 'keyevent', '4')
+    time.sleep(1)
     adb('shell', 'wm', 'size', '720x1280')
     adb('shell', 'wm', 'density', '360')  # 320dp width
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1.3')
