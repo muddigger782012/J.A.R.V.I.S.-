@@ -1,0 +1,59 @@
+name: Jarvis HUD emulator smoke
+on:
+  push:
+    branches: [test/hud-emulator-smoke]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  hud-emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v4
+      - name: Prepare Android dependencies
+        shell: bash
+        run: |
+          sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
+          mkdir -p app/libs
+          curl -fL --retry 3 -o app/libs/sherpa-onnx-1.13.8.aar https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest
+      - name: Boot emulator and inspect HUD
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -eux
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell am start -W -n com.assistant.core/.AssistantHudActivity
+            sleep 8
+            mkdir -p hud-emulator-results
+            adb shell dumpsys activity activities > hud-emulator-results/activity.txt
+            adb shell uiautomator dump /sdcard/hud-window.xml
+            adb pull /sdcard/hud-window.xml hud-emulator-results/hud-window.xml
+            adb exec-out screencap -p > hud-emulator-results/hud-screen.png
+            grep -q 'ASSISTANT HUD' hud-emulator-results/hud-window.xml
+            grep -q 'TALK TO JARVIS' hud-emulator-results/hud-window.xml
+            grep -q 'CONNECTIONS' hud-emulator-results/hud-window.xml
+            adb shell am force-stop com.assistant.core
+            adb shell am start -W -n com.assistant.core/.MainActivity
+            sleep 3
+            adb shell dumpsys activity activities > hud-emulator-results/main-activity.txt
+            grep -q 'com.assistant.core' hud-emulator-results/main-activity.txt
+      - name: Upload HUD screenshots and hierarchy
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hud-emulator-results
+          path: hud-emulator-results/
+          if-no-files-found: warn
