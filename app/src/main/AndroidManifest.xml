@@ -52,6 +52,24 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.AssistantPlatform">
+        <receiver android:name=".JarvisHudWidgetProvider" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/jarvis_info_widget" />
+        </receiver>
+        <receiver android:name=".JarvisReactorWidgetProvider" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/jarvis_reactor_widget" />
+        </receiver>
+        <activity android:name=".AssistantHudActivity" android:exported="true" android:label="J.A.R.V.I.S. HUD">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <activity android:name=".SearchBrowserActivity" android:exported="false" />
         <receiver android:name=".services.PersonalReminderReceiver" android:exported="false" android:enabled="${personalReminderEnabled}">
             <intent-filter>
