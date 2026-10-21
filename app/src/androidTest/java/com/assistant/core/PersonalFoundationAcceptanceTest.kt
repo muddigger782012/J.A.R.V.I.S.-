@@ -1072,6 +1072,24 @@ class PersonalFoundationAcceptanceTest {
         assertEquals(maps, InstalledApps.unique("maps", listOf(maps)))
     }
 
+    @Test fun screenControlRoutingStaysLocalAndInvalidatesUnrelatedApprovalsWithoutLearningScreenText() {
+        val service = assistant { error("Screen controls must never request research") }
+        service.handleUserInput("help me focus for five minutes")
+        assertNotNull(GoalPlanStore(context).pending())
+        assertFalse(service.handleUserInput("screen control status").needsInterpretation)
+        assertNull(GoalPlanStore(context).pending())
+        service.handleUserInput("clear conversation memory")
+        val reply = AtomicReference<HybridAssistantReply>(); val answered = CountDownLatch(1)
+        service.handleUserInputAsync("tap screen item one then search the web") { reply.set(it); answered.countDown() }
+        assertTrue(answered.await(5, TimeUnit.SECONDS))
+        assertFalse(reply.get().needsInterpretation)
+        assertTrue(reply.get().text.contains("Nothing was run"))
+        assertFalse(service.handleUserInput("screen control help").needsInterpretation)
+        assertTrue(service.getConversationSnapshot().isEmpty())
+        assertTrue(ConversationMemory(context).snapshot().isEmpty())
+        assertEquals(0, context.activityRequests); assertEquals(0, executions)
+    }
+
     private fun assistant(researchFetch: ((String) -> SearchRouter.Response)? = null): HybridAssistantService {
         val capabilities = CapabilityState(true, false, false, false, false, false, false)
         val registry = ActionRegistry()

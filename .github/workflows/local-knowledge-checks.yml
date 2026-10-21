@@ -142,3 +142,4 @@ jobs:
             app/build/reports/androidTests/connected/**
             voice-regression-logcat.txt
             voice-regression-results.txt
+            voice-screen-preflight.txt

@@ -976,6 +976,65 @@ after earlier main publishers finished. Broad visual-layout smoke remains skippe
 Physical phone voice names, OEM/work-profile visibility, actual foreground launch and installed-data
 upgrade acceptance remain pending; no phase maturity score is claimed.
 
+## Phase 4 follow-up: explicit voice screen control
+
+The personal assistant now routes screen commands ahead of learned aliases, broad
+voice keywords, providers and search. A private, non-exported ContentProvider with
+same-UID checks bridges the background voice process to the enabled Accessibility
+service in the main process. Voice/chat share one transient numbered-control/tap
+review domain. This IPC path does not grant Accessibility access, expose a public
+control endpoint, or add screen content to assistant/provider memory, action audit
+logs or learning datasets. Existing visible chat-history settings still apply to
+replies displayed in chat. Pending reviews retain only a screen hash and the
+selected control; numbered choices retain at most twenty control labels. No screen sampling occurs in the background.
+
+Enable Jarvis in Android Accessibility settings yourself; `open accessibility settings`
+opens the Android page with a fallback. Android restricted-settings and security
+prompts remain manual. Use `screen control status` or `screen control help`, then
+`show screen controls`, `read my screen`, `tap` plus an exact visible label, or
+`tap screen item one`. Duplicate labels produce choices rather than a guessed tap.
+Every tap requires the displayed target review and exact `confirm screen action`;
+bare yes cannot authorize it. `cancel screen action` discards it. Reviews expire
+after 30 seconds; numbered controls expire after two minutes or another topic.
+
+`scroll down/up` uses one exposed scroll area; several areas require a current
+number: `scroll screen item one down/up`. Back, Home, Recents, opening notifications
+and opening Quick Settings use Android global actions. These direct requests remain
+accepted/rejected/uncertain action reports, not proof of resulting app state or task
+completion. There is no automatic retry. Notification-tray opening does not implement
+notification summaries or reply access. Arbitrary gestures, coordinates, typing,
+credential entry and autonomous cross-app sequences are not part of this slice.
+
+The adapter refreshes Android's node data on request, bounds traversal by depth,
+node/text/time budgets and rejects oversized/unreadable trees rather than executing
+against a partial view. A pending tap is consumed before dispatch; the same service
+connection, package/window, visible tree/control identity and geometry are checked
+again immediately before one ACTION_CLICK. Changed screens, disconnected/reconnected
+services and removed controls invalidate the review. A private IPC deadline cancels
+queued work and prohibits new node/global dispatch after its deadline; in-flight
+uncertainty is reported without retry. Standard APIs and Android permission
+boundaries remain in force.
+
+Locked windows, recognized password-entry windows, Android Settings/SystemUI and
+permission/installer/security packages are protected in this initial slice. No
+password-node text/descendants are read, and recognized password windows expose no
+surrounding text or executable controls. App-specific protected/custom content that
+Android does not expose may remain unavailable. The legacy screen-summary helper
+also uses the bounded password-aware reader. Capability reports distinguish a local
+service connection from a verified connection through the private voice bridge.
+
+Automated acceptance uses harmless themed fixture UI and a same-UID service in a
+separate process, compiled only into debug/optimized test hosts. These components
+are excluded from personal release and Beta. The disposable emulator alone enables
+its Accessibility service for acceptance and restores prior settings afterward;
+production has no permission-grant path. Cases exercise actual Android node reads,
+reviewed Button and labelled-container taps, duplicate labels, changed screens,
+single dispatch, real scrolling, password exclusion, disabled access, a private
+provider and a timed-out main-thread queue that must not tap later. Physical-phone
+voice/HUD focus, permission enable/revoke/reconnect, other apps/OEM widgets, lock
+screen behavior and installed-data upgrade remain explicit acceptance follow-up.
+Current themes, HUD/widgets, settings and personal model/provider controls are retained.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -1066,7 +1125,7 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
 2. Pass the existing CI unit/build, gateway, theme and optimized voice emulator jobs
-   on the final source. The voice runner requires all 42 voice/settings and isolated
+   on the final source. The voice runner requires all 45 voice/settings and isolated
    foundation service/storage acceptance tests. Broad visual-layout
    smoke remains disabled upstream; do not count it as a pass.
 3. On a disposable emulator, verify exact commands, no unintended actions for

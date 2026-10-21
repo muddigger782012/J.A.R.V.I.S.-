@@ -91,6 +91,18 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    // Harmless real-window/IPC acceptance fixtures never enter personal release or Beta APKs.
+    sourceSets {
+        debug {
+            java.srcDir 'src/acceptance/java'
+            manifest.srcFile 'src/acceptance/AndroidManifest.xml'
+        }
+        voiceCheck {
+            java.srcDir 'src/acceptance/java'
+            manifest.srcFile 'src/acceptance/AndroidManifest.xml'
+        }
+    }
     kotlinOptions {
         jvmTarget = '17'
     }
