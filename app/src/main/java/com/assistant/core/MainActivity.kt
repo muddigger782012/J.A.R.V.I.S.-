@@ -382,6 +382,14 @@ class MainActivity : ThemedActivity() {
             ), R.drawable.ic_tools_settings
         )
 
+        // Compact utility-page buttons only; leave the chat toolbar and header unchanged.
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabProjectSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabShizukuSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabStatusSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabTerminalSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabAuditSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabPermissionsSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabDhizukuSection))
         initViews()
         com.assistant.core.services.PersonalReminderRuntime.restoreAsync(applicationContext)
         com.assistant.core.services.BundledVoicePreparation.ensure(applicationContext)
