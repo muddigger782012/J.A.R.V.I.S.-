@@ -214,6 +214,20 @@ class ReminderTimeChangesTest {
         }
     }
 
+    @Test fun completedHistoryCleanupRemovesAStaleChangeCopyButPreservesAnUnrelatedPendingReminder() = fixture { f ->
+        val old = f.approved()
+        f.manager().prepareChange(old.number, 300)
+        f.manager().cancel(old.number)
+        assertEquals(1, f.manager().clearCompleted())
+        val cleaned = JSONObject(f.path.readText())
+        assertFalse("A deleted reminder must not remain in a stale review", cleaned.has("replacing"))
+        assertFalse(cleaned.has("pending"))
+        val another = f.approved()
+        val unrelated = f.manager().prepare("Keep this review", 600)
+        f.manager().cancel(another.number); f.manager().clearCompleted()
+        assertEquals(unrelated, f.manager().pending())
+    }
+
     @Test fun timeChangeControlsStayLocalAndShortCorrectionsNeverClaimAnotherGoalOrImplicitlyChooseARecord() {
         for (text in listOf("change reminder one to five minutes", "reschedule reminder 2 in ten minutes", "change the reminder time to five minutes")) {
             assertNotNull(ReminderCommands.parse(text)); assertTrue(LearnedCommandReviewCommands.isReserved(text))

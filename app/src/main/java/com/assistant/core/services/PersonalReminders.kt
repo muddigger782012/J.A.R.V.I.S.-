@@ -181,7 +181,9 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
     fun clearCompleted(): Int = file.access {
         val state = recoverInterrupted(this, decode(read()))
         val kept = state.records.filterNot { it.status in setOf(Status.POSTED, Status.USER_CONFIRMED, Status.CANCELLED, Status.MISSED) }
-        check(write(encode(state.copy(records = kept))))
+        val removedChangeTarget = state.replacing?.let { before -> kept.none { it.number == before.number } } == true
+        check(write(encode(state.copy(records = kept, pending = if (removedChangeTarget) null else state.pending,
+            replacing = if (removedChangeTarget) null else state.replacing))))
         state.records.size - kept.size
     }
 

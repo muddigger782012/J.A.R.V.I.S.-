@@ -716,7 +716,9 @@ review as authorization to create a second reminder. Standard forward updates
 remain the supported path; a phone downgrade or installed-data upgrade has not
 been verified. Corrupt/oversized data and failed writes retain the existing
 fail-closed behavior. Clearing an expired/stale review never cancels its approved
-reminder. These local controls and source data remain outside provider dialogue.
+reminder. Completed-history cleanup removes stale change reviews for deleted
+records, including their title/research copies, while preserving unrelated reviews.
+These local controls and source data remain outside provider dialogue.
 
 Opt-in manual improvement evaluation adds the fixed `reminder changes` scenario
 for owner feedback and saved developer briefs. It does not enable diagnostic
