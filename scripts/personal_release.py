@@ -357,7 +357,7 @@ def release_notes(version, decision, source, checks):
 
 def verify_public_release(repo, tag, assets, output):
     output.mkdir()
-    release = api(repo, f'releases/tags/{tag}')
+    release = release_metadata(repo, tag)
     expected = {p.name: p for p in assets.iterdir()}
     observed = {row['name']: row for row in release['assets']}
     require(set(observed) == set(expected), 'Published release asset set differs')
@@ -371,6 +371,20 @@ def verify_public_release(repo, tag, assets, output):
             require(digest(output / name) == digest(path), 'Uploaded draft bytes differ')
         else:
             download_verified(row['browser_download_url'], output / name, row['size'], digest(path))
+
+
+def release_metadata(repo, tag):
+    # Draft tags need not exist yet. gh resolves the draft and supplies its stable
+    # API record URL; bind that record back to this repository and expected tag.
+    view = json.loads(command('gh', 'release', 'view', tag, '--repo', repo, '--json', 'apiUrl'))
+    prefix = f'https://api.github.com/repos/{repo}/'
+    url = view.get('apiUrl', '')
+    require(url.startswith(prefix) and re.fullmatch(r'releases/[1-9][0-9]*', url[len(prefix):]),
+            'Release record belongs to an unexpected repository or API resource')
+    result = api(repo, url[len(prefix):])
+    require(result.get('tag_name') == tag and result.get('prerelease') is False,
+            'Release record does not match the expected stable Personal tag')
+    return result
 
 
 def main():
