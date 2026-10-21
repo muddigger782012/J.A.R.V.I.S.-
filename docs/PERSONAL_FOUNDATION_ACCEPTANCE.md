@@ -851,6 +851,70 @@ Broad visual-layout smoke remains skipped upstream; phone voice, actual device/a
 behavior, live providers and in-place installed-data upgrade remain pending. No phase
 maturity percentage is inferred.
 
+## Phase 4 follow-up: live device reports and permission-aware readiness
+
+This increment supplies on-demand local phone measurements through standard Android
+APIs. `device report` reads the installed Jarvis package version, battery, app-data
+filesystem capacity, available/total RAM, active default-network flags and Android's
+thermal status. Individual questions such as `battery status`, `storage status`,
+`memory status`, `network status`, `thermal status` and
+`what version of Jarvis is installed` read only their requested section. Values are
+read again for every request; no background sampling or report journal is added.
+Short questions receive a short answer rather than the full capability matrix.
+
+Storage describes the app-data filesystem, not every physical/removable volume.
+Available RAM is distinct from disk space and per-app memory limits. Battery sensor
+temperature is distinct from CPU temperature and system thermal throttling. Unsupported
+thermal APIs (Android before API 29), absent services, invalid sensor values and denied
+permissions remain explicit unknowns. One failed section does not hide available data.
+The network report contains only coarse transport, metering, internet-capability and
+Android-validation flags. It reads no SSID, address, identifier or location and sends
+no endpoint probe; validation does not prove a website or AI provider is reachable.
+Installed version comes from PackageManager, not an updater-opening acknowledgement.
+
+`device capabilities` checks Contacts/Phone permissions, app-level notification posting,
+Accessibility connection in the current process, Shizuku/Dhizuku connection plus
+permission, and Android device ownership. Readiness is not action authorization.
+Configured Accessibility in another process is not reported as connected in the wake
+process. Posting permission does not imply other-app notification reading/replies;
+that integration remains pending. Permission prompts, screen/notification reads,
+settings changes, privileged commands and reboot are not triggered by reporting.
+The technical development status view and existing controls remain available.
+
+CapabilityDetector now reports a privileged bridge ready only when both its service
+and permission are available, fails closed on uncertain probes and refreshes grant
+state each time. A direct device-owner path no longer requires the optional Dhizuku
+bridge to pass the adapter's availability gate. Existing consequential-action
+confirmation and Android authorization checks remain in force; no reboot was run in
+automated acceptance. The manifest explicitly permits discovery of the Dhizuku package
+without adding runtime permissions or broadening installed-app enumeration.
+
+These local controls run before AI/search routing and learned aliases. Malformed or
+chained controls stay local and execute nothing. Reports do not enter assistant/provider
+conversation memory or optional evaluation/diagnostics datasets. An unrelated pending
+approval is discarded; already approved/requested work and its outcome checkpoints stay
+intact. Visible chat history is separate from provider conversation memory.
+
+Unit acceptance covers current permission vs connection, revoked/unknown bridge access,
+API-version limits, partial failures, scaled/missing battery values, transport/validation
+semantics, data boundaries and control routing. Three Android cases exercise actual
+package/storage/memory/thermal reads, sticky-broadcast battery decoding, fresh and
+reconstructed requests, denied/missing service injection, held-workflow preservation,
+readiness checks and device-owner availability without dispatch. Test-only host keep
+rules retain the APIs used by the optimized instrumentation APK; production optimizer
+rules are unchanged. Final-source CI and signed delivery results are recorded in the
+accompanying pull request; no phase percentage is inferred from those checks.
+
+Physical-phone follow-up: compare each report with the corresponding Android view at
+the same time and on the same storage volume. Exercise Wi-Fi/cellular/VPN transitions,
+missing validation, notification permission/channel restrictions, Accessibility disabled
+vs connected (including wake-process behavior), Shizuku/Dhizuku disconnected, denied,
+granted and revoked states. Verify reports never open a permission prompt or execute
+an action. Record actual device/Android/build and in-place upgrade retention separately.
+Authorized real privileged actions, owner reboot and physical sensor behavior are not
+certified by emulator/fake-adapter cases. Semantic installed-app discovery, reviewed
+navigation destinations and opt-in notification reading/replies remain Phase 4 work.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -941,7 +1005,7 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
 2. Pass the existing CI unit/build, gateway, theme and optimized voice emulator jobs
-   on the final source. The voice runner requires all 37 voice/settings and isolated
+   on the final source. The voice runner requires all 40 voice/settings and isolated
    foundation service/storage acceptance tests. Broad visual-layout
    smoke remains disabled upstream; do not count it as a pass.
 3. On a disposable emulator, verify exact commands, no unintended actions for

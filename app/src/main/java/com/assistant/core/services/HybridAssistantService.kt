@@ -90,6 +90,13 @@ class HybridAssistantService(
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
         if (personalAssistant) {
+            DeviceReport.command(userInput)?.let { command ->
+                clearPendingActionPrompts()
+                taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+                reviewedGoalKey = null
+                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+                return HybridAssistantReply(DeviceReport.render(command, AndroidDeviceReport(systemService.context())))
+            }
             WorkflowDiagnostics.command(userInput)?.let { command ->
                 clearPendingActionPrompts()
                 taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
@@ -1169,6 +1176,9 @@ class HybridAssistantService(
     }
 
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+        if (personalAssistant && DeviceReport.command(rawInput) != null) {
+            callback(handleUserInput(rawInput)); return
+        }
         if (personalAssistant && GoalAppCorrections.contextual(rawInput) != null &&
             runCatching { goalPlans?.pending() != null }.getOrDefault(false)) {
             callback(handleUserInput(rawInput)); return
