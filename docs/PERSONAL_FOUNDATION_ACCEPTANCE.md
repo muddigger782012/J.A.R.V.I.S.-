@@ -388,6 +388,67 @@ included after verification. Broad visual-layout smoke remains skipped upstream.
 Actual personal contacts, physical call/permission behavior, live search/model
 quality, real phone voice interaction and installed-data upgrade remain pending.
 
+## Optional workflow diagnostics and evidence-linked developer briefs
+
+Contact-call, research and reminder checkpoints now feed a separate, explicitly
+opt-in local diagnostic window. `enable workflow diagnostics` enables only future
+observations; manual improvement evaluation consent does not enable this collection.
+`review workflow diagnostics` shows the setting and categorical observations.
+`disable workflow diagnostics` stops recording and retains existing evidence;
+`clear workflow diagnostics` removes observations and briefs and turns recording
+off. Neither command deletes reminders, the saved research brief, contact review,
+conversation memory, preferences or manual evaluation results.
+
+The no-backup diagnostic document contains only fixed enum categories, random
+workflow references, build and time. It never receives contact names/numbers,
+research queries/results, reminder titles, exception messages, transcripts or keys.
+At most 200 observations are retained. Repeated callbacks, restoration and retries
+of the same workflow/category count once within that window. Disabled or corrupt
+diagnostic storage cannot change an action, outcome or workflow checkpoint.
+There is no automatic submission, command learning, permission grant or code change.
+
+`review workflow improvements` groups repeated problems by category and build;
+two distinct workflow references are required. Different categories/builds cannot
+be combined to manufacture recurrence. A requested call, saved excerpt, registered
+alarm or posted notification retains its exact verification boundary; none proves
+the original objective completed or a recurring cause was fixed. Missing access,
+configuration and unavailable sources are investigation leads, not proven defects
+or reliability measurements. Cancellation and supersession do not become retrieval
+failures; late cancelled research produces no saved-brief diagnostic.
+
+`prepare workflow improvement for research`, `contact calls` or `reminders` freezes
+the latest recurrent category for the current build into a developer brief, including
+the occurrence count, up to 20 categorical evidence links, relevant modules,
+specific investigation steps and synthetic regression expectations. Older-build
+recurrence alone cannot create a current-build proposal. At most 16 immutable
+briefs are retained; full storage requires explicit cleanup rather than silent
+replacement. New observations and window rollover do not rewrite prepared evidence.
+The improvement review lists every retained brief with an archive number; `review
+workflow improvement 1` with a listed number can inspect earlier or dismissed briefs.
+`review workflow improvement for research` and the corresponding contact/reminder
+commands inspect the saved brief; `dismiss workflow improvement for research`
+retains its evidence and prevents sharing that dismissed brief. `clear workflow
+improvements` explicitly removes briefs while keeping observations and consent.
+
+`share workflow improvement for research` requests Android's destination chooser
+for the latest active saved brief. It selects no recipient and verifies no submission,
+issue, pull request or deployment. The brief asks the reviewer to reproduce with
+synthetic fixtures, verify regression tests before/after a focused fix and retain
+normal review, CI, signing and update verification. Exact management controls,
+including malformed trailing instructions, stay local before search, AI and learned
+command routing, invalidate unrelated approvals and do not enter provider dialogue.
+The existing `review improvement proposals` also exposes this optional review.
+
+JVM tests cover separate consent, reconstruction/reset, duplicate attempts, build
+separation, immutable evidence after window rollover, cancellation/late results,
+corrupt storage and throwing diagnostic observers. A synthetic integration case
+exercises all three actual workflow journals and asserts private targets are absent.
+New Android service cases verify separate consent, repeated synthetic retrieval
+failures, reconstructed proposal review, intercepted chooser contents, disable/reset,
+malformed asynchronous controls and invalidation of pending call approvals. The
+optimized emulator gate now requires all 26 acceptance cases. Physical phone,
+live provider, alarm timing and installed-data upgrade acceptance remain pending.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -478,7 +539,7 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
 2. Pass the existing CI unit/build, gateway, theme and optimized voice emulator jobs
-   on the final source. The voice runner requires all 24 voice/settings and isolated
+   on the final source. The voice runner requires all 26 voice/settings and isolated
    foundation service/storage acceptance tests. Broad visual-layout
    smoke remains disabled upstream; do not count it as a pass.
 3. On a disposable emulator, verify exact commands, no unintended actions for

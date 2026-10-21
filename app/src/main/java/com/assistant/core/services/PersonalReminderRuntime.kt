@@ -20,7 +20,8 @@ object PersonalReminderRuntime {
     const val ACTION_FIRE = "com.assistant.core.PERSONAL_REMINDER"
     fun manager(context: Context): PersonalReminders {
         require(context.packageName == "com.assistant.core")
-        return PersonalReminders(PersonalStateFile(context, "personal-reminders.json"), platform(context))
+        return PersonalReminders(PersonalStateFile(context, "personal-reminders.json"), platform(context),
+            observe = WorkflowDiagnostics(context)::observe)
     }
     fun platform(context: Context): PersonalReminders.Platform {
         require(context.packageName == "com.assistant.core")

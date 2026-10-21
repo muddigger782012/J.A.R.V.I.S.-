@@ -411,6 +411,64 @@ class PersonalFoundationAcceptanceTest {
         assertEquals(0, executions)
     }
 
+    @Test fun workflowDiagnosticsRequireSeparateConsentAndShareOnlyFrozenCategoricalEvidence() {
+        var fetches = 0
+        val service = assistant { fetches++; SearchRouter.Response(null, emptyList()) }
+        fun failResearch() {
+            val done = CountDownLatch(1)
+            service.handleUserInputAsync("research private acceptance topic") { done.countDown() }
+            assertTrue(done.await(20, TimeUnit.SECONDS))
+        }
+        failResearch()
+        val diagnostics = WorkflowDiagnostics(context)
+        assertFalse(diagnostics.snapshot().enabled)
+        assertTrue(diagnostics.snapshot().events.isEmpty())
+        service.handleUserInput("enable improvement evaluation") // Manual consent never enables diagnostics.
+        assertFalse(diagnostics.snapshot().enabled)
+        assertTrue(service.handleUserInput("enable workflow diagnostics").text.startsWith("Enabled"))
+        failResearch(); failResearch()
+        assertEquals(2, WorkflowDiagnostics(context).snapshot().events.size)
+        assertTrue(assistant().handleUserInput("review workflow improvements").text.contains("1 recurrent"))
+        val prepared = assistant().handleUserInput("prepare workflow improvement for research").text
+        assertTrue(prepared.contains("2 distinct workflows"))
+        assertFalse(prepared.contains("private acceptance topic"))
+        assertEquals(prepared, assistant().handleUserInput("review workflow improvement 1").text)
+        val before = diagnostics.snapshot()
+        context.allowActivityRequests = true // Capture the chooser without launching any external app.
+        val shared = assistant().handleUserInput("share workflow improvement for research").text
+        assertTrue(shared.contains("Requested Android's share chooser"))
+        assertEquals(1, context.activityRequests)
+        val chooser = context.lastActivityIntent!!
+        assertEquals(Intent.ACTION_CHOOSER, chooser.action)
+        @Suppress("DEPRECATION") val draft = chooser.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)!!
+        assertEquals(Intent.ACTION_SEND, draft.action)
+        assertNull(draft.component); assertNull(draft.`package`)
+        assertEquals(prepared, draft.getStringExtra(Intent.EXTRA_TEXT))
+        assertEquals(before, diagnostics.snapshot())
+        var invalid: HybridAssistantReply? = null
+        service.handleUserInputAsync("share workflow improvement for research then search the service manual") { invalid = it }
+        assertNotNull(invalid); assertFalse(invalid!!.needsInterpretation)
+        assertEquals(1, context.activityRequests)
+        service.handleUserInput("disable workflow diagnostics")
+        failResearch()
+        assertEquals(2, diagnostics.snapshot().events.size)
+        service.handleUserInput("clear workflow diagnostics")
+        assertEquals(WorkflowDiagnostics.Snapshot(), diagnostics.snapshot())
+        assertTrue(ImprovementEvaluation(context).snapshot().enabled)
+        assertTrue(service.getConversationSnapshot().isEmpty())
+        assertEquals(4, fetches); assertEquals(0, executions)
+    }
+
+    @Test fun diagnosticReviewInvalidatesPendingCallApprovalWithoutDispatchingIt() {
+        val service = assistant()
+        service.handleUserInput("prepare a call to +1 202 555 0100")
+        service.handleUserInput("review workflow diagnostics")
+        service.handleUserInput("approve contact call")
+        assertEquals(0, context.activityRequests)
+        assertEquals(0, executions)
+        assertTrue(service.getConversationSnapshot().isEmpty())
+    }
+
     @Test fun contactCallReviewsReconstructAndOnlyCurrentApprovalCanRequestAnInterceptedPhoneIntent() {
         val service = assistant()
         assertTrue(service.handleUserInput("prepare a call to +1 202 555 0100").text.contains("Review call"))
