@@ -533,6 +533,23 @@ malformed asynchronous controls, manual evaluation and isolated checks. The opti
 emulator gate now requires all 28 cases. Real-phone voice, app switching, playback,
 navigation, permission and in-place upgrade acceptance remain separate work.
 
+Final evidence for personal build 3.5.478: all 525 JVM tests across 90 suites
+passed locally with no failures, errors or skips. Debug ABI APKs, instrumentation,
+the Beta manifest, gateway/archive tests and the theme contract passed. Final
+required CI unit/build, gateway, theme and optimized Android acceptance passed;
+the actual log records `OK (28 tests)` including both staged-goal service cases.
+An instrumentation-only API retention failure was corrected in the optimized test
+host; a local optimized build and actual DEX API inspection also passed. Those
+host-only fixes do not change production app inputs: the signed candidate's source
+matches the tested production tree exactly. All three production APKs passed
+package/version/ABI, signer compatibility against the freshly downloaded 3.5.475
+updater, archive integrity and wake runtime/model checks. The signed manifest
+retains exact artifact provenance. Publication uses a normal fast-forward of the
+verified merge and updater. Current menus, HUD, themes, providers and prior workflows
+are preserved. Broad visual layout remains skipped upstream; real-phone voice/app
+switching, playback/navigation, permissions and installed-data upgrade remain pending.
+No measured phase maturity percentage is claimed.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -604,7 +621,7 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.475 (versionCode 475) replaces the previously distributed 3.5.473
+Personal build 3.5.478 (versionCode 478) replaces the previously distributed 3.5.475
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
