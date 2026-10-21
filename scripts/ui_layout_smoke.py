@@ -36,7 +36,7 @@ def tap_scrolling(identifier, attempts=6):
         nodes = list(hierarchy().iter('node'))
         target = next((n for n in nodes if n.get('resource-id') == 'com.assistant.core:id/' + identifier), None)
         if target is not None:
-            bounds = list(map(int, re.findall(r'\\d+', target.get('bounds', ''))))
+            bounds = list(map(int, re.findall(r'\d+', target.get('bounds', ''))))
             if len(bounds) == 4 and bounds[2] > bounds[0] and bounds[3] > bounds[1]:
                 adb('shell', 'input', 'tap', str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
                 time.sleep(1)
