@@ -2,8 +2,10 @@
 
 Production signing continues to use the existing repository signing secrets. No
 new key, app identity, updater endpoint or commercial configuration is introduced.
-Personal versions now use `3.6.<build-run-number>`; the Android version code remains
-the monotonically increasing build run number. Beta keeps its independent existing
+Infrastructure increments retain `3.5.<build-run-number>` until the v3.6 feature
+release is verified. The verifier also supports `3.6.<build-run-number>` without
+resetting Android version codes. The version code remains the monotonically
+increasing build run number. Beta keeps its independent existing
 versioning, packaging and publication.
 
 ## Automatic publication
