@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root" android:layout_width="match_parent"
+    android:layout_height="match_parent" android:orientation="horizontal"
+    android:gravity="center_vertical" android:padding="12dp"
+    android:background="@drawable/widget_hud_background">
+    <LinearLayout android:layout_width="0dp" android:layout_weight="1"
+        android:layout_height="match_parent" android:gravity="center_vertical"
+        android:orientation="vertical">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="J.A.R.V.I.S." android:textColor="#4DDFFF"
+            android:textSize="17sp" android:textStyle="bold"/>
+        <TextView android:id="@+id/widget_battery" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:text="BATTERY"
+            android:textColor="#BDEFFF" android:textSize="12sp"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="TAP TO OPEN HUD" android:textColor="#72D5ED" android:textSize="10sp"/>
+    </LinearLayout>
+    <ImageView android:layout_width="120dp" android:layout_height="match_parent"
+        android:contentDescription="Jarvis arc reactor"
+        android:scaleType="fitCenter" android:src="@drawable/arc_reactor_art"/>
+</LinearLayout>
