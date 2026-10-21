@@ -115,26 +115,26 @@
                 android:layout_width="match_parent" android:layout_height="108dp"
                 android:layout_marginBottom="-108dp" android:elevation="12dp">
                 <Button android:id="@+id/btnOpenJarvisChat"
-                    android:layout_width="52dp" android:layout_height="52dp"
-                    android:layout_gravity="top|end" android:text="☰" android:textSize="21sp"
-                    android:textColor="?attr/jarvis_primary"
+                    android:layout_width="48dp" android:layout_height="48dp"
+                    android:layout_gravity="top|end"
+                   
                     android:background="@drawable/composer_icon_ring"
-                    android:contentDescription="Expand chat navigation" />
+                    android:contentDescription="Expand chat navigation" android:foreground="@drawable/ic_chat_menu" android:foregroundGravity="center" android:foregroundTint="?attr/jarvis_primary" />
                 <Button android:id="@+id/btnNewAssistantChat"
-                    android:layout_width="52dp" android:layout_height="52dp"
-                    android:layout_gravity="top|end" android:layout_marginTop="54dp"
-                    android:text="+" android:textSize="27sp"
-                    android:textColor="?attr/jarvis_primary"
+                    android:layout_width="48dp" android:layout_height="48dp"
+                    android:layout_gravity="top|end" android:layout_marginTop="50dp"
+                   
+                   
                     android:background="@drawable/composer_icon_ring"
-                    android:contentDescription="New chat" />
+                    android:contentDescription="New chat" android:foreground="@drawable/ic_chat_new" android:foregroundGravity="center" android:foregroundTint="?attr/jarvis_primary" />
                 <Button android:id="@+id/btnAssistantHistory"
-                    android:layout_width="52dp" android:layout_height="52dp"
-                    android:layout_gravity="top|end" android:layout_marginEnd="56dp"
-                    android:text="◷" android:textSize="24sp"
-                    android:textColor="?attr/jarvis_primary"
+                    android:layout_width="48dp" android:layout_height="48dp"
+                    android:layout_gravity="top|end" android:layout_marginEnd="50dp"
+                   
+                   
                     android:background="@drawable/composer_icon_ring"
                     android:visibility="gone"
-                    android:contentDescription="Chat history" />
+                    android:contentDescription="Chat history" android:foreground="@drawable/ic_chat_history" android:foregroundGravity="center" android:foregroundTint="?attr/jarvis_primary" />
             </FrameLayout>
             <LinearLayout android:id="@+id/micPermissionCard" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:background="@drawable/glass_panel_surface" android:padding="12dp" android:orientation="vertical" android:visibility="gone">
