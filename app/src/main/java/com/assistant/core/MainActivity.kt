@@ -332,22 +332,27 @@ class MainActivity : ThemedActivity() {
             insets
         }
         setupTabs()
-        findViewById<android.widget.Button>(R.id.btnOpenJarvisChat).setOnClickListener { anchor ->
-            android.widget.PopupMenu(this, anchor).apply {
-                menu.add("Chat").setIcon(android.R.drawable.ic_menu_edit).setOnMenuItemClickListener {
-                    showTab(0, animate = true, direction = if (currentTabIndex == 0) 0 else -1)
-                    true
-                }
-                menu.add("New chat").setIcon(android.R.drawable.ic_input_add).setOnMenuItemClickListener {
-                    findViewById<Button>(R.id.btnNewAssistantChat).performClick()
-                    true
-                }
-                menu.add("History").setIcon(android.R.drawable.ic_menu_recent_history).setOnMenuItemClickListener {
-                    findViewById<Button>(R.id.btnAssistantHistory).performClick()
-                    true
-                }
-                show()
+        val chatMenuButton = findViewById<Button>(R.id.btnOpenJarvisChat)
+        val chatHistoryShortcut = findViewById<Button>(R.id.btnAssistantHistory)
+        val chatMenuBackHandler = object : androidx.activity.OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                chatHistoryShortcut.visibility = View.GONE
+                chatMenuButton.contentDescription = "Expand chat navigation"
+                isEnabled = false
             }
+        }
+        onBackPressedDispatcher.addCallback(this, chatMenuBackHandler)
+        chatMenuButton.setOnClickListener {
+            val expanded = chatHistoryShortcut.visibility != View.VISIBLE
+            chatHistoryShortcut.visibility = if (expanded) View.VISIBLE else View.GONE
+            chatMenuButton.contentDescription = if (expanded) "Collapse chat navigation" else "Expand chat navigation"
+            chatMenuBackHandler.isEnabled = expanded
+        }
+        chatHistoryShortcut.setOnClickListener {
+            chatHistoryShortcut.visibility = View.GONE
+            chatMenuButton.contentDescription = "Expand chat navigation"
+            chatMenuBackHandler.isEnabled = false
+            showConversationHistory()
         }
 
         val database = Database(this)
@@ -809,6 +814,9 @@ class MainActivity : ThemedActivity() {
 
     private fun bindUiListeners() {
         findViewById<Button>(R.id.btnNewAssistantChat).setOnClickListener {
+            if (findViewById<View>(R.id.btnAssistantHistory).visibility == View.VISIBLE) {
+                findViewById<Button>(R.id.btnOpenJarvisChat).performClick()
+            }
             if (attachmentBusy) { attachmentNotice("Wait for the attachment request to finish."); return@setOnClickListener }
             clearAttachmentDraft()
             if (liveChatStarted) endLiveChat("Live chat ended for the new conversation.")
@@ -821,9 +829,6 @@ class MainActivity : ThemedActivity() {
             renderConversation(forceScroll = true)
         }
 
-        findViewById<Button>(R.id.btnAssistantHistory).setOnClickListener {
-            showConversationHistory()
-        }
 
         commandInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) { runAssistantCommandFromInput(); true } else false
@@ -1557,8 +1562,16 @@ class MainActivity : ThemedActivity() {
                 if (assistant) {
                     val answerText = line.removePrefix("J.A.R.V.I.S.:").trimStart()
                         .substringBefore("\nhttps://www.google.com/search?")
-                    val inline = android.text.SpannableStringBuilder(answerText).append("  ⧉")
+                    val inline = android.text.SpannableStringBuilder(answerText).append("  \uFFFC")
                     val start = inline.length - 1
+                    val copyDrawable = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.ic_chat_copy)?.mutate()
+                    if (copyDrawable != null) {
+                        copyDrawable.setTint(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
+                        val iconSize = dp(20)
+                        copyDrawable.setBounds(0, 0, iconSize, iconSize)
+                        inline.setSpan(android.text.style.ImageSpan(copyDrawable, android.text.style.DynamicDrawableSpan.ALIGN_BOTTOM),
+                            start, inline.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
                     inline.setSpan(object : android.text.style.ClickableSpan() {
                         override fun onClick(widget: View) {
                             val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
