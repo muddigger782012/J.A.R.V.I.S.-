@@ -332,22 +332,27 @@ class MainActivity : ThemedActivity() {
             insets
         }
         setupTabs()
-        findViewById<android.widget.Button>(R.id.btnOpenJarvisChat).setOnClickListener { anchor ->
-            android.widget.PopupMenu(this, anchor).apply {
-                menu.add("Chat").setIcon(android.R.drawable.ic_menu_edit).setOnMenuItemClickListener {
-                    showTab(0, animate = true, direction = if (currentTabIndex == 0) 0 else -1)
-                    true
-                }
-                menu.add("New chat").setIcon(android.R.drawable.ic_input_add).setOnMenuItemClickListener {
-                    findViewById<Button>(R.id.btnNewAssistantChat).performClick()
-                    true
-                }
-                menu.add("History").setIcon(android.R.drawable.ic_menu_recent_history).setOnMenuItemClickListener {
-                    findViewById<Button>(R.id.btnAssistantHistory).performClick()
-                    true
-                }
-                show()
+        val chatMenuButton = findViewById<Button>(R.id.btnOpenJarvisChat)
+        val chatHistoryShortcut = findViewById<Button>(R.id.btnAssistantHistory)
+        val chatMenuBackHandler = object : androidx.activity.OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                chatHistoryShortcut.visibility = View.GONE
+                chatMenuButton.contentDescription = "Expand chat navigation"
+                isEnabled = false
             }
+        }
+        onBackPressedDispatcher.addCallback(this, chatMenuBackHandler)
+        chatMenuButton.setOnClickListener {
+            val expanded = chatHistoryShortcut.visibility != View.VISIBLE
+            chatHistoryShortcut.visibility = if (expanded) View.VISIBLE else View.GONE
+            chatMenuButton.contentDescription = if (expanded) "Collapse chat navigation" else "Expand chat navigation"
+            chatMenuBackHandler.isEnabled = expanded
+        }
+        chatHistoryShortcut.setOnClickListener {
+            chatHistoryShortcut.visibility = View.GONE
+            chatMenuButton.contentDescription = "Expand chat navigation"
+            chatMenuBackHandler.isEnabled = false
+            showConversationHistory()
         }
 
         val database = Database(this)
@@ -821,9 +826,6 @@ class MainActivity : ThemedActivity() {
             renderConversation(forceScroll = true)
         }
 
-        findViewById<Button>(R.id.btnAssistantHistory).setOnClickListener {
-            showConversationHistory()
-        }
 
         commandInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) { runAssistantCommandFromInput(); true } else false
