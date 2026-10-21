@@ -92,7 +92,7 @@ try:
     settings_entry = next((n for n in hierarchy().iter('node')
         if n.get('text', '').strip() == 'Settings'), None)
     assert settings_entry is not None, 'Settings entry missing from Tools & Settings menu'
-    x1, y1, x2, y2 = map(int, re.findall(r'\\d+', settings_entry.get('bounds')))
+    x1, y1, x2, y2 = map(int, re.findall(r'\d+', settings_entry.get('bounds', '')))
     adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
     time.sleep(1)
     capture('settings')
