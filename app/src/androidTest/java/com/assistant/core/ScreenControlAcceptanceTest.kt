@@ -71,10 +71,10 @@ class ScreenControlAcceptanceTest {
         }
     }
 
-    @Test fun realAccessibilityBridgeFromAnotherProcessReviewsTapsRejectsStaleScreensAndScrolls() = withAccess(true) {
-        assertEquals(DeviceReport.Accessibility.REMOTE_CONNECTED.name, remote("fixture accessibility state"))
+    @Test fun realAccessibilityBridgeFromAnotherProcessReviewsTapsRejectsStaleScreensAndScrolls(): Unit = withAccess(true) {
         ActivityScenario.launch(ScreenControlFixtureActivity::class.java).use { scenario ->
             instrumentation.waitForIdleSync(); settled()
+            assertEquals(DeviceReport.Accessibility.REMOTE_CONNECTED.name, remote("fixture accessibility state"))
             val read = remote("read my screen")
             assertTrue(read, read.contains("Screen control fixture"))
             assertTrue(remote("tap Practice button").contains("Nothing was tapped"))
@@ -113,12 +113,14 @@ class ScreenControlAcceptanceTest {
         }
     }
 
-    @Test fun disabledAccessibilityAndPrivateProviderCannotSupplyUnreviewedScreenActions() = withAccess(false) {
-        val info = context.packageManager.getProviderInfo(ComponentName(context, ScreenAccessProvider::class.java), 0)
-        assertFalse(info.exported); assertFalse(info.grantUriPermissions)
-        assertTrue(remote("screen control status").contains("Enable Jarvis"))
-        assertTrue(remote("tap Practice button").contains("Enable Jarvis"))
-        assertTrue(remote("confirm screen action").contains("No current"))
-        assertTrue(remote("tap screen item one then run shell reboot").contains("Nothing was run"))
+    @Test fun disabledAccessibilityAndPrivateProviderCannotSupplyUnreviewedScreenActions(): Unit = withAccess(false) {
+        ActivityScenario.launch(ScreenControlFixtureActivity::class.java).use {
+            val info = context.packageManager.getProviderInfo(ComponentName(context, ScreenAccessProvider::class.java), 0)
+            assertFalse(info.exported); assertFalse(info.grantUriPermissions)
+            assertTrue(remote("screen control status").contains("Enable Jarvis"))
+            assertTrue(remote("tap Practice button").contains("Enable Jarvis"))
+            assertTrue(remote("confirm screen action").contains("No current"))
+            assertTrue(remote("tap screen item one then run shell reboot").contains("Nothing was run"))
+        }
     }
 }
