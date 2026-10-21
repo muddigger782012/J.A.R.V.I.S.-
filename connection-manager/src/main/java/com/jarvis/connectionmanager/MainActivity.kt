@@ -24,6 +24,7 @@ class MainActivity : Activity() {
     private val cards = mutableMapOf<String, TextView>()
     private lateinit var scroller: ScrollView
     private lateinit var providerSection: LinearLayout
+    private var runningDiagnostics = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -132,12 +133,20 @@ class MainActivity : Activity() {
     }
 
     private fun diagnose() {
+        if (runningDiagnostics) { log("Diagnostics already running"); return }
+        runningDiagnostics = true
         val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         val network = cm.activeNetwork
         val capabilities = cm.getNetworkCapabilities(network)
         val validated = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        val transport = when {
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true -> "Wi-Fi"
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true -> "Cellular"
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true -> "Ethernet"
+            else -> "Unknown or disconnected"
+        }
         status.text = if (validated) "ANDROID NETWORK VALIDATED" else "NETWORK NOT VALIDATED"
-        log("Android validated network: $validated")
+        log("Android validated network: $validated; transport: $transport")
         listOf("INTERNET", "WEB SEARCH", "GEMINI AI", "GITHUB UPDATES").forEach { cards[it]?.text = "$it\nTESTING..." }
         thread {
             val started = android.os.SystemClock.elapsedRealtime()
@@ -158,6 +167,8 @@ class MainActivity : Activity() {
             val search = ProviderDiagnostics.checkPublicEndpoint("WEB SEARCH", "https://www.google.com/search?q=connectivity")
             val gemini = ProviderDiagnostics.checkPublicEndpoint("GEMINI AI", "https://generativelanguage.googleapis.com/")
             runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                runningDiagnostics = false
                 cards["INTERNET"]?.text = "INTERNET\n$result"
                 log("Internet probe: $result (single endpoint only)")
                 cards["GITHUB UPDATES"]?.text = "GITHUB UPDATES\n$github"
