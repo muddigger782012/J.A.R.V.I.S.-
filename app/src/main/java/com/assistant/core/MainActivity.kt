@@ -814,6 +814,9 @@ class MainActivity : ThemedActivity() {
 
     private fun bindUiListeners() {
         findViewById<Button>(R.id.btnNewAssistantChat).setOnClickListener {
+            if (findViewById<View>(R.id.btnAssistantHistory).visibility == View.VISIBLE) {
+                findViewById<Button>(R.id.btnOpenJarvisChat).performClick()
+            }
             if (attachmentBusy) { attachmentNotice("Wait for the attachment request to finish."); return@setOnClickListener }
             clearAttachmentDraft()
             if (liveChatStarted) endLiveChat("Live chat ended for the new conversation.")
