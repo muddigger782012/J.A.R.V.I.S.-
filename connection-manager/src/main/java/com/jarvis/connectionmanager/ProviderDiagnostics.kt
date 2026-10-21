@@ -19,7 +19,17 @@ object ProviderDiagnostics {
             try {
                 val status = request.responseCode
                 val latency = SystemClock.elapsedRealtime() - start
-                Result(label, "HTTP $status; authentication not tested", latency, status in 200..499)
+                val detail = when (status) {
+                    in 200..299 -> "REACHABLE (HTTP $status); auth not tested"
+                    in 300..399 -> "REDIRECT (HTTP $status); auth not tested"
+                    401, 403 -> "ACCESS RESTRICTED (HTTP $status); auth not tested"
+                    404 -> "ENDPOINT NOT FOUND (HTTP 404)"
+                    429 -> "RATE LIMITED (HTTP 429)"
+                    in 400..499 -> "REQUEST REJECTED (HTTP $status)"
+                    in 500..599 -> "SERVER ERROR (HTTP $status)"
+                    else -> "UNEXPECTED HTTP $status"
+                }
+                Result(label, detail, latency, status in 200..399)
             } finally { request.disconnect() }
         } catch (e: Exception) {
             Result(label, "Unavailable: ${e.javaClass.simpleName}", SystemClock.elapsedRealtime() - start, false)
