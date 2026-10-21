@@ -42,8 +42,8 @@ class AssistantHudActivity : ThemedActivity() {
         row(root, "ASSISTANT", "SETTINGS") { index ->
             if (index == 0) openJarvis() else startActivity(Intent(this, SettingsActivity::class.java))
         }
-        row(root, "VOICE SETTINGS", "CONNECTIONS") { index ->
-            if (index == 0) startActivity(Intent(this, AssistantVoiceSettingsActivity::class.java))
+        row(root, "TALK TO JARVIS", "CONNECTIONS") { index ->
+            if (index == 0) openVoice()
             else startActivity(Intent(this, AssistantConnectionsActivity::class.java))
         }
         root.addView(label("The HUD is an optional extension. Existing Jarvis screens remain intact.", 13))
@@ -65,5 +65,6 @@ class AssistantHudActivity : ThemedActivity() {
         }
         parent.addView(line)
     }
+    private fun openVoice() = startActivity(Intent(this, MainActivity::class.java).putExtra("jarvis_feature", "voice"))
     private fun openJarvis() = startActivity(Intent(this, MainActivity::class.java))
 }
