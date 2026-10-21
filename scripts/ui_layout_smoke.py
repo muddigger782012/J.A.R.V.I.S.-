@@ -89,7 +89,7 @@ try:
     capture('conversation')
     tap('btnVoiceSettings')
     capture('settings')
-    assert any(n.get('text', '').casefold() == 'weather and ai' for n in hierarchy().iter('node')), 'Weather and AI is not visible in settings'
+    assert any(n.get('text', '').casefold() == 'ai and weather' for n in hierarchy().iter('node')), 'AI and weather is not visible in settings'
     # Confirm the new learning control opens its diagnostics without deleting data.
     learning_button = None
     for attempt in range(4):
