@@ -5,6 +5,7 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.view.ViewGroup
+import android.view.accessibility.AccessibilityEvent
 
 /**
  * Settings-style expandable section that hosts existing views and listeners.
@@ -66,10 +67,18 @@ object UnifiedMenuSection {
             orientation = LinearLayout.VERTICAL
         }
         content.visibility = if (initiallyExpanded) View.VISIBLE else View.GONE
-        val header = SettingsMenuViews.row(context, title, detail, icon) {
-            content.visibility =
-                if (content.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        lateinit var header: View
+        header = SettingsMenuViews.row(context, title, detail, icon) {
+            val expanded = content.visibility != View.VISIBLE
+            content.visibility = if (expanded) View.VISIBLE else View.GONE
+            header.isSelected = expanded
+            header.contentDescription = "$title. $detail. " +
+                if (expanded) "Expanded. Double tap to collapse." else "Collapsed. Double tap to expand."
+            header.sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
         }
+        header.isSelected = initiallyExpanded
+        header.contentDescription = "$title. $detail. " +
+            if (initiallyExpanded) "Expanded. Double tap to collapse." else "Collapsed. Double tap to expand."
         section.addView(header)
         section.addView(content)
         return section
