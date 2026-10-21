@@ -6,6 +6,7 @@ import java.util.UUID
 
 /** Durable authorization and delivery journal. Platform calls are short and serialized with disk state. */
 class PersonalReminders(private val file: PersonalStateFile, private val platform: Platform,
+                        private val observe: (String, WorkflowDiagnostics.Code) -> Unit = { _, _ -> },
                         private val now: () -> Long = System::currentTimeMillis) {
     interface Platform {
         fun notificationsAvailable(): Boolean
@@ -38,7 +39,10 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
     fun approve(expected: Plan): Result = file.access {
         val state = recoverInterrupted(this, decode(read()))
         if (state.pending != expected || !fresh(expected)) return@access Result("The reminder review changed or expired. Request and review it again; no alarm was registered by this approval.")
-        if (!platform.notificationsAvailable()) return@access Result("Allow Jarvis notifications in notification settings, then review and approve the reminder again. No alarm was registered; the pending review still expires after two minutes.")
+        if (!platform.notificationsAvailable()) {
+            diagnostic(expected.id, WorkflowDiagnostics.Code.NOTIFICATIONS_BLOCKED)
+            return@access Result("Allow Jarvis notifications in notification settings, then review and approve the reminder again. No alarm was registered; the pending review still expires after two minutes.")
+        }
         if (state.records.size >= MAX_RECORDS || state.next == Int.MAX_VALUE) return@access Result("Reminder history is full. Review reminders, then clear completed reminder history before approving a new one.")
         val record = Record(state.next, expected, Status.SCHEDULING)
         val authorized = state.copy(next = state.next + 1, pending = null, records = state.records + record)
@@ -63,7 +67,10 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
         val record = state.records.firstOrNull { it.number == number } ?: return@access Result("No reminder with that number is saved. Say 'review reminders'.")
         if (record.status !in setOf(Status.BLOCKED, Status.SCHEDULE_FAILED)) return@access Result("Only a blocked notification or unconfirmed alarm registration can be retried. Posted or uncertain notifications are not repeated.", record)
         if (now() - record.plan.dueAt > DAY) return@access Result("That reminder is more than a day overdue. Request a new reminder with a current time.", record)
-        if (!platform.notificationsAvailable()) return@access Result("Allow Jarvis notifications in notification settings, then retry reminder $number.", record)
+        if (!platform.notificationsAvailable()) {
+            diagnostic(record.plan.id, WorkflowDiagnostics.Code.NOTIFICATIONS_BLOCKED)
+            return@access Result("Allow Jarvis notifications in notification settings, then retry reminder $number.", record)
+        }
         val starting = record.copy(status = Status.SCHEDULING)
         val authorized = state.with(starting)
         if (!write(encode(authorized))) return@access Result("Could not confirm reminder storage. Review reminders before retrying.")
@@ -88,6 +95,7 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
                 val missed = record.copy(status = Status.MISSED)
                 if (!write(encode(state.with(missed)))) break
                 state = state.with(missed)
+                diagnostic(record.plan.id, WorkflowDiagnostics.Code.MISSED)
             } else {
                 register(this, state, record)
                 state = decode(read())
@@ -104,6 +112,7 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
         if (now() - record.plan.dueAt > DAY) {
             val missed = record.copy(status = Status.MISSED)
             check(write(encode(state.with(missed))))
+            diagnostic(record.plan.id, WorkflowDiagnostics.Code.MISSED)
             return@access Result("Reminder was more than a day overdue and was not posted.", missed)
         }
         val delivering = record.copy(status = Status.DELIVERING)
@@ -114,7 +123,15 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
             Delivery.BLOCKED -> Status.BLOCKED
             Delivery.UNKNOWN -> Status.DELIVERY_UNKNOWN
         })
-        if (!write(encode(state.with(finished)))) return@access Result("Notification delivery could not be recorded. Check notifications; no automatic repeat is allowed.", delivering.copy(status = Status.DELIVERY_UNKNOWN))
+        if (!write(encode(state.with(finished)))) {
+            diagnostic(record.plan.id, WorkflowDiagnostics.Code.DELIVERY_UNKNOWN)
+            return@access Result("Notification delivery could not be recorded. Check notifications; no automatic repeat is allowed.", delivering.copy(status = Status.DELIVERY_UNKNOWN))
+        }
+        diagnostic(record.plan.id, when (outcome) {
+            Delivery.POSTED -> WorkflowDiagnostics.Code.NOTIFICATION_POSTED
+            Delivery.BLOCKED -> WorkflowDiagnostics.Code.NOTIFICATIONS_BLOCKED
+            Delivery.UNKNOWN -> WorkflowDiagnostics.Code.DELIVERY_UNKNOWN
+        })
         Result(when (outcome) {
             Delivery.POSTED -> "Reminder notification was posted; reading it or completing the task is not verified."
             Delivery.BLOCKED -> "Reminder notifications are blocked. Enable them and explicitly retry this reminder."
@@ -133,6 +150,7 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
         val accepted = runCatching { platform.schedule(record.plan.id, maxOf(record.plan.dueAt, Math.addExact(now(), 1000))) }.getOrDefault(false)
         val updated = record.copy(status = if (accepted) Status.SCHEDULED else Status.SCHEDULE_FAILED)
         if (!document.write(encode(state.with(updated)))) return Result("Android alarm registration returned, but its checkpoint could not be confirmed. Review reminders before trying again.", record)
+        diagnostic(record.plan.id, if (accepted) WorkflowDiagnostics.Code.ALARM_REGISTERED else WorkflowDiagnostics.Code.ALARM_UNCONFIRMED)
         return Result(if (accepted) "Registered reminder ${record.number} with Android. Delivery is approximate and may be delayed by power saving; notification visibility and task completion are not yet verified."
             else "Alarm registration for reminder ${record.number} could not be confirmed. Say 'retry reminder ${record.number}', or use your calendar reminder provider.", updated)
     }
@@ -140,8 +158,10 @@ class PersonalReminders(private val file: PersonalStateFile, private val platfor
         if (state.records.none { it.status == Status.DELIVERING }) return state
         val recovered = state.copy(records = state.records.map { if (it.status == Status.DELIVERING) it.copy(status = Status.DELIVERY_UNKNOWN) else it })
         check(document.write(encode(recovered))) { "Could not protect interrupted reminder delivery." }
+        state.records.filter { it.status == Status.DELIVERING }.forEach { diagnostic(it.plan.id, WorkflowDiagnostics.Code.DELIVERY_UNKNOWN) }
         return recovered
     }
+    private fun diagnostic(id: String, code: WorkflowDiagnostics.Code) { runCatching { observe(id, code) } }
     private fun State.with(record: Record) = copy(records = records.map { if (it.plan.id == record.plan.id) record else it })
     private fun fresh(plan: Plan) = now() - plan.created in 0..120_000 && now() < plan.dueAt
 

@@ -7,7 +7,9 @@ import java.util.Locale
 import java.util.UUID
 
 /** One saved source-linked brief. Retrieval is bounded, explicit, and never executes source text. */
-class ResearchBriefs(private val file: PersonalStateFile, private val now: () -> Long = System::currentTimeMillis) {
+class ResearchBriefs(private val file: PersonalStateFile,
+                     private val observe: (String, WorkflowDiagnostics.Code) -> Unit = { _, _ -> },
+                     private val now: () -> Long = System::currentTimeMillis) {
     data class Ticket(val id: String, val query: String, val createdAt: Long)
     private enum class State { IDLE, PREPARED, RUNNING, COMPLETED, FAILED, CANCELLED }
     private data class Saved(val pending: Ticket? = null, val started: Boolean = false, val report: String? = null,
@@ -44,6 +46,7 @@ class ResearchBriefs(private val file: PersonalStateFile, private val now: () ->
             if (saved.pending != ticket) return@access "The research request was cancelled or replaced. Its late results were not saved."
             if (items.isEmpty()) {
                 save(saved.copy(pending = null, started = false, state = State.FAILED))
+                runCatching { observe(ticket.id, WorkflowDiagnostics.Code.NO_SOURCES) }
                 return@access SearchRouter(emptyList()).failureMessage(response, "web") + " No new brief was saved; an older saved brief is unchanged. Use 'retry research' for an explicit new attempt."
             }
             val at = now()
@@ -54,6 +57,7 @@ class ResearchBriefs(private val file: PersonalStateFile, private val now: () ->
             val report = ChatSearchResults.encode(ticket.query, items, answer, retrievedAt = at)
             require(report.length <= 16000)
             save(saved.copy(pending = null, started = false, report = report, state = State.COMPLETED))
+            runCatching { observe(ticket.id, WorkflowDiagnostics.Code.BRIEF_SAVED) }
             report
         }
     }

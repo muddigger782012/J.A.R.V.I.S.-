@@ -47,12 +47,14 @@ class HybridAssistantService(
     private val goalPlans = if (personalAssistant) GoalPlanStore(systemService.context()) else null
     @Volatile private var reviewedGoalKey: String? = null
     private val improvementEvaluation = if (personalAssistant) ImprovementEvaluation(systemService.context()) else null
+    private val workflowDiagnostics by lazy { WorkflowDiagnostics(systemService.context()) }
     private val taskHistory = TaskHistoryCommands({ routineCoordinator })
     private val personalReminders by lazy { PersonalReminderRuntime.manager(systemService.context()) }
     private val reminderCommands = ReminderCommands { personalReminders }
-    private val contactCalls by lazy { ContactCallWorkflow(PersonalStateFile(systemService.context(), "contact-call.json"), androidAssistant.contactCallPlatform()) }
+    private val contactCalls by lazy { ContactCallWorkflow(PersonalStateFile(systemService.context(), "contact-call.json"), androidAssistant.contactCallPlatform(),
+        observe = workflowDiagnostics::observe) }
     private val contactCallCommands = ContactCallCommands { contactCalls }
-    private val researchBriefs by lazy { ResearchBriefs(PersonalStateFile(systemService.context(), "research-brief.json")) }
+    private val researchBriefs by lazy { ResearchBriefs(PersonalStateFile(systemService.context(), "research-brief.json"), observe = workflowDiagnostics::observe) }
     private var pendingLearningReset: Boolean = false
     private val routineConfirmations = RoutineConfirmationStore(systemService.context())
     private val routineRegistry = com.assistant.core.learning.ApprovedRoutineRegistry(systemService.context())
@@ -87,6 +89,20 @@ class HybridAssistantService(
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
         if (personalAssistant) {
+            WorkflowDiagnostics.command(userInput)?.let { command ->
+                clearPendingActionPrompts()
+                taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+                return HybridAssistantReply(runCatching {
+                    if (command.action == WorkflowDiagnostics.Action.SHARE) {
+                        val brief = workflowDiagnostics.handoff(command.family!!)
+                        if (brief == null) "Prepare an active workflow improvement brief for ${command.family.label} before sharing. Nothing was shared."
+                        else if (androidAssistant.reviewTextHandoff("Jarvis workflow improvement", brief))
+                            "Requested Android's share chooser for the saved workflow brief. Review it and choose a destination there; no submission, pull request or deployment is verified."
+                        else "The share chooser could not be opened. Review the saved workflow improvement brief for a developer handoff."
+                    } else workflowDiagnostics.reply(command)
+                }.getOrElse { "Workflow diagnostics storage could not be confirmed. No workflow was run or shared. Review local storage access, or explicitly clear workflow diagnostics to reset this optional dataset." })
+            }
             ResearchBriefCommands.parse(userInput)?.let { input ->
                 clearPendingActionPrompts()
                 taskHistory.discardReview()
@@ -193,7 +209,11 @@ class HybridAssistantService(
                 val savedBriefs = if (command == SupervisedImprovement.Command.REVIEW_PROPOSALS) runCatching {
                     improvementEvaluation!!.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.PROPOSALS))
                 }.getOrElse { "Saved improvement briefs could not be read. No reports were changed." } else null
-                return HybridAssistantReply(report + (savedBriefs?.let { "\n\n$it" } ?: ""))
+                val workflowBriefs = if (command == SupervisedImprovement.Command.REVIEW_PROPOSALS) runCatching {
+                    workflowDiagnostics.reply(WorkflowDiagnostics.Command(WorkflowDiagnostics.Action.IMPROVEMENTS)) +
+                        "\nOptional workflow diagnostics are separately off by default. Use 'review workflow diagnostics' to inspect the setting or 'enable workflow diagnostics' to record future categorical checkpoints."
+                }.getOrElse { "Optional workflow diagnostics could not be read. Existing workflows and manual evaluation remain separate." } else null
+                return HybridAssistantReply(report + (savedBriefs?.let { "\n\n$it" } ?: "") + (workflowBriefs?.let { "\n\n$it" } ?: ""))
             }
             if (ImprovementEvaluation.isManagementInput(userInput)) {
                 clearPendingActionPrompts()
@@ -1186,7 +1206,7 @@ class HybridAssistantService(
         }
         // Local evaluation/correction controls must not be reinterpreted as a manual search
         // when malformed trailing text happens to mention documentation or a provider.
-        if (personalAssistant && (ImprovementEvaluation.isManagementInput(rawInput) ||
+        if (personalAssistant && (WorkflowDiagnostics.command(rawInput) != null || ImprovementEvaluation.isManagementInput(rawInput) ||
                 TaskHistoryCommands.isManagementInput(rawInput) || GoalPlanning.edit(rawInput) != null || ReminderCommands.parse(rawInput) != null ||
                 ContactCallCommands.parse(rawInput) != null)) {
             callback(handleUserInput(rawInput))

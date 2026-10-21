@@ -6,6 +6,7 @@ import java.util.UUID
 
 /** A reviewed recipient is authorization only for one SDK request, never proof of a connected call. */
 class ContactCallWorkflow(private val file: PersonalStateFile, private val platform: Platform,
+                          private val observe: (String, WorkflowDiagnostics.Code) -> Unit = { _, _ -> },
                           private val now: () -> Long = System::currentTimeMillis) {
     data class Recipient(val row: String, val name: String, val number: String)
     data class Lookup(val recipients: List<Recipient>, val permitted: Boolean = true)
@@ -24,14 +25,22 @@ class ContactCallWorkflow(private val file: PersonalStateFile, private val platf
         require(query.length in 1..160 && query.none(Char::isISOControl))
         val saved = load()
         save(saved.copy(plan = null)) // A new objective invalidates an older recipient approval even if lookup fails.
+        val attempt = UUID.randomUUID().toString()
         val lookup = try { platform.lookup(query) } catch (_: Exception) {
+            diagnostic(attempt, WorkflowDiagnostics.Code.CONTACTS_UNAVAILABLE)
             return@access "Contacts could not be read. Check Contacts permission, or prepare a call to a complete phone number. No call was requested."
         }
-        if (!lookup.permitted) return@access "Allow Contacts access in Jarvis Permissions, or prepare a call to a complete phone number. No call was requested."
+        if (!lookup.permitted) {
+            diagnostic(attempt, WorkflowDiagnostics.Code.CONTACTS_UNAVAILABLE)
+            return@access "Allow Contacts access in Jarvis Permissions, or prepare a call to a complete phone number. No call was requested."
+        }
         val choices = matches(query, lookup.recipients)
-        if (choices.isEmpty()) return@access "No matching callable contact was found. Try the full contact name or prepare a call to a complete phone number."
+        if (choices.isEmpty()) {
+            diagnostic(attempt, WorkflowDiagnostics.Code.NO_CONTACT)
+            return@access "No matching callable contact was found. Try the full contact name or prepare a call to a complete phone number."
+        }
         if (choices.size > 8) return@access "More than eight phone choices matched. Use the full contact name to narrow the lookup; no recipient was selected."
-        val plan = Plan(UUID.randomUUID().toString(), now(), query, choices, if (choices.size == 1) 0 else null)
+        val plan = Plan(attempt, now(), query, choices, if (choices.size == 1) 0 else null)
         save(saved.copy(plan = plan))
         render(plan)
     }
@@ -55,6 +64,7 @@ class ContactCallWorkflow(private val file: PersonalStateFile, private val platf
         val recipient = plan.recipients[plan.selected]
         if (!runCatching { platform.current(recipient) }.getOrDefault(false)) {
             save(saved.copy(plan = null))
+            diagnostic(plan.id, WorkflowDiagnostics.Code.RECIPIENT_CHANGED)
             return@access "The contact changed or Contacts access is unavailable. Prepare a fresh call to verify its recipient. No call was requested."
         }
         val dialOnly = !runCatching { platform.canCall() }.getOrDefault(false)
@@ -62,7 +72,15 @@ class ContactCallWorkflow(private val file: PersonalStateFile, private val platf
         save(Saved(last = attempt)) // Consume the approval before the consequential request.
         val status = try { if (platform.request(recipient, dialOnly)) Status.REQUESTED else Status.REJECTED }
             catch (_: Exception) { Status.UNKNOWN }
-        save(Saved(last = attempt.copy(status = status)))
+        try { save(Saved(last = attempt.copy(status = status))) } catch (error: Exception) {
+            diagnostic(plan.id, WorkflowDiagnostics.Code.CALL_UNKNOWN)
+            throw error
+        }
+        diagnostic(plan.id, when (status) {
+            Status.REQUESTED -> WorkflowDiagnostics.Code.CALL_REQUESTED
+            Status.REJECTED -> WorkflowDiagnostics.Code.CALL_REJECTED
+            else -> WorkflowDiagnostics.Code.CALL_UNKNOWN
+        })
         describe(attempt.copy(status = status))
     }
     fun cancel(): String = file.access {
@@ -111,8 +129,11 @@ class ContactCallWorkflow(private val file: PersonalStateFile, private val platf
                 .also { a -> require(id(a.id)) }
         }
         val saved = Saved(plan, last)
-        return if (last?.status == Status.DISPATCHING) saved.copy(last = last.copy(status = Status.UNKNOWN)).also { save(it) } else saved
+        return if (last?.status == Status.DISPATCHING) saved.copy(last = last.copy(status = Status.UNKNOWN)).also {
+            save(it); diagnostic(last.id, WorkflowDiagnostics.Code.CALL_UNKNOWN)
+        } else saved
     }
+    private fun diagnostic(id: String, code: WorkflowDiagnostics.Code) { runCatching { observe(id, code) } }
     private fun PersonalStateFile.Document.save(saved: Saved) {
         fun recipient(value: Recipient) = JSONObject().put("row", value.row).put("name", value.name).put("number", value.number)
         val root = JSONObject().put("version", 1)
