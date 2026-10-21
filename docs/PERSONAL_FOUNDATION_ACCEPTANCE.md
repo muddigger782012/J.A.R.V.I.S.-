@@ -730,10 +730,22 @@ fresh review tokens, replacement binding, old callbacks, interruption, permissio
 needs, expiry, storage failures, concurrency, capacity, lazy migration and corrupt
 data. Two Android cases exercise actual isolated service reconstruction, short
 async corrections, unchanged goal correction, real alarm replacement and synthetic
-notification readback. The emulator gate now requires 34 cases. Final verification
-and delivery results will be recorded after the checks complete. Real-phone voice,
-alarm timing through doze/reboot and installed-data upgrade remain pending; no
-measured phase maturity percentage is claimed.
+notification readback. The emulator gate now requires 34 cases. Final-source
+evidence for personal build 3.5.482: all 566 JVM tests across 93 suites passed
+without failures, errors or skips. Debug ABI APKs, instrumentation and the Beta
+manifest built locally; gateway/archive tests and the theme contract passed.
+Required final-source CI unit/build, gateway, theme and optimized Android acceptance
+passed. The actual emulator log records `OK (34 tests)` including both new reminder
+change service cases. The missing-correction and stale-cleanup regressions failed
+before their respective fixes and pass on the delivered source. All three production
+APKs independently passed completed-build provenance, package/version/ABI, signer
+compatibility against the freshly downloaded 3.5.480 updater, archive integrity and
+wake runtime/model checks. The reviewed signed manifest retains exact provenance.
+Main remained the tested base before the normal fast-forward merge and updater
+publication; production sources match the tested and signed feature exactly.
+Broad visual-layout remains skipped upstream. Real-phone voice, alarm timing
+through doze/reboot, live-provider quality and installed-data upgrade remain pending;
+no measured phase maturity percentage is claimed.
 
 ## Delivered behavior and acceptance evidence
 
@@ -806,7 +818,7 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.480 (versionCode 480) replaces the previously distributed 3.5.479
+Personal build 3.5.482 (versionCode 482) replaces the previously distributed 3.5.480
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
@@ -825,7 +837,7 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
 2. Pass the existing CI unit/build, gateway, theme and optimized voice emulator jobs
-   on the final source. The voice runner requires all 32 voice/settings and isolated
+   on the final source. The voice runner requires all 34 voice/settings and isolated
    foundation service/storage acceptance tests. Broad visual-layout
    smoke remains disabled upstream; do not count it as a pass.
 3. On a disposable emulator, verify exact commands, no unintended actions for
@@ -843,6 +855,11 @@ A debug APK is build evidence, not a same-signer personal update candidate.
    after local checks, clear current checks, reconstruct and review/share that same
    numbered proposal. Confirm its original results and explicit chooser destination;
    refresh separately, dismiss an earlier brief and verify old numbers after cleanup.
+   For reminders, correct a pending duration by voice and reconstruct before approval.
+   Review a numbered time change, verify cancellation keeps the original due time,
+   then approve a fresh change and confirm one notification at the new time through
+   normal callback, reboot and doze conditions. Check posted/uncertain rejection and
+   completed-history deletion without retaining stale change copies.
 5. Measure wake detection on at least 20 controlled ordinary/deep-voice utterances
    per condition, aiming for at least 95% in that controlled sample. Separately
    record false activations and listening time under a reproducible negative-audio
