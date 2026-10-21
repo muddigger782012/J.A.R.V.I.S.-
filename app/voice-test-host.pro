@@ -62,5 +62,6 @@
 -keep,allowoptimization class com.assistant.core.services.AssistantMemory** { public *; }
 -keep,allowoptimization class com.assistant.core.services.LearnableDeviceAction** { public *; }
 -keep,allowoptimization class com.assistant.core.services.AndroidAssistantService** { public *; }
+-keep,allowoptimization class com.assistant.core.services.RoutineSteps** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ChatSearchResults** { public *; }
 -keep,allowoptimization class com.assistant.core.services.SearchRouter** { public *; }
