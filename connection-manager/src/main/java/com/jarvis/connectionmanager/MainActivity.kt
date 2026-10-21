@@ -25,6 +25,7 @@ class MainActivity : Activity() {
     private lateinit var scroller: ScrollView
     private lateinit var providerSection: LinearLayout
     private var runningDiagnostics = false
+    private var sessionGeminiKey: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -114,22 +115,44 @@ class MainActivity : Activity() {
     }
 
     private fun showSettings() {
-        val options = arrayOf("Open Android wireless settings", "About diagnostics", "Clear activity log")
+        val options = arrayOf("Open Android wireless settings", "Configure Gemini key (session only)", "About diagnostics", "Clear activity log")
         android.app.AlertDialog.Builder(this)
             .setTitle("Connection Manager Settings")
             .setItems(options) { _, selected ->
                 when (selected) {
                     0 -> startActivity(android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS))
-                    1 -> android.app.AlertDialog.Builder(this)
+                    1 -> configureGeminiKey()
+                    2 -> android.app.AlertDialog.Builder(this)
                         .setTitle("Diagnostic scope")
                         .setMessage("Internet, search, Gemini, and GitHub checks test public endpoint reachability only. They do not confirm API credentials, model access, or update availability. Local AI and fallback are not connected yet.")
                         .setPositiveButton("OK", null).show()
-                    2 -> {
+                    3 -> {
                         events.removeAllViews()
                         log("Activity log cleared")
                     }
                 }
             }.setNegativeButton("Close", null).show()
+    }
+
+    private fun configureGeminiKey() {
+        val field = android.widget.EditText(this).apply {
+            hint = "Gemini API key"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Gemini credentials")
+            .setMessage("The key stays in app memory for this session only. It is never written to the activity log.")
+            .setView(field)
+            .setPositiveButton("Use for this session") { _, _ ->
+                sessionGeminiKey = field.text.toString().trim().takeIf { it.isNotEmpty() }
+                log(if (sessionGeminiKey == null) "Gemini credentials cleared" else "Gemini credentials configured for session")
+            }
+            .setNeutralButton("Clear key") { _, _ ->
+                sessionGeminiKey = null
+                log("Gemini credentials cleared")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun diagnose() {
@@ -165,7 +188,9 @@ class MainActivity : Activity() {
                 try { "GitHub HTTP ${request.responseCode}" } finally { request.disconnect() }
             } catch (e: Exception) { "GitHub FAILED: ${e.javaClass.simpleName}" }
             val search = ProviderDiagnostics.checkPublicEndpoint("WEB SEARCH", "https://www.google.com/search?q=connectivity")
-            val gemini = ProviderDiagnostics.checkPublicEndpoint("GEMINI AI", "https://generativelanguage.googleapis.com/")
+            val key = sessionGeminiKey
+            val gemini = if (key != null) GeminiDiagnostics.checkModels(key) else null
+            val geminiPublic = if (gemini == null) ProviderDiagnostics.checkPublicEndpoint("GEMINI AI", "https://generativelanguage.googleapis.com/") else null
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 runningDiagnostics = false
@@ -175,7 +200,7 @@ class MainActivity : Activity() {
                 log("Repository API probe: $github (does not verify update manifest)")
                 cards["WEB SEARCH"]?.text = "WEB SEARCH\n${search.detail} (${search.latencyMs} ms)"
                 cards["GEMINI AI"]?.text = "GEMINI AI\n${gemini.detail} (${gemini.latencyMs} ms)"
-                log("Search and Gemini: public reachability only; provider API calls not authenticated")
+                log(if (gemini != null) "Gemini: authenticated model listing checked; search remains public reachability only" else "Search and Gemini: public reachability only; provider API calls not authenticated")
                 listOf("AI FALLBACK", "LOCAL AI").forEach {
                     cards[it]?.text = "$it\nNOT TESTED"
                 }
