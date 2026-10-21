@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Button
 import android.view.ViewGroup
 import android.view.accessibility.AccessibilityEvent
 import android.graphics.drawable.GradientDrawable
@@ -55,6 +56,35 @@ object UnifiedMenuSection {
         }
         content.removeAllViews()
         sections.forEach { content.addView(it) }
+    }
+
+    /**
+     * Compact the existing action buttons without changing their IDs or listeners.
+     * This only affects utility-page controls; header and chat controls are untouched.
+     */
+    fun compactActions(scroll: ScrollView) {
+        val density = scroll.resources.displayMetrics.density
+        fun dp(value: Int) = (value * density + .5f).toInt()
+        fun visit(view: View) {
+            if (view is Button) {
+                view.minimumHeight = dp(48)
+                view.minHeight = dp(48)
+                view.setPadding(dp(12), dp(8), dp(12), dp(8))
+                view.textSize = 13f
+                view.isAllCaps = false
+                view.layoutParams?.let { params ->
+                    if (params is LinearLayout.LayoutParams) {
+                        params.topMargin = dp(3)
+                        params.bottomMargin = dp(3)
+                        view.layoutParams = params
+                    }
+                }
+            }
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) visit(view.getChildAt(i))
+            }
+        }
+        visit(scroll)
     }
 
     fun create(
