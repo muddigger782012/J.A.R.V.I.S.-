@@ -599,8 +599,19 @@ delivery, legacy records, corrupt and full storage, literal reminder titles and
 reserved malformed controls. Two additional Android cases exercise actual isolated
 service storage, async routing, real Android alarm registration/cancellation and
 the separately consented evaluation path. The optimized emulator gate now requires
-30 cases. Verification and delivery results are recorded after the checks complete;
-physical-phone voice, notification usability and installed-data upgrade remain
+30 cases. Final-source evidence for personal build 3.5.479: all 537 JVM tests
+across 91 suites passed with no failures, errors or skips. Debug ABI APKs,
+instrumentation and the Beta manifest built locally; gateway/archive tests and
+the theme contract passed. Required final-source CI unit/build, gateway, theme
+and optimized Android acceptance passed. The actual emulator log records
+`OK (30 tests)` including both new research follow-up service cases. All three
+production APKs passed completed-build provenance, package/version/ABI, production
+signer compatibility against the freshly downloaded 3.5.478 updater, archive
+integrity and wake runtime/model checks. The signed manifest records exact
+artifact provenance. Main remained the tested base before the normal fast-forward
+merge and updater publication; production sources match the signed/tested feature
+exactly. Broad visual-layout remains skipped upstream. Physical-phone voice,
+notification usability, live-provider quality and installed-data upgrade remain
 outstanding. No measured maturity percentage is claimed.
 
 ## Delivered behavior and acceptance evidence
@@ -674,7 +685,7 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.478 (versionCode 478) replaces the previously distributed 3.5.475
+Personal build 3.5.479 (versionCode 479) replaces the previously distributed 3.5.478
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
@@ -693,7 +704,7 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
 2. Pass the existing CI unit/build, gateway, theme and optimized voice emulator jobs
-   on the final source. The voice runner requires all 28 voice/settings and isolated
+   on the final source. The voice runner requires all 30 voice/settings and isolated
    foundation service/storage acceptance tests. Broad visual-layout
    smoke remains disabled upstream; do not count it as a pass.
 3. On a disposable emulator, verify exact commands, no unintended actions for
@@ -702,7 +713,12 @@ A debug APK is build evidence, not a same-signer personal update candidate.
    restart continuity, offline arithmetic/commands, missing permissions, failed
    adapter alternatives and three approved multistep routines. Verify requested
    versus completed action language and cancellation. Record device/Android/build,
-   steps, expected result and observed result for every case.
+   steps, expected result and observed result for every case. For research follow-up,
+   save a brief, request its reminder by voice, replace or clear the main brief,
+   then reopen the reminder's original sources offline. Check notification text,
+   permission denial, cancellation and uncertain outcomes without duplicate delivery.
+   Clearing completed reminder history removes those attached copies separately
+   from clearing the main research brief.
 5. Measure wake detection on at least 20 controlled ordinary/deep-voice utterances
    per condition, aiming for at least 95% in that controlled sample. Separately
    record false activations and listening time under a reproducible negative-audio
