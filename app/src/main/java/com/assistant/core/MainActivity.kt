@@ -1562,8 +1562,16 @@ class MainActivity : ThemedActivity() {
                 if (assistant) {
                     val answerText = line.removePrefix("J.A.R.V.I.S.:").trimStart()
                         .substringBefore("\nhttps://www.google.com/search?")
-                    val inline = android.text.SpannableStringBuilder(answerText).append("  ⧉")
+                    val inline = android.text.SpannableStringBuilder(answerText).append("  \uFFFC")
                     val start = inline.length - 1
+                    val copyDrawable = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.ic_chat_copy)?.mutate()
+                    if (copyDrawable != null) {
+                        copyDrawable.setTint(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
+                        val iconSize = dp(20)
+                        copyDrawable.setBounds(0, 0, iconSize, iconSize)
+                        inline.setSpan(android.text.style.ImageSpan(copyDrawable, android.text.style.DynamicDrawableSpan.ALIGN_BOTTOM),
+                            start, inline.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
                     inline.setSpan(object : android.text.style.ClickableSpan() {
                         override fun onClick(widget: View) {
                             val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
