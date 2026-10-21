@@ -115,18 +115,18 @@
                 android:layout_width="match_parent" android:layout_height="108dp"
                 android:layout_marginBottom="-108dp" android:elevation="12dp">
                 <Button android:id="@+id/btnOpenJarvisChat"
-                    android:layout_width="48dp" android:layout_height="48dp"
+                    android:layout_width="40dp" android:layout_height="48dp"
                     android:layout_gravity="top|end"
                    
                     android:background="@drawable/composer_icon_ring"
-                    android:contentDescription="Expand chat navigation" android:foreground="@drawable/ic_chat_menu" android:foregroundGravity="center" android:foregroundTint="?attr/jarvis_primary" />
+                    android:contentDescription="Expand chat navigation" android:foreground="@drawable/ic_floating_chat_menu" android:foregroundGravity="center" android:foregroundTint="?attr/jarvis_primary" />
                 <Button android:id="@+id/btnNewAssistantChat"
-                    android:layout_width="48dp" android:layout_height="48dp"
+                    android:layout_width="40dp" android:layout_height="48dp"
                     android:layout_gravity="top|end" android:layout_marginTop="50dp"
                    
                    
                     android:background="@drawable/composer_icon_ring"
-                    android:contentDescription="New chat" android:foreground="@drawable/ic_chat_new" android:foregroundGravity="center" android:foregroundTint="?attr/jarvis_primary" />
+                    android:contentDescription="New chat" android:foreground="@drawable/ic_floating_chat_new" android:foregroundGravity="center" android:foregroundTint="?attr/jarvis_primary" />
                 <Button android:id="@+id/btnAssistantHistory"
                     android:layout_width="48dp" android:layout_height="48dp"
                     android:layout_gravity="top|end" android:layout_marginEnd="50dp"
