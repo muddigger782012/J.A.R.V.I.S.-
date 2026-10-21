@@ -788,6 +788,17 @@ without dispatching external apps. Final automated and signed publication result
 recorded in the accompanying pull request; physical voice and in-place upgrade
 acceptance remain pending.
 
+Final verification for this increment: all 578 JVM tests across 94 suites passed
+with no failures, errors or skipped tests. All three debug ABI APKs, instrumentation
+compilation, Beta manifest, gateway (16), APK archive (6) and theme checks passed.
+Final-source CI unit/build, gateway, theme and all 35 optimized emulator acceptance
+tests passed, including the reconstructed task-diagnostics case. Production-signed
+personal APKs for all supported ABIs passed package, version, archive, native-runtime,
+wake-asset and distributed-signer verification. This full personal build is delivered
+through the normal updater and versioned downloads. Broad visual-layout smoke remains
+skipped upstream; phone voice, actual device/alarm behavior, live providers and
+in-place installed-data upgrade remain pending. No phase maturity percentage is inferred.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -859,7 +870,7 @@ restrictions, provider keys, selected models, package identities, preference
 namespaces, appearance resources or Developer sources are changed. The gateway's
 new behavior-profile field defaults off for older/other clients.
 
-Personal build 3.5.482 (versionCode 482) replaces the previously distributed 3.5.480
+Personal build 3.5.483 (versionCode 483) replaces the previously distributed 3.5.482
 APK at the existing updater path, with the same distributed production signer.
 Package identity and settings/data namespaces remain unchanged.
 The stable build workflow still publishes both products on main. Feature-branch
