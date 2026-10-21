@@ -245,7 +245,7 @@ class ImprovementEvaluationTest {
         assertEquals(before.samples, evaluation.snapshot().samples)
         assertEquals(before.baseline, evaluation.snapshot().baseline)
         assertTrue(evaluation.snapshot().enabled)
-        assertEquals(3, org.json.JSONObject(file.readText()).getInt("version"))
+        assertEquals(4, org.json.JSONObject(file.readText()).getInt("version"))
     }
 
     @Test fun proposalControlsAcceptOnlyKnownScenariosAndCannotApproveCodeExecution() {
@@ -313,13 +313,16 @@ class ImprovementEvaluationTest {
         val before = evaluation.snapshot()
         val file = File(directory, "improvement-evaluation.json")
         val versionTwo = org.json.JSONObject(file.readText()).put("version", 2)
+        versionTwo.remove("nextProposal")
+        versionTwo.getJSONArray("proposals").getJSONObject(0).also { it.remove("number"); it.remove("evidence") }
         file.writeText(versionTwo.toString())
-        assertEquals(before, store(directory).snapshot())
+        val legacy = before.copy(proposals = before.proposals.map { it.copy(evidence = null) })
+        assertEquals(legacy, store(directory).snapshot())
         assertTrue(evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.RUN_LOCAL)).contains("No checks were run"))
         assertEquals(versionTwo.toString(), file.readText())
         evaluation.setEnabled(true)
         evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.RUN_LOCAL))
-        assertEquals(before.proposals, evaluation.snapshot().proposals)
+        assertEquals(legacy.proposals, evaluation.snapshot().proposals)
         assertEquals(before.samples, evaluation.snapshot().samples)
         assertEquals(before.baseline, evaluation.snapshot().baseline)
         assertTrue(evaluation.clear())
@@ -340,7 +343,8 @@ class ImprovementEvaluationTest {
         assertTrue(artifact.contains("owner reported failed"))
         assertTrue(artifact.contains("newer report supersedes this source (passed)"))
         assertTrue(artifact.contains("Separate local-check snapshot"))
-        assertTrue(artifact.contains("counter dispatchers"))
+        assertTrue(artifact.contains("No local foundation check results were saved when this proposal was prepared"))
+        assertFalse(artifact.contains("counter dispatchers")) // A later run cannot be backfilled into an earlier brief.
         assertTrue(artifact.contains("no raw conversation"))
         assertEquals(before, evaluation.snapshot())
         evaluation.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.DISMISS_PROPOSAL, scenario))

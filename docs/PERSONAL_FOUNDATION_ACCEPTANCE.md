@@ -614,6 +614,55 @@ exactly. Broad visual-layout remains skipped upstream. Physical-phone voice,
 notification usability, live-provider quality and installed-data upgrade remain
 outstanding. No measured maturity percentage is claimed.
 
+## Phase 6 follow-up: saved proposal evidence and archive review
+
+Improvement proposals now retain the exact matching owner-report baseline and the
+saved local check run/baseline available when prepared. Clearing or rerunning
+current checks cannot erase or replace the evidence sent with an older proposal.
+The original defect is covered by a regression that failed before this change:
+after clearing current checks, a retained proposal previously lost those executed
+checks from its handoff. Missing checks stay explicitly unknown; tests run after
+preparation are never attached retroactively.
+
+`refresh improvement proposal for routine recovery` captures changed evidence in
+a separate saved brief using the current checked failed/unclear scenario report.
+It does not run tests, change code or overwrite the earlier brief. Repeated
+preparation/refresh of the same source and evidence reuses the existing brief.
+The bounded archive refuses additional entries when full, without silent eviction.
+
+`review improvement proposals` now lists stable proposal numbers. `review
+improvement proposal 1`, `share improvement proposal 1` and `dismiss improvement
+proposal 1` address that exact retained brief, including older builds. Spoken
+forms such as `review improvement proposal number one` are accepted. Existing
+scenario commands continue to select the latest brief for that scenario. Clearing
+proposals preserves the next number, preventing an old number from silently
+selecting a newer brief; clearing all improvement evaluation is an explicit reset.
+
+Handoffs include frozen check results and a matched comparison only when revisions,
+case sets and ordering permit it. Different-build runs and missing baselines are
+identified; passing local checks do not resolve an owner-reported failure or prove
+a code fix. Current report/supersession context remains clearly separate from
+the frozen evidence. Sharing still requests Android's chooser without a preselected
+recipient; it does not prove external submission or create a patch, PR or deployment.
+
+State format 4 reads existing formats 1–3 without changing consent, reports,
+baselines or check revisions. Legacy proposals explicitly lack captured test
+evidence; existing current results are not backfilled into them. Normal writes
+migrate the format, and an explicit refresh can create a separate evidenced brief.
+Clearing current checks now explains that retained proposals keep their copies;
+clear improvement proposals or all improvement evaluation to remove those copies.
+Malformed indexed/refresh controls stay local before learning, AI or manual search.
+
+Acceptance covers the reproduced failure, immutable snapshots, explicit refresh,
+older-build review, selective dismissal, stable numbering, lazy migration, corrupt
+storage, failed writes, full archives, chronology, mismatched revisions and competing
+refreshes. Two additional Android cases use actual isolated service storage,
+reconstruction, intercepted chooser contents and asynchronous malformed controls;
+no external submission or device action is allowed. The optimized emulator gate now
+requires 32 cases. Final verification and delivery evidence will be recorded after
+the checks complete. Real-phone handoff usability and installed-data upgrade remain
+pending; no measured phase maturity percentage is claimed.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |

@@ -39,14 +39,18 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
             "Freeze every app before execution; pause for each current step result, preserve pending work across restart and never repeat an uncertain request or treat an app launch as objective completion.", "ComposableGoalPlanning, GoalPlanStore and ApprovedRoutineExecutor")
     }
     enum class Outcome { PASSED, FAILED, UNCLEAR }
-    enum class Action { ENABLE, DISABLE, CLEAR, REVIEW, BASELINE, COMPARE, RECORD, PROPOSAL, PROPOSALS, REVIEW_PROPOSAL, DISMISS_PROPOSAL, CLEAR_PROPOSALS,
+    enum class Action { ENABLE, DISABLE, CLEAR, REVIEW, BASELINE, COMPARE, RECORD, PROPOSAL, REFRESH_PROPOSAL, PROPOSALS, REVIEW_PROPOSAL, DISMISS_PROPOSAL, CLEAR_PROPOSALS,
         RUN_LOCAL, REVIEW_LOCAL, CLEAR_LOCAL, BASELINE_LOCAL, COMPARE_LOCAL, SHARE_PROPOSAL }
-    data class Command(val action: Action, val scenario: Scenario? = null, val outcome: Outcome? = null)
+    data class Command(val action: Action, val scenario: Scenario? = null, val outcome: Outcome? = null, val number: Int? = null)
     data class Sample(val scenario: Scenario, val outcome: Outcome, val build: Int, val buildName: String, val time: Long)
     enum class ProposalStatus { PREPARED, DISMISSED }
-    data class Proposal(val source: Sample, val preparedAt: Long, val status: ProposalStatus = ProposalStatus.PREPARED)
+    data class Evidence(val ownerBaseline: Sample? = null, val localRun: LocalFoundationChecks.Run? = null,
+                        val localBaseline: LocalFoundationChecks.Run? = null)
+    data class Proposal(val source: Sample, val preparedAt: Long, val status: ProposalStatus = ProposalStatus.PREPARED,
+                        val number: Int = 0, val evidence: Evidence? = null)
     data class Snapshot(val enabled: Boolean, val samples: List<Sample>, val baseline: List<Sample>, val proposals: List<Proposal> = emptyList(),
-                        val localRun: LocalFoundationChecks.Run? = null, val localBaseline: LocalFoundationChecks.Run? = null)
+                        val localRun: LocalFoundationChecks.Run? = null, val localBaseline: LocalFoundationChecks.Run? = null,
+                        val nextProposal: Int = 1)
 
     fun snapshot(): Snapshot = file.access { decode(read()) }
     fun setEnabled(enabled: Boolean): Boolean = file.access { write(encode(decode(read()).copy(enabled = enabled))) }
@@ -81,10 +85,11 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
         Action.RECORD -> if (record(command.scenario!!, command.outcome!!)) "Recorded your reported ${command.outcome.name.lowercase(Locale.ROOT)} result for ${command.scenario.label}. This is owner feedback; no test was executed by recording it."
             else "Enable improvement evaluation before recording a checked result. If it is already enabled, restore local storage access and retry."
         Action.PROPOSAL -> prepareProposal(command.scenario!!)
+        Action.REFRESH_PROPOSAL -> prepareProposal(command.scenario!!, refresh = true)
         Action.PROPOSALS -> reviewProposals(snapshot())
-        Action.REVIEW_PROPOSAL -> snapshot().let { saved -> saved.proposals.lastOrNull { it.source.scenario == command.scenario }?.let { renderProposal(it, saved) }
-            ?: "No saved proposal for ${command.scenario!!.label}. Check and record a result before preparing one." }
-        Action.DISMISS_PROPOSAL -> dismissProposal(command.scenario!!)
+        Action.REVIEW_PROPOSAL -> snapshot().let { saved -> select(saved, command)?.let { renderProposal(it, saved) }
+            ?: "No matching saved proposal. Say 'review improvement proposals' to choose a retained brief, or check and record a result before preparing one." }
+        Action.DISMISS_PROPOSAL -> dismissProposal(command)
         Action.CLEAR_PROPOSALS -> file.access {
             if (write(encode(decode(read()).copy(proposals = emptyList())))) "Cleared saved improvement proposals. Evaluation reports, baseline and recording preference remain."
             else "Could not confirm proposal deletion."
@@ -92,7 +97,7 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
         Action.RUN_LOCAL -> runLocalChecks()
         Action.REVIEW_LOCAL -> renderLocal(snapshot().localRun)
         Action.CLEAR_LOCAL -> file.access {
-            if (write(encode(decode(read()).copy(localRun = null, localBaseline = null)))) "Cleared local foundation check results and their baseline. Manual reports, saved briefs and recording preference remain."
+            if (write(encode(decode(read()).copy(localRun = null, localBaseline = null)))) "Cleared current local foundation check results and their baseline. Saved proposals retain their captured check snapshots; clear improvement proposals separately to remove those copies. Manual reports and recording preference remain."
             else "Could not confirm deletion of local check results."
         }
         Action.BASELINE_LOCAL -> file.access {
@@ -107,14 +112,17 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
         Action.SHARE_PROPOSAL -> "Use the personal assistant's share improvement proposal command to open Android's review chooser. This evaluation store does not submit or share anything."
     }
 
-    fun handoff(scenario: Scenario): String? {
+    fun handoff(scenario: Scenario): String? = handoff(Command(Action.SHARE_PROPOSAL, scenario))
+    fun handoff(command: Command): String? {
         val saved = snapshot()
-        val proposal = saved.proposals.lastOrNull { it.source.scenario == scenario } ?: return null
+        val proposal = select(saved, command) ?: return null
         if (proposal.status != ProposalStatus.PREPARED) return null
         return "Jarvis developer handoff — review required\n" + renderProposal(proposal, saved) +
-            "\n\nSeparate local-check snapshot at handoff (not owner-reported experience or phone verification):\n" + renderLocal(saved.localRun) +
             "\n\nHandoff boundary: this is the saved synthetic evidence brief, not a patch or verified root cause. Review/reproduce it, prepare a focused change and regression tests, then use normal PR review, CI, signing and publication verification. This handoff contains no raw conversation, screenshots, private targets or provider credentials. Choosing a share destination does not prove that any external submission completed."
     }
+    private fun select(saved: Snapshot, command: Command): Proposal? = if (command.number != null)
+        saved.proposals.firstOrNull { it.number == command.number }
+        else saved.proposals.lastOrNull { it.source.scenario == command.scenario }
 
     private fun runLocalChecks(): String {
         if (!snapshot().enabled) return "Enable improvement evaluation before running and recording local foundation checks. No checks were run."
@@ -128,10 +136,10 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
         return if (saved) renderLocal(run) else "Local synthetic checks returned, but recording was disabled or results could not be saved. Review evaluation recording and local storage before retrying; no device action was run."
     }
 
-    private fun renderLocal(run: LocalFoundationChecks.Run?): String {
+    private fun renderLocal(run: LocalFoundationChecks.Run?, relativeToCurrent: Boolean = true): String {
         if (run == null) return "No local foundation check results are saved. Enable improvement evaluation and say 'run local foundation checks'."
         return "Local synthetic logic checks on ${run.buildName}, revision ${run.revision}" +
-            (if (run.build != build || run.revision != LocalFoundationChecks.REVISION) " (previous build or check revision; retest)" else "") + ":\n" +
+            (if (relativeToCurrent && (run.build != build || run.revision != LocalFoundationChecks.REVISION)) " (previous build or check revision; retest)" else "") + ":\n" +
             run.results.joinToString("\n") { "${it.case.label}: ${it.outcome.name.lowercase(Locale.ROOT)}. Expected: ${it.case.expected}" } +
             "\nThese checks executed local planning, approval, retry, recovery and journal logic with isolated synthetic state and counter dispatchers. No phone action, provider request or user workflow ran. They do not establish live conversation quality, device integration, production signing or upgrade compatibility. Failed or errored cases need developer reproduction and a reviewed regression fix; this command makes no code change. Manual owner reports remain separate. Save a local check baseline before a later retest to compare the same checks."
     }
@@ -142,6 +150,13 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
         if (after == null || after.build != build) return "Run local foundation checks on this build before comparing."
         if (before.revision != after.revision || after.revision != LocalFoundationChecks.REVISION)
             return "The local check revision changed. Retest and save a new baseline; these results cannot establish a matched comparison."
+        return compareRuns(before, after)
+    }
+    private fun compareRuns(before: LocalFoundationChecks.Run, after: LocalFoundationChecks.Run): String {
+        if (before.time > after.time) return "The saved baseline is newer than the saved check run. No ordered local-check comparison is available."
+        if (before.revision != after.revision || after.revision > LocalFoundationChecks.REVISION ||
+            before.results.map { it.case }.toSet() != after.results.map { it.case }.toSet())
+            return "The local check revision changed or is unsupported. No matched comparison is available for these saved runs."
         return "Actual local synthetic check comparison (${before.buildName} to ${after.buildName}; not device or provider verification):\n" +
             before.results.joinToString("\n") { old ->
                 val current = after.results.single { it.case == old.case }
@@ -183,36 +198,39 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
         } + "\nOnly matched synthetic scenarios are compared; untested cases remain unknown."
     }
 
-    private fun prepareProposal(scenario: Scenario): String = file.access {
+    private fun prepareProposal(scenario: Scenario, refresh: Boolean = false): String = file.access {
         val saved = decode(read())
         val sample = saved.samples.lastOrNull { it.build == build && it.scenario == scenario }
             ?: return@access "Check and record '${scenario.label}' for this build before preparing an evidence-linked proposal."
         if (sample.outcome == Outcome.PASSED) return@access "The current '${scenario.label}' report passed. Keep it as a positive regression case; no failure-based change proposal is supported by this report."
-        val existing = saved.proposals.firstOrNull { it.source == sample }
+        val evidence = Evidence(saved.baseline.firstOrNull { it.scenario == scenario }, saved.localRun, saved.localBaseline)
+        val existing = saved.proposals.lastOrNull { it.source == sample && (!refresh || it.evidence == evidence) }
         if (existing != null) return@access renderProposal(existing, saved)
-        if (saved.proposals.size >= MAX_PROPOSALS) return@access "Saved improvement proposals are full. Review them, then explicitly clear improvement proposals when you no longer need the briefs. No existing evidence was overwritten."
+        if (saved.proposals.size >= MAX_PROPOSALS || saved.nextProposal == Int.MAX_VALUE) return@access "Saved improvement proposals are full. Review them, then explicitly clear improvement proposals when you no longer need the briefs. No existing evidence was overwritten."
         val preparedAt = now()
         require(preparedAt >= 0)
-        val proposal = Proposal(sample, preparedAt)
-        val next = saved.copy(proposals = saved.proposals + proposal)
+        if (listOfNotNull(sample.time, evidence.ownerBaseline?.time, evidence.localRun?.time, evidence.localBaseline?.time).any { it > preparedAt })
+            return@access "Saved evidence is dated after the current device time. Check the clock before preparing a new brief; no evidence was changed or test run."
+        val proposal = Proposal(sample, preparedAt, number = saved.nextProposal, evidence = evidence)
+        val next = saved.copy(proposals = saved.proposals + proposal, nextProposal = saved.nextProposal + 1)
         if (!write(encode(next))) return@access "Could not save the improvement proposal. No code, test or external action was performed."
         renderProposal(proposal, next)
     }
 
-    private fun dismissProposal(scenario: Scenario): String = file.access {
+    private fun dismissProposal(command: Command): String = file.access {
         val saved = decode(read())
-        val index = saved.proposals.indexOfLast { it.source.scenario == scenario }
-        if (index < 0) return@access "No saved proposal for ${scenario.label} to dismiss."
+        val selected = select(saved, command) ?: return@access "No matching saved proposal to dismiss. Say 'review improvement proposals'."
+        val index = saved.proposals.indexOfFirst { it.number == selected.number }
         val proposals = saved.proposals.mapIndexed { i, proposal -> if (i == index) proposal.copy(status = ProposalStatus.DISMISSED) else proposal }
-        if (write(encode(saved.copy(proposals = proposals)))) "Dismissed the latest ${scenario.label} proposal. Its original evidence remains reviewable; no code change was approved or applied."
+        if (write(encode(saved.copy(proposals = proposals)))) "Dismissed proposal ${selected.number} for ${selected.source.scenario.label}. Its original evidence remains reviewable; no code change was approved or applied."
         else "Could not save the proposal dismissal."
     }
 
     private fun reviewProposals(saved: Snapshot): String {
         if (saved.proposals.isEmpty()) return "No saved improvement proposals. Record a checked failed or unclear scenario result, then prepare an improvement proposal for that scenario."
         return "Saved local improvement proposals (owner reports, not verified defects):\n" + saved.proposals.joinToString("\n") {
-            "${it.source.scenario.label}: ${it.status.name.lowercase(Locale.ROOT)}, reported ${it.source.outcome.name.lowercase(Locale.ROOT)} on ${it.source.buildName}. ${sourceStatus(it, saved)}"
-        } + "\nSay 'review improvement proposal for correction handling' using a listed scenario, or dismiss improvement proposal for that scenario. Dismissal retains the original evidence. No patch, pull request or deployment is performed by these controls."
+            "Proposal ${it.number}, ${it.source.scenario.label}: ${it.status.name.lowercase(Locale.ROOT)}, reported ${it.source.outcome.name.lowercase(Locale.ROOT)} on ${it.source.buildName}. ${sourceStatus(it, saved)}"
+        } + "\nSay 'review improvement proposal 1', 'share improvement proposal 1' or 'dismiss improvement proposal 1' using a listed number, including earlier briefs. Scenario controls still select the latest brief. To capture newer evidence separately, use 'refresh improvement proposal for correction handling' with a checked scenario. Dismissal retains the original evidence. No patch, pull request or deployment is performed by these controls."
     }
 
     private fun sourceStatus(proposal: Proposal, saved: Snapshot): String {
@@ -230,8 +248,9 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
         val scenario = sample.scenario
         return """
             Developer change brief: ${scenario.label}
+            Proposal ${proposal.number}; saved evidence and current report context are shown separately below.
             Local reference: evaluation-${sample.build}-${scenario.name.lowercase(Locale.ROOT)}-${sample.time}-${sample.outcome.name.lowercase(Locale.ROOT)}; dataset revision $DATASET_VERSION.
-            Saved status: ${proposal.status.name.lowercase(Locale.ROOT)}. ${sourceStatus(proposal, saved)}
+            Saved status: ${proposal.status.name.lowercase(Locale.ROOT)}. Current report context: ${sourceStatus(proposal, saved)}
             Evidence: owner reported ${sample.outcome.name.lowercase(Locale.ROOT)} on ${sample.buildName}. This is not device verification or an established root cause.
             Synthetic reproduction: ${scenario.fixture}
             Expected behavior: ${scenario.expected}
@@ -240,14 +259,55 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
             Evaluation: rerun this case and the unchanged positive fixtures, compare explicitly recorded baseline/current results, and keep regressions or unclear outcomes visible.
             Review and delivery: prepare a focused patch and PR, run the full unit/build and optimized Android checks, independently verify production signing and upgrade compatibility, then publish only after required review and verification. Keep the preceding signed APK available for recovery; do not promise a downgrade will be accepted by Android.
             Status: saved locally for human/developer review; dismissal does not erase evidence. No patch, test run, pull request, external message or deployment was performed by this command. This app currently has no configured GitHub write integration; its updater read token is not used for development writes.
-        """.trimIndent()
+        """.trimIndent() + "\n\n" + renderEvidence(proposal)
+    }
+
+    private fun renderEvidence(proposal: Proposal): String {
+        val evidence = proposal.evidence ?: return "Legacy brief: no local checks or baselines were captured at preparation. Current results are not retroactively attached. Review or run checks explicitly, then refresh the proposal to save a separate brief with that evidence."
+        val baseline = evidence.ownerBaseline
+        return "Frozen evidence at preparation; later runs, corrections or baseline changes do not replace it.\n" +
+            (if (baseline == null) "No matching owner-reported baseline was saved at preparation.\n"
+            else "Owner-reported baseline: ${baseline.outcome.name.lowercase(Locale.ROOT)} on ${baseline.buildName}; source report: ${proposal.source.outcome.name.lowercase(Locale.ROOT)} on ${proposal.source.buildName}. Owner reports do not verify a code fix.\n") +
+            "Separate local-check snapshot saved with this proposal (not owner-reported experience or phone verification):\n" +
+            (evidence.localRun?.let { renderLocal(it, relativeToCurrent = false) +
+                if (it.build != proposal.source.build) "\nThis check run belongs to a different build than the source report; it does not verify that report's build." else "" }
+                ?: "No local foundation check results were saved when this proposal was prepared.") +
+            "\nSaved local-check baseline at preparation:\n" +
+            (evidence.localBaseline?.let { renderLocal(it, relativeToCurrent = false) } ?: "No local-check baseline was saved at preparation.") +
+            "\n" + (if (evidence.localRun != null && evidence.localBaseline != null) compareRuns(evidence.localBaseline, evidence.localRun)
+                else "No paired local-check comparison was captured; missing checks remain unknown.") +
+            "\nPassing local checks do not resolve an owner-reported failure. To capture newer evidence without replacing this brief, use 'refresh improvement proposal for ${proposal.source.scenario.label}'. No checks run automatically."
+    }
+
+    private fun decodeRun(item: JSONObject): LocalFoundationChecks.Run {
+        val results = item.getJSONArray("results")
+        val revision = item.getInt("revision")
+        val expectedCases = if (revision == 1) setOf(LocalFoundationChecks.Case.CORRECTIONS, LocalFoundationChecks.Case.APPROVAL,
+            LocalFoundationChecks.Case.RECOVERY, LocalFoundationChecks.Case.RETRIES, LocalFoundationChecks.Case.HISTORY)
+            else if (revision == 2) LocalFoundationChecks.Case.values().filter { it != LocalFoundationChecks.Case.COMPOSITION }.toSet()
+            else LocalFoundationChecks.Case.values().toSet()
+        require(results.length() == expectedCases.size)
+        return LocalFoundationChecks.Run(item.getInt("build"), item.getString("buildName"), item.getLong("time"), revision,
+            (0 until results.length()).map { index -> results.getJSONObject(index).let { result ->
+                LocalFoundationChecks.Result(LocalFoundationChecks.Case.valueOf(result.getString("case")), LocalFoundationChecks.Outcome.valueOf(result.getString("outcome")))
+            } }).also {
+            require(it.build > 0 && it.buildName.length in 1..40 && it.time >= 0 && it.revision > 0)
+            require(it.results.map { result -> result.case }.toSet() == expectedCases)
+        }
+    }
+    private fun encodeRun(run: LocalFoundationChecks.Run): JSONObject {
+        val results = JSONArray().also { output -> run.results.forEach { result ->
+            output.put(JSONObject().put("case", result.case.name).put("outcome", result.outcome.name))
+        } }
+        return JSONObject().put("build", run.build).put("buildName", run.buildName).put("time", run.time)
+            .put("revision", run.revision).put("results", results)
     }
 
     private fun decode(raw: String?): Snapshot {
         if (raw == null) return Snapshot(false, emptyList(), emptyList())
         val json = JSONObject(raw)
         val version = json.getInt("version")
-        require(version in 1..3 && json.getInt("dataset") == DATASET_VERSION)
+        require(version in 1..4 && json.getInt("dataset") == DATASET_VERSION)
         fun sample(item: JSONObject) = Sample(Scenario.valueOf(item.getString("scenario")), Outcome.valueOf(item.getString("outcome")),
             item.getInt("build"), item.getString("buildName"), item.getLong("time")).also {
             require(it.build > 0 && it.buildName.length in 1..40 && it.time >= 0)
@@ -259,51 +319,55 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
             require(result.distinctBy { it.build to it.scenario }.size == result.size)
             return result
         }
+        fun run(item: JSONObject, key: String) = if (item.has(key)) decodeRun(item.getJSONObject(key)) else null
         val proposals = if (version == 1) emptyList() else json.getJSONArray("proposals").let { rows ->
             require(rows.length() <= MAX_PROPOSALS)
             (0 until rows.length()).map { index -> rows.getJSONObject(index).let { item ->
-                Proposal(sample(item.getJSONObject("source")), item.getLong("preparedAt"), ProposalStatus.valueOf(item.getString("status"))).also {
-                    require(it.preparedAt >= 0 && it.source.outcome != Outcome.PASSED)
+                val source = sample(item.getJSONObject("source"))
+                if (version >= 4) require(item.has("evidence") != (item.opt("legacyEvidence") == true))
+                val evidence = if (version < 4 || !item.has("evidence")) null else item.getJSONObject("evidence").let {
+                    Evidence(if (it.has("ownerBaseline")) sample(it.getJSONObject("ownerBaseline")) else null,
+                        run(it, "localRun"), run(it, "localBaseline"))
                 }
-            } }.also { require(it.distinctBy { proposal -> proposal.source }.size == it.size) }
-        }
-        fun localRun(key: String): LocalFoundationChecks.Run? = if (version < 3 || !json.has(key)) null else json.getJSONObject(key).let { item ->
-            val results = item.getJSONArray("results")
-            val revision = item.getInt("revision")
-            val expectedCases = if (revision == 1) setOf(LocalFoundationChecks.Case.CORRECTIONS, LocalFoundationChecks.Case.APPROVAL,
-                LocalFoundationChecks.Case.RECOVERY, LocalFoundationChecks.Case.RETRIES, LocalFoundationChecks.Case.HISTORY)
-                else if (revision == 2) LocalFoundationChecks.Case.values().filter { it != LocalFoundationChecks.Case.COMPOSITION }.toSet()
-                else LocalFoundationChecks.Case.values().toSet()
-            require(results.length() == expectedCases.size)
-            LocalFoundationChecks.Run(item.getInt("build"), item.getString("buildName"), item.getLong("time"), item.getInt("revision"),
-                (0 until results.length()).map { index -> results.getJSONObject(index).let { result ->
-                    LocalFoundationChecks.Result(LocalFoundationChecks.Case.valueOf(result.getString("case")), LocalFoundationChecks.Outcome.valueOf(result.getString("outcome")))
-                } }).also {
-                require(it.build > 0 && it.buildName.length in 1..40 && it.time >= 0 && it.revision > 0)
-                require(it.results.map { result -> result.case }.toSet() == expectedCases)
+                Proposal(source, item.getLong("preparedAt"), ProposalStatus.valueOf(item.getString("status")),
+                    if (version < 4) index + 1 else item.getInt("number"), evidence).also {
+                    require(it.preparedAt >= 0 && it.source.outcome != Outcome.PASSED && it.number > 0)
+                    if (evidence != null) {
+                        require(evidence.ownerBaseline == null || evidence.ownerBaseline.scenario == source.scenario)
+                        require(listOfNotNull(source.time, evidence.ownerBaseline?.time, evidence.localRun?.time, evidence.localBaseline?.time).all { time -> time <= it.preparedAt })
+                    }
+                }
+            } }.also {
+                require(it.distinctBy { proposal -> proposal.source to proposal.evidence }.size == it.size)
+                require(it.zipWithNext().all { (a, b) -> a.number < b.number })
             }
         }
+        val next = if (version < 4) proposals.size + 1 else json.getInt("nextProposal")
+        require(next > 0 && proposals.all { it.number < next })
         return Snapshot(json.getBoolean("enabled"), samples("samples", MAX_SAMPLES), samples("baseline", Scenario.values().size), proposals,
-            localRun("localRun"), localRun("localBaseline"))
+            if (version < 3) null else run(json, "localRun"), if (version < 3) null else run(json, "localBaseline"), next)
     }
     private fun encode(saved: Snapshot): String {
         fun row(sample: Sample) = JSONObject().put("scenario", sample.scenario.name).put("outcome", sample.outcome.name)
             .put("build", sample.build).put("buildName", sample.buildName).put("time", sample.time)
-        fun rows(samples: List<Sample>) = JSONArray().also { output -> samples.forEach {
-            output.put(row(it))
+        fun rows(samples: List<Sample>) = JSONArray().also { output -> samples.forEach { output.put(row(it)) } }
+        val proposals = JSONArray().also { output -> saved.proposals.forEach { proposal ->
+            output.put(JSONObject().put("source", row(proposal.source)).put("preparedAt", proposal.preparedAt)
+                .put("status", proposal.status.name).put("number", proposal.number).also { item ->
+                    proposal.evidence?.let { evidence ->
+                        item.put("evidence", JSONObject().also {
+                            evidence.ownerBaseline?.let { baseline -> it.put("ownerBaseline", row(baseline)) }
+                            evidence.localRun?.let { run -> it.put("localRun", encodeRun(run)) }
+                            evidence.localBaseline?.let { run -> it.put("localBaseline", encodeRun(run)) }
+                        })
+                    } ?: item.put("legacyEvidence", true)
+                })
         } }
-        val proposals = JSONArray().also { output -> saved.proposals.forEach {
-            output.put(JSONObject().put("source", row(it.source)).put("preparedAt", it.preparedAt).put("status", it.status.name))
-        } }
-        val json = JSONObject().put("version", 3).put("dataset", DATASET_VERSION).put("enabled", saved.enabled)
+        val json = JSONObject().put("version", 4).put("dataset", DATASET_VERSION).put("enabled", saved.enabled)
             .put("samples", rows(saved.samples)).put("baseline", rows(saved.baseline)).put("proposals", proposals)
-        fun putRun(key: String, run: LocalFoundationChecks.Run?) { run?.let {
-            val results = JSONArray().also { output -> run.results.forEach { result ->
-                output.put(JSONObject().put("case", result.case.name).put("outcome", result.outcome.name))
-            } }
-            json.put(key, JSONObject().put("build", it.build).put("buildName", it.buildName).put("time", it.time).put("revision", it.revision).put("results", results))
-        } }
-        putRun("localRun", saved.localRun); putRun("localBaseline", saved.localBaseline)
+            .put("nextProposal", saved.nextProposal)
+        saved.localRun?.let { json.put("localRun", encodeRun(it)) }
+        saved.localBaseline?.let { json.put("localBaseline", encodeRun(it)) }
         return json.toString()
     }
 
@@ -332,19 +396,32 @@ class ImprovementEvaluation(private val file: PersonalStateFile, private val bui
                 else -> null
             }
             if (action != null) return Command(action)
+            Regex("^(review|share|dismiss) improvement proposal (?:number )?(.+)$").matchEntire(value)?.takeUnless {
+                it.groupValues[2].startsWith("for ")
+            }?.let {
+                val spoken = it.groupValues[2].replace('-', ' ')
+                val number = (if (Regex("[0-9]{1,10}").matches(spoken)) spoken.toIntOrNull()
+                    else if (spoken !in setOf("a", "an")) SpokenTimerDuration.number(spoken) else null)?.takeIf { n -> n > 0 } ?: return null
+                val proposalAction = when (it.groupValues[1]) {
+                    "review" -> Action.REVIEW_PROPOSAL
+                    "share" -> Action.SHARE_PROPOSAL
+                    else -> Action.DISMISS_PROPOSAL
+                }
+                return Command(proposalAction, number = number)
+            }
             val record = Regex("^record improvement feedback for (.+) as (passed|failed|unclear)$").matchEntire(value)
             if (record != null) {
                 val scenario = Scenario.values().firstOrNull { it.label == record.groupValues[1] } ?: return null
                 return Command(Action.RECORD, scenario, Outcome.valueOf(record.groupValues[2].uppercase(Locale.ROOT)))
             }
-            for ((prefix, proposalAction) in listOf("prepare" to Action.PROPOSAL, "review" to Action.REVIEW_PROPOSAL, "dismiss" to Action.DISMISS_PROPOSAL, "share" to Action.SHARE_PROPOSAL)) {
+            for ((prefix, proposalAction) in listOf("prepare" to Action.PROPOSAL, "refresh" to Action.REFRESH_PROPOSAL, "review" to Action.REVIEW_PROPOSAL, "dismiss" to Action.DISMISS_PROPOSAL, "share" to Action.SHARE_PROPOSAL)) {
                 val proposal = value.removePrefix("$prefix improvement proposal for ")
                 if (proposal != value) Scenario.values().firstOrNull { it.label == proposal }?.let { return Command(proposalAction, it) }
             }
             return null
         }
         fun isManagementInput(text: String): Boolean = command(text) != null || normalize(text).startsWith("record improvement feedback ") ||
-            listOf("prepare", "review", "dismiss", "clear", "share").any { normalize(text).startsWith("$it improvement proposal") } ||
+            listOf("prepare", "refresh", "review", "dismiss", "clear", "share").any { normalize(text).startsWith("$it improvement proposal") } ||
             Regex("^(?:run|review|clear|compare) local foundation checks\\b|^save local check baseline\\b").containsMatchIn(normalize(text))
     }
 }

@@ -223,8 +223,8 @@ class HybridAssistantService(
                     "Use an exact evaluation control: 'review improvement evaluation' for manual scenarios, or 'run local foundation checks' for isolated logic checks. Nothing was changed."
                     else runCatching {
                         if (command.action == ImprovementEvaluation.Action.SHARE_PROPOSAL) {
-                            val text = improvementEvaluation!!.handoff(command.scenario!!)
-                            if (text == null) "Prepare an active improvement proposal for that scenario before sharing. No handoff was opened."
+                            val text = improvementEvaluation!!.handoff(command)
+                            if (text == null) "Review improvement proposals and choose an active saved brief before sharing. No handoff was opened."
                             else if (androidAssistant.reviewTextHandoff("Jarvis improvement brief", text))
                                 "Requested Android's share chooser for the saved improvement brief. Review its evidence and choose a destination there; no submission, pull request or deployment is verified."
                             else "Android's share chooser could not be opened. Review the saved improvement proposal and copy its brief for a developer handoff."

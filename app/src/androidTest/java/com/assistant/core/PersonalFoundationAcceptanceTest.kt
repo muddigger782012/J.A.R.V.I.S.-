@@ -685,6 +685,61 @@ class PersonalFoundationAcceptanceTest {
         assertEquals(0, executions); assertEquals(0, context.activityRequests)
     }
 
+    @Test fun savedImprovementChecksRemainReviewableAndShareableAfterCurrentChecksAreCleared() {
+        val service = assistant()
+        service.handleUserInput("enable improvement evaluation")
+        service.handleUserInput("record improvement feedback for routine recovery as failed")
+        service.handleUserInput("run local foundation checks")
+        service.handleUserInput("save local check baseline")
+        service.handleUserInput("prepare improvement proposal for routine recovery")
+        val frozen = ImprovementEvaluation(context).snapshot().proposals.single()
+        service.handleUserInput("clear local foundation checks")
+        val restored = assistant()
+        assertNull(ImprovementEvaluation(context).snapshot().localRun)
+        val reviewed = restored.handleUserInput("review improvement proposal number one").text
+        assertTrue(reviewed.contains("counter dispatchers"))
+        assertTrue(reviewed.contains("passed -> passed; unchanged"))
+        context.allowActivityRequests = true
+        assertTrue(restored.handleUserInput("share improvement proposal 1").text.contains("Requested Android's share chooser"))
+        @Suppress("DEPRECATION") val share = context.lastActivityIntent!!.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)!!
+        assertEquals(Intent.ACTION_SEND, share.action)
+        assertNull(share.component); assertNull(share.`package`)
+        assertTrue(share.getStringExtra(Intent.EXTRA_TEXT)!!.contains(reviewed))
+        assertEquals(frozen, ImprovementEvaluation(context).snapshot().proposals.single())
+        restored.handleUserInput("refresh improvement proposal for routine recovery")
+        val updated = ImprovementEvaluation(context).snapshot().proposals
+        assertEquals(listOf(1, 2), updated.map { it.number })
+        assertEquals(frozen, updated.first())
+        assertNull(updated.last().evidence!!.localRun)
+        restored.handleUserInput("dismiss improvement proposal 1")
+        assertTrue(restored.handleUserInput("share improvement proposal 1").text.contains("No handoff was opened"))
+        assertEquals(1, context.activityRequests)
+        assertFalse(WorkflowDiagnostics(context).snapshot().enabled)
+        assertTrue(restored.getConversationSnapshot().isEmpty())
+        assertEquals(0, executions)
+    }
+
+    @Test fun proposalArchiveNumbersAndMalformedRefreshStaySafeAcrossActualServiceReconstruction() {
+        val service = assistant()
+        service.handleUserInput("enable improvement evaluation")
+        service.handleUserInput("record improvement feedback for research follow-up as failed")
+        service.handleUserInput("prepare improvement proposal for research follow-up")
+        service.handleUserInput("clear improvement proposals")
+        service.handleUserInput("prepare improvement proposal for research follow-up")
+        assertEquals(2, ImprovementEvaluation(context).snapshot().proposals.single().number)
+        val restored = assistant()
+        assertTrue(restored.handleUserInput("review improvement proposal 1").text.contains("No matching"))
+        assertTrue(restored.handleUserInput("share improvement proposal 1").text.contains("No handoff was opened"))
+        val before = ImprovementEvaluation(context).snapshot()
+        var invalid: HybridAssistantReply? = null
+        restored.handleUserInputAsync("refresh improvement proposal for research follow-up then search the service manual") { invalid = it }
+        assertNotNull(invalid); assertFalse(invalid!!.needsInterpretation)
+        assertEquals(before, ImprovementEvaluation(context).snapshot())
+        assertTrue(restored.handleUserInput("review improvement proposals").text.contains("Proposal 2"))
+        assertEquals(0, context.activityRequests); assertEquals(0, executions)
+        assertTrue(restored.getConversationSnapshot().isEmpty())
+    }
+
     private fun assistant(researchFetch: ((String) -> SearchRouter.Response)? = null): HybridAssistantService {
         val capabilities = CapabilityState(true, false, false, false, false, false, false)
         val registry = ActionRegistry()
