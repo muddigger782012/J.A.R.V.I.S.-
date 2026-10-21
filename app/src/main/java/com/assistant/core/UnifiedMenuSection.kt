@@ -80,6 +80,13 @@ object UnifiedMenuSection {
                 context, title, detail, R.drawable.ic_composer_tools
             ) { if (button.isEnabled) button.performClick() }
             row.isEnabled = button.isEnabled
+            // Keep the visible action synchronized with runtime capability changes.
+            row.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (row.isEnabled != button.isEnabled) row.isEnabled = button.isEnabled
+                    return true
+                }
+            })
             parent.removeViewAt(index)
             val wrapper = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
@@ -88,6 +95,7 @@ object UnifiedMenuSection {
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ))
                 button.visibility = View.GONE
+                button.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 addView(button, LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 0
                 ))
