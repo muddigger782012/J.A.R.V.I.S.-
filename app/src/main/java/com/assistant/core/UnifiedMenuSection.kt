@@ -6,6 +6,8 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.view.ViewGroup
 import android.view.accessibility.AccessibilityEvent
+import android.graphics.drawable.GradientDrawable
+import androidx.core.graphics.ColorUtils
 
 /**
  * Settings-style expandable section that hosts existing views and listeners.
@@ -79,7 +81,21 @@ object UnifiedMenuSection {
         header.isSelected = initiallyExpanded
         header.contentDescription = "$title. $detail. " +
             if (initiallyExpanded) "Expanded. Double tap to collapse." else "Collapsed. Double tap to expand."
+        // A restrained, theme-colored HUD accent, not a border around every control.
+        val accent = View(context).apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(
+                    ColorUtils.setAlphaComponent(SettingsMenuViews.color(context, R.attr.jarvis_primary), 115),
+                    ColorUtils.setAlphaComponent(SettingsMenuViews.color(context, R.attr.jarvis_primary), 0)
+                )
+            )
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
         section.addView(header)
+        section.addView(accent, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, SettingsMenuViews.dp(context, 1)
+        ))
         section.addView(content)
         return section
     }
