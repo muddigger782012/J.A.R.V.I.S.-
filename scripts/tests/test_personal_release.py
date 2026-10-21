@@ -194,6 +194,26 @@ class PersonalReleaseTests(unittest.TestCase):
             process.return_value.returncode = 0
             self.assertEqual(2, len(release.gate_checks('owner/repo', 'b' * 40, 0)))
 
+    def test_unpublished_draft_is_verified_by_release_record_without_a_tag_lookup(self):
+        draft = {'tag_name': 'jarvis-3.5.496', 'prerelease': False, 'draft': True, 'assets': []}
+        with patch.object(release, 'command', return_value=json.dumps(
+                {'apiUrl': 'https://api.github.com/repos/owner/repo/releases/42'})), \
+                patch.object(release, 'api', return_value=draft) as api:
+            self.assertEqual(draft, release.release_metadata('owner/repo', 'jarvis-3.5.496'))
+            api.assert_called_once_with('owner/repo', 'releases/42')
+
+    def test_draft_lookup_rejects_another_repo_tag_or_prerelease(self):
+        for url, result in [
+            ('https://api.github.com/repos/other/repo/releases/42', {}),
+            ('https://api.github.com/repos/owner/repo/releases/tags/jarvis-3.5.496', {}),
+            ('https://api.github.com/repos/owner/repo/releases/42', {'tag_name': 'other', 'prerelease': False}),
+            ('https://api.github.com/repos/owner/repo/releases/42', {'tag_name': 'jarvis-3.5.496', 'prerelease': True})
+        ]:
+            with self.subTest(url=url, result=result), \
+                    patch.object(release, 'command', return_value=json.dumps({'apiUrl': url})), \
+                    patch.object(release, 'api', return_value=result), self.assertRaises(ValueError):
+                release.release_metadata('owner/repo', 'jarvis-3.5.496')
+
 
 if __name__ == '__main__':
     unittest.main()
