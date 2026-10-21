@@ -333,6 +333,30 @@ class MainActivity : ThemedActivity() {
         UnifiedMenuSection.install(findViewById(R.id.tabAuditSection), "Activity log", "Events and history", R.drawable.ic_composer_tools)
         UnifiedMenuSection.install(findViewById(R.id.tabPermissionsSection), "Permissions", "Access and authorization", R.drawable.ic_tools_settings)
         UnifiedMenuSection.install(findViewById(R.id.tabDhizukuSection), "Device administration", "Delegated access and controls", R.drawable.ic_tools_settings)
+        // Subsections reuse existing controls, IDs, and listeners without changing behavior.
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabStatusSection),
+            listOf(
+                Triple(R.id.btnShowStatus, "Capability status", "Inspect system capabilities"),
+                Triple(R.id.btnAutoUpgradeApp, "App updates", "Check and install a newer build")
+            ), R.drawable.ic_jarvis_core
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabTerminalSection),
+            listOf(
+                Triple(R.id.etTerminalCommand, "Command controls", "Run and manage commands"),
+                Triple(R.id.tvTerminalOutput, "Command output", "Review terminal results"),
+                Triple(R.id.tvTerminalHistory, "History", "Previous terminal activity")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabPermissionsSection),
+            listOf(
+                Triple(R.id.btnRequestAllRuntimePermissions, "Permission requests", "Grant required access"),
+                Triple(R.id.btnOpenOverlayPermission, "Special permissions", "Configure Android access"),
+                Triple(R.id.tvSpecialPermissionsStatus, "Permission status", "Review granted permissions")
+            ), R.drawable.ic_tools_settings
+        )
 
         initViews()
         com.assistant.core.services.PersonalReminderRuntime.restoreAsync(applicationContext)
