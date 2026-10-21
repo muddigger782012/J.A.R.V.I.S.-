@@ -37,6 +37,7 @@ class MainActivity : Activity() {
         section("NETWORK STATUS")
         status = label("NOT TESTED", 24, pale, true)
         label("Connection health and service diagnostics", 13, pale)
+        root.addView(NetworkHudView(this), LinearLayout.LayoutParams(-1, -2))
         section("SERVICE STATUS")
         listOf("INTERNET", "WEB SEARCH", "GEMINI AI", "AI FALLBACK", "GITHUB UPDATES", "LOCAL AI").chunked(2).forEach { pair ->
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
