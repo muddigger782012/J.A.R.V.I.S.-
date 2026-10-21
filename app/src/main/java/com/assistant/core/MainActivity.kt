@@ -317,6 +317,80 @@ class MainActivity : ThemedActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        // Apply the contrast increase only to the seven green-bordered content panels.
+        UnifiedContentPanel.apply(findViewById(R.id.tabProjectSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabShizukuSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabStatusSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabTerminalSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabAuditSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabPermissionsSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabDhizukuSection))
+        // Preserve the original screen controls and handlers inside Settings-style sections.
+        UnifiedMenuSection.install(findViewById(R.id.tabProjectSection), "Projects", "Project actions and files", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabShizukuSection), "Device tools", "Shizuku access and diagnostics", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabStatusSection), "System", "Status and updates", R.drawable.ic_jarvis_core)
+        UnifiedMenuSection.install(findViewById(R.id.tabTerminalSection), "Terminal", "Commands and output", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabAuditSection), "Activity log", "Events and history", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabPermissionsSection), "Permissions", "Access and authorization", R.drawable.ic_tools_settings)
+        UnifiedMenuSection.install(findViewById(R.id.tabDhizukuSection), "Device administration", "Delegated access and controls", R.drawable.ic_tools_settings)
+        // Subsections reuse existing controls, IDs, and listeners without changing behavior.
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabStatusSection),
+            listOf(
+                Triple(R.id.btnShowStatus, "Capability status", "Inspect system capabilities"),
+                Triple(R.id.btnAutoUpgradeApp, "App updates", "Check and install a newer build")
+            ), R.drawable.ic_jarvis_core
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabTerminalSection),
+            listOf(
+                Triple(R.id.etTerminalCommand, "Command controls", "Run and manage commands"),
+                Triple(R.id.tvTerminalOutput, "Command output", "Review terminal results"),
+                Triple(R.id.tvTerminalHistory, "History", "Previous terminal activity")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabShizukuSection),
+            listOf(
+                Triple(R.id.tvShizukuRuntimeStatus, "Connection status", "Shizuku runtime and authorization"),
+                Triple(R.id.btnRefreshShizukuStatus, "Connection controls", "Refresh, launch and authorize"),
+                Triple(R.id.etShizukuCommand, "Command execution", "Run supported Shizuku commands")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabAuditSection),
+            listOf(
+                Triple(R.id.etAuditLimit, "Log filters", "Limit and filter activity records"),
+                Triple(R.id.btnAuditRefresh, "Log actions", "Refresh, copy and clear the view"),
+                Triple(R.id.tvAuditDebugOutput, "Activity output", "Inspect recorded events")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabDhizukuSection),
+            listOf(
+                Triple(R.id.btnRefreshPrivileges, "Delegated access", "Inspect and request administrator scopes"),
+                Triple(R.id.switchCameraDisabled, "Device policies", "Manage camera, capture and application restrictions"),
+                Triple(R.id.etLockScreenMessage, "Security actions", "Lock-screen message, package policy and device actions")
+            ), R.drawable.ic_tools_settings
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabPermissionsSection),
+            listOf(
+                Triple(R.id.btnRequestAllRuntimePermissions, "Permission requests", "Grant required access"),
+                Triple(R.id.btnOpenOverlayPermission, "Special permissions", "Configure Android access"),
+                Triple(R.id.tvSpecialPermissionsStatus, "Permission status", "Review granted permissions")
+            ), R.drawable.ic_tools_settings
+        )
+
+        // Compact utility-page buttons only; leave the chat toolbar and header unchanged.
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabProjectSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabShizukuSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabStatusSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabTerminalSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabAuditSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabPermissionsSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabDhizukuSection))
+
 
         initViews()
         com.assistant.core.services.PersonalReminderRuntime.restoreAsync(applicationContext)
