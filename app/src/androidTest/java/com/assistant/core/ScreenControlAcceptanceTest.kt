@@ -208,8 +208,13 @@ class ScreenControlAcceptanceTest {
             assertEquals(setOf("Work", "Personal"), accounts.map { it.contextLabel }.toSet())
             assertFalse(snapshot.controls.single { it.label == "Unavailable" }.enabled)
             assertFalse(snapshot.appLabel.isBlank())
+            remote("screen task tap button named Account under Work and verify Work account page")
+            remote("approve screen task")
+            val delayedConfirmation = ScreenAccessClient(context).prepare("confirm screen step one")
             remote("screen task tap button named Account under Personal and verify Personal account page")
             assertTrue(remote("approve screen task").contains("under Personal"))
+            assertTrue(ScreenAccessClient(context).reply(delayedConfirmation).contains("review changed"))
+            scenario.onActivity { assertEquals(0, it.taskTapCount) }
             val manager = context.getSystemService(android.app.NotificationManager::class.java)
             waitUntil { manager.activeNotifications.any { it.id == ScreenTaskNotifications.ID } }
             val notification = manager.activeNotifications.single { it.id == ScreenTaskNotifications.ID }.notification

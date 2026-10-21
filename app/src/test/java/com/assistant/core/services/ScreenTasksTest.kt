@@ -159,4 +159,39 @@ class ScreenTasksTest {
         assertTrue(session.reply("screen task outcome Downloads page").contains("approve screen task"))
         assertEquals(0, phone.actions)
     }
+    @Test fun aDelayedConfirmationCannotApproveAnotherTargetOnTheSameUnchangedScreen() {
+        val phone = Phone(); phone.value = phone.value.copy(controls = listOf(button("0/1", "Menu"), button("0/2", "Alternate")))
+        val session = ScreenSession(phone)
+        session.reply("screen task tap Menu and verify Menu page"); session.reply("approve screen task")
+        val delayed = session.pendingToken!!
+        session.reply("screen task tap Alternate and verify Menu page"); session.reply("approve screen task")
+        val current = session.pendingToken!!
+        assertNotEquals(delayed, current)
+        assertTrue(session.replyApproved("confirm screen step one", delayed).contains("review changed"))
+        assertEquals(0, phone.actions); assertEquals(current, session.pendingToken)
+        session.replyApproved("confirm screen step one", current)
+        assertEquals(1, phone.actions); assertEquals("0/2", phone.lastPath)
+        session.replyApproved("confirm screen step one", current); assertEquals(1, phone.actions)
+    }
+    @Test fun delayedObservationCannotReadOrChangeANewerTask() {
+        val phone = Phone(); val session = ScreenSession(phone)
+        start(session); session.reply("approve screen task"); session.reply("confirm screen step one")
+        val oldTask = session.taskKey!!
+        session.reply("screen task tap Downloads and verify Downloads page")
+        val reads = phone.reads
+        assertTrue(session.replyInTask("continue screen task", oldTask).contains("task changed"))
+        assertEquals(reads, phone.reads); assertEquals(1, phone.actions)
+        assertNotEquals(oldTask, session.taskKey)
+    }
+    @Test fun aNewTaskAfterCompletionStartsAtItsFirstUnattemptedStep() {
+        val phone = Phone(); val session = ScreenSession(phone)
+        start(session); session.reply("approve screen task"); session.reply("confirm screen step one")
+        session.reply("continue screen task"); session.reply("confirm screen step two"); session.reply("continue screen task")
+        assertEquals(2, phone.actions); assertFalse(session.active)
+        phone.value = phone.value.copy(key = "another start", controls = listOf(button("0/1", "Menu")))
+        session.reply("screen task tap Menu and verify Downloads page")
+        assertTrue(session.reply("approve screen task").contains("Step 1 of 1"))
+        session.reply("confirm screen step one"); assertEquals(3, phone.actions)
+        assertTrue(session.reply("continue screen task").contains("Verified"))
+    }
 }

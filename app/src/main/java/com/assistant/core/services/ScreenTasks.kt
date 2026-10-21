@@ -72,11 +72,15 @@ class ScreenTasks(private val platform: ScreenControls.Platform, private val now
     private var approved = false
     @Volatile var phase = Phase.NONE; private set
     @Volatile private var focused = false
+    @Volatile var taskKey: String? = null; private set
     val active get() = phase !in setOf(Phase.NONE, Phase.COMPLETE, Phase.UNCERTAIN) && now() - created in 0..300_000
     val contextual get() = active && focused
-    val awaitingInput get() = contextual && phase in setOf(Phase.OUTCOME, Phase.REVIEW, Phase.TARGET, Phase.CONFIRM, Phase.PAUSED)
+    val pendingToken get() = if (active && phase == Phase.CONFIRM) taps.pendingToken else null
+    val awaitingInput get() = contextual && phase in setOf(Phase.OUTCOME, Phase.REVIEW, Phase.TARGET, Phase.CONFIRM, Phase.OBSERVE, Phase.PAUSED)
+    val currentStep get() = index + 1
     @Synchronized fun discard() {
-        taps.discard(); steps = emptyList(); expected = ""; app = ""; beforeKey = null; choices = emptyList(); approved = false; focused = false; phase = Phase.NONE
+        taps.discard(); steps = emptyList(); expected = ""; app = ""; beforeKey = null; choices = emptyList()
+        index = 0; choiceKey = ""; choiceCreated = 0L; approved = false; focused = false; taskKey = null; phase = Phase.NONE
     }
     @Synchronized fun pause() {
         if (expire()) return
@@ -94,6 +98,7 @@ class ScreenTasks(private val platform: ScreenControls.Platform, private val now
         return try { when (request.kind) {
             ScreenTaskCommands.Kind.START -> {
                 discard(); steps = request.steps; expected = request.text; created = now(); focused = true
+                taskKey = java.util.UUID.randomUUID().toString()
                 if (steps.isEmpty()) return ScreenTaskCommands.help()
                 phase = if (expected.isBlank()) Phase.OUTCOME else Phase.REVIEW
                 if (phase == Phase.OUTCOME) "What exact visible text should I check after the final tap? Say 'screen task outcome' followed by that text. Nothing has run."
@@ -142,7 +147,7 @@ class ScreenTasks(private val platform: ScreenControls.Platform, private val now
     private fun snapshot(): ScreenControls.Snapshot {
         if (!platform.connected()) throw Boundary(ScreenControls.setup() + " Your task is paused; return to the intended app and continue after access is available.")
         val value = platform.snapshot()
-        if (value.blocked) throw Boundary("This screen is protected or is not a supported app window. Use Android's own controls for that part, then return to an unlocked app and continue. No task tap was attempted.")
+        if (value.blocked) throw Boundary("This screen is protected or is not a supported app window. Use Android's own controls for that part, then return to an unlocked app and continue. No additional tap was attempted.")
         if (app.isBlank()) app = value.packageName
         if (value.packageName != app) throw Boundary("The active app changed. Return to the app reviewed for this task and continue, or cancel and review a new task. No tap was attempted in the other app.")
         return value
@@ -233,7 +238,7 @@ class ScreenTasks(private val platform: ScreenControls.Platform, private val now
         Phase.CONFIRM -> "Step ${index + 1} awaits 'confirm screen step ${ScreenTaskCommands.stepWord(index + 1)}'. Say 'continue screen task' to refresh its target first."
         Phase.TARGET, Phase.PAUSED -> "Screen task paused at step ${index + 1}. Say 'continue screen task' to inspect a fresh target, or 'cancel screen task'."
         Phase.OBSERVE -> "Step ${index + 1} was requested; its result still needs inspection. Say 'continue screen task'. No later tap is approved yet."
-        Phase.COMPLETE -> "The requested visible text was verified. No further screen actions are queued."
+        Phase.COMPLETE -> "Verified the requested visible screen text. No further screen actions are queued."
         Phase.UNCERTAIN -> "The previous step's outcome is uncertain. Check the app before starting a new task; no automatic retry is allowed."
     }
 }
@@ -245,8 +250,25 @@ class ScreenSession(platform: ScreenControls.Platform, now: () -> Long = System:
     val active get() = tasks.active
     val contextual get() = tasks.contextual
     val awaitingInput get() = tasks.awaitingInput
+    val taskKey get() = tasks.taskKey
+    val observing get() = tasks.phase == ScreenTasks.Phase.OBSERVE
+    val confirming get() = tasks.phase == ScreenTasks.Phase.CONFIRM
+    val currentStep get() = tasks.currentStep
+    val pendingToken: String? get() = if (tasks.active) tasks.pendingToken?.let { "task:$it" }
+        else direct.pendingToken?.let { "direct:$it" }
     fun discard() { direct.discard(); tasks.discard() }
     fun pause() { direct.discard(); tasks.pause() }
+    fun replyApproved(text: String, expectedToken: String): String {
+        val current = pendingToken ?: return "No current screen tap review is available. Request the target again, or say 'continue screen task' to refresh a task. Nothing was tapped."
+        if (expectedToken.isBlank() || expectedToken != current)
+            return "The screen review changed after this confirmation was prepared. Review the current target before confirming again; nothing was tapped."
+        return reply(text)
+    }
+    fun replyInTask(text: String, expectedTask: String): String {
+        if (expectedTask.isBlank() || expectedTask != tasks.taskKey)
+            return "The screen task changed before its result could be checked. Review the current task; no tap was repeated."
+        return reply(text)
+    }
     fun reply(text: String): String {
         ScreenTaskCommands.parse(text, tasks.contextual)?.let { direct.discard(); return tasks.reply(it) }
         val command = ScreenControls.parse(text) ?: return "No supported screen request was recognized."

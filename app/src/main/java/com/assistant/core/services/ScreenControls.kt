@@ -21,9 +21,11 @@ class ScreenControls(private val platform: Platform, private val now: () -> Long
         fun perform(snapshot: Snapshot, control: Control, scroll: Kind? = null): Result
         fun global(kind: Kind): Result
     }
-    private data class Review(val snapshot: Snapshot, val control: Control, val created: Long)
+    private data class Review(val snapshot: Snapshot, val control: Control, val created: Long,
+                              val token: String = java.util.UUID.randomUUID().toString())
     private data class Choices(val snapshot: Snapshot, val created: Long)
-    private var review: Review? = null
+    @Volatile private var review: Review? = null
+    val pendingToken: String? get() = review?.takeIf { now() - it.created in 0..30_000 }?.token
     private var choices: Choices? = null
     @Synchronized fun discard() { review = null; choices = null }
     @Synchronized fun reply(command: Command): String = try {
