@@ -83,7 +83,8 @@ class HybridAssistantService(
         },
             execute = { checkpoint, step ->
                 RoutineStepOutcome.fromRoutineStatus(executeRoutineStep(checkpoint.phrase, step.actionId, step.target))
-            }, resolvePreferred = assistantMemory::preferred, canLaunchApp = androidAssistant::canLaunchApp)
+            }, resolvePreferred = assistantMemory::preferred, canLaunchApp = androidAssistant::canLaunchApp,
+            observe = { id, observation -> if (personalAssistant) workflowDiagnostics.observeTask(id, observation) })
     }
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {

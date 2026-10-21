@@ -747,6 +747,47 @@ Broad visual-layout remains skipped upstream. Real-phone voice, alarm timing
 through doze/reboot, live-provider quality and installed-data upgrade remain pending;
 no measured phase maturity percentage is claimed.
 
+## Phase 5 and 6 follow-up: categorical task feedback
+
+Goals and approved saved routines now feed the optional workflow diagnostics through
+random workflow references and typed categories. Saved transitions distinguish blocked
+next steps, positively not-applied dispatch, requested effects, uncertainty, owner
+failure/confirmation, complete device-verified steps and safe between-step recovery.
+Owner feedback never certifies device verification or the broader objective. A launch
+adapter claiming verification still records the executor's conservative requested state.
+
+Recording remains off by default. Existing version-one consent continues to cover only
+calls, research and reminders; it does not silently expand to tasks. Review displays
+that boundary. Explicit `enable workflow diagnostics` includes future goal/routine
+checkpoints and announces the data categories. Version-two storage retains existing
+observations and frozen briefs. Disable stops collection; clear removes this optional
+dataset without changing task history, reminders, preferences or manual evaluation.
+
+Only saved transitions produce observations. Reading stable task history does not
+import it or run actions. Recovery can record a newly saved interruption checkpoint;
+it never resumes work. Observers receive no task names, app targets, action arguments,
+private failure details or conversation. Observation/storage failure cannot change
+execution, approval, cancellation, returned outcomes or recovery. Unsaved checkpoints
+do not produce invented observations. These are bounded checkpoint categories, not a
+reliability score or an automatic root-cause diagnosis.
+
+Repeated categories require distinct workflows in the same build. Retries and repeated
+owner reports for one workflow count once within the retained window. Use
+`prepare workflow improvement for tasks` to freeze current-build recurrence evidence,
+`review workflow improvement 1` to inspect a listed brief, and
+`share workflow improvement for tasks` for Android's destination chooser. Sharing is
+explicit and does not prove submission. No patch, PR, code modification or deployment
+is performed by the app. Existing bounds, immutable evidence and supervised delivery
+requirements apply.
+
+Automated acceptance covers legacy consent migration, distinct-run recurrence,
+feedback deduplication, safe recovery, failed writes, observer isolation, target/text
+exclusion and frozen evidence. An additional optimized Android service/storage case
+exercises goals, repeated failure reports, reconstruction, explicit sharing and disabling
+without dispatching external apps. Final automated and signed publication results are
+recorded in the accompanying pull request; physical voice and in-place upgrade
+acceptance remain pending.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -837,7 +878,7 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
 2. Pass the existing CI unit/build, gateway, theme and optimized voice emulator jobs
-   on the final source. The voice runner requires all 34 voice/settings and isolated
+   on the final source. The voice runner requires all 35 voice/settings and isolated
    foundation service/storage acceptance tests. Broad visual-layout
    smoke remains disabled upstream; do not count it as a pass.
 3. On a disposable emulator, verify exact commands, no unintended actions for
@@ -860,6 +901,10 @@ A debug APK is build evidence, not a same-signer personal update candidate.
    then approve a fresh change and confirm one notification at the new time through
    normal callback, reboot and doze conditions. Check posted/uncertain rejection and
    completed-history deletion without retaining stale change copies.
+   For task feedback, explicitly enable diagnostics, report failures on distinct goals,
+   inspect the categorical task brief and select a share destination. Verify old consent
+   does not enable task recording, repeated reports do not inflate recurrence, and
+   disabling collection leaves workflow execution and saved history intact.
 5. Measure wake detection on at least 20 controlled ordinary/deep-voice utterances
    per condition, aiming for at least 95% in that controlled sample. Separately
    record false activations and listening time under a reproducible negative-audio

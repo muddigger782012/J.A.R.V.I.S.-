@@ -73,6 +73,12 @@ sealed class RoutineStepOutcome {
 /** Evidence supplied by an existing device readback or explicit user outcome flow. */
 enum class RoutineOutcomeObservation { DEVICE_VERIFIED, USER_CONFIRMED, FAILED }
 
+/** Categorical telemetry only: no plan, target, phrase, parameters or diagnostic text. */
+enum class RoutineWorkflowObservation {
+    BLOCKED, NOT_APPLIED, REQUESTED, OUTCOME_UNKNOWN, OWNER_FAILED, OWNER_CONFIRMED,
+    DEVICE_VERIFIED, RECOVERY_PAUSED
+}
+
 /**
  * save must atomically retain the entire snapshot before returning true. A durable adapter
  * can survive service/process recreation. Share one WorkflowEngine per store; this contract

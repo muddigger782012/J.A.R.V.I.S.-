@@ -14,7 +14,8 @@ class WorkflowEngine(
     resolvePreferred: (String) -> LearnableDeviceAction? = { null },
     canLaunchApp: (String) -> Boolean = { false },
     store: RoutineWorkflowStore = InMemoryRoutineWorkflowStore(),
-    maxStepAttempts: Int = 2
+    maxStepAttempts: Int = 2,
+    observeRoutine: (String, RoutineWorkflowObservation) -> Unit = { _, _ -> }
 ) {
     /** Compatibility for dispatchers that only need the bound step. Prefer the context
      * overload when tracking device outcomes: its checkpoint carries the exact phrase/id. */
@@ -28,7 +29,7 @@ class WorkflowEngine(
     ) : this(approvedRoutine, { _, step -> executeRoutineStep(step) }, resolvePreferred, canLaunchApp, store, maxStepAttempts)
 
     private val routines = ApprovedRoutineExecutor(
-        approvedRoutine, executeRoutineStep, resolvePreferred, canLaunchApp, store, maxStepAttempts
+        approvedRoutine, executeRoutineStep, resolvePreferred, canLaunchApp, store, maxStepAttempts, observeRoutine
     )
 
     /** Lookup a saved routine and freeze its reviewed targets, without running anything. */

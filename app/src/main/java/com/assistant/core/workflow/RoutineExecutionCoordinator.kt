@@ -21,7 +21,8 @@ class RoutineExecutionCoordinator(
     private val approvedRoutine: (String) -> ApprovedRoutineRegistry.Routine?,
     private val execute: (RoutineWorkflowCheckpoint, RoutineWorkflowStep) -> RoutineStepOutcome,
     private val resolvePreferred: (String) -> LearnableDeviceAction? = { null },
-    private val canLaunchApp: (String) -> Boolean = { false }
+    private val canLaunchApp: (String) -> Boolean = { false },
+    private val observe: (String, RoutineWorkflowObservation) -> Unit = { _, _ -> }
 ) {
     data class Result(val checkpoint: RoutineWorkflowCheckpoint?, val busy: Boolean = false, val message: String = "")
 
@@ -150,7 +151,7 @@ class RoutineExecutionCoordinator(
     private fun engine(): WorkflowEngine {
         lateinit var engine: WorkflowEngine
         engine = WorkflowEngine(approvedRoutine = approvedRoutine, resolvePreferred = resolvePreferred,
-            canLaunchApp = canLaunchApp, store = access.store, executeRoutineStep = { checkpoint, step ->
+            canLaunchApp = canLaunchApp, store = access.store, observeRoutine = observe, executeRoutineStep = { checkpoint, step ->
                 if (access.cancellationRequested(checkpoint.id)) {
                     engine.cancelApprovedRoutine(checkpoint.id)
                     RoutineStepOutcome.NotApplied("Cancellation was requested before dispatch.")

@@ -19,7 +19,8 @@ internal class ApprovedRoutineExecutor(
     private val resolvePreferred: (String) -> LearnableDeviceAction?,
     private val canLaunchApp: (String) -> Boolean,
     private val store: RoutineWorkflowStore,
-    private val maxStepAttempts: Int
+    private val maxStepAttempts: Int,
+    private val observe: (String, RoutineWorkflowObservation) -> Unit
 ) {
     private val lock = Any()
     private val entries = linkedMapOf<String, RoutineWorkflowCheckpoint>()
@@ -45,7 +46,11 @@ internal class ApprovedRoutineExecutor(
                 else -> saved
             }.detached()
             entries[saved.id] = recovered
-            if (recovered != saved) runCatching { store.save(recovered.detached()) }
+            if (recovered != saved && runCatching { store.save(recovered.detached()) }.getOrDefault(false)) {
+                if (saved.steps.any { it.status == RoutineStepStatus.RUNNING })
+                    observe(saved.id, RoutineWorkflowObservation.OUTCOME_UNKNOWN)
+                else if (!saved.cancellationRequested) observe(saved.id, RoutineWorkflowObservation.RECOVERY_PAUSED)
+            }
         }
     }
 
@@ -181,6 +186,13 @@ internal class ApprovedRoutineExecutor(
                         entries[id] = uncertain
                         return uncertain.detached()
                     }
+                    when (result.status) {
+                        RoutineStepStatus.REQUESTED, RoutineStepStatus.AWAITING_OUTCOME, RoutineStepStatus.REQUESTED_WITHOUT_TRACKING ->
+                            observe(id, RoutineWorkflowObservation.REQUESTED)
+                        RoutineStepStatus.AMBIGUOUS -> observe(id, RoutineWorkflowObservation.OUTCOME_UNKNOWN)
+                        RoutineStepStatus.FAILED -> if (!current.cancellationRequested) observe(id, RoutineWorkflowObservation.NOT_APPLIED)
+                        else -> Unit // Whole-task verification is recorded only by finish().
+                    }
                     if (status != RoutineWorkflowStatus.RUNNING) return settled.detached()
                 }
             }
@@ -227,6 +239,12 @@ internal class ApprovedRoutineExecutor(
             entries[id] = current.copy(detail = "Outcome evidence could not be saved; no further actions are permitted.")
             return@synchronized get(id).detached()
         }
+        when (observation) {
+            RoutineOutcomeObservation.FAILED -> observe(id, RoutineWorkflowObservation.OWNER_FAILED)
+            RoutineOutcomeObservation.USER_CONFIRMED -> observe(id, RoutineWorkflowObservation.OWNER_CONFIRMED)
+            RoutineOutcomeObservation.DEVICE_VERIFIED -> if (settled.status == RoutineWorkflowStatus.VERIFIED)
+                observe(id, RoutineWorkflowObservation.DEVICE_VERIFIED)
+        }
         settled.detached()
     }
 
@@ -237,9 +255,14 @@ internal class ApprovedRoutineExecutor(
         return runCatching { store.save(next.detached()) }.getOrDefault(false)
     }
 
+    /** Optional diagnostics must never affect checkpointing, returned outcomes or dispatch. */
+    private fun observe(id: String, observation: RoutineWorkflowObservation) {
+        runCatching { observe.invoke(id, observation) }
+    }
+
     private fun failBeforeDispatch(current: RoutineWorkflowCheckpoint, reason: String): RoutineWorkflowCheckpoint {
         val failed = current.copy(status = RoutineWorkflowStatus.FAILED, detail = reason)
-        save(failed)
+        if (save(failed)) observe(current.id, RoutineWorkflowObservation.BLOCKED)
         return failed.detached()
     }
 
@@ -250,6 +273,7 @@ internal class ApprovedRoutineExecutor(
             entries[current.id] = paused
             return paused.detached()
         }
+        if (done.status == RoutineWorkflowStatus.VERIFIED) observe(current.id, RoutineWorkflowObservation.DEVICE_VERIFIED)
         return done.detached()
     }
 
