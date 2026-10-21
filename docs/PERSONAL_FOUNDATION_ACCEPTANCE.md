@@ -799,6 +799,46 @@ through the normal updater and versioned downloads. Broad visual-layout smoke re
 skipped upstream; phone voice, actual device/alarm behavior, live providers and
 in-place installed-data upgrade remain pending. No phase maturity percentage is inferred.
 
+## Phase 5 and 6 follow-up: reviewed goal app corrections
+
+Pending goals now accept a locally bound replacement for an app step. With one app,
+`use my maps app instead` or `change goal app to Test Maps` replaces only that app.
+For several apps, use the numbered review, such as
+`change goal step two to open my browser app`. Cardinal numbers and first/second/third
+identify an existing app step; volume and timer steps cannot be converted into apps.
+Exact installed names and already saved preferred music/maps/browser apps are
+supported. App selection does not change those preferences.
+
+Every correction freezes a launchable target, retains the other steps, assigns a new
+review identity and requires exact approval of the new review. The existing atomic
+compare-and-replace prevents stale corrections or approvals from overwriting a newer
+proposal. Reconstruction redisplays the current review before a later approval can
+execute it. Approved and running goals cannot be edited through this path.
+
+Ambiguous steps, missing/unavailable apps, fuzzy labels, duplicate package targets,
+malformed controls and appended requests invalidate the old pending review without
+executing a partial replacement. All app targets must remain launchable. Corrections
+remain local ahead of search/provider routing and are reserved from learned aliases.
+A stale review's app display text cannot become a network-settings or manual offer
+on a later bare confirmation. No app or timer launches during correction or review;
+requested effects after approval still await checked outcomes and explicit resume.
+
+Supervised manual evaluation adds the fixed `goal app correction` scenario, including
+review reconstruction, stale approval, ambiguous/duplicate targets and routing guards.
+Its report/proposal uses the existing separate opt-in, synthetic fixture and frozen
+evidence. This does not enable automatic diagnostics, run new in-app checks, modify
+code or submit a developer proposal. Existing saved reports, briefs, settings and
+product controls remain compatible.
+
+The missing explicit local-control path was reproduced by a failing regression before
+implementation. Unit acceptance covers bound replacements, composed/drive/template
+plans, unavailable/fuzzy/duplicate targets, stale/expired state and execution of only
+the frozen correction. Two new Android cases exercise conversational and numbered
+edits, malformed trailing manual requests, stale app-label offers, service reconstruction,
+changed preferences and protection of running work. Actual CI/emulator and signed
+publication results are recorded in the accompanying pull request. Physical-phone
+voice and installed-data upgrade acceptance remain pending.
+
 ## Delivered behavior and acceptance evidence
 
 | Phase | This increment | Automated evidence | Still required |
@@ -889,7 +929,7 @@ A debug APK is build evidence, not a same-signer personal update candidate.
 1. Run the complete JVM suite, debug build and instrumentation compilation, gateway
    suite, APK archive checks and theme contract. Record actual results below.
 2. Pass the existing CI unit/build, gateway, theme and optimized voice emulator jobs
-   on the final source. The voice runner requires all 35 voice/settings and isolated
+   on the final source. The voice runner requires all 37 voice/settings and isolated
    foundation service/storage acceptance tests. Broad visual-layout
    smoke remains disabled upstream; do not count it as a pass.
 3. On a disposable emulator, verify exact commands, no unintended actions for
@@ -916,6 +956,9 @@ A debug APK is build evidence, not a same-signer personal update candidate.
    inspect the categorical task brief and select a share destination. Verify old consent
    does not enable task recording, repeated reports do not inflate recurrence, and
    disabling collection leaves workflow execution and saved history intact.
+   Correct a proposed app by voice, inspect numbered steps, reconstruct and approve
+   only the changed review. Verify saved preferences stay unchanged, missing or
+   duplicate targets cannot revive an old approval and running tasks cannot be edited.
 5. Measure wake detection on at least 20 controlled ordinary/deep-voice utterances
    per condition, aiming for at least 95% in that controlled sample. Separately
    record false activations and listening time under a reproducible negative-audio

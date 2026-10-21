@@ -113,8 +113,10 @@ object GoalPlanning {
             (if (plan.kind == Kind.FOCUS) RoutineSteps.timerAction(plan.actions[1]) != null else RoutineSteps.appAction(plan.actions[1]) != null)
 
     fun review(plan: Plan) = "Review ${plan.kind.title.lowercase(Locale.ROOT)}: " +
-        plan.actions.joinToString(" then ", transform = RoutineProposal::describe) +
+        plan.actions.mapIndexed { index, action -> "step ${index + 1}: ${RoutineProposal.describe(action)}" }.joinToString(" then ") +
         ". These are proposed steps; nothing has run. Say 'approve goal plan' to request them or 'cancel goal plan' to discard." +
+        (if (plan.actions.any { RoutineSteps.appAction(it) != null })
+            " To change an app before approval, say 'change goal step ${plan.actions.indexOfFirst { RoutineSteps.appAction(it) != null } + 1} to open' followed by its exact installed name, or 'my music app', 'my maps app' or 'my browser app'. With just one app, 'use my maps app instead' also revises the review." else "") +
         when (plan.kind) {
             Kind.MUSIC -> " After the app opens, select music or press Play there."
             Kind.NAVIGATION -> " After Maps opens, choose your destination to start navigation."
@@ -123,7 +125,7 @@ object GoalPlanning {
             Kind.COMPOSED -> " Each app or timer request pauses for your checked result: 'the goal step worked' or 'the goal step failed'. Use 'resume goal plan' to continue pending steps; no uncertain step repeats automatically."
         }
 
-    fun isManagementInput(text: String) = command(text) != null || parse(text) != null ||
+    fun isManagementInput(text: String) = command(text) != null || parse(text) != null || GoalAppCorrections.explicit(text) != null ||
         Regex("^(?:review|approve|cancel|resume) goal plan\\b|^goal plan status\\b|^the goal(?: step)? (?:worked|failed)\\b").containsMatchIn(clean(text))
 
     /** These replies can redisplay a pending review, never authorize it or another offer. */
