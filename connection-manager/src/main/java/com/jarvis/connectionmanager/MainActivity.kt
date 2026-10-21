@@ -24,6 +24,7 @@ class MainActivity : Activity() {
     private val cards = mutableMapOf<String, TextView>()
     private lateinit var scroller: ScrollView
     private lateinit var providerSection: LinearLayout
+    private lateinit var providerActions: LinearLayout
     private var runningDiagnostics = false
     private var sessionGeminiKey: String? = null
 
@@ -45,6 +46,8 @@ class MainActivity : Activity() {
         section("SERVICE STATUS")
         providerSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(providerSection)
+        providerActions = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(providerActions)
         listOf("INTERNET", "WEB SEARCH", "GEMINI AI", "AI FALLBACK", "GITHUB UPDATES", "LOCAL AI").chunked(2).forEach { pair ->
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             pair.forEach { name ->
@@ -61,6 +64,19 @@ class MainActivity : Activity() {
             }
             providerSection.addView(row)
         }
+        val configureProvider = TextView(this).apply {
+            text = "CONFIGURE GEMINI  •  SESSION CREDENTIALS"
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(cyan)
+            background = panel()
+            setPadding(dp(10), dp(16), dp(10), dp(16))
+            contentDescription = "Configure Gemini API key"
+            setOnClickListener { configureGeminiKey() }
+        }
+        providerActions.addView(configureProvider, LinearLayout.LayoutParams(-1, -2).apply {
+            setMargins(dp(3), dp(8), dp(3), dp(4))
+        })
         section("QUICK ACTIONS")
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         listOf("RUN FULL\nDIAGNOSTICS", "TEST ALL\nCONNECTIONS", "REPAIR\nCONNECTIONS", "VIEW\nLOGS").forEachIndexed { index, title ->
