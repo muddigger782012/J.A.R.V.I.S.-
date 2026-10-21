@@ -1231,9 +1231,15 @@ class HybridAssistantService(
         // Resolve a short affirmative reply against an immediately preceding manual-verification offer.
         // Never infer a serial number or an equipment-specific procedure from the offer.
         val priorTurn = conversationTurns().lastOrNull()
+        // Local goal replies may contain arbitrary app labels. They are never network/manual
+        // offers, including after their review expires, is cancelled or is replaced.
+        val priorGoalTurn = personalAssistant && priorTurn?.let {
+            GoalPlanning.isManagementInput(it.first) || GoalPlanning.edit(it.first) != null ||
+                (GoalPlanning.isReviewReply(it.first) && it.second.contains("Use the exact approval phrase for this plan"))
+        } == true
         val affirmativeFollowup = rawInput.trim().lowercase(Locale.ROOT).trimEnd('.', '!', '?') in
             setOf("yes", "yes please", "please", "sure", "go ahead", "please do", "do it")
-        val offeredNetworkSettings = priorTurn?.second?.let { reply ->
+        val offeredNetworkSettings = !priorGoalTurn && priorTurn?.second?.let { reply ->
             reply.contains("network settings", ignoreCase = true) &&
                 (reply.contains("would you like", ignoreCase = true) ||
                     reply.contains("shall i", ignoreCase = true) ||
@@ -1252,7 +1258,7 @@ class HybridAssistantService(
             callback(HybridAssistantReply(response))
             return
         }
-        val manualConfirmation = rawInput.trim().lowercase() in setOf(
+        val manualConfirmation = !priorGoalTurn && rawInput.trim().lowercase() in setOf(
             "yes", "yes please", "please", "sure", "go ahead", "please do", "do it"
         ) && priorTurn?.second?.let { reply ->
             reply.contains("shall i verify", ignoreCase = true) &&

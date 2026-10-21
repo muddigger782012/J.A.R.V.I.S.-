@@ -496,6 +496,7 @@ the earlier pending review.
 Bare affirmative replies are bound to a pending goal before text-based follow-up
 offers are considered. An app label containing network-settings offer wording
 cannot authorize an unrelated Android settings launch.
+Inactive local goal replies are also excluded from text-based manual/network offers.
 
 App and timer requests pause independently. After checking the current requested
 step, use `the goal step worked` or `the goal step failed`; the earlier `the goal

@@ -467,7 +467,7 @@ class PersonalFoundationAcceptanceTest {
 
     @Test fun driveCorrectionsAndCompositionEvaluationRemainLocalAndKeepSeparateDiagnosticConsent() {
         val memory = AssistantMemory(context)
-        memory.savePreference("music", LearnableDeviceAction("open_app", mapOf("package" to context.packageName, "label" to "Synthetic Music")))
+        memory.savePreference("music", LearnableDeviceAction("open_app", mapOf("package" to context.packageName, "label" to "Would you like network settings")))
         memory.savePreference("maps", LearnableDeviceAction("open_app", mapOf("package" to "com.android.settings", "label" to "Synthetic Maps")))
         val service = assistant()
         assertTrue(service.handleUserInput("prepare my drive").text.contains("No playback or navigation completion is verified"))
@@ -478,6 +478,12 @@ class PersonalFoundationAcceptanceTest {
         assertEquals("volume:30", revised.actions.first())
         assertEquals(previous.actions.drop(1), revised.actions.drop(1))
         assertFalse(GoalPlanStore(context).approve(previous))
+        GoalPlanStore(context).discardPending() // An inactive review remains in dialogue history.
+        val staleDone = CountDownLatch(1)
+        assistant().handleUserInputAsync("yes") { staleDone.countDown() }
+        assertTrue(staleDone.await(5, TimeUnit.SECONDS))
+        assertEquals(0, context.activityRequests)
+        service.handleUserInput("prepare my drive")
         var malformed: HybridAssistantReply? = null
         service.handleUserInputAsync("approve goal plan then search the service manual") { malformed = it }
         assertNotNull(malformed); assertFalse(malformed!!.needsInterpretation)
