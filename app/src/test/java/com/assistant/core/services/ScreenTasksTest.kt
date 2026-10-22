@@ -194,4 +194,13 @@ class ScreenTasksTest {
         session.reply("confirm screen step one"); assertEquals(3, phone.actions)
         assertTrue(session.reply("continue screen task").contains("Verified"))
     }
+    @Test fun aPausedTaskCannotBeRefocusedByAnObservationFromTheOldTopic() {
+        val phone = Phone(); val session = ScreenSession(phone)
+        start(session); session.reply("approve screen task"); session.reply("confirm screen step one")
+        val scope = session.taskKey!!; session.pause(); val reads = phone.reads
+        assertFalse(session.contextual)
+        assertTrue(session.replyInTask("continue screen task", scope).contains("changed"))
+        assertFalse(session.contextual); assertEquals(reads, phone.reads); assertEquals(1, phone.actions)
+        assertTrue(session.active)
+    }
 }

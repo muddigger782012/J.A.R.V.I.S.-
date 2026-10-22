@@ -1090,6 +1090,23 @@ class PersonalFoundationAcceptanceTest {
         assertEquals(0, context.activityRequests); assertEquals(0, executions)
     }
 
+    @Test fun personalRoutingStatusIsLocalAndPreservesManualProviderAndModelSelection() {
+        val prefs = context.getSharedPreferences("jarvis_cloud_ai", Context.MODE_PRIVATE)
+        prefs.edit().putString("primary_provider", "gateway").putBoolean("provider_fallback", false)
+            .putString("gemini_model", "my-manual-model").apply()
+        val service = assistant(); val completed = CountDownLatch(1); val reply = AtomicReference<HybridAssistantReply>()
+        service.handleUserInputAsync("AI routing status") { reply.set(it); completed.countDown() }
+        assertTrue(completed.await(5, TimeUnit.SECONDS))
+        assertFalse(reply.get().needsInterpretation)
+        assertTrue(reply.get().text, reply.get().text.contains("gateway first"))
+        assertTrue(reply.get().text, reply.get().text.contains("my-manual-model"))
+        assertTrue(reply.get().text, reply.get().text.contains("fallback is disabled"))
+        assertEquals("gateway", prefs.getString("primary_provider", ""))
+        assertEquals("my-manual-model", prefs.getString("gemini_model", ""))
+        assertEquals(0, executions); assertEquals(0, context.activityRequests)
+        assertTrue(service.getConversationSnapshot().isEmpty())
+    }
+
     private fun assistant(researchFetch: ((String) -> SearchRouter.Response)? = null): HybridAssistantService {
         val capabilities = CapabilityState(true, false, false, false, false, false, false)
         val registry = ActionRegistry()

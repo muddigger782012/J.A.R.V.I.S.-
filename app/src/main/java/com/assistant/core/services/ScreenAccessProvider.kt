@@ -28,7 +28,10 @@ class ScreenAccessProvider : ContentProvider() {
         }
     }
     private fun publishTaskNotice() {
-        main.post { runCatching { ScreenTaskNotifications.update(requireNotNull(context), controls.active, controls.awaitingInput) } }
+        main.post { runCatching {
+            ScreenTaskNotifications.update(requireNotNull(context), controls.active, controls.awaitingInput)
+            requireNotNull(context).sendBroadcast(android.content.Intent(ScreenTaskNotifications.CHANGED).setPackage(requireNotNull(context).packageName))
+        } }
     }
     private fun clearCancelledState() {
         if (Looper.myLooper() == Looper.getMainLooper()) applyCancellation()
@@ -44,7 +47,9 @@ class ScreenAccessProvider : ContentProvider() {
             (extras.keySet() == setOf("review_token") && extras.getString("review_token")?.length?.let { it <= 100 } == true ||
              extras.keySet() == setOf("task_key") && extras.getString("task_key")?.length?.let { it <= 100 } == true))
         if (method == "connected") return Bundle().apply { putBoolean("connected", JarvisAccessibilityService.active() != null) }
-        if (method == "review_state") return Bundle().apply { putString("token", controls.pendingToken.orEmpty()) }
+        if (method == "review_state") return Bundle().apply {
+            putString("token", if (appliedCancellation == epoch.state().value) controls.pendingToken.orEmpty() else "")
+        }
         if (method == "task_state") return Bundle().apply {
             val invalidation = epoch.state()
             val cancelled = appliedCancellation != invalidation.value && !invalidation.preserveTask
@@ -52,6 +57,7 @@ class ScreenAccessProvider : ContentProvider() {
             putBoolean("contextual", !cancelled && appliedCancellation == invalidation.value && controls.contextual)
             putBoolean("awaiting_input", !cancelled && appliedCancellation == invalidation.value && controls.awaitingInput)
             putString("task_key", if (cancelled) "" else controls.taskKey.orEmpty())
+            putString("context_key", if (appliedCancellation == invalidation.value) controls.interactionKey.orEmpty() else "")
         }
         val command = if (method == "command") {
             require(arg != null && arg.length <= 400)
@@ -84,6 +90,8 @@ class ScreenAccessProvider : ContentProvider() {
                 Bundle().apply {
                     putString("reply", reply.take(12_000))
                     putString("task_key", controls.taskKey.orEmpty())
+                    putString("context_key", if (extras?.containsKey("task_key") == true && extras.getString("task_key") != controls.taskKey)
+                        extras.getString("task_key").orEmpty() else controls.interactionKey.orEmpty())
                     putBoolean("observation_pending", controls.observing &&
                         (extras?.containsKey("task_key") != true || extras.getString("task_key") == controls.taskKey))
                     if (confirmation && wasConfirming && controls.observing && controls.taskKey == beforeKey) putInt("accepted_step", step)

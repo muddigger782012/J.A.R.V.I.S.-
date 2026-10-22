@@ -108,6 +108,29 @@ object AiConnectionSettings {
             text = "Models vary by API key, region and availability. Selection changes both conversation and Google Search grounding; unsupported models will return a provider error."
             textSize = 12f
         })
+        val personal = activity.packageName == "com.assistant.core"
+        val providers = com.assistant.core.services.IntelligenceRouting.Provider.values()
+        var primaryProvider = com.assistant.core.services.IntelligenceRouting.selected(gatewayPrefs.getString("primary_provider", "gemini"))
+        val providerChoice = com.google.android.material.button.MaterialButton(activity).apply {
+            text = "Conversation provider: ${primaryProvider.label}"
+            setOnClickListener {
+                ThemedDialogBuilder(activity).setTitle("Primary conversation provider")
+                    .setSingleChoiceItems(providers.map { it.label }.toTypedArray(), providers.indexOf(primaryProvider)) { picker, index ->
+                        primaryProvider = providers[index]; text = "Conversation provider: ${primaryProvider.label}"; picker.dismiss()
+                    }.setNegativeButton("Cancel", null).show()
+            }
+        }
+        val providerFallback = SwitchMaterial(activity).apply {
+            text = "Try the other configured provider if the primary fails"
+            isChecked = gatewayPrefs.getBoolean("provider_fallback", true)
+        }
+        if (personal) {
+            fields.addView(providerChoice); fields.addView(providerFallback)
+            fields.addView(TextView(activity).apply {
+                text = "Supported local commands run first. Provider selection applies to complex conversation; attachments and Google Search grounding use Gemini. Your gateway uses its server-selected model. No subscription or cost-based routing limits apply to Personal Jarvis."
+                textSize = 12f
+            })
+        }
         val endpoint = field("Optional gateway HTTPS URL ending in /chat", "endpoint")
         val token = field("Gateway token", "gateway_token", true)
         val deviceLocation = SwitchMaterial(activity).apply {
@@ -145,6 +168,8 @@ object AiConnectionSettings {
                         geminiKey.error = "Couldn't save the API key securely. Try again."
                         return@setOnClickListener
                     }
+                    if (personal) gatewayPrefs.edit().putString("primary_provider", primaryProvider.key)
+                        .putBoolean("provider_fallback", providerFallback.isChecked).apply()
                     gatewayPrefs.edit().putBoolean("weather_device_location", deviceLocation.isChecked).putString("gemini_model", geminiModel.text.toString().trim()).putString("endpoint", url)
                         .putString("gateway_token", token.text.toString().trim())
                         .putString("weather_latitude", lat).putString("weather_longitude", lon).apply()

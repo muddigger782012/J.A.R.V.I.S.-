@@ -2195,9 +2195,25 @@ class MainActivity : ThemedActivity() {
             runOnUiThread {
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
                 statusOutput.text = reply.actionResult?.output ?: reply.text
-                voiceService.speak(reply.text)
+                speakAssistantVoiceReply(reply)
             }
         }
+    }
+
+    private fun speakAssistantVoiceReply(reply: com.assistant.core.services.HybridAssistantReply) {
+        val scope = reply.screenContextKey
+        if (scope == null) { voiceService.speak(reply.text); return }
+        val access = com.assistant.core.services.ScreenAccessClient(this)
+        if (access.taskState().contextKey != scope) return
+        voiceSession.speaking()
+        voiceService.speak(reply.text, after = {
+            voiceSession.responseFinished(keepArmed = voiceEnabled)
+            val state = access.taskState()
+            if (!isFinishing && !isDestroyed && hasWindowFocus() && !liveChatStarted && state.awaitingInput && state.contextKey == scope) {
+                voiceSession.beginCapture(VoiceSessionController.Trigger.BACKGROUND)
+                voiceService.startFollowUpCapture()
+            } else voiceService.rearmAfterResponse()
+        })
     }
 
     private fun requestLiveChat() {
@@ -2327,6 +2343,7 @@ class MainActivity : ThemedActivity() {
 
     private fun ensureMicPermissionAndPushToTalk() {
         if (hasMicrophonePermission()) {
+            hybridAssistantService.cancelActiveResponse()
             voiceSession.beginCapture(VoiceSessionController.Trigger.PUSH_TO_TALK)
             voiceService.startPushToTalk()
         } else {
@@ -2467,6 +2484,8 @@ class MainActivity : ThemedActivity() {
             .setNegativeButton("Close", null)
             .setNeutralButton("Refresh") { _, _ -> showScreenTaskControls() }
             .setPositiveButton("Cancel task") { _, _ ->
+                hybridAssistantService.cancelActiveResponse()
+                voiceService.stopSpeaking(); voiceService.stopListening(); voiceSession.stop()
                 appendOutput("J.A.R.V.I.S.: " + client.reply("cancel screen task"))
             }.show()
     }
