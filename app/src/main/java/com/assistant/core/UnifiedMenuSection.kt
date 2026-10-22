@@ -59,54 +59,47 @@ object UnifiedMenuSection {
     }
 
     /**
-     * Compact the existing action buttons without changing their IDs or listeners.
-     * This only affects utility-page controls; header and chat controls are untouched.
+     * Restyle real action buttons in place. Never substitute a proxy View:
+     * callers may update labels, enabled state, visibility or click handlers
+     * after screen creation, and the original control must remain operable.
      */
     fun compactActions(scroll: ScrollView) {
         val context = scroll.context
-        val actions = mutableListOf<Button>()
-        fun collect(view: View) {
-            if (view is Button) actions.add(view)
-            if (view is ViewGroup) for (i in 0 until view.childCount) collect(view.getChildAt(i))
-        }
-        collect(scroll)
-        actions.forEach { button ->
-            val parent = button.parent as? LinearLayout ?: return@forEach
-            val index = parent.indexOfChild(button)
-            if (index < 0) return@forEach
-            val originalParams = button.layoutParams
-            val title = button.text?.toString()?.trim().orEmpty()
-            if (title.isBlank()) return@forEach
-            val detail = button.contentDescription?.toString()?.takeIf { it.isNotBlank() && it != title }
-                ?: "Tap to " + title.lowercase(java.util.Locale.getDefault())
-            val row = SettingsMenuViews.row(
-                context, title, detail, R.drawable.ic_composer_tools
-            ) { if (button.isEnabled) button.performClick() }
-            row.isEnabled = button.isEnabled
-            row.visibility = button.visibility
-            // Keep the visible action synchronized with runtime capability changes.
-            row.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
-                override fun onPreDraw(): Boolean {
-                    if (row.isEnabled != button.isEnabled) row.isEnabled = button.isEnabled
-                    if (row.visibility != button.visibility) row.visibility = button.visibility
-                    return true
+        val accent = SettingsMenuViews.color(context, R.attr.jarvis_primary)
+        val foreground = SettingsMenuViews.color(context, R.attr.jarvis_on_dark)
+        fun restyle(view: View) {
+            if (view is Button) {
+                view.isAllCaps = false
+                view.gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
+                view.textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+                view.minimumHeight = SettingsMenuViews.dp(context, 52)
+                view.setPadding(
+                    SettingsMenuViews.dp(context, 16),
+                    SettingsMenuViews.dp(context, 12),
+                    SettingsMenuViews.dp(context, 16),
+                    SettingsMenuViews.dp(context, 12)
+                )
+                view.setTextColor(foreground)
+                val surface = GradientDrawable().apply {
+                    cornerRadius = SettingsMenuViews.dp(context, 12).toFloat()
+                    setColor(ColorUtils.setAlphaComponent(accent, 24))
+                    setStroke(SettingsMenuViews.dp(context, 1), ColorUtils.setAlphaComponent(accent, 100))
                 }
-            })
-            parent.removeViewAt(index)
-            val wrapper = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(row, LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ))
-                button.alpha = 0f
-                button.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                addView(button, LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0
-                ))
+                view.background = android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 65)),
+                    surface,
+                    null
+                )
+                view.layoutParams?.let { params ->
+                    if (params.height == 0) params.height = ViewGroup.LayoutParams.WRAP_CONTENT
+                    view.layoutParams = params
+                }
             }
-            parent.addView(wrapper, index, originalParams)
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) restyle(view.getChildAt(i))
+            }
         }
+        restyle(scroll)
     }
 
     fun create(
