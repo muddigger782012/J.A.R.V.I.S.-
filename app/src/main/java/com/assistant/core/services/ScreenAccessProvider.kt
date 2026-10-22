@@ -22,14 +22,18 @@ class ScreenAccessProvider : ContentProvider() {
     private fun applyCancellation() {
         val current = epoch.state()
         if (appliedCancellation != current.value) {
-            if (current.preserveTask) controls.pause() else controls.discard()
+            // A notification from a replaced task cannot discard the replacement, even if
+            // Android delivers it after the fast cancellation check on a Binder thread.
+            if (current.appliesTo(controls.taskKey)) {
+                if (current.preserveTask) controls.pause() else controls.discard()
+            }
             appliedCancellation = current.value
             publishTaskNotice()
         }
     }
     private fun publishTaskNotice() {
         main.post { runCatching {
-            ScreenTaskNotifications.update(requireNotNull(context), controls.active, controls.awaitingInput)
+            ScreenTaskNotifications.update(requireNotNull(context), controls.active, controls.awaitingInput, controls.taskKey)
             requireNotNull(context).sendBroadcast(android.content.Intent(ScreenTaskNotifications.CHANGED).setPackage(requireNotNull(context).packageName))
         } }
     }
@@ -42,7 +46,7 @@ class ScreenAccessProvider : ContentProvider() {
         check(Binder.getCallingUid() == Process.myUid()) { "Private screen bridge" }
         val context = requireNotNull(context)
         check(context.packageName == "com.assistant.core") { "Personal screen bridge only" }
-        require(method in setOf("connected", "discard", "command", "task_state", "review_state"))
+        require(method in setOf("connected", "discard", "command", "task_state", "review_state", "cancel_task"))
         require(extras == null || method == "command" &&
             (extras.keySet() == setOf("review_token") && extras.getString("review_token")?.length?.let { it <= 100 } == true ||
              extras.keySet() == setOf("task_key") && extras.getString("task_key")?.length?.let { it <= 100 } == true))
@@ -52,12 +56,22 @@ class ScreenAccessProvider : ContentProvider() {
         }
         if (method == "task_state") return Bundle().apply {
             val invalidation = epoch.state()
-            val cancelled = appliedCancellation != invalidation.value && !invalidation.preserveTask
+            val cancelled = appliedCancellation != invalidation.value && !invalidation.preserveTask &&
+                invalidation.appliesTo(controls.taskKey)
             putBoolean("active", !cancelled && controls.active)
             putBoolean("contextual", !cancelled && appliedCancellation == invalidation.value && controls.contextual)
             putBoolean("awaiting_input", !cancelled && appliedCancellation == invalidation.value && controls.awaitingInput)
             putString("task_key", if (cancelled) "" else controls.taskKey.orEmpty())
             putString("context_key", if (appliedCancellation == invalidation.value) controls.interactionKey.orEmpty() else "")
+        }
+        if (method == "cancel_task") {
+            require(arg != null && arg.length in 1..100)
+            if (arg != controls.taskKey) return Bundle.EMPTY
+            val pending = epoch.state()
+            if (appliedCancellation != pending.value && !pending.preserveTask && pending.taskKey == null) return Bundle.EMPTY
+            epoch.cancel(taskKey = arg)
+            clearCancelledState()
+            return Bundle.EMPTY
         }
         val command = if (method == "command") {
             require(arg != null && arg.length <= 400)

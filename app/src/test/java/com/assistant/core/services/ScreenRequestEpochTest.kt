@@ -49,4 +49,14 @@ class ScreenRequestEpochTest {
         gate.timeout(beforePause); assertTrue(gate.state().preserveTask)
         gate.timeout(gate.token()); assertFalse(gate.state().preserveTask)
     }
+    @Test fun delayedNotificationCannotDiscardAReplacementTaskButTimeoutStillInvalidatesAllApprovals() {
+        val gate = ScreenRequestEpoch(); val queued = gate.token()
+        gate.cancel(taskKey = "original")
+        assertFalse(gate.valid(queued))
+        assertTrue(gate.state().appliesTo("original"))
+        assertFalse(gate.state().appliesTo("replacement"))
+        gate.timeout(gate.token())
+        assertTrue(gate.state().appliesTo("replacement"))
+        assertTrue(gate.state().appliesTo(null))
+    }
 }

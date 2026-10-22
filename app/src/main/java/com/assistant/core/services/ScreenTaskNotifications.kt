@@ -19,13 +19,15 @@ object ScreenTaskNotifications {
     const val ID = 7634
     const val CANCEL = "com.assistant.core.CANCEL_SCREEN_TASK"
     private const val CHANNEL = "jarvis_screen_task"
-    fun update(context: Context, active: Boolean, awaitingInput: Boolean) {
+    fun update(context: Context, active: Boolean, awaitingInput: Boolean, taskKey: String?) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        if (!active) { manager.cancel(ID); return }
+        if (!active || taskKey.isNullOrBlank()) { manager.cancel(ID); return }
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Screen task controls", NotificationManager.IMPORTANCE_LOW))
         val cancel = PendingIntent.getBroadcast(context, ID,
-            Intent(context, ScreenTaskCancelReceiver::class.java).setAction(CANCEL),
+            Intent(context, ScreenTaskCancelReceiver::class.java).setAction(CANCEL)
+                .setData(android.net.Uri.Builder().scheme("jarvis-screen-task").authority("cancel").appendPath(taskKey).build())
+                .addFlags(Intent.FLAG_RECEIVER_FOREGROUND),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         manager.notify(ID, NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_jarvis_core).setContentTitle("Jarvis screen task")
@@ -38,7 +40,8 @@ object ScreenTaskNotifications {
 class ScreenTaskCancelReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (context.packageName != "com.assistant.core" || intent?.action != ScreenTaskNotifications.CANCEL) return
-        ScreenAccessClient(context).reply("cancel screen task")
-        context.getSystemService(NotificationManager::class.java)?.cancel(ScreenTaskNotifications.ID)
+        val taskKey = intent.data?.takeIf { it.scheme == "jarvis-screen-task" && it.authority == "cancel" }
+            ?.pathSegments?.singleOrNull()?.takeIf { it.length in 1..100 } ?: return
+        ScreenAccessClient(context).cancelTask(taskKey)
     }
 }

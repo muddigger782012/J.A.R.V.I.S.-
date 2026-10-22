@@ -29,6 +29,8 @@ class ScreenAccessClient(private val context: Context) {
     fun voiceScope(): String = taskState().contextKey + ":" + runCatching { call("review_state")?.getString("token").orEmpty() }.getOrDefault("")
     data class Response(val text: String, val contextKey: String = "")
     fun discard() { runCatching { call("discard") } }
+    /** Notification cancellation is bound to its original task, never a later replacement. */
+    fun cancelTask(taskKey: String) { runCatching { call("cancel_task", taskKey) } }
     fun reply(text: String): String = reply(prepare(text))
     fun reply(prepared: Prepared): String = replyWithContext(prepared).text
     fun replyWithContext(prepared: Prepared): Response {
