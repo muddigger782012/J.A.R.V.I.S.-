@@ -72,12 +72,8 @@
             </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/jarvis_reactor_widget" />
         </receiver>
-        <activity android:name=".AssistantHudActivity" android:exported="true" android:label="J.A.R.V.I.S. HUD">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+        <!-- HUD opens only when explicitly selected through a HUD widget. -->
+        <activity android:name=".AssistantHudActivity" android:exported="false" android:label="J.A.R.V.I.S. HUD" />
         <activity android:name=".SearchBrowserActivity" android:exported="false" />
         <receiver android:name=".services.PersonalReminderReceiver" android:exported="false" android:enabled="${personalReminderEnabled}">
             <intent-filter>
