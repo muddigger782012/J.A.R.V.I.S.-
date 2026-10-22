@@ -230,6 +230,7 @@ class MainActivity : ThemedActivity() {
     private var runningTerminalCommand: RunningShizukuCommand? = null
     private var updateInProgress = false
     private var pendingDownloadedUpdate: File? = null
+    private lateinit var nonChatExitButton: ImageButton
     private var currentTabIndex = 0
     private var allowSwipeForCurrentTouch = true
     private var headerSelectionAnimator: ValueAnimator? = null
@@ -410,6 +411,41 @@ class MainActivity : ThemedActivity() {
             insets
         }
         setupTabs()
+        // Keep an exit affordance above all seven non-Chat panels, even after
+        // scrolling their contents or collapsing a section.
+        nonChatExitButton = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+            contentDescription = "Close menu and return to Chat"
+            setColorFilter(SettingsMenuViews.color(this@MainActivity, R.attr.jarvis_on_dark))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = resources.displayMetrics.density * 12f
+                setColor(ColorUtils.setAlphaComponent(
+                    SettingsMenuViews.color(this@MainActivity, R.attr.jarvis_primary), 220))
+            }
+            elevation = resources.displayMetrics.density * 8f
+            setOnClickListener { showTab(0, animate = false, direction = -1) }
+        }
+        tabContainer.addView(nonChatExitButton, FrameLayout.LayoutParams(
+            (48 * resources.displayMetrics.density).toInt(),
+            (48 * resources.displayMetrics.density).toInt(),
+            android.view.Gravity.TOP or android.view.Gravity.END
+        ).apply {
+            val margin = (12 * resources.displayMetrics.density).toInt()
+            setMargins(margin, margin, margin, margin)
+        })
+        nonChatExitButton.visibility = View.GONE
+        onBackPressedDispatcher.addCallback(this,
+            object : androidx.activity.OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (currentTabIndex != 0) {
+                        showTab(0, animate = false, direction = -1)
+                    } else {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                        isEnabled = true
+                    }
+                }
+            })
         val chatMenuButton = findViewById<ImageButton>(R.id.btnOpenJarvisChat)
         val chatHistoryShortcut = findViewById<ImageButton>(R.id.btnAssistantHistory)
         val chatMenuBackHandler = object : androidx.activity.OnBackPressedCallback(false) {
@@ -660,6 +696,10 @@ class MainActivity : ThemedActivity() {
             return
         }
         val previousIndex = currentTabIndex
+        if (::nonChatExitButton.isInitialized) {
+            nonChatExitButton.visibility = if (index == 0) View.GONE else View.VISIBLE
+            nonChatExitButton.bringToFront()
+        }
         // Keep Chat untouched: its navigation and transitions remain on the
         // established path until the non-Chat redesign is approved.
         if (index == 0 || previousIndex == 0) {
