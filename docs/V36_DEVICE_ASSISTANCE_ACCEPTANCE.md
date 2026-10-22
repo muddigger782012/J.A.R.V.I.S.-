@@ -107,9 +107,12 @@ independent Connection Manager reference APK also builds locally. Final integrat
 Android emulator results must be recorded before the v3.6 release is promoted. The integrated acceptance gate requires
 all five real-service preflight cases and all 50 optimized Android cases, including
 launching and reading the separate manager while its provider checks remain unrun.
-API 34 explicitly marked sensitive views are blocked in addition to password views;
-a missing node during capture invalidates the snapshot rather than publishing a
-partial tree. These additions require the integrated real-service pass.
+API 34 sensitive views hidden by Android remain inaccessible. If Android supplies
+an explicitly marked sensitive node, Jarvis blocks that snapshot; password views
+also block surrounding text and controls. Acceptance verifies that a marked value
+and button are neither exposed nor tapped, while public surrounding text may remain
+readable. A missing node during capture invalidates the snapshot rather than
+publishing a partial tree. These additions require the integrated real-service pass.
 
 ## Release acceptance and practical limits
 

@@ -56,6 +56,11 @@ class ScreenControlFixtureActivity : ThemedActivity() {
             text = "private-fixture-sensitive-content"
             if (android.os.Build.VERSION.SDK_INT >= 34) setAccessibilityDataSensitive(android.view.View.ACCESSIBILITY_DATA_SENSITIVE_YES)
         })
+        panel.addView(Button(this).apply {
+            text = "Private sensitive control"
+            if (android.os.Build.VERSION.SDK_INT >= 34) setAccessibilityDataSensitive(android.view.View.ACCESSIBILITY_DATA_SENSITIVE_YES)
+            setOnClickListener { tapCount++ }
+        })
     }
     fun showPassword() {
         panel.addView(EditText(this).apply {

@@ -164,7 +164,14 @@ class ScreenControlAcceptanceTest {
             if (android.os.Build.VERSION.SDK_INT >= 34) {
                 scenario.onActivity { it.showSensitiveContent() }; instrumentation.waitForIdleSync(); settled()
                 val marked = remote("read my screen")
-                assertTrue(marked, marked.contains("protected")); assertFalse(marked.contains("private-fixture-sensitive-content"))
+                // Android may filter sensitive nodes before a non-tool service can receive them.
+                // Public surrounding text remains readable; protected values and actions must not.
+                assertFalse(marked, marked.contains("private-fixture-sensitive-content"))
+                assertFalse(marked, marked.contains("Private sensitive control", ignoreCase = true))
+                val hidden = remote("tap Private sensitive control")
+                assertFalse(hidden, hidden.contains("Review screen tap"))
+                remote("confirm screen action")
+                scenario.onActivity { assertEquals(2, it.tapCount) }
             }
         }
     }
