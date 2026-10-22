@@ -659,6 +659,19 @@ class MainActivity : ThemedActivity() {
             return
         }
         val previousIndex = currentTabIndex
+        // Keep Chat untouched: its navigation and transitions remain on the
+        // established path until the non-Chat redesign is approved.
+        if (index == 0 || previousIndex == 0) {
+            currentTabIndex = index
+            tabSections.forEachIndexed { i, view ->
+                view.animate().cancel()
+                view.translationX = 0f
+                view.alpha = 1f
+                view.visibility = if (i == index) View.VISIBLE else View.GONE
+            }
+            updateHeaderSelection(index)
+            return
+        }
         // A fast second tap must not leave a previously animated tab visible or
         // allow an old animation callback to hide the newly selected page.
         tabSections.forEach { it.animate().cancel() }
