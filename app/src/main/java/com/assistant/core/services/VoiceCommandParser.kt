@@ -26,7 +26,7 @@ class VoiceCommandParser(private val actionRegistry: ActionRegistry) {
         }
 
         // Visible control labels are inert data, including labels such as "run shell".
-        if (ScreenSession.recognizes(raw)) return ParsedVoiceCommand(fallbackTextCommand = raw.trim())
+        if (ScreenSession.recognizes(raw) || ConnectionAssistance.parse(raw) != null) return ParsedVoiceCommand(fallbackTextCommand = raw.trim())
 
         if (containsAny(normalized, stopVoicePhrases(config))) {
             return ParsedVoiceCommand(localCommand = LocalVoiceCommand.STOP_VOICE, responseHint = "Stopping voice mode.")

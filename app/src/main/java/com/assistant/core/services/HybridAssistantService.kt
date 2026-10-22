@@ -104,6 +104,14 @@ class HybridAssistantService(
         if (personalAssistant) {
             if (screenAccess.accepts(userInput)) return handleScreenInput(screenAccess.prepare(userInput))
             screenAccess.discard()
+            ConnectionAssistance.parse(userInput)?.let { command ->
+                clearPendingActionPrompts()
+                taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+                if (command != ConnectionAssistance.Kind.MANAGER) appDiscovery.discard()
+                return HybridAssistantReply(ConnectionAssistance.reply(command,
+                    AndroidConnectionAssistance(systemService.context()) { appDiscovery.find(ConnectionAssistance.MANAGER_PACKAGE) }))
+            }
             val appCommand = AppDiscovery.parse(userInput)
             if (appCommand != null) {
                 clearPendingActionPrompts()
@@ -1211,7 +1219,7 @@ class HybridAssistantService(
         }
         if (personalAssistant) screenAccess.discard()
         if (personalAssistant && AppDiscovery.parse(rawInput) == null) appDiscovery.discard()
-        if (personalAssistant && (DeviceReport.command(rawInput) != null || AppDiscovery.parse(rawInput) != null)) {
+        if (personalAssistant && (ConnectionAssistance.parse(rawInput) != null || DeviceReport.command(rawInput) != null || AppDiscovery.parse(rawInput) != null)) {
             callback(handleUserInput(rawInput)); return
         }
         if (personalAssistant && GoalAppCorrections.contextual(rawInput) != null &&

@@ -6,6 +6,10 @@ test -n "$voice_apk"
 test -n "$voice_tests"
 adb install -r -t "$voice_apk"
 adb install -r -t "$voice_tests"
+# This is the real independent application from the pinned reference checkout, not a replacement fixture.
+manager_apk=.acceptance/connection-manager/connection-manager/build/outputs/apk/debug/connection-manager-debug.apk
+test -f "$manager_apk"
+adb install -r -t "$manager_apk"
 # Fresh Google emulator setup can create search/assistant windows over the
 # activity under test. This changes only the disposable CI emulator.
 adb shell pm disable-user --user 0 com.google.android.googlequicksearchbox || true
@@ -21,7 +25,7 @@ trap 'kill "$voice_log_pid" 2>/dev/null || true' EXIT
 # preflight blocks delivery; the full acceptance gate below is still required.
 timeout 120s adb shell am instrument -w -r -e jarvis_disposable_emulator true -e class com.assistant.core.ScreenControlAcceptanceTest com.assistant.core.test/androidx.test.runner.AndroidJUnitRunner > voice-screen-preflight.txt 2>&1
 cat voice-screen-preflight.txt
-grep -Eq 'OK \(4 tests\)' voice-screen-preflight.txt
+grep -Eq 'OK \(5 tests\)' voice-screen-preflight.txt
 set +e
 timeout 360s adb shell am instrument -w -r -e jarvis_disposable_emulator true com.assistant.core.test/androidx.test.runner.AndroidJUnitRunner > voice-regression-results.txt 2>&1 &
 voice_test_pid=$!
@@ -39,4 +43,4 @@ cat voice-regression-results.txt
 grep -E 'VoiceRegression|TestRunner|AndroidRuntime|sherpa|com.assistant.core' voice-regression-logcat.txt | tail -n 180 || true
 if [ "$voice_test_status" -ne 0 ]; then exit "$voice_test_status"; fi
 # am instrument can return exit zero even when a test failed.
-grep -Eq 'OK \(47 tests\)' voice-regression-results.txt
+grep -Eq 'OK \(49 tests\)' voice-regression-results.txt
