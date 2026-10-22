@@ -25,7 +25,8 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
         check(!requestExpired())
         val service = JarvisAccessibilityService.active() ?: error("Accessibility disconnected")
         if (locked()) return Capture(ScreenControls.Snapshot("locked", "Android", emptyList(), emptyList(), true), emptyMap(), emptyList())
-        if (Build.VERSION.SDK_INT >= 33) service.clearCache()
+        if (Build.VERSION.SDK_INT >= 33 && !service.clearCache()) throw ScreenCaptureRead.Changed()
+        val generation = service.screenGeneration
         val root = service.rootInActiveWindow ?: throw ScreenCaptureRead.Changed()
         val owned = mutableListOf(root)
         try {
@@ -51,12 +52,17 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
             var characters = 0
             var sensitive = false
             fun hash(value: String) { digest.update(value.toByteArray(Charsets.UTF_8)); digest.update(0.toByte()) }
-            hash(service.screenGeneration); hash(root.windowId.toString()); hash(pkg)
+            hash(generation); hash(root.windowId.toString()); hash(pkg)
             while (queue.isNotEmpty()) {
-                check(nodes.size < 300 && SystemClock.uptimeMillis() <= deadline && !requestExpired())
+                check(nodes.size < 300) { "Accessibility capture node limit" }
+                check(SystemClock.uptimeMillis() <= deadline && !requestExpired()) { "Accessibility capture deadline" }
                 val (path, node) = queue.removeFirst()
                 nodes[path] = node
-                if (!node.refresh()) throw ScreenCaptureRead.Changed()
+                // API 33+ cleared the entire service cache before obtaining this
+                // root. getChild returns that fresh hierarchy, including prefetched
+                // nodes; refreshing every child again causes redundant remote IPC
+                // and can exhaust the bounded read on a cold Compose screen.
+                if (Build.VERSION.SDK_INT < 33 && !node.refresh()) throw ScreenCaptureRead.Changed()
                 if (!node.isVisibleToUser) continue
                 val variation = node.inputType and InputType.TYPE_MASK_VARIATION
                 val password = node.isPassword || ((node.inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_TEXT &&
@@ -111,6 +117,8 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                 val headingPath = (sameSection.ifEmpty { preceding }).maxByOrNull { boundsByPath.getValue(it).top }
                 control.copy(contextLabel = display(parentLabel ?: headingPath?.let { headings[it] }.orEmpty(), 100))
             }
+            if (service.screenGeneration != generation) throw ScreenCaptureRead.Changed()
+            check(SystemClock.uptimeMillis() <= deadline && !requestExpired()) { "Accessibility capture deadline" }
             val snapshot = ScreenControls.Snapshot(digest.digest().joinToString("") { "%02x".format(it) }, pkg,
                 if (sensitive) emptyList() else labelled, if (sensitive) emptyList() else text.distinct(), sensitive,
                 appLabel, if (sensitive) emptyList() else headings.values.distinct().take(20))
