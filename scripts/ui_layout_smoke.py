@@ -188,6 +188,15 @@ try:
         assert any(n.get('resource-id') == 'com.assistant.core:id/' + section
                    for n in hierarchy().iter('node')), f'{label} screen did not open'
         capture(name)
+        # Every utility destination must be escapable without killing the app.
+        # Android Back must restore the conversation, not trap the user in a tab.
+        adb('shell', 'input', 'keyevent', '4')
+        time.sleep(1)
+        assert any(
+            n.get('resource-id') == 'com.assistant.core:id/etCommandInput'
+            for n in hierarchy().iter('node')
+        ), f'{label} trapped the user: Android Back did not restore Chat'
+        capture(name + '-back-to-chat')
     # Relaunch the existing entry activity to return to Chat; retain app data.
     adb('shell', 'am', 'force-stop', 'com.assistant.core')
     adb('shell', 'am', 'start', '-n', 'com.assistant.core/.MainActivity')
