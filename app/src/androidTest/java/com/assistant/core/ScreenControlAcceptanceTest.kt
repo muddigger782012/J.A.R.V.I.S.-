@@ -161,6 +161,11 @@ class ScreenControlAcceptanceTest {
             assertTrue(protected, protected.contains("password-entry")); assertFalse(protected.contains("private-fixture-password"))
             assertTrue(remote("tap Practice button").contains("protected"))
             scenario.onActivity { assertEquals(2, it.tapCount) }
+            if (android.os.Build.VERSION.SDK_INT >= 34) {
+                scenario.onActivity { it.showSensitiveContent() }; instrumentation.waitForIdleSync(); settled()
+                val marked = remote("read my screen")
+                assertTrue(marked, marked.contains("protected")); assertFalse(marked.contains("private-fixture-sensitive-content"))
+            }
         }
     }
 
@@ -238,7 +243,7 @@ class ScreenControlAcceptanceTest {
         launchFixture().use {
             instrumentation.waitForIdleSync(); settled()
             val discovery = AppDiscovery(AndroidInstalledApps(context), open = { action ->
-                val intent = context.packageManager.getLaunchIntentForPackage(action.entities.getValue("package"))!!
+                val intent = context.packageManager.getLaunchIntentForPackage(action.parameters.getValue("package"))!!
                 context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 "Requested the reviewed Connection Manager launcher"
             })

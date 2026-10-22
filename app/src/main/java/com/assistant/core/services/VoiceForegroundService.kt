@@ -283,7 +283,7 @@ class VoiceForegroundService : Service() {
                                 liveHandler.post {
                                     if (liveChatActive && liveSession.response(turn)) {
                                         if (reply.screenContextKey != null && screenAccess.taskState().contextKey != reply.screenContextKey) {
-                                            nextLiveTurn(650L); return@post
+                                            liveSession.speechFinished(); nextLiveTurn(650L); return@post
                                         }
                                         liveLine("J.A.R.V.I.S.: ${reply.text}")
                                         speakLiveReply(reply.text)
@@ -407,6 +407,7 @@ class VoiceForegroundService : Service() {
                     voiceSession.transcriptReady(heard)
                 }
             },
+            onCaptureFinished = { if (!liveChatActive) voiceSession.responseFinished(keepArmed = pipelineStarted) },
             onSpeechStarted = {
                 publishEvent("Voice diagnostic: spoken response playback started.")
                 voiceSession.speaking()
@@ -514,7 +515,9 @@ class VoiceForegroundService : Service() {
             liveHandler.post {
                 if (generation != responseGeneration || !pipelineStarted || practiceToken != null || liveChatActive) return@post
                 val scope = reply.screenContextKey
-                if (scope != null && screenAccess.taskState().contextKey != scope) return@post
+                if (scope != null && screenAccess.taskState().contextKey != scope) {
+                    voiceSession.responseFinished(keepArmed = true); voiceService.rearmAfterResponse(); return@post
+                }
                 spokenScreenContext = scope
                 followUpScreen = scope != null && scope.isNotBlank()
                 publishEvent("Voice diagnostic: live assistant response received (${reply.text.length} characters).")

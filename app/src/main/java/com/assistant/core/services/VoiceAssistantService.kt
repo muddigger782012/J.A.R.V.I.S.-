@@ -28,7 +28,8 @@ class VoiceAssistantService(
     private val onHotwordDetected: () -> Unit,
     private val onCommandDetected: (VoiceRecognitionResult) -> Unit,
     private val onSpeechStarted: () -> Unit = {},
-    private val onSpeechFinished: () -> Unit = {}
+    private val onSpeechFinished: () -> Unit = {},
+    private val onCaptureFinished: () -> Unit = {}
 ) : RecognitionListener, TextToSpeech.OnInitListener {
 
     private enum class RecognitionMode {
@@ -48,6 +49,7 @@ class VoiceAssistantService(
     private var listeningWithSpeechRecognizer = false
     private var speechRecognizer: SpeechRecognizer? = null
     private val captures = RecognitionCaptureGate()
+    private var captureToken = 0L
     private val screenAccess by lazy { ScreenAccessClient(context) }
     private var captureScreenScope = ""
     private var onDeviceCapture = false
@@ -135,6 +137,7 @@ class VoiceAssistantService(
     }
 
     fun startHotwordLoop() {
+        resetRecognition()
         commandFromWake = false
         voiceActive = true
         mode = RecognitionMode.FALLBACK_SPEECH_HOTWORD
@@ -338,6 +341,7 @@ class VoiceAssistantService(
                 }
             }
         }
+        onCaptureFinished()
     }
 
     override fun onResults(results: Bundle?) {
@@ -354,6 +358,7 @@ class VoiceAssistantService(
         if (mode != RecognitionMode.FALLBACK_SPEECH_HOTWORD) return
         val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
         if (containsWakeWord(partial)) {
+            captures.cancel()
             speechRecognizer?.cancel()
             listeningWithSpeechRecognizer = false
             onWakeWordDetected()
@@ -438,6 +443,7 @@ class VoiceAssistantService(
     private fun startCommandListening() {
         if (!isRecognitionAvailable()) {
             onStatus("Speech recognition is unavailable for command capture.")
+            onCaptureFinished()
             resumeHotwordEngineAfterCommand()
             return
         }
@@ -470,7 +476,9 @@ class VoiceAssistantService(
         if (!voiceActive) return
         val command = matches.firstOrNull { it.isNotBlank() }?.trim().orEmpty()
         if (command.isNullOrBlank()) {
-            onStatus("No command detected after hotword.")
+            onStatus("No command detected. Push-to-talk ended.")
+            if (commandFromWake) { commandFromWake = false; resumeHotwordEngineAfterCommand() }
+            onCaptureFinished()
         } else if (context.packageName == "com.assistant.core" &&
             !VoiceScreenApprovalScope.valid(command, captureScreenScope, screenAccess.voiceScope())) {
             onStatus("Screen review changed during voice capture; confirmation discarded.")
@@ -512,6 +520,7 @@ class VoiceAssistantService(
         val recognizer = if (onDeviceCapture) SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
             else SpeechRecognizer.createSpeechRecognizer(context)
         val token = captures.begin()
+        captureToken = token
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) { if (captures.valid(token)) this@VoiceAssistantService.onReadyForSpeech(params) }
             override fun onBeginningOfSpeech() { if (captures.valid(token)) this@VoiceAssistantService.onBeginningOfSpeech() }
@@ -545,6 +554,7 @@ class VoiceAssistantService(
         if (!voiceActive || listeningWithSpeechRecognizer) return
         val recognizer = runCatching { createRecognizer(preferOffline) }.getOrElse {
             onStatus("Command capture could not start. Check microphone permission and your speech recognizer.")
+            onCaptureFinished()
             if (commandFromWake) { commandFromWake = false; resumeHotwordEngineAfterCommand() }
             return
         }
@@ -562,6 +572,13 @@ class VoiceAssistantService(
         try { recognizer.startListening(intent) } catch (_: Exception) {
             resetRecognition(); onError(SpeechRecognizer.ERROR_CLIENT); return
         }
+        val deadlineToken = captureToken
+        mainHandler.postDelayed({
+            if (captures.finish(deadlineToken)) {
+                runCatching { speechRecognizer?.cancel() }
+                onError(SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
+            }
+        }, 20_000L)
         if (mode == RecognitionMode.FALLBACK_SPEECH_HOTWORD) {
             if (!fallbackStatusAnnounced) {
                 onStatus("Speech fallback hotword mode active.")

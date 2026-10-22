@@ -40,6 +40,7 @@ class AssistantResponseTurns {
     private val bound = ThreadLocal<Long>()
     fun begin(): Long = synchronized(lock) { ++sequence }
     fun current(token: Long): Boolean = synchronized(lock) { sequence == token }
+    fun bound(): Boolean = bound.get() != null
     fun current(): Boolean = bound.get()?.let(::current) ?: true
     fun cancel(clear: () -> Unit = {}) = synchronized(lock) { ++sequence; clear() }
     fun <T> inTurn(token: Long, block: () -> T): T {

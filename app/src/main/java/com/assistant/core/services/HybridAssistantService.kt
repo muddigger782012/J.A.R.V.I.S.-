@@ -104,6 +104,12 @@ class HybridAssistantService(
     }
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
+        if (responseTurns.bound()) return handleUserInputWithinCurrentTurn(rawInput)
+        val turn = responseTurns.begin()
+        return responseTurns.inTurn(turn) { handleUserInputWithinCurrentTurn(rawInput) }
+    }
+
+    private fun handleUserInputWithinCurrentTurn(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
         if (personalAssistant) {
             if (screenAccess.accepts(userInput)) return handleScreenInput(screenAccess.prepare(userInput))
@@ -1225,6 +1231,8 @@ class HybridAssistantService(
 
     /** Cancelling speech also invalidates late cloud interpretations and their proposed approvals. */
     fun cancelActiveResponse() = responseTurns.cancel { clearPendingActionPrompts() }
+    /** Microphone interruption may be the user's response to an already delivered approval. */
+    fun interruptActiveResponse() = responseTurns.cancel()
 
     private fun responseThread(turn: Long, block: () -> Unit) = Thread {
         responseTurns.inTurn(turn) { if (responseTurns.current()) block() }

@@ -50,6 +50,13 @@ class ScreenControlFixtureActivity : ThemedActivity() {
         })
         panel.addView(Button(this).apply { text = "Unavailable"; isEnabled = false })
     }
+    fun showSensitiveContent() {
+        page("Sensitive screen")
+        panel.addView(TextView(this).apply {
+            text = "private-fixture-sensitive-content"
+            if (android.os.Build.VERSION.SDK_INT >= 34) setAccessibilityDataSensitive(android.view.View.ACCESSIBILITY_DATA_SENSITIVE_YES)
+        })
+    }
     fun showPassword() {
         panel.addView(EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
