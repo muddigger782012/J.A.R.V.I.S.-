@@ -230,7 +230,10 @@ class MainActivity : ThemedActivity() {
     private var runningTerminalCommand: RunningShizukuCommand? = null
     private var updateInProgress = false
     private var pendingDownloadedUpdate: File? = null
-    private lateinit var nonChatExitButton: ImageButton
+    private lateinit var utilityNavigation: View
+    private lateinit var utilityBack: androidx.activity.OnBackPressedCallback
+    private var utilityHistory = MenuTabHistory()
+    private var updateChatBackAvailability: (Boolean) -> Unit = {}
     private var currentTabIndex = 0
     private var allowSwipeForCurrentTouch = true
     private var headerSelectionAnimator: ValueAnimator? = null
@@ -411,41 +414,24 @@ class MainActivity : ThemedActivity() {
             insets
         }
         setupTabs()
-        // Keep an exit affordance above all seven non-Chat panels, even after
-        // scrolling their contents or collapsing a section.
-        nonChatExitButton = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-            contentDescription = "Close menu and return to Chat"
-            setColorFilter(SettingsMenuViews.color(this@MainActivity, R.attr.jarvis_on_dark))
-            background = android.graphics.drawable.GradientDrawable().apply {
-                cornerRadius = resources.displayMetrics.density * 12f
-                setColor(ColorUtils.setAlphaComponent(
-                    SettingsMenuViews.color(this@MainActivity, R.attr.jarvis_primary), 220))
+        utilityHistory = if (intent.getBooleanExtra(MenuActivity.RETURN_TO_CHAT, false)) MenuTabHistory()
+            else MenuTabHistory(savedInstanceState?.getIntArray("utility_menu_history"))
+        intent.removeExtra(MenuActivity.RETURN_TO_CHAT)
+        utilityBack = object : androidx.activity.OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                showTab(utilityHistory.back(), animate = false, direction = -1, recordHistory = false)
             }
-            elevation = resources.displayMetrics.density * 8f
-            setOnClickListener { showTab(0, animate = false, direction = -1) }
         }
-        tabContainer.addView(nonChatExitButton, FrameLayout.LayoutParams(
-            (48 * resources.displayMetrics.density).toInt(),
-            (48 * resources.displayMetrics.density).toInt(),
-            android.view.Gravity.TOP or android.view.Gravity.END
-        ).apply {
-            val margin = (12 * resources.displayMetrics.density).toInt()
-            setMargins(margin, margin, margin, margin)
-        })
-        nonChatExitButton.visibility = View.GONE
-        onBackPressedDispatcher.addCallback(this,
-            object : androidx.activity.OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() {
-                    if (currentTabIndex != 0) {
-                        showTab(0, animate = false, direction = -1)
-                    } else {
-                        isEnabled = false
-                        onBackPressedDispatcher.onBackPressed()
-                        isEnabled = true
-                    }
-                }
+        onBackPressedDispatcher.addCallback(this, utilityBack)
+        utilityNavigation = SettingsMenuViews.navigation(this, "menu",
+            back = { utilityBack.handleOnBackPressed() }, close = {
+                utilityHistory.close()
+                showTab(0, animate = false, direction = -1, recordHistory = false)
             })
+        val titleView = findViewById<View>(R.id.tvScreenTitle)
+        val titleParent = titleView.parent as ViewGroup
+        titleParent.addView(utilityNavigation, titleParent.indexOfChild(titleView))
+        utilityNavigation.visibility = View.GONE
         val chatMenuButton = findViewById<ImageButton>(R.id.btnOpenJarvisChat)
         val chatHistoryShortcut = findViewById<ImageButton>(R.id.btnAssistantHistory)
         val chatMenuBackHandler = object : androidx.activity.OnBackPressedCallback(false) {
@@ -456,6 +442,9 @@ class MainActivity : ThemedActivity() {
             }
         }
         onBackPressedDispatcher.addCallback(this, chatMenuBackHandler)
+        updateChatBackAvailability = { chatVisible ->
+            chatMenuBackHandler.isEnabled = chatVisible && chatHistoryShortcut.visibility == View.VISIBLE
+        }
         chatMenuButton.setOnClickListener {
             val expanded = chatHistoryShortcut.visibility != View.VISIBLE
             chatHistoryShortcut.visibility = if (expanded) View.VISIBLE else View.GONE
@@ -556,6 +545,7 @@ class MainActivity : ThemedActivity() {
         updateMicrophonePermissionUi()
         if (!BetaIntroductionActivity.shouldShow(this)) promptForMicrophonePermissionOnFirstLaunch()
 
+        if (utilityHistory.current != 0) showTab(utilityHistory.current, animate = false, direction = 0, recordHistory = false)
         statusOutput.text = systemService.buildStatusSummary(capabilityState)
         refreshAuditDebugSection()
         if (savedInstanceState == null && BetaIntroductionActivity.shouldShow(this)) {
@@ -566,7 +556,11 @@ class MainActivity : ThemedActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleAssistantFeatureIntent(intent)
+        if (intent.getBooleanExtra(MenuActivity.RETURN_TO_CHAT, false)) {
+            intent.removeExtra(MenuActivity.RETURN_TO_CHAT)
+            utilityHistory.close()
+            showTab(0, animate = false, direction = -1, recordHistory = false)
+        } else handleAssistantFeatureIntent(intent)
     }
 
     private fun handleAssistantFeatureIntent(intent: Intent) {
@@ -688,7 +682,7 @@ class MainActivity : ThemedActivity() {
         showTab(0, animate = false, direction = 0)
     }
 
-    private fun showTab(index: Int, animate: Boolean, direction: Int) {
+    private fun showTab(index: Int, animate: Boolean, direction: Int, recordHistory: Boolean = true) {
         if (index !in tabSections.indices) return
         if (index == currentTabIndex && tabSections[index].visibility == View.VISIBLE &&
             tabSections[index].translationX == 0f && tabSections[index].alpha == 1f) {
@@ -696,10 +690,12 @@ class MainActivity : ThemedActivity() {
             return
         }
         val previousIndex = currentTabIndex
-        if (::nonChatExitButton.isInitialized) {
-            nonChatExitButton.visibility = if (index == 0) View.GONE else View.VISIBLE
-            nonChatExitButton.bringToFront()
+        if (previousIndex != 0) {
+            tabSections[previousIndex].findFocus()?.clearFocus()
+            (getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+                ?.hideSoftInputFromWindow(tabSections[previousIndex].windowToken, 0)
         }
+        if (recordHistory) utilityHistory.visit(index)
         // Keep Chat untouched: its navigation and transitions remain on the
         // established path until the non-Chat redesign is approved.
         if (index == 0 || previousIndex == 0) {
@@ -782,6 +778,9 @@ class MainActivity : ThemedActivity() {
 
     private fun updateHeaderSelection(index: Int) {
         headerSelectionAnimator?.cancel()
+        if (::utilityNavigation.isInitialized) utilityNavigation.visibility = if (index == 0) View.GONE else View.VISIBLE
+        if (::utilityBack.isInitialized) utilityBack.isEnabled = index != 0
+        updateChatBackAvailability(index == 0)
         val title = findViewById<TextView>(R.id.tvScreenTitle)
         title.text = listOf("", "Projects", "Device tools", "System", "Terminal", "Activity log", "Permissions", "Device administration")[index]
         title.visibility = if (index == 0) View.GONE else View.VISIBLE
@@ -1387,6 +1386,7 @@ class MainActivity : ThemedActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putIntArray("utility_menu_history", utilityHistory.save())
         super.onSaveInstanceState(outState)
         val array = JSONArray()
         pendingAttachments.forEach { array.put(JSONObject().put("name", it.name).put("mime", it.mime).put("path", it.file.absolutePath)) }
@@ -2568,6 +2568,9 @@ class MainActivity : ThemedActivity() {
     private fun showToolsAndSettingsMenu() {
         fun dp(value: Int) = SettingsMenuViews.dp(this, value)
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        lateinit var root: () -> Unit
+        var inGroup = false
+        val menu = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val surface = ScrollView(this).apply {
             setPadding(dp(4), dp(4), dp(4), dp(4))
             clipToOutline = true
@@ -2581,26 +2584,33 @@ class MainActivity : ThemedActivity() {
         val frame = Rect().also { settingsButton.getWindowVisibleDisplayFrame(it) }
         val location = IntArray(2).also { settingsButton.getLocationOnScreen(it) }
         val availableHeight = (frame.bottom - location[1] - settingsButton.height - dp(16)).coerceAtLeast(dp(48))
-        val popup = android.widget.PopupWindow(surface, minOf(dp(288), (frame.width() - dp(24)).coerceAtLeast(dp(160))),
+        val popup = android.widget.PopupWindow(menu, minOf(dp(288), (frame.width() - dp(24)).coerceAtLeast(dp(160))),
             minOf(dp(420), availableHeight), true).apply {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
             isOutsideTouchable = true; elevation = dp(10).toFloat()
             inputMethodMode = android.widget.PopupWindow.INPUT_METHOD_NOT_NEEDED
         }
+        menu.addView(SettingsMenuViews.navigation(this, "tools and settings", back = {
+            if (inGroup) root() else popup.dismiss()
+        }, close = {
+            popup.dismiss()
+            utilityHistory.close()
+            showTab(0, animate = false, direction = -1, recordHistory = false)
+        }))
+        menu.addView(surface, LinearLayout.LayoutParams(-1, 0, 1f))
         fun resize() {
-            surface.measure(View.MeasureSpec.makeMeasureSpec(popup.width, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(availableHeight, View.MeasureSpec.AT_MOST))
-            if (popup.isShowing) popup.update(popup.width, surface.measuredHeight)
-            else popup.height = surface.measuredHeight
+            menu.measure(View.MeasureSpec.makeMeasureSpec(popup.width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(minOf(dp(420), availableHeight), View.MeasureSpec.AT_MOST))
+            if (popup.isShowing) popup.update(popup.width, menu.measuredHeight)
+            else popup.height = menu.measuredHeight
         }
         fun row(label: String, icon: Int = R.drawable.ic_composer_tools, action: () -> Unit) {
             panel.addView(SettingsMenuViews.row(this, label, icon = icon, action = action))
         }
         fun tab(label: String, index: Int) { row(label) { popup.dismiss(); showTab(index, animate = true, direction = 1) } }
-        lateinit var root: () -> Unit
         fun group(title: String, contents: () -> Unit) {
+            inGroup = true
             panel.removeAllViews()
-            row("Back", R.drawable.ic_search_open) { root() }
             panel.addView(SettingsMenuViews.heading(this, title))
             contents()
             FontPreferences.applyTo(surface, this)
@@ -2608,6 +2618,7 @@ class MainActivity : ThemedActivity() {
             resize()
         }
         root = {
+            inGroup = false
             panel.removeAllViews()
             row("Settings", R.drawable.ic_tools_settings) {
                 popup.dismiss()

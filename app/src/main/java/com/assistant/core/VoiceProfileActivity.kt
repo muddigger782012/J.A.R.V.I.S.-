@@ -25,7 +25,7 @@ import java.util.Locale
 import java.util.UUID
 
 /** Calibration results stay here. Nothing is sent to the assistant or action engine. */
-class VoiceProfileActivity : ThemedActivity() {
+class VoiceProfileActivity : MenuActivity("My voice profile", R.id.voiceProfileBack) {
     private val handler = Handler(Looper.getMainLooper())
     private val store by lazy { VoiceProfileStore(filesDir) }
     private val capture by lazy { LiveSpeechCapture(this) }

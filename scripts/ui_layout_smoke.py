@@ -188,6 +188,40 @@ try:
         assert any(n.get('resource-id') == 'com.assistant.core:id/' + section
                    for n in hierarchy().iter('node')), f'{label} screen did not open'
         capture(name)
+        # Every utility destination must be escapable without killing the app.
+        # Android Back must restore the conversation, not trap the user in a tab.
+        adb('shell', 'input', 'keyevent', '4')
+        time.sleep(1)
+        assert any(
+            n.get('resource-id') == 'com.assistant.core:id/etCommandInput'
+            for n in hierarchy().iter('node')
+        ), f'{label} trapped the user: Android Back did not restore Chat'
+        capture(name + '-back-to-chat')
+        # Close is a separate user path and must stay outside the scroll content.
+        tap('btnVoiceSettings')
+        tap_text(group)
+        tap_text(label)
+        assert any(n.get('resource-id') == 'com.assistant.core:id/menuPageBack'
+                   for n in hierarchy().iter('node')), f'{label} has no visible Back control'
+        tap('menuPageClose')
+        assert any(n.get('resource-id') == 'com.assistant.core:id/etCommandInput'
+                   for n in hierarchy().iter('node')), f'{label} Close did not restore Chat'
+    # Navigation history must return to the previous utility panel, then Close
+    # clears that trail and restores the existing conversation.
+    tap('btnVoiceSettings'); tap_text('Tools'); tap_text('Projects')
+    tap('btnVoiceSettings'); tap_text('Tools'); tap_text('Terminal')
+    tap('menuPageBack')
+    assert any(n.get('resource-id') == 'com.assistant.core:id/tabProjectSection'
+               for n in hierarchy().iter('node')), 'Back did not restore the previous utility page'
+    tap('menuPageClose')
+    assert any(n.get('resource-id') == 'com.assistant.core:id/etCommandInput'
+               for n in hierarchy().iter('node')), 'Close retained a utility page'
+    # Root/group popup controls must also offer an exit and a route to their parent.
+    tap('btnVoiceSettings'); tap_text('Support'); tap('menuPageBack')
+    assert any(n.get('text', '').strip() == 'Settings' for n in hierarchy().iter('node')), 'Support Back did not restore the root menu'
+    tap('menuPageClose')
+    assert any(n.get('resource-id') == 'com.assistant.core:id/etCommandInput'
+               for n in hierarchy().iter('node')), 'Root menu Close did not restore Chat'
     # Relaunch the existing entry activity to return to Chat; retain app data.
     adb('shell', 'am', 'force-stop', 'com.assistant.core')
     adb('shell', 'am', 'start', '-n', 'com.assistant.core/.MainActivity')

@@ -102,7 +102,7 @@ object UnifiedMenuSection {
      * callers may update labels, enabled state, visibility or click handlers
      * after screen creation, and the original control must remain operable.
      */
-    fun compactActions(scroll: ScrollView) {
+    fun compactActions(scroll: View) {
         val context = scroll.context
         val accent = SettingsMenuViews.color(context, R.attr.jarvis_primary)
         val foreground = SettingsMenuViews.color(context, R.attr.jarvis_on_dark)
@@ -119,14 +119,11 @@ object UnifiedMenuSection {
                     SettingsMenuViews.dp(context, 12)
                 )
                 view.setTextColor(foreground)
-                val surface = GradientDrawable().apply {
-                    cornerRadius = SettingsMenuViews.dp(context, 12).toFloat()
-                    setColor(ColorUtils.setAlphaComponent(accent, 24))
-                    setStroke(SettingsMenuViews.dp(context, 1), ColorUtils.setAlphaComponent(accent, 100))
-                }
+                // Keep each real Button and its dynamic state/listeners. Settings
+                // uses quiet rows within a shared panel instead of individual pills.
                 view.background = android.graphics.drawable.RippleDrawable(
                     android.content.res.ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 65)),
-                    surface,
+                    null,
                     null
                 )
                 view.layoutParams?.let { params ->
@@ -151,6 +148,8 @@ object UnifiedMenuSection {
     ): LinearLayout {
         val section = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.glass_panel_surface)
+            UnifiedContentPanel.apply(this)
         }
         content.visibility = if (initiallyExpanded) View.VISIBLE else View.GONE
         lateinit var header: View

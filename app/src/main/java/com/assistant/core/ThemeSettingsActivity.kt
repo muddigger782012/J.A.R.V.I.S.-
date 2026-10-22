@@ -4,7 +4,7 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
 
-class ThemeSettingsActivity : ThemedActivity() {
+class ThemeSettingsActivity : MenuActivity("Themes", R.id.btnCloseThemes) {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_themes)

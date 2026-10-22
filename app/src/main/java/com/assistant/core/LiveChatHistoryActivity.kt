@@ -13,7 +13,7 @@ import com.assistant.core.services.LiveChatStore
 import com.assistant.core.services.VoiceResponsePreferences
 import com.google.android.material.button.MaterialButton
 
-class LiveChatHistoryActivity : ThemedActivity() {
+class LiveChatHistoryActivity : MenuActivity("Live chat history", R.id.btnCloseLiveHistory) {
     private lateinit var content: LinearLayout
     private var selectedSession: String? = null
 

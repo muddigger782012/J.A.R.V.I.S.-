@@ -281,7 +281,16 @@ class ScreenControlAcceptanceTest {
                     screen.text.any { text -> text.contains("NOT TESTED") }
             }.getOrDefault(false) }
             val managerRead = remote("read my screen")
-            assertTrue("Expected Connection Manager content from remote voice bridge, got: $managerRead; screen=${AndroidScreenPlatform(context).snapshot()}", managerRead.contains("CONNECTION MANAGER"))
+            assertTrue("Expected Connection Manager content from remote voice bridge, got: $managerRead", managerRead.contains("CONNECTION MANAGER"))
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                val service = requireNotNull(JarvisAccessibilityService.active())
+                val caching = service.isCacheEnabled
+                try {
+                    assertTrue(service.setCacheEnabled(false))
+                    val withoutCache = remote("read my screen")
+                    assertTrue("Disabled caching must retain the supported fresh-node read: $withoutCache", withoutCache.contains("CONNECTION MANAGER"))
+                } finally { service.setCacheEnabled(caching) }
+            }
             assertFalse(ScreenAccessClient(context).taskState().active)
         }
     }

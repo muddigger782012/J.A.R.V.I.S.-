@@ -10,7 +10,7 @@ import com.assistant.core.services.VoiceConfig
 import com.assistant.core.services.VoicePreferences
 import com.google.android.material.switchmaterial.SwitchMaterial
 
-class VoiceSettingsActivity : ThemedActivity() {
+class VoiceSettingsActivity : MenuActivity("Wake word and listening", R.id.btnCloseVoiceSettings) {
 
     private lateinit var voicePreferences: VoicePreferences
 

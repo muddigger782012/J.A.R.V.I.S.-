@@ -14,6 +14,40 @@ import androidx.core.graphics.ColorUtils
 
 /** Compact, wrapping menu rows with theme-owned colors and ordinary touch targets. */
 object SettingsMenuViews {
+    /** Persistent, opaque themed navigation, outside scrolling or expandable content. */
+    fun navigation(context: Context, page: String, back: () -> Unit, close: () -> Unit, originalBack: View? = null): View = LinearLayout(context).apply {
+        id = R.id.menuPageNavigation
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(context, 12), dp(context, 4), dp(context, 12), dp(context, 4))
+        background = android.graphics.drawable.GradientDrawable().apply {
+            val corner = TypedValue(); context.theme.resolveAttribute(R.attr.jarvis_corner, corner, true)
+            cornerRadius = corner.getDimension(context.resources.displayMetrics)
+            setColor(ColorUtils.compositeColors(color(context, R.attr.jarvis_surface_glass_strong), color(context, R.attr.jarvis_bg_deep)))
+            setStroke(dp(context, 1), color(context, R.attr.jarvis_panel_stroke))
+        }
+        fun button(label: String, id: Int, icon: Int, action: () -> Unit, existing: View? = null): View {
+            val view = existing ?: android.view.LayoutInflater.from(context)
+                .inflate(R.layout.menu_navigation_button, null).apply { this.id = id }
+            view.contentDescription = if (label == "Back") "Back to previous screen" else "Close $page and return to Chat"
+            view.minimumHeight = dp(context, 48)
+            if (view is TextView) {
+                view.text = label
+                view.setTextColor(color(context, R.attr.jarvis_on_dark))
+                view.setPadding(dp(context, 12), dp(context, 8), dp(context, 12), dp(context, 8))
+                val drawable = ContextCompat.getDrawable(context, icon)?.mutate()
+                drawable?.setTint(color(context, R.attr.jarvis_primary))
+                view.setCompoundDrawablesWithIntrinsicBounds(drawable, null, null, null)
+                view.compoundDrawablePadding = dp(context, 6)
+            }
+            if (existing == null) view.setOnClickListener { action() }
+            return view
+        }
+        addView(button("Back", R.id.menuPageBack, R.drawable.ic_menu_back, back, originalBack), LinearLayout.LayoutParams(-2, -2))
+        addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
+        addView(button("Close", R.id.menuPageClose, R.drawable.ic_menu_close, close), LinearLayout.LayoutParams(-2, -2))
+        FontPreferences.applyTo(this, context)
+    }
     fun dp(context: Context, value: Int) = (value * context.resources.displayMetrics.density + .5f).toInt()
     fun color(context: Context, attr: Int): Int {
         val value = TypedValue()
