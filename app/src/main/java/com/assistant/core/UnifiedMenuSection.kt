@@ -22,7 +22,14 @@ object UnifiedMenuSection {
         val originalParams = existing.layoutParams
         scroll.removeView(existing)
         val wrapper = create(scroll.context, title, detail, icon, existing, initiallyExpanded = true)
-        scroll.addView(wrapper, originalParams)
+        // ScrollView measures its direct child as a full-width container. Do
+        // not reuse the original child's weighted/zero-height layout params.
+        scroll.addView(wrapper, ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        // Preserve the original content's sizing within the new section.
+        existing.layoutParams = originalParams
     }
 
     /**
