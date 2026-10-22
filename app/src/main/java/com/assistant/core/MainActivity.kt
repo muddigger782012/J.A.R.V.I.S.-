@@ -338,9 +338,16 @@ class MainActivity : ThemedActivity() {
         UnifiedMenuSection.install(findViewById(R.id.tabDhizukuSection), "Device administration", "Delegated access and controls", R.drawable.ic_tools_settings)
         // Subsections reuse existing controls, IDs, and listeners without changing behavior.
         UnifiedMenuSection.group(
+            findViewById(R.id.tabProjectSection),
+            listOf(
+                Triple(R.id.btnCreateProject, "Project workspace", "Create and manage local projects")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
             findViewById(R.id.tabStatusSection),
             listOf(
                 Triple(R.id.btnShowStatus, "Capability status", "Inspect system capabilities"),
+                Triple(R.id.tvStatusOutput, "Diagnostic results", "Read current system information"),
                 Triple(R.id.btnAutoUpgradeApp, "App updates", "Check and install a newer build")
             ), R.drawable.ic_jarvis_core
         )
