@@ -151,6 +151,43 @@ try:
     time.sleep(1)
     adb('shell', 'input', 'keyevent', '4')
     time.sleep(1)
+    # Capture each redesigned native menu without altering the Chat layout.
+    # The header is horizontally scrollable; locate buttons by resource ID,
+    # then swipe the header strip until each destination is visible.
+    menu_tabs = [
+        ('projects', 'btnHeaderProject'),
+        ('shizuku', 'btnHeaderShizuku'),
+        ('diagnostics', 'btnHeaderStatus'),
+        ('terminal', 'btnHeaderTerminal'),
+        ('activity-log', 'btnHeaderAudit'),
+        ('permissions', 'btnHeaderPermissions'),
+        ('device-admin', 'btnHeaderDhizuku'),
+    ]
+    for name, identifier in menu_tabs:
+        opened = False
+        for attempt in range(10):
+            target = next((n for n in hierarchy().iter('node')
+                if n.get('resource-id') == 'com.assistant.core:id/' + identifier), None)
+            if target is not None:
+                coords = list(map(int, re.findall(r'\\d+', target.get('bounds', ''))))
+                if len(coords) == 4 and coords[2] > coords[0] and coords[3] > coords[1]:
+                    adb('shell', 'input', 'tap', str((coords[0]+coords[2])//2),
+                        str((coords[1]+coords[3])//2))
+                    time.sleep(1)
+                    capture(name)
+                    opened = True
+                    break
+            adb('shell', 'input', 'swipe',
+                '900' if attempt < 5 else '150', '130',
+                '150' if attempt < 5 else '900', '130', '350')
+            time.sleep(0.4)
+        if not opened:
+            (output / (name + '-missing.txt')).write_text(
+                'Could not locate header control: ' + identifier)
+            print('Menu preview unavailable: ' + name, flush=True)
+    # Return to Chat only to complete the existing small-screen regression.
+    tap_scrolling('btnHeaderAssistant')
+    time.sleep(1)
     adb('shell', 'wm', 'size', '720x1280')
     adb('shell', 'wm', 'density', '360')  # 320dp width
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1.3')

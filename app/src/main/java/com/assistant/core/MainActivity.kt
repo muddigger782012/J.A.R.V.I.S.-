@@ -338,9 +338,16 @@ class MainActivity : ThemedActivity() {
         UnifiedMenuSection.install(findViewById(R.id.tabDhizukuSection), "Device administration", "Delegated access and controls", R.drawable.ic_tools_settings)
         // Subsections reuse existing controls, IDs, and listeners without changing behavior.
         UnifiedMenuSection.group(
+            findViewById(R.id.tabProjectSection),
+            listOf(
+                Triple(R.id.btnCreateProject, "Project workspace", "Create and manage local projects")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
             findViewById(R.id.tabStatusSection),
             listOf(
                 Triple(R.id.btnShowStatus, "Capability status", "Inspect system capabilities"),
+                Triple(R.id.tvStatusOutput, "Diagnostic results", "Read current system information"),
                 Triple(R.id.btnAutoUpgradeApp, "App updates", "Check and install a newer build")
             ), R.drawable.ic_jarvis_core
         )
@@ -353,34 +360,28 @@ class MainActivity : ThemedActivity() {
             ), R.drawable.ic_composer_tools
         )
         UnifiedMenuSection.group(
-            findViewById(R.id.tabShizukuSection),
-            listOf(
-                Triple(R.id.tvShizukuRuntimeStatus, "Connection status", "Shizuku runtime and authorization"),
-                Triple(R.id.btnRefreshShizukuStatus, "Connection controls", "Refresh, launch and authorize"),
-                Triple(R.id.etShizukuCommand, "Command execution", "Run supported Shizuku commands")
-            ), R.drawable.ic_composer_tools
-        )
-        UnifiedMenuSection.group(
             findViewById(R.id.tabAuditSection),
             listOf(
-                Triple(R.id.etAuditLimit, "Log filters", "Limit and filter activity records"),
+                Triple(R.id.etAuditLimit, "Activity filters", "Choose record limit, status and adapter"),
                 Triple(R.id.btnAuditRefresh, "Log actions", "Refresh, copy and clear the view"),
-                Triple(R.id.tvAuditDebugOutput, "Activity output", "Inspect recorded events")
+                Triple(R.id.tvAuditDebugOutput, "Recorded activity", "Inspect logged events")
             ), R.drawable.ic_composer_tools
         )
         UnifiedMenuSection.group(
             findViewById(R.id.tabDhizukuSection),
             listOf(
                 Triple(R.id.btnRefreshPrivileges, "Delegated access", "Inspect and request administrator scopes"),
-                Triple(R.id.switchCameraDisabled, "Device policies", "Manage camera, capture and application restrictions"),
-                Triple(R.id.etLockScreenMessage, "Security actions", "Lock-screen message, package policy and device actions")
+                Triple(R.id.switchCameraDisabled, "Device restrictions", "Manage camera, capture and application restrictions"),
+                Triple(R.id.etLockScreenMessage, "Security and lock screen", "Configure lock-screen messaging"),
+                Triple(R.id.etPolicyPackageName, "Application policy", "Manage package restrictions and device actions")
             ), R.drawable.ic_tools_settings
         )
         UnifiedMenuSection.group(
             findViewById(R.id.tabPermissionsSection),
             listOf(
-                Triple(R.id.btnRequestAllRuntimePermissions, "Permission requests", "Grant required access"),
-                Triple(R.id.btnOpenOverlayPermission, "Special permissions", "Configure Android access"),
+                Triple(R.id.btnRequestAllRuntimePermissions, "Runtime permissions", "Request Android runtime access"),
+                Triple(R.id.btnRequestAllSpecialPermissions, "Special access overview", "Request elevated Android capabilities"),
+                Triple(R.id.btnOpenOverlayPermission, "Individual access controls", "Open overlay, files, usage and accessibility settings"),
                 Triple(R.id.tvSpecialPermissionsStatus, "Permission status", "Review granted permissions")
             ), R.drawable.ic_tools_settings
         )
@@ -653,11 +654,28 @@ class MainActivity : ThemedActivity() {
 
     private fun showTab(index: Int, animate: Boolean, direction: Int) {
         if (index !in tabSections.indices) return
-        if (index == currentTabIndex && tabSections[index].visibility == View.VISIBLE) {
+        if (index == currentTabIndex && tabSections[index].visibility == View.VISIBLE &&
+            tabSections[index].translationX == 0f && tabSections[index].alpha == 1f) {
             updateHeaderSelection(index)
             return
         }
         val previousIndex = currentTabIndex
+        // Keep Chat untouched: its navigation and transitions remain on the
+        // established path until the non-Chat redesign is approved.
+        if (index == 0 || previousIndex == 0) {
+            currentTabIndex = index
+            tabSections.forEachIndexed { i, view ->
+                view.animate().cancel()
+                view.translationX = 0f
+                view.alpha = 1f
+                view.visibility = if (i == index) View.VISIBLE else View.GONE
+            }
+            updateHeaderSelection(index)
+            return
+        }
+        // A fast second tap must not leave a previously animated tab visible or
+        // allow an old animation callback to hide the newly selected page.
+        tabSections.forEach { it.animate().cancel() }
         currentTabIndex = index
         if (animate && previousIndex in tabSections.indices && previousIndex != index) {
             animateTabTransition(fromIndex = previousIndex, toIndex = index, direction = direction)
@@ -703,7 +721,7 @@ class MainActivity : ThemedActivity() {
             .setDuration(TAB_TRANSITION_DURATION_MS)
             .setInterpolator(AccelerateDecelerateInterpolator())
             .withEndAction {
-                fromView.visibility = View.GONE
+                if (currentTabIndex != fromIndex) fromView.visibility = View.GONE
                 fromView.translationX = 0f
                 fromView.alpha = 1f
             }
