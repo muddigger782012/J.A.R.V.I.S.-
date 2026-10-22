@@ -90,3 +90,7 @@
 # Screen semantics and task notification APIs used by the separate acceptance APK.
 -keep,allowoptimization class com.assistant.core.services.ScreenSemantics** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ScreenTaskNotifications** { public *; }
+
+# Connectivity bridge acceptance uses standard Android API observations and reviewed app choices.
+-keep,allowoptimization class com.assistant.core.services.ConnectionAssistance** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AndroidConnectionAssistance** { public *; }

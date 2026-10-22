@@ -115,6 +115,14 @@ class HybridAssistantService(
                     intelligencePrefs.getBoolean("provider_fallback", true), directOnlineClient.hasGeminiKey(),
                     fallbackAiClient.isConfigured(), intelligencePrefs.getString("gemini_model", "gemini-3.5-flash-lite").orEmpty()))
             }
+            ConnectionAssistance.parse(userInput)?.let { command ->
+                clearPendingActionPrompts()
+                taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+                if (command != ConnectionAssistance.Kind.MANAGER) appDiscovery.discard()
+                return HybridAssistantReply(ConnectionAssistance.reply(command,
+                    AndroidConnectionAssistance(systemService.context()) { appDiscovery.find(ConnectionAssistance.MANAGER_PACKAGE) }))
+            }
             val appCommand = AppDiscovery.parse(userInput)
             if (appCommand != null) {
                 clearPendingActionPrompts()
@@ -1239,7 +1247,7 @@ class HybridAssistantService(
         }
         if (personalAssistant) screenAccess.discard()
         if (personalAssistant && AppDiscovery.parse(rawInput) == null) appDiscovery.discard()
-        if (personalAssistant && (IntelligenceRouting.isStatus(rawInput) || DeviceReport.command(rawInput) != null || AppDiscovery.parse(rawInput) != null)) {
+        if (personalAssistant && (IntelligenceRouting.isStatus(rawInput) || ConnectionAssistance.parse(rawInput) != null || DeviceReport.command(rawInput) != null || AppDiscovery.parse(rawInput) != null)) {
             callback(handleUserInput(rawInput)); return
         }
         if (personalAssistant && GoalAppCorrections.contextual(rawInput) != null &&

@@ -234,4 +234,28 @@ class ScreenControlAcceptanceTest {
             settled(); assertTrue(remote("continue screen task").contains("Verified the requested visible screen text"))
         }
     }
+    @Test fun separateConnectionManagerLauncherAndScreenRemainUsableWithoutAutomaticProviderProbes(): Unit = withAccess(true) {
+        launchFixture().use {
+            instrumentation.waitForIdleSync(); settled()
+            val discovery = AppDiscovery(AndroidInstalledApps(context), open = { action ->
+                val intent = context.packageManager.getLaunchIntentForPackage(action.entities.getValue("package"))!!
+                context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                "Requested the reviewed Connection Manager launcher"
+            })
+            val bridge = AndroidConnectionAssistance(context) { discovery.find(ConnectionAssistance.MANAGER_PACKAGE) }
+            val review = ConnectionAssistance.reply(ConnectionAssistance.Kind.MANAGER, bridge)
+            assertTrue(review, review.contains("separate app"))
+            assertTrue(review, review.contains(ConnectionAssistance.MANAGER_PACKAGE))
+            assertEquals(context.packageName, AndroidScreenPlatform(context).snapshot().packageName)
+            assertTrue(discovery.reply(AppDiscovery.Command(AppDiscovery.Kind.OPEN_CHOICE, number = 1)).contains("Requested"))
+            waitUntil { runCatching {
+                val screen = AndroidScreenPlatform(context).snapshot()
+                screen.packageName == ConnectionAssistance.MANAGER_PACKAGE && !screen.blocked &&
+                    screen.text.any { text -> text.contains("CONNECTION MANAGER") } &&
+                    screen.text.any { text -> text.contains("NOT TESTED") }
+            }.getOrDefault(false) }
+            assertTrue(remote("read my screen").contains("CONNECTION MANAGER"))
+            assertFalse(ScreenAccessClient(context).taskState().active)
+        }
+    }
 }
