@@ -362,17 +362,18 @@ class MainActivity : ThemedActivity() {
         UnifiedMenuSection.group(
             findViewById(R.id.tabAuditSection),
             listOf(
-                Triple(R.id.etAuditLimit, "Log filters", "Limit and filter activity records"),
+                Triple(R.id.etAuditLimit, "Activity filters", "Choose record limit, status and adapter"),
                 Triple(R.id.btnAuditRefresh, "Log actions", "Refresh, copy and clear the view"),
-                Triple(R.id.tvAuditDebugOutput, "Activity output", "Inspect recorded events")
+                Triple(R.id.tvAuditDebugOutput, "Recorded activity", "Inspect logged events")
             ), R.drawable.ic_composer_tools
         )
         UnifiedMenuSection.group(
             findViewById(R.id.tabDhizukuSection),
             listOf(
                 Triple(R.id.btnRefreshPrivileges, "Delegated access", "Inspect and request administrator scopes"),
-                Triple(R.id.switchCameraDisabled, "Device policies", "Manage camera, capture and application restrictions"),
-                Triple(R.id.etLockScreenMessage, "Security actions", "Lock-screen message, package policy and device actions")
+                Triple(R.id.switchCameraDisabled, "Device restrictions", "Manage camera, capture and application restrictions"),
+                Triple(R.id.etLockScreenMessage, "Security and lock screen", "Configure lock-screen messaging"),
+                Triple(R.id.etPolicyPackageName, "Application policy", "Manage package restrictions and device actions")
             ), R.drawable.ic_tools_settings
         )
         UnifiedMenuSection.group(
