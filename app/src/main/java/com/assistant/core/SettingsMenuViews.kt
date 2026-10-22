@@ -27,8 +27,8 @@ object SettingsMenuViews {
             setStroke(dp(context, 1), color(context, R.attr.jarvis_panel_stroke))
         }
         fun button(label: String, id: Int, icon: Int, action: () -> Unit, existing: View? = null): View {
-            val view = existing ?: com.google.android.material.button.MaterialButton(
-                android.view.ContextThemeWrapper(context, R.style.Widget_AssistantPlatform_QuietButton), null, 0).apply { this.id = id }
+            val view = existing ?: android.view.LayoutInflater.from(context)
+                .inflate(R.layout.menu_navigation_button, null).apply { this.id = id }
             view.contentDescription = if (label == "Back") "Back to previous screen" else "Close $page and return to Chat"
             view.minimumHeight = dp(context, 48)
             if (view is TextView) {
