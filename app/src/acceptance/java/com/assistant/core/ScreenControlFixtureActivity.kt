@@ -11,10 +11,45 @@ import android.widget.TextView
 /** Disposable, themed UI for real Accessibility actions; excluded from release and Beta. */
 class ScreenControlFixtureActivity : ThemedActivity() {
     var tapCount = 0; private set
+    var taskTapCount = 0; private set
     lateinit var output: TextView; private set
     lateinit var scroll: ScrollView; private set
     private lateinit var panel: LinearLayout
     fun changeContext() { output.text = "Changed fixture context" }
+    private fun flowLabel(value: String) = TextView(this).apply {
+        text = value
+        setTextColor(SettingsMenuViews.color(this@ScreenControlFixtureActivity, R.attr.jarvis_on_dark))
+        minimumHeight = SettingsMenuViews.dp(this@ScreenControlFixtureActivity, 48)
+        androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
+    }
+    private fun page(title: String) {
+        panel.removeAllViews(); panel.addView(flowLabel(title)); scroll.scrollTo(0, 0)
+    }
+    fun showTaskStart() {
+        taskTapCount = 0; page("Start page")
+        panel.addView(Button(this).apply {
+            text = "Menu"
+            setOnClickListener {
+                taskTapCount++; page("Menu page")
+                panel.addView(Button(this@ScreenControlFixtureActivity).apply {
+                    text = "Downloads"
+                    setOnClickListener { taskTapCount++; page("Downloads page") }
+                })
+            }
+        })
+    }
+    fun showTaskAccounts() {
+        taskTapCount = 0; page("Accounts page")
+        for (section in listOf("Work", "Personal")) panel.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(flowLabel(section))
+            addView(Button(this@ScreenControlFixtureActivity).apply {
+                text = "Account"
+                setOnClickListener { taskTapCount++; page("$section account page") }
+            })
+        })
+        panel.addView(Button(this).apply { text = "Unavailable"; isEnabled = false })
+    }
     fun showPassword() {
         panel.addView(EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD

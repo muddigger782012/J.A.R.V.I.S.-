@@ -15,16 +15,20 @@ import java.util.concurrent.TimeUnit
 
 /** Private same-UID IPC keeps :wake and the Accessibility service in one review/dispatch domain. */
 class ScreenAccessProvider : ContentProvider() {
-    private val controls by lazy { ScreenControls(AndroidScreenPlatform(requireNotNull(context))) }
+    private val controls by lazy { ScreenSession(AndroidScreenPlatform(requireNotNull(context))) }
     private val epoch = ScreenRequestEpoch()
-    private var appliedCancellation = 0L // Only accessed on the main looper.
+    @Volatile private var appliedCancellation = 0L // Only accessed on the main looper.
     private val main by lazy { Handler(Looper.getMainLooper()) }
     private fun applyCancellation() {
-        val current = epoch.current()
-        if (appliedCancellation != current) {
-            controls.discard()
-            appliedCancellation = current
+        val current = epoch.state()
+        if (appliedCancellation != current.value) {
+            if (current.preserveTask) controls.pause() else controls.discard()
+            appliedCancellation = current.value
+            publishTaskNotice()
         }
+    }
+    private fun publishTaskNotice() {
+        main.post { runCatching { ScreenTaskNotifications.update(requireNotNull(context), controls.active, controls.awaitingInput) } }
     }
     private fun clearCancelledState() {
         if (Looper.myLooper() == Looper.getMainLooper()) applyCancellation()
@@ -35,17 +39,34 @@ class ScreenAccessProvider : ContentProvider() {
         check(Binder.getCallingUid() == Process.myUid()) { "Private screen bridge" }
         val context = requireNotNull(context)
         check(context.packageName == "com.assistant.core") { "Personal screen bridge only" }
-        require(extras == null && method in setOf("connected", "discard", "command"))
+        require(method in setOf("connected", "discard", "command", "task_state", "review_state"))
+        require(extras == null || method == "command" &&
+            (extras.keySet() == setOf("review_token") && extras.getString("review_token")?.length?.let { it <= 100 } == true ||
+             extras.keySet() == setOf("task_key") && extras.getString("task_key")?.length?.let { it <= 100 } == true))
         if (method == "connected") return Bundle().apply { putBoolean("connected", JarvisAccessibilityService.active() != null) }
+        if (method == "review_state") return Bundle().apply { putString("token", controls.pendingToken.orEmpty()) }
+        if (method == "task_state") return Bundle().apply {
+            val invalidation = epoch.state()
+            val cancelled = appliedCancellation != invalidation.value && !invalidation.preserveTask
+            putBoolean("active", !cancelled && controls.active)
+            putBoolean("contextual", !cancelled && appliedCancellation == invalidation.value && controls.contextual)
+            putBoolean("awaiting_input", !cancelled && appliedCancellation == invalidation.value && controls.awaitingInput)
+            putString("task_key", if (cancelled) "" else controls.taskKey.orEmpty())
+        }
         val command = if (method == "command") {
             require(arg != null && arg.length <= 400)
-            ScreenControls.parse(arg) ?: ScreenControls.Command(ScreenControls.Kind.INVALID)
+            ScreenControls.parse(arg)
         } else null
-        if (method == "discard" || command?.kind == ScreenControls.Kind.CANCEL) {
-            epoch.cancel() // Never queue cancellation behind a confirmed tap.
+        val taskCommand = if (method == "command") ScreenTaskCommands.parse(requireNotNull(arg), controls.contextual) else null
+        val confirmation = command?.kind == ScreenControls.Kind.CONFIRM || taskCommand?.kind == ScreenTaskCommands.Kind.CONFIRM_STEP
+        require(extras == null || confirmation && extras.containsKey("review_token") ||
+            taskCommand?.kind == ScreenTaskCommands.Kind.CONTINUE && extras.containsKey("task_key"))
+        val cancelTask = taskCommand?.kind == ScreenTaskCommands.Kind.CANCEL
+        if (method == "discard" || command?.kind == ScreenControls.Kind.CANCEL || cancelTask) {
+            epoch.cancel(preserveTask = method == "discard") // Never queue cancellation behind a confirmed tap.
             clearCancelledState()
             return if (method == "discard") Bundle.EMPTY else Bundle().apply {
-                putString("reply", "Cancelled the pending screen action and numbered controls. An Android action already submitted cannot be undone.")
+                putString("reply", if (cancelTask) "Cancelled the screen task. No later steps will run; already submitted Android actions cannot be undone." else "Cancelled the pending screen action and numbered controls. An Android action already submitted cannot be undone.")
             }
         }
         val token = epoch.token()
@@ -54,9 +75,21 @@ class ScreenAccessProvider : ContentProvider() {
             applyCancellation()
             if (!epoch.valid(token)) return cancelledReply()
             val result = AndroidScreenPlatform.withDeadline(deadline, { !epoch.valid(token) }) {
-                Bundle().apply { putString("reply", controls.reply(requireNotNull(command)).take(12_000)) }
+                val beforeKey = controls.taskKey
+                val wasConfirming = controls.confirming
+                val step = controls.currentStep
+                val reply = if (confirmation) controls.replyApproved(requireNotNull(arg), extras?.getString("review_token").orEmpty())
+                    else if (extras?.containsKey("task_key") == true) controls.replyInTask(requireNotNull(arg), extras.getString("task_key").orEmpty())
+                    else controls.reply(requireNotNull(arg))
+                Bundle().apply {
+                    putString("reply", reply.take(12_000))
+                    putString("task_key", controls.taskKey.orEmpty())
+                    putBoolean("observation_pending", controls.observing &&
+                        (extras?.containsKey("task_key") != true || extras.getString("task_key") == controls.taskKey))
+                    if (confirmation && wasConfirming && controls.observing && controls.taskKey == beforeKey) putInt("accepted_step", step)
+                }
             }
-            if (epoch.valid(token)) return result
+            if (epoch.valid(token)) { publishTaskNotice(); return result }
             applyCancellation()
             return cancelledReply()
         }

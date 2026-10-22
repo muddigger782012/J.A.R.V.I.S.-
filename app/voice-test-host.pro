@@ -86,3 +86,7 @@
 # Debug/optimized-host-only real-window and separate-process acceptance fixtures.
 -keep,allowoptimization class com.assistant.core.ScreenControlFixtureActivity** { public *; }
 -keep,allowoptimization class com.assistant.core.ScreenControlProbeService** { public *; }
+
+# Screen semantics and task notification APIs used by the separate acceptance APK.
+-keep,allowoptimization class com.assistant.core.services.ScreenSemantics** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ScreenTaskNotifications** { public *; }

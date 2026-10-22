@@ -2460,6 +2460,17 @@ class MainActivity : ThemedActivity() {
         refreshVoiceButtonLabel()
     }
 
+    private fun showScreenTaskControls() {
+        val client = com.assistant.core.services.ScreenAccessClient(this)
+        ThemedDialogBuilder(this).setTitle("Screen task")
+            .setMessage(client.reply("review screen task"))
+            .setNegativeButton("Close", null)
+            .setNeutralButton("Refresh") { _, _ -> showScreenTaskControls() }
+            .setPositiveButton("Cancel task") { _, _ ->
+                appendOutput("J.A.R.V.I.S.: " + client.reply("cancel screen task"))
+            }.show()
+    }
+
     private fun showToolsAndSettingsMenu() {
         fun dp(value: Int) = SettingsMenuViews.dp(this, value)
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -2511,6 +2522,9 @@ class MainActivity : ThemedActivity() {
                 voiceSettingsLauncher.launch(Intent(this, SettingsActivity::class.java))
             }
             row("Intelligence", R.drawable.ic_jarvis_core) { popup.dismiss(); startActivity(Intent(this, IntelligenceActivity::class.java)) }
+            if (packageName == "com.assistant.core") row("Screen task", R.drawable.ic_jarvis_core) {
+                popup.dismiss(); showScreenTaskControls()
+            }
             row("Tools") { group("Tools") {
                 tab("Projects", 1); tab("Device tools", 2); tab("Terminal", 4); tab("Device administration", 7)
             } }
