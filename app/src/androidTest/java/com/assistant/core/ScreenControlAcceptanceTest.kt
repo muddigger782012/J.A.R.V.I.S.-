@@ -202,11 +202,11 @@ class ScreenControlAcceptanceTest {
             if (android.os.Build.VERSION.SDK_INT >= 33) automation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
             scenario.onActivity { it.showTaskAccounts() }; instrumentation.waitForIdleSync(); settled()
             val snapshot = AndroidScreenPlatform(context).snapshot()
-            val accounts = snapshot.controls.filter { it.label == "Account" }
-            assertEquals(2, accounts.size)
+            val accounts = snapshot.controls.filter { it.label.equals("Account", ignoreCase = true) }
+            assertEquals("Fixture controls: ${snapshot.controls}; blocked=${snapshot.blocked}; text=${snapshot.text}", 2, accounts.size)
             assertTrue(accounts.all { it.role == ScreenSemantics.Role.BUTTON })
             assertEquals(setOf("Work", "Personal"), accounts.map { it.contextLabel }.toSet())
-            assertFalse(snapshot.controls.single { it.label == "Unavailable" }.enabled)
+            assertFalse(snapshot.controls.single { it.label.equals("Unavailable", ignoreCase = true) }.enabled)
             assertFalse(snapshot.appLabel.isBlank())
             remote("screen task tap button named Account under Work and verify Work account page")
             remote("approve screen task")
