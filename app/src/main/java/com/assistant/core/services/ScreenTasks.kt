@@ -74,6 +74,7 @@ class ScreenTasks(private val platform: ScreenControls.Platform, private val now
     @Volatile private var focused = false
     @Volatile var taskKey: String? = null; private set
     val active get() = phase !in setOf(Phase.NONE, Phase.COMPLETE, Phase.UNCERTAIN) && now() - created in 0..300_000
+    val interactionKey get() = if (focused) taskKey else null
     val contextual get() = active && focused
     val pendingToken get() = if (active && phase == Phase.CONFIRM) taps.pendingToken else null
     val awaitingInput get() = contextual && phase in setOf(Phase.OUTCOME, Phase.REVIEW, Phase.TARGET, Phase.CONFIRM, Phase.OBSERVE, Phase.PAUSED)
@@ -85,6 +86,7 @@ class ScreenTasks(private val platform: ScreenControls.Platform, private val now
     @Synchronized fun pause() {
         if (expire()) return
         focused = false
+        if (active) taskKey = java.util.UUID.randomUUID().toString()
         taps.discard(); choices = emptyList()
         if (phase in setOf(Phase.CONFIRM, Phase.TARGET)) phase = Phase.PAUSED
     }
@@ -251,6 +253,7 @@ class ScreenSession(platform: ScreenControls.Platform, now: () -> Long = System:
     val contextual get() = tasks.contextual
     val awaitingInput get() = tasks.awaitingInput
     val taskKey get() = tasks.taskKey
+    val interactionKey get() = tasks.interactionKey?.let { "$it:${tasks.pendingToken.orEmpty()}" } ?: direct.pendingToken
     val observing get() = tasks.phase == ScreenTasks.Phase.OBSERVE
     val confirming get() = tasks.phase == ScreenTasks.Phase.CONFIRM
     val currentStep get() = tasks.currentStep

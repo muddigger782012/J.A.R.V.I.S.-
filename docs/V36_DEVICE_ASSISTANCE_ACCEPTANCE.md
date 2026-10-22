@@ -52,29 +52,80 @@ Android flow. Debug/optimized acceptance fixtures and their separate-process pro
 are excluded from Personal release and Beta APKs. Existing visible chat-history
 settings still apply to replies displayed in chat.
 
+## Conversational voice and hybrid intelligence
+
+A voice-driven screen review can request one follow-up capture without repeating the
+wake phrase. Silent or failed wake/follow-up captures return to the dedicated wake
+engine when background voice was enabled. A standalone push-to-talk follow-up does
+not enable background wake listening. Microphone interruption stops current speech and invalidates late AI replies
+without discarding an already delivered approval. An explicit stop cancels pending
+AI interpretations. Each recognizer owns a generation; callbacks from stopped or
+replaced recognizers cannot become commands. Screen confirmations and continuation
+are bound to the review that existed when capture began, including live chat.
+
+Personal's Weather and AI dialog retains API key/model discovery/custom model
+controls and adds a primary conversation provider and an optional alternate-provider
+fallback. Supported local commands run first. Gemini and the user's HTTPS gateway
+are the supported conversation interfaces; gateway models remain server-configured.
+Attachments and Google Search grounding still use their dedicated Gemini interface.
+`AI routing status` is local and distinguishes configured providers from verified
+reachability. Failed/cancelled provider results cannot supply lessons or revive a
+proposal. Beta's routing and subscription configuration are unchanged.
+
+## Separate Connection Manager
+
+The existing module and package were verified on the owner's Connection Manager
+branch. The reference used for acceptance is pinned to its reviewed source revision.
+The manager exports a normal launcher activity and no remote command service or
+provider. Jarvis therefore discovers its actual package and asks for a reviewed app
+choice before opening it. No credentials, arbitrary intents or remote commands are
+sent. The independent application is built and installed alongside the optimized
+assistant in CI, without adding it to Personal's production APK or modifying its UI.
+
+Local `connection status`, `Wi-Fi status`, `Bluetooth status`, `mobile data status`
+and `VPN status` use standard Android observations. Missing permission, unavailable
+hardware and unknown measurements remain explicit. No scan, identifier disclosure,
+network probe, Bluetooth pairing, privileged toggle or automatic permission grant
+is involved. Change requests open the corresponding Android settings; the user
+performs and approves changes there. A visible VPN transport is distinct from proof
+of tunnel health or coverage of all profiles. Cellular data state is distinct from
+whether the cellular radio is enabled.
+
 ## Current verification
 
-The latest local build passed 646 JVM cases across 102 suites with no failures,
+The screen-intelligence and supervised-task increment passed its unit/build checks,
+its actual Accessibility preflight and the full optimized Android acceptance suite.
+Real page transitions, section-qualified duplicate labels, disabled controls,
+notification cancellation and replacement-review rejection passed. Android exposes
+some styled buttons in uppercase; the fixture assertions now use the same case
+normalization as target selection, with roles and section identity still checked.
+The verified increment is merged. Its APK is being held for the combined update.
+
+The combined feature code passed 661 JVM cases across 104 suites with no failures,
 errors or skipped cases, all debug architectures, instrumentation compilation and
-Beta manifest processing. Release/archive tests and the UI theme contract pass.
-The cancellation foundation passed the real-service preflight and the full
-optimized emulator suite. Its disposable emulator now resets only the stale launcher
-and requires the fixture's own foreground package; app-under-test failures remain
-fatal. Screen-role/task/notification acceptance adds two cases and requires both
-the four-case preflight and all 47 optimized cases before delivery. Those new
-emulator results and signed publication remain pending until recorded explicitly.
+Beta manifest processing. Release/archive tests and the theme contract pass. The
+independent Connection Manager reference APK also builds locally. Final integrated
+Android emulator results must be recorded before the v3.6 release is promoted. The integrated acceptance gate requires
+all five real-service cases plus the two conversation regressions in preflight,
+and all 50 optimized Android cases, including
+launching and reading the separate manager while its provider checks remain unrun.
+API 34 sensitive views hidden by Android remain inaccessible. If Android supplies
+an explicitly marked sensitive node, Jarvis blocks that snapshot; password views
+also block surrounding text and controls. Acceptance verifies that a marked value
+and button are neither exposed nor tapped, while public surrounding text may remain
+readable. A missing node during capture invalidates the snapshot rather than
+publishing a partial tree. These additions require the integrated real-service pass.
 
-## Remaining initiative work
+## Release acceptance and practical limits
 
-- Task-aware voice follow-up, stale response cancellation and offline capture policy.
-- Unified Personal provider selection/fallback while preserving manual model controls.
-- Android connectivity diagnostics and supported system-setting handoffs.
-- Separate Connection Manager integration using its actual package/interface. No
-  manager-specific endpoint or capability has been invented; repository/package
-  information has been requested from the owner.
-- Real-phone wake/voice/HUD focus, other apps/OEMs, lock/permission transitions,
-  installed-data upgrade, and configured live-provider checks.
+The v3.6 candidate must pass unit/build checks, the actual Accessibility and optimized
+Android acceptance jobs, theme/gateway checks, production signing/native/wake asset
+verification, and public APK/updater byte verification. CI checks local provider
+ordering/failure/cancellation with controlled responses; configured live-provider
+availability requires the owner's API access and is not inferred from CI.
 
-No broad visual-layout or physical-phone pass is inferred from compilation or CI.
-The HUD is retained; the new task dialog reuses the active theme and font settings.
-Personal developer controls and Beta/Developer product separation remain required.
+Phone/OEM wake quality, actual microphone/voice recognition, background restrictions,
+physical HUD appearance and installed-data upgrade still need a real phone. Existing
+configuration/data namespaces and the production signing identity are preserved;
+no destructive migration or visual redesign is included. No physical-phone pass or
+measured completion percentage is inferred from compilation or emulator results.

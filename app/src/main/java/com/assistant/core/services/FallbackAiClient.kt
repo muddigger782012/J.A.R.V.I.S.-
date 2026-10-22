@@ -72,6 +72,7 @@ class FallbackAiClient(private val context: Context) {
             connection.connectTimeout = 12_000
             connection.readTimeout = 25_000
             connection.doOutput = true
+            connection.instanceFollowRedirects = false
             connection.setRequestProperty("Content-Type", "application/json")
             connection.setRequestProperty("Authorization", "Bearer $token")
             connection.outputStream.bufferedWriter().use { it.write(body) }

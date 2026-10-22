@@ -1,4 +1,4 @@
-Intelligent screen assistance foundation for Personal Jarvis:
+Personal Jarvis v3.6 — Intelligent Device Assistance:
 
 - Identify the foreground app and supported visible controls with roles, sections,
   availability and checked state. Duplicate controls require an explicit choice.
@@ -11,8 +11,20 @@ Intelligent screen assistance foundation for Personal Jarvis:
 - Cancel through voice/chat, Tools → Screen task, or the notification's Cancel action
   when notifications are allowed. Queued requests are invalidated immediately;
   already submitted Android actions cannot be undone.
-- Keep password, locked, Android system/permission/Settings and security windows
+- Keep password, Android-marked sensitive, locked, Android system/permission/Settings and security windows
   protected. Accessibility enabling remains a manual Android flow.
+- Continue a voice-driven task with one follow-up capture after each review. Interrupt
+  speech with the microphone control; stale recognizer callbacks and confirmations
+  from a replaced review are discarded. Silence returns to wake standby.
+- Choose Gemini or your HTTPS gateway for complex conversation and enable or disable
+  automatic provider fallback. Keep manual Gemini model selection and gateway server
+  models. Supported local commands run before either provider; ask for AI routing status.
+- Inspect Wi-Fi, Bluetooth, cellular data, VPN and the default network locally.
+  Radio/VPN changes open Android settings for your approval; diagnostics never scan,
+  transmit identifiers, grant permissions or toggle restricted settings.
+- Discover the independent J.A.R.V.I.S. Connection Manager by its actual package and
+  explicitly open its reviewed launcher. It keeps its own application and credentials;
+  no undocumented remote-control interface or provider authentication is assumed.
 - Preserve the HUD, selected theme/fonts, installed settings/data, offline features
   and Personal developer/provider/model controls.
 

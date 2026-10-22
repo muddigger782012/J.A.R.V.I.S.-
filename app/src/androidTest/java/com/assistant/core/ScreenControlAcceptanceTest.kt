@@ -161,6 +161,18 @@ class ScreenControlAcceptanceTest {
             assertTrue(protected, protected.contains("password-entry")); assertFalse(protected.contains("private-fixture-password"))
             assertTrue(remote("tap Practice button").contains("protected"))
             scenario.onActivity { assertEquals(2, it.tapCount) }
+            if (android.os.Build.VERSION.SDK_INT >= 34) {
+                scenario.onActivity { it.showSensitiveContent() }; instrumentation.waitForIdleSync(); settled()
+                val marked = remote("read my screen")
+                // Android may filter sensitive nodes before a non-tool service can receive them.
+                // Public surrounding text remains readable; protected values and actions must not.
+                assertFalse(marked, marked.contains("private-fixture-sensitive-content"))
+                assertFalse(marked, marked.contains("Private sensitive control", ignoreCase = true))
+                val hidden = remote("tap Private sensitive control")
+                assertFalse(hidden, hidden.contains("Review screen tap"))
+                remote("confirm screen action")
+                scenario.onActivity { assertEquals(2, it.tapCount) }
+            }
         }
     }
 
@@ -186,7 +198,7 @@ class ScreenControlAcceptanceTest {
             assertTrue(remote("confirm screen step one").contains("Android accepted step 1"))
             waitUntil { var count = 0; scenario.onActivity { count = it.taskTapCount }; count == 1 }
             remote("confirm screen step one"); scenario.onActivity { assertEquals(1, it.taskTapCount) }
-            settled(); assertTrue(remote("continue screen task").contains("confirm screen step two"))
+            settled(); val nextStep = remote("continue screen task"); assertTrue("Expected step two review, got: $nextStep; task=${ScreenAccessClient(context).taskState()}; screen=${AndroidScreenPlatform(context).snapshot()}", nextStep.contains("confirm screen step two"))
             remote("confirm screen step one"); scenario.onActivity { assertEquals(1, it.taskTapCount) }
             assertTrue(remote("confirm screen step two").contains("Android accepted step 2"))
             waitUntil { var count = 0; scenario.onActivity { count = it.taskTapCount }; count == 2 }
@@ -223,7 +235,13 @@ class ScreenControlAcceptanceTest {
             val receiver = context.packageManager.getReceiverInfo(ComponentName(context, ScreenTaskCancelReceiver::class.java), 0)
             assertFalse(receiver.exported); assertTrue(receiver.processName.endsWith(":wake"))
             cancel.actionIntent.send()
-            waitUntil { !ScreenAccessClient(context).taskState().active }
+            waitUntil {
+                val state = ScreenAccessClient(context).taskState()
+                if (state.active) {
+                    android.util.Log.d("JarvisScreenAcceptance", "Awaiting notification cancellation: $state")
+                }
+                !state.active
+            }
             remote("confirm screen step one")
             scenario.onActivity { assertEquals(0, it.taskTapCount) }
             waitUntil { manager.activeNotifications.none { it.id == ScreenTaskNotifications.ID } }
@@ -232,6 +250,31 @@ class ScreenControlAcceptanceTest {
             remote("approve screen task"); remote("confirm screen step one")
             waitUntil { var count = 0; scenario.onActivity { count = it.taskTapCount }; count == 1 }
             settled(); assertTrue(remote("continue screen task").contains("Verified the requested visible screen text"))
+        }
+    }
+    @Test fun separateConnectionManagerLauncherAndScreenRemainUsableWithoutAutomaticProviderProbes(): Unit = withAccess(true) {
+        launchFixture().use {
+            instrumentation.waitForIdleSync(); settled()
+            val discovery = AppDiscovery(AndroidInstalledApps(context), open = { action ->
+                val intent = context.packageManager.getLaunchIntentForPackage(action.parameters.getValue("package"))!!
+                context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                "Requested the reviewed Connection Manager launcher"
+            })
+            val bridge = AndroidConnectionAssistance(context) { discovery.find(ConnectionAssistance.MANAGER_PACKAGE) }
+            val review = ConnectionAssistance.reply(ConnectionAssistance.Kind.MANAGER, bridge)
+            assertTrue(review, review.contains("separate app"))
+            assertTrue(review, review.contains(ConnectionAssistance.MANAGER_PACKAGE))
+            assertEquals(context.packageName, AndroidScreenPlatform(context).snapshot().packageName)
+            assertTrue(discovery.reply(AppDiscovery.Command(AppDiscovery.Kind.OPEN_CHOICE, number = 1)).contains("Requested"))
+            waitUntil { runCatching {
+                val screen = AndroidScreenPlatform(context).snapshot()
+                screen.packageName == ConnectionAssistance.MANAGER_PACKAGE && !screen.blocked &&
+                    screen.text.any { text -> text.contains("CONNECTION MANAGER") } &&
+                    screen.text.any { text -> text.contains("NOT TESTED") }
+            }.getOrDefault(false) }
+            val managerRead = remote("read my screen")
+            assertTrue("Expected Connection Manager content from remote voice bridge, got: $managerRead; screen=${AndroidScreenPlatform(context).snapshot()}", managerRead.contains("CONNECTION MANAGER"))
+            assertFalse(ScreenAccessClient(context).taskState().active)
         }
     }
 }

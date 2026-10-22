@@ -49,6 +49,22 @@ class VoiceForegroundService : Service() {
     private var resumeAfterPractice = false
     private val practiceTimeout = Runnable { releasePracticeMicrophone(practiceToken.orEmpty()) }
     private var pipelineStarted = false
+    private var responseGeneration = 0L
+    private var spokenScreenContext: String? = null
+    private var followUpScreen = false
+    private val screenAccess by lazy { ScreenAccessClient(this) }
+    private val screenChanges = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val scope = spokenScreenContext ?: return
+            if (screenAccess.taskState().contextKey == scope) return
+            spokenScreenContext = null; followUpScreen = false; responseGeneration++
+            if (::hybridAssistantService.isInitialized) hybridAssistantService.cancelActiveResponse()
+            if (::voiceService.isInitialized) {
+                voiceService.stopSpeaking()
+                if (!liveChatActive && pipelineStarted) { voiceService.stopListening(); voiceService.startHotwordLoop() }
+            }
+        }
+    }
     private var appliedVoiceConfig: VoiceConfig? = null
     private var liveChatActive = false
     private var resumeWakeAfterLive = false
@@ -79,6 +95,7 @@ class VoiceForegroundService : Service() {
         // crash containment entirely.
         voicePreferences = VoicePreferences(this)
         ContextCompat.registerReceiver(this, responseOptionsReceiver, android.content.IntentFilter(VoiceResponsePreferences.ACTION_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(this, screenChanges, android.content.IntentFilter(ScreenTaskNotifications.CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
         createNotificationChannel()
         PersonalReminderRuntime.restoreAsync(applicationContext)
     }
@@ -190,6 +207,7 @@ class VoiceForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(screenChanges) }
         runCatching { unregisterReceiver(responseOptionsReceiver) }
         dialogueOverlay.hide()
         liveHandler.removeCallbacksAndMessages(null)
@@ -243,12 +261,17 @@ class VoiceForegroundService : Service() {
             if (!liveChatActive || liveSession.token != token) return@postDelayed
             val turn = liveSession.listen() ?: return@postDelayed
             liveStatus(VoiceInteractionState.LISTENING, "Listening. Say “end live chat” to finish.")
+            val captureScope = if (packageName == "com.assistant.core") screenAccess.voiceScope() else ""
             liveCapture.listen(currentConfig.preferOfflineCommandRecognition,
                 onPartial = { /* Partial transcripts stay transient; only complete turns enter chat. */ },
                 onResult = { text ->
                     if (liveChatActive && liveSession.transcript(turn)) {
                         liveLine("You: $text")
-                        if (LiveChatCommands.parse(text) == LiveChatCommands.Control.STOP) {
+                        if (packageName == "com.assistant.core" && !VoiceScreenApprovalScope.valid(text, captureScope, screenAccess.voiceScope())) {
+                            liveSession.response(turn)
+                            val message = "The screen review changed during voice capture. Review the current target and confirm again; nothing was tapped."
+                            liveLine("J.A.R.V.I.S.: $message"); speakLiveReply(message)
+                        } else if (LiveChatCommands.parse(text) == LiveChatCommands.Control.STOP) {
                             finishLiveChat("Live chat ended.")
                         } else if (LiveChatCommands.parse(text) == LiveChatCommands.Control.START) {
                             liveSession.response(turn)
@@ -256,9 +279,12 @@ class VoiceForegroundService : Service() {
                             speakLiveReply("Live chat is already active.")
                         } else {
                             liveStatus(VoiceInteractionState.PROCESSING, "Thinking…")
-                            hybridAssistantService.handleUserInputAsync(text) { reply ->
+                            askAssistant(text) { reply ->
                                 liveHandler.post {
                                     if (liveChatActive && liveSession.response(turn)) {
+                                        if (reply.screenContextKey != null && screenAccess.taskState().contextKey != reply.screenContextKey) {
+                                            liveSession.speechFinished(); nextLiveTurn(650L); return@post
+                                        }
                                         liveLine("J.A.R.V.I.S.: ${reply.text}")
                                         speakLiveReply(reply.text)
                                     }
@@ -300,6 +326,8 @@ class VoiceForegroundService : Service() {
     }
 
     private fun finishLiveChat(message: String) {
+        if (::hybridAssistantService.isInitialized) hybridAssistantService.cancelActiveResponse()
+        responseGeneration++; spokenScreenContext = null; followUpScreen = false
         dialogueOverlay.hide()
         liveChatActive = false
         liveSession.stop()
@@ -379,6 +407,7 @@ class VoiceForegroundService : Service() {
                     voiceSession.transcriptReady(heard)
                 }
             },
+            onCaptureFinished = { if (!liveChatActive) voiceSession.responseFinished(keepArmed = pipelineStarted) },
             onSpeechStarted = {
                 publishEvent("Voice diagnostic: spoken response playback started.")
                 voiceSession.speaking()
@@ -388,8 +417,14 @@ class VoiceForegroundService : Service() {
                 if (liveChatActive) {
                     if (liveSession.speechFinished()) nextLiveTurn(650L)
                 } else {
+                    val state = if (packageName == "com.assistant.core") screenAccess.taskState() else ScreenAccessClient.TaskState()
+                    val follow = followUpScreen && state.awaitingInput && state.contextKey == spokenScreenContext
+                    followUpScreen = false
                     voiceSession.responseFinished(keepArmed = true)
-                    voiceService.rearmAfterResponse()
+                    if (follow && pipelineStarted) {
+                        voiceSession.beginCapture(VoiceSessionController.Trigger.BACKGROUND)
+                        voiceService.startFollowUpCapture()
+                    } else voiceService.rearmAfterResponse()
                 }
             }
         )
@@ -420,6 +455,10 @@ class VoiceForegroundService : Service() {
     }
 
     private fun stopVoicePipeline() {
+        responseGeneration++; spokenScreenContext = null; followUpScreen = false
+        if (::hybridAssistantService.isInitialized) hybridAssistantService.cancelActiveResponse()
+        if (packageName == "com.assistant.core") screenAccess.discard()
+        voiceService.stopSpeaking()
         voiceService.stopListening()
         pipelineStarted = false
         voiceSession.stop()
@@ -428,7 +467,14 @@ class VoiceForegroundService : Service() {
         publishEvent("Foreground voice service stopped.")
     }
 
+    private fun askAssistant(text: String, callback: (HybridAssistantReply) -> Unit) {
+        hybridAssistantService.handleUserInputAsync(text) { if (!it.cancelled) callback(it) }
+    }
+
     private fun processTranscript(transcript: String) {
+        val generation = ++responseGeneration
+        spokenScreenContext = null; followUpScreen = false
+        voiceService.stopSpeaking()
         currentConfig = voicePreferences.load()
         publishEvent("You: $transcript")
         when (LiveChatCommands.parse(transcript)) {
@@ -469,8 +515,15 @@ class VoiceForegroundService : Service() {
         // central assistant pipeline as typed input. Legacy parser routing is
         // retained below only until the remaining migration is complete.
         publishEvent("Voice diagnostic: live transcript submitted to assistant.")
-        hybridAssistantService.handleUserInputAsync(transcript) { reply ->
+        askAssistant(transcript) { reply ->
             liveHandler.post {
+                if (generation != responseGeneration || !pipelineStarted || practiceToken != null || liveChatActive) return@post
+                val scope = reply.screenContextKey
+                if (scope != null && screenAccess.taskState().contextKey != scope) {
+                    voiceSession.responseFinished(keepArmed = true); voiceService.rearmAfterResponse(); return@post
+                }
+                spokenScreenContext = scope
+                followUpScreen = scope != null && scope.isNotBlank()
                 publishEvent("Voice diagnostic: live assistant response received (${reply.text.length} characters).")
                 publishEvent("J.A.R.V.I.S.: ${reply.text}")
                 speakResponse(reply.text)
@@ -545,7 +598,7 @@ class VoiceForegroundService : Service() {
                 // Bypassing it through the legacy ActionRequest parser caused
                 // learned routines and local aliases to behave differently.
                 publishEvent("Voice diagnostic: assistant processing started.")
-                hybridAssistantService.handleUserInputAsync(
+                askAssistant(
                     parsed.fallbackTextCommand ?: command
                 ) { reply ->
                     liveHandler.post {

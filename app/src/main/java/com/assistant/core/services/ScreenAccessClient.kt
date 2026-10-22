@@ -10,9 +10,9 @@ class ScreenAccessClient(private val context: Context) {
     private fun call(method: String, text: String? = null, extras: android.os.Bundle? = null) = context.contentResolver.call(
         Uri.parse("content://${context.packageName}.screen-access"), method, text, extras)
     fun connected(): Boolean = runCatching { call("connected")?.getBoolean("connected") == true }.getOrDefault(false)
-    data class TaskState(val active: Boolean = false, val awaitingInput: Boolean = false, val contextual: Boolean = false)
+    data class TaskState(val active: Boolean = false, val awaitingInput: Boolean = false, val contextual: Boolean = false, val contextKey: String = "")
     fun taskState(): TaskState = runCatching { call("task_state")?.let {
-        TaskState(it.getBoolean("active"), it.getBoolean("awaiting_input"), it.getBoolean("contextual"))
+        TaskState(it.getBoolean("active"), it.getBoolean("awaiting_input"), it.getBoolean("contextual"), it.getString("context_key").orEmpty())
     } ?: TaskState() }.getOrDefault(TaskState())
     fun accepts(text: String) = ScreenSession.recognizes(text) ||
         (ScreenTaskCommands.contextual(text) != null && taskState().contextual)
@@ -25,12 +25,16 @@ class ScreenAccessClient(private val context: Context) {
         val task = if (continues) runCatching { call("task_state")?.getString("task_key").orEmpty() }.getOrDefault("") else null
         return Prepared(text, token, task)
     }
+    /** Capture before microphone input: a delayed utterance must not approve a different review. */
+    fun voiceScope(): String = taskState().contextKey + ":" + runCatching { call("review_state")?.getString("token").orEmpty() }.getOrDefault("")
+    data class Response(val text: String, val contextKey: String = "")
     fun discard() { runCatching { call("discard") } }
     fun reply(text: String): String = reply(prepare(text))
-    fun reply(prepared: Prepared): String {
+    fun reply(prepared: Prepared): String = replyWithContext(prepared).text
+    fun replyWithContext(prepared: Prepared): Response {
         val text = prepared.text
-        if (!accepts(text)) return "No supported screen command was requested."
-        if (text.length > 400) { discard(); return "Keep screen requests short and bounded. " + ScreenTaskCommands.help() }
+        if (!accepts(text)) return Response("No supported screen command was requested.")
+        if (text.length > 400) { discard(); return Response("Keep screen requests short and bounded. " + ScreenTaskCommands.help()) }
         val command = ScreenControls.parse(text)
         if (command?.kind == ScreenControls.Kind.SETUP) {
             discard()
@@ -38,12 +42,12 @@ class ScreenAccessClient(private val context: Context) {
                 ComponentName(context, JarvisAccessibilityService::class.java).flattenToString())
             val opened = runCatching { context.startActivity(details.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true }
                 .getOrElse { runCatching { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true }.getOrDefault(false) }
-            return (if (opened) "Requested Android Accessibility settings. " else "Open Android Accessibility settings manually. ") + ScreenControls.setup()
+            return Response((if (opened) "Requested Android Accessibility settings. " else "Open Android Accessibility settings manually. ") + ScreenControls.setup())
         }
         val extras = prepared.reviewToken?.let { token -> android.os.Bundle().apply { putString("review_token", token) } }
             ?: prepared.taskKey?.let { key -> android.os.Bundle().apply { putString("task_key", key) } }
         return runCatching {
-            val response = call("command", text, extras) ?: error("Bridge unavailable")
+            var response = call("command", text, extras) ?: error("Bridge unavailable")
             val step = response.getInt("accepted_step")
             val taskKey = response.getString("task_key").orEmpty()
             if (step > 0 && taskKey.isNotBlank() && android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
@@ -55,11 +59,12 @@ class ScreenAccessClient(private val context: Context) {
                         next = call("command", "continue screen task", scope) ?: error("Observation unavailable")
                         if (!next.getBoolean("observation_pending")) break
                     }
-                    next?.getString("reply") ?: error("Observation unavailable")
+                    response = next ?: error("Observation unavailable")
+                    response.getString("reply") ?: error("Observation unavailable")
                 }.getOrElse { "The result could not be verified yet. Check the app, then continue the task to inspect again. No tap will be repeated." }
-                "Android accepted step $step. $observed"
-            } else response.getString("reply") ?: error("Bridge unavailable")
+                Response("Android accepted step $step. $observed", response.getString("context_key").orEmpty())
+            } else Response(response.getString("reply") ?: error("Bridge unavailable"), response.getString("context_key").orEmpty())
         }
-            .getOrElse { "The private Accessibility bridge could not verify this request. Check screen control status and Android Accessibility access before trying again; no automatic retry was made." }
+            .getOrElse { Response("The private Accessibility bridge could not verify this request. Check screen control status and Android Accessibility access before trying again; no automatic retry was made.") }
     }
 }

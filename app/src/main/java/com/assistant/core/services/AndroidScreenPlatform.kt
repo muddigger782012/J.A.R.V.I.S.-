@@ -62,7 +62,7 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                 val password = node.isPassword || ((node.inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_TEXT &&
                     variation in setOf(InputType.TYPE_TEXT_VARIATION_PASSWORD, InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD, InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)) ||
                     ((node.inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_NUMBER && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD)
-                if (password) { sensitive = true; continue } // Never read this node or its descendants.
+                if (password || Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive) { sensitive = true; continue } // Never read this node or its descendants.
                 val label = node.text?.toString()?.trim().orEmpty()
                 val description = node.contentDescription?.toString()?.trim().orEmpty()
                 val hint = node.hintText?.toString()?.trim().orEmpty()
@@ -88,8 +88,9 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                         enabled = node.isEnabled, checked = if (node.isCheckable) node.isChecked else null, selected = node.isSelected))
                 }
                 check(path.count { it == '/' } < 30 && node.childCount <= 300)
-                for (index in 0 until node.childCount) node.getChild(index)?.let {
-                    owned.add(it); check(owned.size <= 300); queue.add("$path/$index" to it)
+                for (index in 0 until node.childCount) {
+                    val child = node.getChild(index) ?: error("The accessibility tree changed during capture")
+                    owned.add(child); check(owned.size <= 300); queue.add("$path/$index" to child)
                 }
             }
             // Password-entry windows expose neither surrounding text nor executable targets.

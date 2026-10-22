@@ -194,4 +194,23 @@ class ScreenTasksTest {
         session.reply("confirm screen step one"); assertEquals(3, phone.actions)
         assertTrue(session.reply("continue screen task").contains("Verified"))
     }
+    @Test fun aPausedTaskCannotBeRefocusedByAnObservationFromTheOldTopic() {
+        val phone = Phone(); val session = ScreenSession(phone)
+        start(session); session.reply("approve screen task"); session.reply("confirm screen step one")
+        val scope = session.taskKey!!; session.pause(); val reads = phone.reads
+        assertFalse(session.contextual)
+        assertTrue(session.replyInTask("continue screen task", scope).contains("changed"))
+        assertFalse(session.contextual); assertEquals(reads, phone.reads); assertEquals(1, phone.actions)
+        assertTrue(session.active)
+    }
+    @Test fun voiceReviewContextChangesWhenAnUnattemptedTargetIsReplacedWithinTheSameTask() {
+        val phone = Phone(); phone.value = phone.value.copy(controls = listOf(button("0/1", "Menu"), button("0/2", "More options")))
+        val session = ScreenSession(phone); start(session); session.reply("approve screen task")
+        val goal = session.taskKey; val spoken = session.interactionKey!!
+        session.reply("change screen step to More options"); session.reply("approve screen task")
+        assertEquals(goal, session.taskKey)
+        assertNotEquals(spoken, session.interactionKey)
+        assertFalse(VoiceScreenApprovalScope.valid("confirm screen step one", spoken, session.interactionKey!!))
+        assertEquals(0, phone.actions)
+    }
 }

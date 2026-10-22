@@ -23,7 +23,9 @@ import androidx.core.content.ContextCompat
 data class HybridAssistantReply(
     val text: String,
     val actionResult: ActionResult? = null,
-    val needsInterpretation: Boolean = false
+    val needsInterpretation: Boolean = false,
+    val screenContextKey: String? = null,
+    val cancelled: Boolean = false
 )
 
 private enum class PendingPrompt {
@@ -71,6 +73,8 @@ class HybridAssistantService(
     private val directOnlineClient = DirectOnlineClient(systemService.context())
     private val assistantConnections = AssistantConnections(systemService.context())
     private val fallbackAiClient = FallbackAiClient(systemService.context())
+    private val responseTurns = AssistantResponseTurns()
+    private val intelligencePrefs by lazy { systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE) }
     private val volumeConfirmations = VolumeConfirmationStore(systemService.context())
     private val deviceLearningSession = DeviceLearningSession(systemService.context())
     private val assistantMemory = AssistantMemory(systemService.context())
@@ -96,14 +100,36 @@ class HybridAssistantService(
         taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
         reviewedGoalKey = null
         runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
-        return HybridAssistantReply(screenAccess.reply(request))
+        val response = screenAccess.replyWithContext(request)
+        return HybridAssistantReply(response.text, screenContextKey = response.contextKey)
     }
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
+        if (responseTurns.bound()) return handleUserInputWithinCurrentTurn(rawInput)
+        val turn = responseTurns.begin()
+        return responseTurns.inTurn(turn) { handleUserInputWithinCurrentTurn(rawInput) }
+    }
+
+    private fun handleUserInputWithinCurrentTurn(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
         if (personalAssistant) {
             if (screenAccess.accepts(userInput)) return handleScreenInput(screenAccess.prepare(userInput))
             screenAccess.discard()
+            if (IntelligenceRouting.isStatus(userInput)) {
+                clearPendingActionPrompts()
+                return HybridAssistantReply(IntelligenceRouting.status(
+                    IntelligenceRouting.selected(intelligencePrefs.getString("primary_provider", "gemini")),
+                    intelligencePrefs.getBoolean("provider_fallback", true), directOnlineClient.hasGeminiKey(),
+                    fallbackAiClient.isConfigured(), intelligencePrefs.getString("gemini_model", "gemini-3.5-flash-lite").orEmpty()))
+            }
+            ConnectionAssistance.parse(userInput)?.let { command ->
+                clearPendingActionPrompts()
+                taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+                if (command != ConnectionAssistance.Kind.MANAGER) appDiscovery.discard()
+                return HybridAssistantReply(ConnectionAssistance.reply(command,
+                    AndroidConnectionAssistance(systemService.context()) { appDiscovery.find(ConnectionAssistance.MANAGER_PACKAGE) }))
+            }
             val appCommand = AppDiscovery.parse(userInput)
             if (appCommand != null) {
                 clearPendingActionPrompts()
@@ -1193,25 +1219,47 @@ class HybridAssistantService(
     fun canAnalyzeAttachments(): Boolean = directOnlineClient.hasGeminiKey()
 
     fun handleAttachmentsAsync(question: String, attachments: List<ChatAttachment>, callback: (HybridAssistantReply) -> Unit) {
+        val turn = responseTurns.begin()
         if (personalAssistant) screenAccess.discard()
         if (personalAssistant) appDiscovery.discard()
         routineConfirmations.consume("")
-        Thread {
+        responseThread(turn, callback) {
             val response = directOnlineClient.gemini(question, getConversationSnapshot(), attachments)
             remember(question + "\nAttachments: " + attachments.joinToString { it.name }, response)
-            callback(HybridAssistantReply(response))
+            callback(responseTurns.delivery(turn, HybridAssistantReply(response)))
         }.start()
     }
 
+    /** Cancelling speech also invalidates late cloud interpretations and their proposed approvals. */
+    fun cancelActiveResponse() = responseTurns.cancel { clearPendingActionPrompts() }
+    /** Microphone interruption may be the user's response to an already delivered approval. */
+    fun interruptActiveResponse() = responseTurns.cancel()
+
+    private fun responseThread(turn: Long, callback: (HybridAssistantReply) -> Unit, block: () -> Unit) = Thread {
+        responseTurns.inTurn(turn) {
+            if (responseTurns.current()) block()
+            else callback(responseTurns.delivery(turn, HybridAssistantReply("")))
+        }
+    }
+
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+        val turn = responseTurns.begin()
+        responseTurns.inTurn(turn) {
+            handleUserInputWithinTurn(rawInput, turn) { reply ->
+                callback(responseTurns.delivery(turn, reply))
+            }
+        }
+    }
+
+    private fun handleUserInputWithinTurn(rawInput: String, turn: Long, callback: (HybridAssistantReply) -> Unit) {
         if (personalAssistant && screenAccess.accepts(rawInput)) {
             // Freeze the accepted screen route: a delayed contextual yes must never fall into another action's approval.
             val request = screenAccess.prepare(rawInput)
-            Thread { callback(handleScreenInput(request)) }.start(); return
+            responseThread(turn, callback) { callback(handleScreenInput(request)) }.start(); return
         }
         if (personalAssistant) screenAccess.discard()
         if (personalAssistant && AppDiscovery.parse(rawInput) == null) appDiscovery.discard()
-        if (personalAssistant && (DeviceReport.command(rawInput) != null || AppDiscovery.parse(rawInput) != null)) {
+        if (personalAssistant && (IntelligenceRouting.isStatus(rawInput) || ConnectionAssistance.parse(rawInput) != null || DeviceReport.command(rawInput) != null || AppDiscovery.parse(rawInput) != null)) {
             callback(handleUserInput(rawInput)); return
         }
         if (personalAssistant && GoalAppCorrections.contextual(rawInput) != null &&
@@ -1247,7 +1295,7 @@ class HybridAssistantService(
                 return
             }
             if (ticket == null) { callback(HybridAssistantReply("No research query is saved to retry. Request a topic first.")); return }
-            Thread {
+            responseThread(turn, callback) {
                 val response = runCatching { researchBriefs.run(ticket) { query ->
                     researchFetch?.invoke(query) ?: run {
                         val context = systemService.context()
@@ -1277,7 +1325,7 @@ class HybridAssistantService(
         }
         AssistantConnectionProtocol.parse(rawInput)?.let { request ->
             routineConfirmations.consume("")
-            Thread {
+            responseThread(turn, callback) {
                 val response = assistantConnections.ask(request)
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
@@ -1356,7 +1404,7 @@ class HybridAssistantService(
                 "test network connection", "test network connections",
                 "test my network connection", "test my network connections"
             )) {
-            Thread {
+            responseThread(turn, callback) {
                 val response = try {
                     val connection = java.net.URL("https://www.google.com/generate_204").openConnection() as java.net.HttpURLConnection
                     try {
@@ -1402,7 +1450,7 @@ class HybridAssistantService(
             }
             val query = videoQuery ?: imageQuery ?: webQuery
             if (kind != null && query != null) {
-                Thread {
+                responseThread(turn, callback) {
                     val router = SearchRouter.configured("", "", kind)
                     val retrieved = router.search(query)
                     val response = if (retrieved.items.isNotEmpty())
@@ -1428,7 +1476,7 @@ class HybridAssistantService(
                 local.text.contains("cannot retrieve", ignoreCase = true))
         val unresolved = local.needsInterpretation || unsupportedManualReply || manualConfirmation || (manualRetrieval && local.actionResult == null)
         if (unresolved && !RoutineProposal.isCreationRequest(rawInput) && OnlineAnswers.isWeather(rawInput)) {
-            Thread {
+            responseThread(turn, callback) {
                 val response = directOnlineClient.weather(rawInput)
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
@@ -1452,7 +1500,7 @@ class HybridAssistantService(
             return
         }
         if (manualRetrieval && !directOnlineClient.hasGeminiKey()) {
-            Thread {
+            responseThread(turn, callback) {
                 val retrieved = SearchRouter.configured("", "", "web").search(resolvedInput.take(300))
                 val response = if (retrieved.items.isNotEmpty())
                     ChatSearchResults.encode(rawInput, retrieved.items,
@@ -1470,7 +1518,7 @@ class HybridAssistantService(
                 previousResearchQuery = previousResearch)
             if (researchDecision == ConversationalResearchPolicy.Decision.RESEARCH &&
                 !RoutineProposal.isCreationRequest(rawInput)) {
-                Thread {
+                responseThread(turn, callback) {
                     val isManualRequest = Regex(
                         "(?i)\\b(?:technical|service|repair|shop|workshop|operator|operators|operator[’']s)\\s+manual\\b|technical documentation|service documentation"
                     ).containsMatchIn(resolvedInput)
@@ -1509,7 +1557,7 @@ class HybridAssistantService(
                             val response = "$diagnostic I won't invent a manual link or equipment-specific procedure."
                             remember(rawInput, response)
                             callback(HybridAssistantReply(response))
-                            return@Thread
+                            return@responseThread
                         }
                         val cloud = onlineInterpretation(rawInput)
                         val response = proposeCloudAction(rawInput, cloud.lessonJson) ?: cloud.reply
@@ -1519,7 +1567,7 @@ class HybridAssistantService(
                 }.start()
                 return
             }
-            Thread {
+            responseThread(turn, callback) {
                 val cloud = onlineInterpretation(rawInput)
                 val response = proposeCloudAction(rawInput, cloud.lessonJson) ?: cloud.reply
                 remember(rawInput, response)
@@ -1533,13 +1581,14 @@ class HybridAssistantService(
             callback(HybridAssistantReply(response, local.actionResult))
             return
         }
-        Thread {
-            val cloud = fallbackAiClient.ask(rawInput, capabilityContext = ContextualAction.aiContext(assistantMemory), conversation = conversationTurns())
+        responseThread(turn, callback) {
+            val cloud = if (personalAssistant) onlineInterpretation(rawInput) else
+                fallbackAiClient.ask(rawInput, capabilityContext = ContextualAction.aiContext(assistantMemory), conversation = conversationTurns())
             if (cloud == null) {
                 val response = ConversationPolicy.fallback(rawInput, ConversationPolicy.Obstacle.PROVIDER_FAILED)
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response, local.actionResult))
-                return@Thread
+                return@responseThread
             }
             // A plausible cloud interpretation is not proof of a successful action.
             // Do not train device-action intents from unverified cloud replies.
@@ -1552,11 +1601,20 @@ class HybridAssistantService(
     }
 
     private fun onlineInterpretation(userText: String): FallbackAiResult {
-        val primary = { directOnlineClient.assistant(userText, getConversationSnapshot(), ContextualAction.aiContext(assistantMemory)) }
-        val alternative: (() -> FallbackAiResult?)? = if (personalAssistant && fallbackAiClient.isConfigured()) {
-            { fallbackAiClient.ask(userText, capabilityContext = ContextualAction.aiContext(assistantMemory), conversation = conversationTurns()) }
-        } else null
-        val result = InterpretationFallback.ask(primary, alternative)
+        val result = if (personalAssistant) {
+            val configured = buildSet {
+                if (directOnlineClient.hasGeminiKey()) add(IntelligenceRouting.Provider.GEMINI)
+                if (fallbackAiClient.isConfigured()) add(IntelligenceRouting.Provider.GATEWAY)
+            }
+            IntelligenceRouting.ask(IntelligenceRouting.selected(intelligencePrefs.getString("primary_provider", "gemini")),
+                intelligencePrefs.getBoolean("provider_fallback", true), configured, responseTurns::current) { provider ->
+                when (provider) {
+                    IntelligenceRouting.Provider.GEMINI -> directOnlineClient.assistant(userText, getConversationSnapshot(), ContextualAction.aiContext(assistantMemory))
+                    IntelligenceRouting.Provider.GATEWAY -> fallbackAiClient.ask(userText,
+                        capabilityContext = ContextualAction.aiContext(assistantMemory), conversation = conversationTurns())
+                }
+            }.answer
+        } else InterpretationFallback.ask({ directOnlineClient.assistant(userText, getConversationSnapshot(), ContextualAction.aiContext(assistantMemory)) })
         return if (result.providerFailed) result.copy(reply = result.reply + " " +
             ConversationPolicy.fallback(userText, ConversationPolicy.Obstacle.PROVIDER_FAILED), lessonJson = null)
         else result
@@ -1806,7 +1864,10 @@ class HybridAssistantService(
         }
     }
 
-    private fun proposeCloudAction(userText: String, lessonJson: String?): String? {
+    private fun proposeCloudAction(userText: String, lessonJson: String?): String? =
+        responseTurns.mutate { proposeCurrentCloudAction(userText, lessonJson) }
+
+    private fun proposeCurrentCloudAction(userText: String, lessonJson: String?): String? {
         if (CapabilityDiscovery.isManagementText(userText)) return CapabilityDiscovery.clarification()
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson)
         if (RoutineProposal.isCreationRequest(userText)) {
@@ -1966,7 +2027,10 @@ class HybridAssistantService(
      * high-confidence lessons are persisted; execution remains behind normal
      * JARVIS capability/policy routing.
      */
-    fun acceptFallbackLesson(userText: String, lessonJson: String): Boolean {
+    fun acceptFallbackLesson(userText: String, lessonJson: String): Boolean =
+        responseTurns.mutate { acceptCurrentFallbackLesson(userText, lessonJson) } ?: false
+
+    private fun acceptCurrentFallbackLesson(userText: String, lessonJson: String): Boolean {
         if (CapabilityDiscovery.isControl(userText)) return false
         val lesson = FallbackIntentLesson.fromJson(lessonJson) ?: return false
         if (!LearningAdmissionPolicy.canRecordWithoutActionResult(lesson)) return false
@@ -2017,8 +2081,12 @@ class HybridAssistantService(
         return HybridAssistantReply(reply, result)
     }
 
-    @Synchronized
     private fun remember(userText: String, assistantText: String) {
+        responseTurns.mutate { rememberCurrent(userText, assistantText) }
+    }
+
+    @Synchronized
+    private fun rememberCurrent(userText: String, assistantText: String) {
         conversationMemory?.record(userText, assistantText)
         history.addLast(userText to assistantText)
         while (history.size > 30) {

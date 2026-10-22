@@ -105,6 +105,8 @@ class MainActivity : ThemedActivity() {
 
     private val pendingAttachments = mutableListOf<ChatAttachment>()
     private var attachmentBusy = false
+    private var attachmentAnalysisPending = false
+    private var attachmentAnalysisGeneration = 0L
     private var pendingCameraPath: String? = null
     private val photoPicker = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(AttachmentPolicy.MAX_FILES)) { uris ->
         importAttachments(uris)
@@ -502,8 +504,9 @@ class MainActivity : ThemedActivity() {
             onCommandDetected = { recognition ->
                 voiceSession.transcriptReady(recognition.transcript)
             },
+            onCaptureFinished = { voiceSession.responseFinished(keepArmed = voiceEnabled) },
             onSpeechStarted = { voiceSession.speaking() },
-            onSpeechFinished = { voiceSession.responseFinished(keepArmed = voiceEnabled) }
+            onSpeechFinished = { voiceSession.responseFinished(keepArmed = voiceEnabled); voiceService.rearmAfterResponse() }
         )
 
         bindUiListeners()
@@ -1104,7 +1107,7 @@ class MainActivity : ThemedActivity() {
             weatherPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
             return
         }
-        hybridAssistantService.handleUserInputAsync(command, callback)
+        hybridAssistantService.handleUserInputAsync(command) { if (!it.cancelled) callback(it) }
     }
 
     private fun attachmentNotice(message: String) {
@@ -1343,13 +1346,19 @@ class MainActivity : ThemedActivity() {
         }
         val question = commandInput.text?.toString()?.trim().orEmpty().ifBlank { "Describe or summarize the attached files." }
         val files = pendingAttachments.toList()
-        attachmentBusy = true
+        attachmentBusy = true; attachmentAnalysisPending = true
+        val generation = ++attachmentAnalysisGeneration
         appendOutput("You: $question\nAttachments: " + files.joinToString { it.name })
         clearSubmittedComposer()
         findViewById<TextView>(R.id.tvAssistantState).text = "Reading attachments…"
         hybridAssistantService.handleAttachmentsAsync(question, files) { reply ->
             runOnUiThread {
-                attachmentBusy = false
+                if (generation != attachmentAnalysisGeneration) return@runOnUiThread
+                attachmentBusy = false; attachmentAnalysisPending = false
+                if (reply.cancelled) {
+                    findViewById<TextView>(R.id.tvAssistantState).text = getString(R.string.ui_ready)
+                    return@runOnUiThread
+                }
                 if (isDestroyed) return@runOnUiThread
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
                 statusOutput.text = reply.text
@@ -2193,11 +2202,30 @@ class MainActivity : ThemedActivity() {
         if (handleLiveChatControl(command)) return
         handleAssistantWithLocation(command) { reply ->
             runOnUiThread {
+                if (reply.screenContextKey != null && com.assistant.core.services.ScreenAccessClient(this).taskState().contextKey != reply.screenContextKey) {
+                    voiceSession.responseFinished(keepArmed = voiceEnabled); voiceService.rearmAfterResponse(); return@runOnUiThread
+                }
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
                 statusOutput.text = reply.actionResult?.output ?: reply.text
-                voiceService.speak(reply.text)
+                speakAssistantVoiceReply(reply)
             }
         }
+    }
+
+    private fun speakAssistantVoiceReply(reply: com.assistant.core.services.HybridAssistantReply) {
+        val scope = reply.screenContextKey
+        if (scope == null) { voiceService.speak(reply.text); return }
+        val access = com.assistant.core.services.ScreenAccessClient(this)
+        if (access.taskState().contextKey != scope) return
+        voiceSession.speaking()
+        voiceService.speak(reply.text, after = {
+            voiceSession.responseFinished(keepArmed = voiceEnabled)
+            val state = access.taskState()
+            if (!isFinishing && !isDestroyed && hasWindowFocus() && !liveChatStarted && state.awaitingInput && state.contextKey == scope) {
+                voiceSession.beginCapture(VoiceSessionController.Trigger.BACKGROUND)
+                voiceService.startFollowUpCapture(returnToWake = voiceEnabled)
+            } else voiceService.rearmAfterResponse()
+        })
     }
 
     private fun requestLiveChat() {
@@ -2327,6 +2355,12 @@ class MainActivity : ThemedActivity() {
 
     private fun ensureMicPermissionAndPushToTalk() {
         if (hasMicrophonePermission()) {
+            hybridAssistantService.interruptActiveResponse()
+            if (attachmentAnalysisPending) {
+                attachmentAnalysisGeneration++
+                attachmentAnalysisPending = false; attachmentBusy = false
+                findViewById<TextView>(R.id.tvAssistantState).text = getString(R.string.ui_ready)
+            }
             voiceSession.beginCapture(VoiceSessionController.Trigger.PUSH_TO_TALK)
             voiceService.startPushToTalk()
         } else {
@@ -2467,6 +2501,8 @@ class MainActivity : ThemedActivity() {
             .setNegativeButton("Close", null)
             .setNeutralButton("Refresh") { _, _ -> showScreenTaskControls() }
             .setPositiveButton("Cancel task") { _, _ ->
+                hybridAssistantService.cancelActiveResponse()
+                voiceService.stopSpeaking(); voiceService.stopListening(); voiceSession.stop()
                 appendOutput("J.A.R.V.I.S.: " + client.reply("cancel screen task"))
             }.show()
     }

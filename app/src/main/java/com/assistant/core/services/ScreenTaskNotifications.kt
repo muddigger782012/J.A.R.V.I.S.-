@@ -15,6 +15,7 @@ import com.assistant.core.R
 
 /** No screen content appears on the lock screen or notification. Cancellation needs no screen read. */
 object ScreenTaskNotifications {
+    const val CHANGED = "com.assistant.core.SCREEN_TASK_CHANGED"
     const val ID = 7634
     const val CANCEL = "com.assistant.core.CANCEL_SCREEN_TASK"
     private const val CHANNEL = "jarvis_screen_task"
