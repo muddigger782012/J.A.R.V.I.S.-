@@ -29,6 +29,18 @@ class SettingsNavigationUiTest {
         assertTrue(message, condition())
     }
 
+    private fun awaitAppearanceLayout(scenario: ActivityScenario<AppearanceSettingsActivity>) {
+        awaitCondition("Appearance must lay out its scrolling content") {
+            var ready = false
+            scenario.onActivity { activity ->
+                val scroll = activity.findViewById<ScrollView>(R.id.appearanceScroll)
+                val body = scroll.getChildAt(0)
+                ready = scroll.height > 0 && !scroll.isLayoutRequested && !body.isLayoutRequested && body.height > scroll.height
+            }
+            ready
+        }
+    }
+
     @Test fun settingsRowsWrapAcrossThemesAndVoiceEditorHasNoSiblingHubLinks() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("jarvis_appearance", Context.MODE_PRIVATE)
@@ -114,7 +126,16 @@ class SettingsNavigationUiTest {
         try {
             ThemePreferences.save(context, "default")
             ActivityScenario.launch(AppearanceSettingsActivity::class.java).use { scenario ->
-                instrumentation.waitForIdleSync()
+                // Fonts can legitimately fit without scrolling on a tall phone.
+                // Bound this fixture's viewport to exercise both tabs' positions.
+                scenario.onActivity { activity ->
+                    val scroll = activity.findViewById<ScrollView>(R.id.appearanceScroll)
+                    scroll.layoutParams = (scroll.layoutParams as LinearLayout.LayoutParams).apply {
+                        height = SettingsMenuViews.dp(activity, 240)
+                        weight = 0f
+                    }
+                }
+                awaitAppearanceLayout(scenario)
                 var themesY = 0
                 var fontsY = 0
                 lateinit var color: android.widget.EditText
@@ -124,22 +145,25 @@ class SettingsNavigationUiTest {
                     assertTrue(themesY > 0)
                     selectAppearanceTab(activity, 1)
                 }
-                instrumentation.waitForIdleSync()
+                awaitAppearanceLayout(scenario)
                 scenario.onActivity { activity ->
                     color = activity.findViewById(R.id.appearanceFontColor)
                     color.setText("#8DEFFF")
                     activity.findViewById<android.widget.SeekBar>(R.id.appearanceFontSlider).progress = 12
+                }
+                awaitAppearanceLayout(scenario)
+                scenario.onActivity { activity ->
                     val scroll = activity.findViewById<ScrollView>(R.id.appearanceScroll)
                     scroll.scrollTo(0, 120); fontsY = scroll.scrollY
                     assertTrue(fontsY > 0)
                     selectAppearanceTab(activity, 0)
                 }
-                instrumentation.waitForIdleSync()
+                awaitAppearanceLayout(scenario)
                 scenario.onActivity { activity ->
                     assertEquals(themesY, activity.findViewById<ScrollView>(R.id.appearanceScroll).scrollY)
                     selectAppearanceTab(activity, 1)
                 }
-                instrumentation.waitForIdleSync()
+                awaitAppearanceLayout(scenario)
                 scenario.onActivity { activity ->
                     assertSame(color, activity.findViewById(R.id.appearanceFontColor))
                     assertEquals("#8DEFFF", color.text.toString())
@@ -147,10 +171,15 @@ class SettingsNavigationUiTest {
                     assertEquals(fontsY, activity.findViewById<ScrollView>(R.id.appearanceScroll).scrollY)
                     selectAppearanceTab(activity, 0)
                 }
-                instrumentation.waitForIdleSync()
+                awaitAppearanceLayout(scenario)
                 var beforeTheme: AppearanceSettingsActivity? = null
                 scenario.onActivity { beforeTheme = it; it.findViewById<android.view.View>(R.id.btnThemeStark).performClick() }
-                instrumentation.waitForIdleSync()
+                awaitCondition("Theme selection must actually recreate the page") {
+                    var recreated = false
+                    scenario.onActivity { recreated = beforeTheme !== it }
+                    recreated
+                }
+                awaitAppearanceLayout(scenario)
                 scenario.onActivity { activity ->
                     assertNotSame("Theme selection must actually recreate the page", beforeTheme, activity)
                     assertEquals("stark", ThemePreferences.selected(activity))
@@ -186,7 +215,7 @@ class SettingsNavigationUiTest {
             // the launch Intent and cannot track cleanup after setIntent changes it.
             main = instrumentation.startActivitySync(android.content.Intent(instrumentation.targetContext, MainActivity::class.java)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
-            val originalMain = main!!
+            val originalMain = main
             run {
                 lateinit var originalInput: android.widget.EditText
                 instrumentation.runOnMainSync {
