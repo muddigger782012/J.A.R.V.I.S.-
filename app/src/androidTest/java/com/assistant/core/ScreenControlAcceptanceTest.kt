@@ -203,7 +203,7 @@ class ScreenControlAcceptanceTest {
             scenario.onActivity { it.showTaskAccounts() }; instrumentation.waitForIdleSync(); settled()
             val snapshot = AndroidScreenPlatform(context).snapshot()
             val accounts = snapshot.controls.filter { it.label == "Account" }
-            assertEquals(2, accounts.size)
+            assertEquals("Fixture controls: ${snapshot.controls}; blocked=${snapshot.blocked}; text=${snapshot.text}", 2, accounts.size)
             assertTrue(accounts.all { it.role == ScreenSemantics.Role.BUTTON })
             assertEquals(setOf("Work", "Personal"), accounts.map { it.contextLabel }.toSet())
             assertFalse(snapshot.controls.single { it.label == "Unavailable" }.enabled)
