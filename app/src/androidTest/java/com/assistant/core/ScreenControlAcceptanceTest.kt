@@ -198,7 +198,7 @@ class ScreenControlAcceptanceTest {
             assertTrue(remote("confirm screen step one").contains("Android accepted step 1"))
             waitUntil { var count = 0; scenario.onActivity { count = it.taskTapCount }; count == 1 }
             remote("confirm screen step one"); scenario.onActivity { assertEquals(1, it.taskTapCount) }
-            settled(); assertTrue(remote("continue screen task").contains("confirm screen step two"))
+            settled(); val nextStep = remote("continue screen task"); assertTrue("Expected step two review, got: $nextStep; task=${ScreenAccessClient(context).taskState()}; screen=${AndroidScreenPlatform(context).snapshot()}", nextStep.contains("confirm screen step two"))
             remote("confirm screen step one"); scenario.onActivity { assertEquals(1, it.taskTapCount) }
             assertTrue(remote("confirm screen step two").contains("Android accepted step 2"))
             waitUntil { var count = 0; scenario.onActivity { count = it.taskTapCount }; count == 2 }
