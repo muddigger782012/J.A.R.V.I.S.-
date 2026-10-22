@@ -235,7 +235,13 @@ class ScreenControlAcceptanceTest {
             val receiver = context.packageManager.getReceiverInfo(ComponentName(context, ScreenTaskCancelReceiver::class.java), 0)
             assertFalse(receiver.exported); assertTrue(receiver.processName.endsWith(":wake"))
             cancel.actionIntent.send()
-            waitUntil { !ScreenAccessClient(context).taskState().active }
+            waitUntil {
+                val state = ScreenAccessClient(context).taskState()
+                if (state.active) {
+                    android.util.Log.d("JarvisScreenAcceptance", "Awaiting notification cancellation: $state")
+                }
+                !state.active
+            }
             remote("confirm screen step one")
             scenario.onActivity { assertEquals(0, it.taskTapCount) }
             waitUntil { manager.activeNotifications.none { it.id == ScreenTaskNotifications.ID } }
