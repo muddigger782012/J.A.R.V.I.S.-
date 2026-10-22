@@ -56,7 +56,8 @@ settings still apply to replies displayed in chat.
 
 A voice-driven screen review can request one follow-up capture without repeating the
 wake phrase. Silent or failed wake/follow-up captures return to the dedicated wake
-engine. Microphone interruption stops current speech and invalidates late AI replies
+engine when background voice was enabled. A standalone push-to-talk follow-up does
+not enable background wake listening. Microphone interruption stops current speech and invalidates late AI replies
 without discarding an already delivered approval. An explicit stop cancels pending
 AI interpretations. Each recognizer owns a generation; callbacks from stopped or
 replaced recognizers cannot become commands. Screen confirmations and continuation

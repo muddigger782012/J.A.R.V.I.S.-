@@ -130,13 +130,13 @@ class VoiceAssistantService(
     }
 
     /** One follow-up capture per spoken task review; silence returns to wake standby. */
-    fun startFollowUpCapture() {
+    fun startFollowUpCapture(returnToWake: Boolean = true) {
         stopSpeaking(); resetRecognition(); stopDedicatedWakeWordEngine()
-        voiceActive = true; commandFromWake = true
+        voiceActive = true; commandFromWake = returnToWake
         // Match live chat's echo gap so the spoken confirmation cue is not immediately recaptured.
         val scheduled = captures.begin()
         mainHandler.postDelayed({
-            if (voiceActive && commandFromWake && captures.valid(scheduled)) startCommandListening()
+            if (voiceActive && captures.valid(scheduled)) startCommandListening()
         }, 650L)
     }
 
@@ -448,7 +448,7 @@ class VoiceAssistantService(
         if (!isRecognitionAvailable()) {
             onStatus("Speech recognition is unavailable for command capture.")
             onCaptureFinished()
-            resumeHotwordEngineAfterCommand()
+            if (commandFromWake) { commandFromWake = false; resumeHotwordEngineAfterCommand() }
             return
         }
         mode = RecognitionMode.COMMAND

@@ -505,7 +505,7 @@ class MainActivity : ThemedActivity() {
             },
             onCaptureFinished = { voiceSession.responseFinished(keepArmed = voiceEnabled) },
             onSpeechStarted = { voiceSession.speaking() },
-            onSpeechFinished = { voiceSession.responseFinished(keepArmed = voiceEnabled) }
+            onSpeechFinished = { voiceSession.responseFinished(keepArmed = voiceEnabled); voiceService.rearmAfterResponse() }
         )
 
         bindUiListeners()
@@ -2216,7 +2216,7 @@ class MainActivity : ThemedActivity() {
             val state = access.taskState()
             if (!isFinishing && !isDestroyed && hasWindowFocus() && !liveChatStarted && state.awaitingInput && state.contextKey == scope) {
                 voiceSession.beginCapture(VoiceSessionController.Trigger.BACKGROUND)
-                voiceService.startFollowUpCapture()
+                voiceService.startFollowUpCapture(returnToWake = voiceEnabled)
             } else voiceService.rearmAfterResponse()
         })
     }
