@@ -13,6 +13,22 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SettingsNavigationUiTest {
+    private fun selectAppearanceTab(activity: AppearanceSettingsActivity, index: Int) {
+        // Click the real tab View. Material's optimized host APIs are not a
+        // separately compiled instrumentation contract.
+        val tabs = activity.findViewById<android.view.ViewGroup>(R.id.appearanceTabs)
+        assertTrue((tabs.getChildAt(0) as android.view.ViewGroup).getChildAt(index).performClick())
+    }
+
+    private fun awaitCondition(message: String, condition: () -> Boolean) {
+        val end = android.os.SystemClock.elapsedRealtime() + 10000
+        while (android.os.SystemClock.elapsedRealtime() < end) {
+            if (condition()) return
+            Thread.sleep(100)
+        }
+        assertTrue(message, condition())
+    }
+
     @Test fun settingsRowsWrapAcrossThemesAndVoiceEditorHasNoSiblingHubLinks() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("jarvis_appearance", Context.MODE_PRIVATE)
@@ -106,7 +122,7 @@ class SettingsNavigationUiTest {
                     val scroll = activity.findViewById<ScrollView>(R.id.appearanceScroll)
                     scroll.scrollTo(0, 400); themesY = scroll.scrollY
                     assertTrue(themesY > 0)
-                    activity.findViewById<com.google.android.material.tabs.TabLayout>(R.id.appearanceTabs).getTabAt(1)!!.select()
+                    selectAppearanceTab(activity, 1)
                 }
                 instrumentation.waitForIdleSync()
                 scenario.onActivity { activity ->
@@ -116,12 +132,12 @@ class SettingsNavigationUiTest {
                     val scroll = activity.findViewById<ScrollView>(R.id.appearanceScroll)
                     scroll.scrollTo(0, 120); fontsY = scroll.scrollY
                     assertTrue(fontsY > 0)
-                    activity.findViewById<com.google.android.material.tabs.TabLayout>(R.id.appearanceTabs).getTabAt(0)!!.select()
+                    selectAppearanceTab(activity, 0)
                 }
                 instrumentation.waitForIdleSync()
                 scenario.onActivity { activity ->
                     assertEquals(themesY, activity.findViewById<ScrollView>(R.id.appearanceScroll).scrollY)
-                    activity.findViewById<com.google.android.material.tabs.TabLayout>(R.id.appearanceTabs).getTabAt(1)!!.select()
+                    selectAppearanceTab(activity, 1)
                 }
                 instrumentation.waitForIdleSync()
                 scenario.onActivity { activity ->
@@ -129,7 +145,7 @@ class SettingsNavigationUiTest {
                     assertEquals("#8DEFFF", color.text.toString())
                     assertEquals(12, activity.findViewById<android.widget.SeekBar>(R.id.appearanceFontSlider).progress)
                     assertEquals(fontsY, activity.findViewById<ScrollView>(R.id.appearanceScroll).scrollY)
-                    activity.findViewById<com.google.android.material.tabs.TabLayout>(R.id.appearanceTabs).getTabAt(0)!!.select()
+                    selectAppearanceTab(activity, 0)
                 }
                 instrumentation.waitForIdleSync()
                 var beforeTheme: AppearanceSettingsActivity? = null
@@ -159,15 +175,24 @@ class SettingsNavigationUiTest {
         val appearanceMonitor = instrumentation.addMonitor(AppearanceSettingsActivity::class.java.name, null, false)
         var settings: android.app.Activity? = null
         var appearance: android.app.Activity? = null
+        var main: MainActivity? = null
+        val prefs = instrumentation.targetContext.getSharedPreferences("main_ui", Context.MODE_PRIVATE)
+        val prompted = prefs.all["prompted_mic_permission"]
         try {
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                lateinit var originalMain: MainActivity
+            // This navigation fixture needs no microphone access. Restore the
+            // first-run prompt flag afterwards; no permission is granted.
+            prefs.edit().putBoolean("prompted_mic_permission", true).commit()
+            // Close deliberately delivers a new Intent. ActivityScenario tracks
+            // the launch Intent and cannot track cleanup after setIntent changes it.
+            main = instrumentation.startActivitySync(android.content.Intent(instrumentation.targetContext, MainActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
+            val originalMain = main!!
+            run {
                 lateinit var originalInput: android.widget.EditText
-                scenario.onActivity { main ->
-                    originalMain = main
-                    originalInput = main.findViewById(R.id.etCommandInput)
+                instrumentation.runOnMainSync {
+                    originalInput = originalMain.findViewById(R.id.etCommandInput)
                     originalInput.setText("Keep this unsent draft")
-                    main.startActivity(android.content.Intent(main, SettingsActivity::class.java))
+                    originalMain.startActivity(android.content.Intent(originalMain, SettingsActivity::class.java))
                 }
                 settings = instrumentation.waitForMonitorWithTimeout(settingsMonitor, 5000)
                 assertNotNull("Settings did not open", settings)
@@ -179,18 +204,29 @@ class SettingsNavigationUiTest {
                 instrumentation.runOnMainSync {
                     appearance!!.findViewById<android.view.View>(R.id.menuPageClose).performClick()
                 }
-                instrumentation.waitForIdleSync()
-                scenario.onActivity { main ->
-                    assertSame("Close must reuse the existing Chat", originalMain, main)
-                    assertSame(originalInput, main.findViewById(R.id.etCommandInput))
+                awaitCondition("Close must resume the existing Chat") {
+                    var resumed = false
+                    instrumentation.runOnMainSync {
+                        resumed = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                            .getLifecycleStageOf(originalMain) == androidx.test.runner.lifecycle.Stage.RESUMED
+                    }
+                    resumed
+                }
+                instrumentation.runOnMainSync {
+                    assertFalse("Close must reuse the existing Chat", originalMain.isFinishing || originalMain.isDestroyed)
+                    assertSame(originalInput, originalMain.findViewById(R.id.etCommandInput))
                     assertEquals("Keep this unsent draft", originalInput.text.toString())
-                    assertEquals(android.view.View.VISIBLE, main.findViewById<android.view.View>(R.id.tabAssistantSection).visibility)
-                    assertEquals(android.view.View.GONE, main.findViewById<android.view.View>(R.id.menuPageNavigation).visibility)
+                    assertEquals(android.view.View.VISIBLE, originalMain.findViewById<android.view.View>(R.id.tabAssistantSection).visibility)
+                    assertEquals(android.view.View.GONE, originalMain.findViewById<android.view.View>(R.id.menuPageNavigation).visibility)
                 }
             }
         } finally {
             instrumentation.removeMonitor(settingsMonitor); instrumentation.removeMonitor(appearanceMonitor)
-            instrumentation.runOnMainSync { appearance?.finish(); settings?.finish() }
+            instrumentation.runOnMainSync { appearance?.finish(); settings?.finish(); main?.finish() }
+            instrumentation.waitForIdleSync()
+            prefs.edit().apply {
+                if (prompted is Boolean) putBoolean("prompted_mic_permission", prompted) else remove("prompted_mic_permission")
+            }.commit()
         }
     }
 }

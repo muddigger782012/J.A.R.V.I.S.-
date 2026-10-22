@@ -28,7 +28,9 @@ abstract class MenuActivity(private val pageTitle: String, private val legacyBac
             theme.resolveAttribute(R.attr.jarvis_background, background, true)
             if (background.resourceId != 0) setBackgroundResource(background.resourceId) else setBackgroundColor(background.data)
             addView(SettingsMenuViews.navigation(this@MenuActivity, pageTitle,
-                back = { onBackPressedDispatcher.onBackPressed() }, close = { closeMenus(this@MenuActivity) }, originalBack = originalBack))
+                // A visible Back button leaves this page even when Android
+                // launched it as a task root (platform Back can background it).
+                back = { finish() }, close = { closeMenus(this@MenuActivity) }, originalBack = originalBack))
             addView(FrameLayout(this@MenuActivity).apply {
                 id = R.id.menuPageContent
                 addView(content, FrameLayout.LayoutParams(-1, -1))
