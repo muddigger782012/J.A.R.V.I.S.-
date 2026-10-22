@@ -13,6 +13,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.view.ViewCompat
+import androidx.core.view.doOnPreDraw
 import com.assistant.core.learning.ApprovedRoutineRegistry
 import com.assistant.core.learning.ValidatedCommandMemory
 import com.assistant.core.services.*
@@ -32,10 +33,13 @@ class IntelligenceActivity : MenuActivity("Intelligence", R.id.btnCloseIntellige
     private lateinit var content: LinearLayout
     private lateinit var scroll: ScrollView
     private var checking = false
+    private var restoredScroll: Int? = null
+    private var renderGeneration = 0
     private var lastTest = "Connection has not been tested in this screen."
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        restoredScroll = savedInstanceState?.getInt("intelligence_scroll")
         setContentView(R.layout.activity_intelligence)
         content = findViewById(R.id.intelligenceContent)
         scroll = findViewById(R.id.intelligenceScroll)
@@ -45,6 +49,11 @@ class IntelligenceActivity : MenuActivity("Intelligence", R.id.btnCloseIntellige
     override fun onResume() {
         super.onResume()
         if (::content.isInitialized) render()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (::scroll.isInitialized) outState.putInt("intelligence_scroll", scroll.scrollY)
+        super.onSaveInstanceState(outState)
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
@@ -76,7 +85,9 @@ class IntelligenceActivity : MenuActivity("Intelligence", R.id.btnCloseIntellige
     private fun toast(value: String) = Toast.makeText(this, value, Toast.LENGTH_LONG).show()
 
     private fun render() {
-        val oldScroll = scroll.scrollY
+        val oldScroll = restoredScroll ?: scroll.scrollY
+        restoredScroll = null
+        val generation = ++renderGeneration
         content.removeAllViews()
         val direct = DirectOnlineClient(this)
         val gateway = FallbackAiClient(this)
@@ -171,7 +182,7 @@ class IntelligenceActivity : MenuActivity("Intelligence", R.id.btnCloseIntellige
         text(content, "App version: $version\nUpdated ${DateFormat.getTimeFormat(this).format(Date())}. Inventory stays on this device.")
         FontPreferences.applyTo(content, this)
         UnifiedMenuSection.compactActions(scroll)
-        scroll.post { scroll.scrollTo(0, oldScroll) }
+        scroll.doOnPreDraw { if (generation == renderGeneration) scroll.scrollTo(0, oldScroll) }
     }
 
     private fun reviewResults(page: Int) {

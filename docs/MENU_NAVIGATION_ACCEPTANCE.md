@@ -23,10 +23,12 @@ position after recreation. Contrast controls remain reachable in the same body.
 
 An existing Connection Manager acceptance failure also blocked the baseline release.
 API 33+ screen captures now walk the fresh hierarchy after clearing the service
-cache, avoiding redundant per-child remote refresh requests. Older APIs retain their
-refresh path. Window changes invalidate capture; all time, node, protected-content
+cache, avoiding redundant per-child remote refresh requests. Older APIs and services with caching disabled retain their
+refresh path; acceptance temporarily disables caching and verifies a real read. Window changes invalidate capture; all time, node, protected-content
 and cancellation bounds remain. No partial tree or automatic action retry is added.
-The acceptance assertion no longer performs an extra screen capture just to format
+Utility roots keep stable state IDs, and the Intelligence dashboard restores its
+scroll position after layout when refreshing or recreating. The acceptance
+assertion no longer performs an extra screen capture just to format
 its diagnostic message, including when the assertion succeeds.
 
 Local verification: 672 JVM tests across 106 suites pass without failures, errors or
@@ -34,8 +36,8 @@ skips; debug APKs for all supported ABIs, instrumentation Kotlin and Beta manife
 processing pass. Release/archive regressions, Python syntax and UI theme checks pass.
 
 Required before merge/publication: actual Accessibility/conversation preflight,
-the full optimized Android suite (including every utility activity and Appearance
-restoration), UI emulator Back/Close/history/menu tests, gateway/theme checks,
+the full optimized Android suite (53 cases, including every utility activity,
+Appearance restoration and closing nested menus without losing the Chat draft), UI emulator Back/Close/history/menu tests, gateway/theme checks,
 production signing and public updater byte verification. Real-phone wake quality,
 installed-data upgrade and live configured-provider availability remain separate
 from unit/emulator evidence.

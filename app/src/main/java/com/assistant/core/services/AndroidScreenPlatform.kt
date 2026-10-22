@@ -25,7 +25,7 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
         check(!requestExpired())
         val service = JarvisAccessibilityService.active() ?: error("Accessibility disconnected")
         if (locked()) return Capture(ScreenControls.Snapshot("locked", "Android", emptyList(), emptyList(), true), emptyMap(), emptyList())
-        if (Build.VERSION.SDK_INT >= 33 && !service.clearCache()) throw ScreenCaptureRead.Changed()
+        val cacheCleared = Build.VERSION.SDK_INT >= 33 && service.clearCache()
         val generation = service.screenGeneration
         val root = service.rootInActiveWindow ?: throw ScreenCaptureRead.Changed()
         val owned = mutableListOf(root)
@@ -62,7 +62,7 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                 // root. getChild returns that fresh hierarchy, including prefetched
                 // nodes; refreshing every child again causes redundant remote IPC
                 // and can exhaust the bounded read on a cold Compose screen.
-                if (Build.VERSION.SDK_INT < 33 && !node.refresh()) throw ScreenCaptureRead.Changed()
+                if (!cacheCleared && !node.refresh()) throw ScreenCaptureRead.Changed()
                 if (!node.isVisibleToUser) continue
                 val variation = node.inputType and InputType.TYPE_MASK_VARIATION
                 val password = node.isPassword || ((node.inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_TEXT &&

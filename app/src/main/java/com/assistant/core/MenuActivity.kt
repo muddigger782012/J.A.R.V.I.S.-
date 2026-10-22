@@ -15,6 +15,9 @@ abstract class MenuActivity(private val pageTitle: String, private val legacyBac
     override fun setContentView(view: View?, params: ViewGroup.LayoutParams?) = install(requireNotNull(view))
 
     private fun install(content: View) {
+        // Programmatic and legacy root ScrollViews need a stable ID for Android's
+        // own hierarchy-state restoration. Existing IDs are never replaced.
+        if (content.id == View.NO_ID) content.id = R.id.menuPageBody
         val originalBack = (if (legacyBackId != View.NO_ID) content.findViewById<View>(legacyBackId) else null)?.also {
             (it.parent as? ViewGroup)?.removeView(it)
         }
