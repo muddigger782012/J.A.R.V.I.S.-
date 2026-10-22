@@ -106,7 +106,8 @@ errors or skipped cases, all debug architectures, instrumentation compilation an
 Beta manifest processing. Release/archive tests and the theme contract pass. The
 independent Connection Manager reference APK also builds locally. Final integrated
 Android emulator results must be recorded before the v3.6 release is promoted. The integrated acceptance gate requires
-all five real-service preflight cases and all 50 optimized Android cases, including
+all five real-service cases plus the two conversation regressions in preflight,
+and all 50 optimized Android cases, including
 launching and reading the separate manager while its provider checks remain unrun.
 API 34 sensitive views hidden by Android remain inaccessible. If Android supplies
 an explicitly marked sensitive node, Jarvis blocks that snapshot; password views
