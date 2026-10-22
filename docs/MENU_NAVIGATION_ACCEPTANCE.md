@@ -23,8 +23,10 @@ position after recreation. Contrast controls remain reachable in the same body.
 
 An existing Connection Manager acceptance failure also blocked the baseline release.
 API 33+ screen captures now walk the fresh hierarchy after clearing the service
-cache, avoiding redundant per-child remote refresh requests. Older APIs and services with caching disabled retain their
-refresh path; acceptance temporarily disables caching and verifies a real read. Window changes invalidate capture; all time, node, protected-content
+cache, avoiding redundant per-child remote refresh requests. Disabled caching also
+supplies fresh child nodes and avoids duplicate refreshes; older APIs retain their
+refresh path. Acceptance temporarily disables caching and verifies a real read.
+Window changes invalidate capture; all time, node, protected-content
 and cancellation bounds remain. No partial tree or automatic action retry is added.
 Utility roots keep stable state IDs, and the Intelligence dashboard restores its
 scroll position after layout when refreshing or recreating. The acceptance

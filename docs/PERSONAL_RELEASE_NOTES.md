@@ -6,6 +6,8 @@ Personal Jarvis v3.6 — Intelligent Device Assistance:
 - Appearance keeps theme/font tab positions and unfinished edits while switching
   tabs, and restores scroll position after applying a theme. Navigation remains
   accessible while scrolling; contrast controls share one scrolling body.
+- Read supported screens with Accessibility caching enabled or disabled without
+  redundant child refreshes; retain complete-capture, deadline and security bounds.
 - Identify the foreground app and supported visible controls with roles, sections,
   availability and checked state. Duplicate controls require an explicit choice.
 - Review a bounded task, approve the plan, then confirm each numbered target before
