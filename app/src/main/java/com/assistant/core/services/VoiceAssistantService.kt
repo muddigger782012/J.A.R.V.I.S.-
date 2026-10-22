@@ -133,7 +133,11 @@ class VoiceAssistantService(
     fun startFollowUpCapture() {
         stopSpeaking(); resetRecognition(); stopDedicatedWakeWordEngine()
         voiceActive = true; commandFromWake = true
-        startCommandListening()
+        // Match live chat's echo gap so the spoken confirmation cue is not immediately recaptured.
+        val scheduled = captures.begin()
+        mainHandler.postDelayed({
+            if (voiceActive && commandFromWake && captures.valid(scheduled)) startCommandListening()
+        }, 650L)
     }
 
     fun startHotwordLoop() {
