@@ -663,7 +663,8 @@ class PersonalFoundationAcceptanceTest {
             assertTrue(service.handleUserInput("cancel research").text.contains("late results will not replace"))
         } finally { release.countDown() }
         assertTrue(done.await(20, TimeUnit.SECONDS))
-        assertTrue(result.get().text.contains("late results were not saved"))
+        assertTrue(result.get().cancelled)
+        assertFalse(result.get().text.contains("New source"))
         assertEquals(old, assistant().handleUserInput("review research brief").text)
         assertEquals(0, context.activityRequests); assertEquals(0, executions)
     }

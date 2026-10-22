@@ -42,6 +42,9 @@ class AssistantResponseTurns {
     fun current(token: Long): Boolean = synchronized(lock) { sequence == token }
     fun bound(): Boolean = bound.get() != null
     fun current(): Boolean = bound.get()?.let(::current) ?: true
+    fun delivery(token: Long, reply: HybridAssistantReply): HybridAssistantReply = synchronized(lock) {
+        if (sequence == token) reply else HybridAssistantReply("The earlier response was cancelled or replaced.", cancelled = true)
+    }
     fun cancel(clear: () -> Unit = {}) = synchronized(lock) { ++sequence; clear() }
     fun <T> inTurn(token: Long, block: () -> T): T {
         val previous = bound.get(); bound.set(token)

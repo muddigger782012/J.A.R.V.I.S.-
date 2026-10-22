@@ -106,6 +106,7 @@ class MainActivity : ThemedActivity() {
     private val pendingAttachments = mutableListOf<ChatAttachment>()
     private var attachmentBusy = false
     private var attachmentAnalysisPending = false
+    private var attachmentAnalysisGeneration = 0L
     private var pendingCameraPath: String? = null
     private val photoPicker = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(AttachmentPolicy.MAX_FILES)) { uris ->
         importAttachments(uris)
@@ -1106,7 +1107,7 @@ class MainActivity : ThemedActivity() {
             weatherPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
             return
         }
-        hybridAssistantService.handleUserInputAsync(command, callback)
+        hybridAssistantService.handleUserInputAsync(command) { if (!it.cancelled) callback(it) }
     }
 
     private fun attachmentNotice(message: String) {
@@ -1346,12 +1347,18 @@ class MainActivity : ThemedActivity() {
         val question = commandInput.text?.toString()?.trim().orEmpty().ifBlank { "Describe or summarize the attached files." }
         val files = pendingAttachments.toList()
         attachmentBusy = true; attachmentAnalysisPending = true
+        val generation = ++attachmentAnalysisGeneration
         appendOutput("You: $question\nAttachments: " + files.joinToString { it.name })
         clearSubmittedComposer()
         findViewById<TextView>(R.id.tvAssistantState).text = "Reading attachments…"
         hybridAssistantService.handleAttachmentsAsync(question, files) { reply ->
             runOnUiThread {
+                if (generation != attachmentAnalysisGeneration) return@runOnUiThread
                 attachmentBusy = false; attachmentAnalysisPending = false
+                if (reply.cancelled) {
+                    findViewById<TextView>(R.id.tvAssistantState).text = getString(R.string.ui_ready)
+                    return@runOnUiThread
+                }
                 if (isDestroyed) return@runOnUiThread
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
                 statusOutput.text = reply.text
@@ -2350,6 +2357,7 @@ class MainActivity : ThemedActivity() {
         if (hasMicrophonePermission()) {
             hybridAssistantService.interruptActiveResponse()
             if (attachmentAnalysisPending) {
+                attachmentAnalysisGeneration++
                 attachmentAnalysisPending = false; attachmentBusy = false
                 findViewById<TextView>(R.id.tvAssistantState).text = getString(R.string.ui_ready)
             }

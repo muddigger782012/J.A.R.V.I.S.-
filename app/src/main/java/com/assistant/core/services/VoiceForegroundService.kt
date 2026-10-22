@@ -279,7 +279,7 @@ class VoiceForegroundService : Service() {
                             speakLiveReply("Live chat is already active.")
                         } else {
                             liveStatus(VoiceInteractionState.PROCESSING, "Thinking…")
-                            hybridAssistantService.handleUserInputAsync(text) { reply ->
+                            askAssistant(text) { reply ->
                                 liveHandler.post {
                                     if (liveChatActive && liveSession.response(turn)) {
                                         if (reply.screenContextKey != null && screenAccess.taskState().contextKey != reply.screenContextKey) {
@@ -467,6 +467,10 @@ class VoiceForegroundService : Service() {
         publishEvent("Foreground voice service stopped.")
     }
 
+    private fun askAssistant(text: String, callback: (HybridAssistantReply) -> Unit) {
+        hybridAssistantService.handleUserInputAsync(text) { if (!it.cancelled) callback(it) }
+    }
+
     private fun processTranscript(transcript: String) {
         val generation = ++responseGeneration
         spokenScreenContext = null; followUpScreen = false
@@ -511,7 +515,7 @@ class VoiceForegroundService : Service() {
         // central assistant pipeline as typed input. Legacy parser routing is
         // retained below only until the remaining migration is complete.
         publishEvent("Voice diagnostic: live transcript submitted to assistant.")
-        hybridAssistantService.handleUserInputAsync(transcript) { reply ->
+        askAssistant(transcript) { reply ->
             liveHandler.post {
                 if (generation != responseGeneration || !pipelineStarted || practiceToken != null || liveChatActive) return@post
                 val scope = reply.screenContextKey
@@ -594,7 +598,7 @@ class VoiceForegroundService : Service() {
                 // Bypassing it through the legacy ActionRequest parser caused
                 // learned routines and local aliases to behave differently.
                 publishEvent("Voice diagnostic: assistant processing started.")
-                hybridAssistantService.handleUserInputAsync(
+                askAssistant(
                     parsed.fallbackTextCommand ?: command
                 ) { reply ->
                     liveHandler.post {

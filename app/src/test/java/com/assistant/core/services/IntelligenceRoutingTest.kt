@@ -67,4 +67,13 @@ class IntelligenceRoutingTest {
         assertTrue(VoiceScreenApprovalScope.valid("cancel screen task", "old", "new"))
         assertTrue(VoiceScreenApprovalScope.valid("screen task tap Menu and verify Downloads", "old", "new"))
     }
+    @Test fun supersededWorkCompletesWithOnlyACancellationSignalInsteadOfItsLateResult() {
+        val turns = AssistantResponseTurns(); val old = turns.begin()
+        val result = HybridAssistantReply("late private answer", needsInterpretation = true, screenContextKey = "old review")
+        turns.cancel()
+        val delivered = turns.delivery(old, result)
+        assertTrue(delivered.cancelled); assertFalse(delivered.text.contains("private"))
+        assertNull(delivered.screenContextKey); assertNull(delivered.actionResult); assertFalse(delivered.needsInterpretation)
+        val current = turns.begin(); assertSame(result, turns.delivery(current, result))
+    }
 }
