@@ -203,4 +203,14 @@ class ScreenTasksTest {
         assertFalse(session.contextual); assertEquals(reads, phone.reads); assertEquals(1, phone.actions)
         assertTrue(session.active)
     }
+    @Test fun voiceReviewContextChangesWhenAnUnattemptedTargetIsReplacedWithinTheSameTask() {
+        val phone = Phone(); phone.value = phone.value.copy(controls = listOf(button("0/1", "Menu"), button("0/2", "More options")))
+        val session = ScreenSession(phone); start(session); session.reply("approve screen task")
+        val goal = session.taskKey; val spoken = session.interactionKey!!
+        session.reply("change screen step to More options"); session.reply("approve screen task")
+        assertEquals(goal, session.taskKey)
+        assertNotEquals(spoken, session.interactionKey)
+        assertFalse(VoiceScreenApprovalScope.valid("confirm screen step one", spoken, session.interactionKey!!))
+        assertEquals(0, phone.actions)
+    }
 }

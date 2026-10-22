@@ -253,7 +253,7 @@ class ScreenSession(platform: ScreenControls.Platform, now: () -> Long = System:
     val contextual get() = tasks.contextual
     val awaitingInput get() = tasks.awaitingInput
     val taskKey get() = tasks.taskKey
-    val interactionKey get() = tasks.interactionKey ?: direct.pendingToken
+    val interactionKey get() = tasks.interactionKey?.let { "$it:${tasks.pendingToken.orEmpty()}" } ?: direct.pendingToken
     val observing get() = tasks.phase == ScreenTasks.Phase.OBSERVE
     val confirming get() = tasks.phase == ScreenTasks.Phase.CONFIRM
     val currentStep get() = tasks.currentStep
