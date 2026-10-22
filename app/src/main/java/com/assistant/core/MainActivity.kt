@@ -653,11 +653,15 @@ class MainActivity : ThemedActivity() {
 
     private fun showTab(index: Int, animate: Boolean, direction: Int) {
         if (index !in tabSections.indices) return
-        if (index == currentTabIndex && tabSections[index].visibility == View.VISIBLE) {
+        if (index == currentTabIndex && tabSections[index].visibility == View.VISIBLE &&
+            tabSections[index].translationX == 0f && tabSections[index].alpha == 1f) {
             updateHeaderSelection(index)
             return
         }
         val previousIndex = currentTabIndex
+        // A fast second tap must not leave a previously animated tab visible or
+        // allow an old animation callback to hide the newly selected page.
+        tabSections.forEach { it.animate().cancel() }
         currentTabIndex = index
         if (animate && previousIndex in tabSections.indices && previousIndex != index) {
             animateTabTransition(fromIndex = previousIndex, toIndex = index, direction = direction)
@@ -703,7 +707,7 @@ class MainActivity : ThemedActivity() {
             .setDuration(TAB_TRANSITION_DURATION_MS)
             .setInterpolator(AccelerateDecelerateInterpolator())
             .withEndAction {
-                fromView.visibility = View.GONE
+                if (currentTabIndex != fromIndex) fromView.visibility = View.GONE
                 fromView.translationX = 0f
                 fromView.alpha = 1f
             }
