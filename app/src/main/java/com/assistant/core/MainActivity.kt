@@ -360,14 +360,6 @@ class MainActivity : ThemedActivity() {
             ), R.drawable.ic_composer_tools
         )
         UnifiedMenuSection.group(
-            findViewById(R.id.tabShizukuSection),
-            listOf(
-                Triple(R.id.tvShizukuRuntimeStatus, "Connection status", "Shizuku runtime and authorization"),
-                Triple(R.id.btnRefreshShizukuStatus, "Connection controls", "Refresh, launch and authorize"),
-                Triple(R.id.etShizukuCommand, "Command execution", "Run supported Shizuku commands")
-            ), R.drawable.ic_composer_tools
-        )
-        UnifiedMenuSection.group(
             findViewById(R.id.tabAuditSection),
             listOf(
                 Triple(R.id.etAuditLimit, "Log filters", "Limit and filter activity records"),
@@ -386,8 +378,9 @@ class MainActivity : ThemedActivity() {
         UnifiedMenuSection.group(
             findViewById(R.id.tabPermissionsSection),
             listOf(
-                Triple(R.id.btnRequestAllRuntimePermissions, "Permission requests", "Grant required access"),
-                Triple(R.id.btnOpenOverlayPermission, "Special permissions", "Configure Android access"),
+                Triple(R.id.btnRequestAllRuntimePermissions, "Runtime permissions", "Request Android runtime access"),
+                Triple(R.id.btnRequestAllSpecialPermissions, "Special access overview", "Request elevated Android capabilities"),
+                Triple(R.id.btnOpenOverlayPermission, "Individual access controls", "Open overlay, files, usage and accessibility settings"),
                 Triple(R.id.tvSpecialPermissionsStatus, "Permission status", "Review granted permissions")
             ), R.drawable.ic_tools_settings
         )
