@@ -1,0 +1,10 @@
+<resources>
+    <item name="menuPageRoot" type="id" />
+    <item name="menuPageContent" type="id" />
+    <item name="menuPageNavigation" type="id" />
+    <item name="menuPageBack" type="id" />
+    <item name="menuPageClose" type="id" />
+    <item name="appearanceScroll" type="id" />
+    <item name="appearanceFontSlider" type="id" />
+    <item name="appearanceFontColor" type="id" />
+</resources>

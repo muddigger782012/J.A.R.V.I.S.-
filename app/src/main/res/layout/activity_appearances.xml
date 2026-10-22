@@ -7,8 +7,14 @@
         android:text="Appearances" android:textSize="24sp" android:textStyle="bold" android:textColor="?attr/jarvis_on_dark" />
     <com.google.android.material.tabs.TabLayout android:id="@+id/appearanceTabs"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" />
+    <ScrollView android:id="@id/appearanceScroll" android:layout_width="match_parent"
+        android:layout_height="0dp" android:layout_weight="1" android:fillViewport="true">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:focusableInTouchMode="true">
     <FrameLayout android:id="@+id/appearanceContent" android:layout_width="match_parent"
-        android:layout_height="0dp" android:layout_weight="1" />
+        android:layout_height="wrap_content" />
     <LinearLayout android:id="@+id/chatDarknessControls" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="vertical" android:padding="12dp" android:layout_marginTop="8dp" android:background="@drawable/glass_panel_surface" />
+        </LinearLayout>
+    </ScrollView>
 </LinearLayout>

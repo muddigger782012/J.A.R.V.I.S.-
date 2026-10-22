@@ -22,7 +22,7 @@ import java.util.Date
 import kotlin.concurrent.thread
 
 /** Local intelligence management. Opening the dashboard never calls AI or runs a routine. */
-class IntelligenceActivity : ThemedActivity() {
+class IntelligenceActivity : MenuActivity("Intelligence", R.id.btnCloseIntelligence) {
     private val commands by lazy { ValidatedCommandMemory(this) }
     private val examples by lazy { IntentLearningStore(this) }
     private val memory by lazy { AssistantMemory(this) }
@@ -59,7 +59,8 @@ class IntelligenceActivity : ThemedActivity() {
     private fun section(title: String) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(16), dp(16), dp(16), dp(12))
-        setBackgroundResource(R.drawable.intelligence_panel)
+        setBackgroundResource(R.drawable.glass_panel_surface)
+        UnifiedContentPanel.apply(this)
         content.addView(this, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
         text(this, title, true)
     }
@@ -169,6 +170,7 @@ class IntelligenceActivity : ThemedActivity() {
         val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "unknown"
         text(content, "App version: $version\nUpdated ${DateFormat.getTimeFormat(this).format(Date())}. Inventory stays on this device.")
         FontPreferences.applyTo(content, this)
+        UnifiedMenuSection.compactActions(scroll)
         scroll.post { scroll.scrollTo(0, oldScroll) }
     }
 

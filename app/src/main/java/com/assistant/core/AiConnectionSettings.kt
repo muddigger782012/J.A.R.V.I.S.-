@@ -8,6 +8,7 @@ import com.google.android.material.switchmaterial.SwitchMaterial
 /** One provider-settings destination shared by the hub and intelligence dashboard. */
 object AiConnectionSettings {
     fun show(activity: Activity) {
+        var open = true
         val gatewayPrefs = activity.getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
         val fields = android.widget.LinearLayout(activity).apply {
             orientation = android.widget.LinearLayout.VERTICAL
@@ -89,7 +90,7 @@ object AiConnectionSettings {
                     com.assistant.core.services.GeminiModelDiscovery.list(apiKey)
                 } catch (_: Exception) { emptyList() }
                 activity.runOnUiThread {
-                    if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                    if (!open || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                     discoverButton.isEnabled = true
                     if (models.isEmpty()) discoveryStatus.text =
                         "No models returned. Check your API key and network connection."
@@ -145,9 +146,18 @@ object AiConnectionSettings {
             setOnClickListener { deviceLocation.isChecked = false; latitude.setText("36.7682"); longitude.setText("-76.2875") }
         })
         val scroll = android.widget.ScrollView(activity).apply { addView(fields) }
-        val dialog = ThemedDialogBuilder(activity)
+        lateinit var dialog: androidx.appcompat.app.AlertDialog
+        val page = android.widget.LinearLayout(activity).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            addView(SettingsMenuViews.navigation(activity, "AI settings", back = { dialog.dismiss() }, close = {
+                dialog.dismiss()
+                MenuActivity.closeMenus(activity)
+            }))
+            addView(scroll, android.widget.LinearLayout.LayoutParams(-1, 0, 1f))
+        }
+        dialog = ThemedDialogBuilder(activity)
             .setTitle("Weather and AI")
-            .setView(scroll).setNegativeButton("Cancel", null)
+            .setView(page).setNegativeButton("Cancel", null)
             .setPositiveButton("Save", null).create()
         dialog.setOnShowListener {
             dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -177,6 +187,7 @@ object AiConnectionSettings {
                 }
             }
         }
+        dialog.setOnDismissListener { open = false }
         dialog.show()
     }
 }
