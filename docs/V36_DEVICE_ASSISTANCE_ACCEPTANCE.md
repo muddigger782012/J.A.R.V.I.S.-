@@ -93,49 +93,63 @@ whether the cellular radio is enabled.
 
 ## Current verification
 
-The screen-intelligence and supervised-task increment passed its unit/build checks,
-its actual Accessibility preflight and the full optimized Android acceptance suite.
-Real page transitions, section-qualified duplicate labels, disabled controls,
-notification cancellation and replacement-review rejection passed. Android exposes
-some styled buttons in uppercase; the fixture assertions now use the same case
-normalization as target selection, with roles and section identity still checked.
-The verified increment is merged and included in the published Personal v3.6 series.
+The combined code passed 668 JVM cases across 105 suites with no failures, errors
+or skipped cases, all debug architectures, Android-test compilation and Beta
+manifest processing. The 22 release/archive regressions, workflow/Python syntax,
+gateway and theme checks pass. The production build contains the existing signing
+identity, wake assets and native runtime for all three supported architectures.
 
-The combined feature code passed 663 JVM cases across 104 suites with no failures,
-errors or skipped cases, all debug architectures, instrumentation compilation and
-Beta manifest processing. Release/archive tests and the theme contract pass. The
-independent Connection Manager reference APK also builds locally. Final integrated
-Android emulator results must be recorded before the v3.6 release is promoted. The integrated acceptance gate requires
-all five real-service cases plus the two conversation regressions in preflight,
-and all 50 optimized Android cases, including
-launching and reading the separate manager while its provider checks remain unrun.
+The actual Android service gate passed all seven Accessibility/conversation
+preflight cases and all 50 optimized acceptance cases on both the reviewed branch
+and merged source. This includes real page transitions, section-qualified duplicate
+labels, disabled controls, stale approval rejection, queued cancellation while the
+UI looper is blocked, timeouts and the separate Connection Manager's actual launcher
+and screen. The manager remains an independent installed app, and acceptance leaves
+its provider probes unrun.
+
+Notification cancellation has foreground broadcast delivery priority and an
+immutable task-specific PendingIntent. Acceptance delivers an old notification
+cancel action after replacing the task, checks that the replacement stays active,
+then delivers the current cancel action and verifies that no later tap runs. Global
+voice/UI cancellation still invalidates queued actions before dispatch.
+
 API 34 sensitive views hidden by Android remain inaccessible. If Android supplies
 an explicitly marked sensitive node, Jarvis blocks that snapshot; password views
 also block surrounding text and controls. Acceptance verifies that a marked value
-and button are neither exposed nor tapped, while public surrounding text may remain
-readable. A missing node during capture invalidates the snapshot rather than
-publishing a partial tree. These additions require the integrated real-service pass.
-
-The next reliability increment gives the notification cancel broadcast foreground
-delivery priority and binds its immutable PendingIntent to the original task.
-Delayed cancellation cannot discard a replacement task or its notification.
-Acceptance sends both an old and current actual notification action and checks
-that only the current task is cancelled. Global voice/UI cancellation still
-invalidates queued actions without waiting for the main looper.
-
-A disappearing root, window or child invalidates the complete screen capture.
+and button are neither exposed nor tapped. Public surrounding text may remain
+readable. A disappearing root, window or child invalidates the complete capture.
 Snapshot reads may attempt one fresh capture within the existing cancellation and
-request deadlines. Partial trees are never returned; changing screens that still
-cannot be captured fail closed. Action dispatch is never retried. The UI smoke
-job similarly retries missing observation dumps within a bound, navigates the
-visible Tools/Support menus and requires every destination to open. It no longer
-searches hidden legacy header buttons or silently skips missing destinations.
+request deadlines. Partial trees are never returned and action dispatch is never
+retried. Continuous changes and other capture failures fail closed.
+
+The UI emulator job passes every current Tools/Support menu destination,
+Default/Stark/Cybertron selections and the small-screen keyboard check. Review
+screenshots include every destination and theme selection; the send control remains
+visible at 320dp width with enlarged system text and the keyboard open. The job uses
+the visible menus, requires destinations to open and discards stale hierarchy dumps
+before bounded observation retries. It never retries a tap automatically.
+
+Verification records:
+
+- [Merged-source unit, gateway, Accessibility, voice and UI checks](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39855274120)
+- [Production signing and APK metadata](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39855274640)
+- [Automatic publication and retained receipt](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39856189047)
 
 ## Release acceptance and practical limits
 
-The v3.6 candidate must pass unit/build checks, the actual Accessibility and optimized
-Android acceptance jobs, theme/gateway checks, production signing/native/wake asset
-verification, and public APK/updater byte verification. CI checks local provider
+Personal [3.6.512 is published](https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/tag/jarvis-3.6.512)
+and available through the existing in-app updater. Publication ran automatically
+from the successful main production build after the required merged-source checks.
+The retained receipt confirms the release downloads and updater. An independent
+download of the exact default updater URL matched the manifest SHA-256 and Git blob,
+Personal package/version, prior production signing identity, native/wake assets and
+expected release assets. Acceptance fixtures are absent, and the production DEX
+contains the task-bound notification cancellation path.
+
+[Download the updater APK](https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/artifacts/app-debug.apk).
+All three architecture APKs, the ARM64 ZIP and checksums are attached to the release.
+Unit/build, actual Accessibility/optimized Android, UI, theme/gateway and production
+signing/native/wake asset gates have passed. CI checks local provider
 ordering/failure/cancellation with controlled responses; configured live-provider
 availability requires the owner's API access and is not inferred from CI.
 

@@ -11,6 +11,11 @@ Personal Jarvis v3.6 — Intelligent Device Assistance:
 - Cancel through voice/chat, Tools → Screen task, or the notification's Cancel action
   when notifications are allowed. Queued requests are invalidated immediately;
   already submitted Android actions cannot be undone.
+- Deliver notification cancellation promptly and bind it to the original task, so a
+  delayed old Cancel action cannot discard a replacement task or its notification.
+- Recover one disappearing Accessibility tree with a fresh bounded screen read.
+  Partial trees remain unavailable, protected screens stay blocked and actions
+  are never retried automatically.
 - Keep password, Android-marked sensitive, locked, Android system/permission/Settings and security windows
   protected. Accessibility enabling remains a manual Android flow.
 - Continue a voice-driven task with one follow-up capture after each review. Interrupt
