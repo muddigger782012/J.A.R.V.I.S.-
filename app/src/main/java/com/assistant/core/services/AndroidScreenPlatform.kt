@@ -26,12 +26,12 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
         val service = JarvisAccessibilityService.active() ?: error("Accessibility disconnected")
         if (locked()) return Capture(ScreenControls.Snapshot("locked", "Android", emptyList(), emptyList(), true), emptyMap(), emptyList())
         if (Build.VERSION.SDK_INT >= 33) service.clearCache()
-        val root = service.rootInActiveWindow ?: error("No active accessibility window")
+        val root = service.rootInActiveWindow ?: throw ScreenCaptureRead.Changed()
         val owned = mutableListOf(root)
         try {
-            check(root.refresh())
+            if (!root.refresh()) throw ScreenCaptureRead.Changed()
             val pkg = root.packageName?.toString()?.takeIf { it.length in 1..200 } ?: error("No active package")
-            val window = root.window ?: error("No stable app window")
+            val window = root.window ?: throw ScreenCaptureRead.Changed()
             @Suppress("DEPRECATION") val windowType = try { window.type } finally { window.recycle() }
             val appLabel = appLabel(pkg)
             val protected = windowType != AccessibilityWindowInfo.TYPE_APPLICATION || pkg in setOf("android", "com.android.settings", "com.android.systemui", "com.android.packageinstaller",
@@ -56,7 +56,7 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                 check(nodes.size < 300 && SystemClock.uptimeMillis() <= deadline && !requestExpired())
                 val (path, node) = queue.removeFirst()
                 nodes[path] = node
-                check(node.refresh())
+                if (!node.refresh()) throw ScreenCaptureRead.Changed()
                 if (!node.isVisibleToUser) continue
                 val variation = node.inputType and InputType.TYPE_MASK_VARIATION
                 val password = node.isPassword || ((node.inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_TEXT &&
@@ -89,7 +89,7 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                 }
                 check(path.count { it == '/' } < 30 && node.childCount <= 300)
                 for (index in 0 until node.childCount) {
-                    val child = node.getChild(index) ?: error("The accessibility tree changed during capture")
+                    val child = node.getChild(index) ?: throw ScreenCaptureRead.Changed()
                     owned.add(child); check(owned.size <= 300); queue.add("$path/$index" to child)
                 }
             }
@@ -120,7 +120,9 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
             throw failure
         }
     }
-    override fun snapshot(): ScreenControls.Snapshot = capture().use { it.snapshot }
+    override fun snapshot(): ScreenControls.Snapshot = ScreenCaptureRead.read({ !requestExpired() && connected() }) {
+        capture().use { it.snapshot }
+    }
     override fun perform(snapshot: ScreenControls.Snapshot, control: ScreenControls.Control, scroll: ScreenControls.Kind?): ScreenControls.Result = try {
         capture().use { current ->
             if (current.snapshot.blocked || current.snapshot.key != snapshot.key || control !in current.snapshot.controls || !control.enabled)

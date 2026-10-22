@@ -15,8 +15,19 @@ def adb(*args):
 
 
 def hierarchy():
-    adb('shell', 'uiautomator', 'dump', '/sdcard/window.xml')
-    return ET.fromstring(adb('shell', 'cat', '/sdcard/window.xml'))
+    # Cold boot/window transitions can temporarily expose no root. Retry only
+    # the observation, never a tap, and remove any stale dump before reading.
+    for attempt in range(3):
+        try:
+            adb('shell', 'rm', '-f', '/sdcard/window.xml')
+            adb('shell', 'uiautomator', 'dump', '/sdcard/window.xml')
+            root = ET.fromstring(adb('shell', 'cat', '/sdcard/window.xml'))
+            assert any(root.iter('node')), 'Empty Accessibility hierarchy'
+            return root
+        except (subprocess.CalledProcessError, ET.ParseError, AssertionError):
+            if attempt == 2:
+                raise
+            time.sleep(0.5)
 
 
 def tap(identifier):
@@ -151,43 +162,38 @@ try:
     time.sleep(1)
     adb('shell', 'input', 'keyevent', '4')
     time.sleep(1)
-    # Capture each redesigned native menu without altering the Chat layout.
-    # The header is horizontally scrollable; locate buttons by resource ID,
-    # then swipe the header strip until each destination is visible.
-    menu_tabs = [
-        ('projects', 'btnHeaderProject'),
-        ('shizuku', 'btnHeaderShizuku'),
-        ('diagnostics', 'btnHeaderStatus'),
-        ('terminal', 'btnHeaderTerminal'),
-        ('activity-log', 'btnHeaderAudit'),
-        ('permissions', 'btnHeaderPermissions'),
-        ('device-admin', 'btnHeaderDhizuku'),
-    ]
-    for name, identifier in menu_tabs:
-        opened = False
-        for attempt in range(10):
-            target = next((n for n in hierarchy().iter('node')
-                if n.get('resource-id') == 'com.assistant.core:id/' + identifier), None)
-            if target is not None:
-                coords = list(map(int, re.findall(r'\\d+', target.get('bounds', ''))))
-                if len(coords) == 4 and coords[2] > coords[0] and coords[3] > coords[1]:
-                    adb('shell', 'input', 'tap', str((coords[0]+coords[2])//2),
-                        str((coords[1]+coords[3])//2))
-                    time.sleep(1)
-                    capture(name)
-                    opened = True
-                    break
-            adb('shell', 'input', 'swipe',
-                '900' if attempt < 5 else '150', '130',
-                '150' if attempt < 5 else '900', '130', '350')
-            time.sleep(0.4)
-        if not opened:
-            (output / (name + '-missing.txt')).write_text(
-                'Could not locate header control: ' + identifier)
-            print('Menu preview unavailable: ' + name, flush=True)
-    # Return to Chat only to complete the existing small-screen regression.
-    tap_scrolling('btnHeaderAssistant')
-    time.sleep(1)
+    # The visible Tools/Support popup owns these destinations; legacy header
+    # buttons remain hidden. Verify every current destination rather than skip it.
+    def tap_text(label):
+        entry = next((n for n in hierarchy().iter('node')
+                      if n.get('text', '').strip() == label), None)
+        assert entry is not None, f'{label} menu entry missing'
+        bounds = list(map(int, re.findall(r'\d+', entry.get('bounds', ''))))
+        assert len(bounds) == 4 and bounds[2] > bounds[0] and bounds[3] > bounds[1], f'{label} not visible'
+        adb('shell', 'input', 'tap', str((bounds[0]+bounds[2])//2), str((bounds[1]+bounds[3])//2))
+        time.sleep(1)
+
+    for name, group, label, section in [
+        ('projects', 'Tools', 'Projects', 'tabProjectSection'),
+        ('shizuku', 'Tools', 'Device tools', 'tabShizukuSection'),
+        ('diagnostics', 'Support', 'Status and updates', 'tabStatusSection'),
+        ('terminal', 'Tools', 'Terminal', 'tabTerminalSection'),
+        ('activity-log', 'Support', 'Activity log', 'tabAuditSection'),
+        ('permissions', 'Support', 'Permissions', 'tabPermissionsSection'),
+        ('device-admin', 'Tools', 'Device administration', 'tabDhizukuSection'),
+    ]:
+        tap('btnVoiceSettings')
+        tap_text(group)
+        tap_text(label)
+        assert any(n.get('resource-id') == 'com.assistant.core:id/' + section
+                   for n in hierarchy().iter('node')), f'{label} screen did not open'
+        capture(name)
+    # Relaunch the existing entry activity to return to Chat; retain app data.
+    adb('shell', 'am', 'force-stop', 'com.assistant.core')
+    adb('shell', 'am', 'start', '-n', 'com.assistant.core/.MainActivity')
+    time.sleep(3)
+    assert any(n.get('resource-id') == 'com.assistant.core:id/etCommandInput'
+               for n in hierarchy().iter('node')), 'Chat did not reopen'
     adb('shell', 'wm', 'size', '720x1280')
     adb('shell', 'wm', 'density', '360')  # 320dp width
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1.3')

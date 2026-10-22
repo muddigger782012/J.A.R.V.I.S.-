@@ -223,11 +223,19 @@ class ScreenControlAcceptanceTest {
             remote("screen task tap button named Account under Work and verify Work account page")
             remote("approve screen task")
             val delayedConfirmation = ScreenAccessClient(context).prepare("confirm screen step one")
+            val manager = context.getSystemService(android.app.NotificationManager::class.java)
+            waitUntil { manager.activeNotifications.any { it.id == ScreenTaskNotifications.ID } }
+            val oldCancel = manager.activeNotifications.single { it.id == ScreenTaskNotifications.ID }
+                .notification.actions.single { it.title.toString() == "Cancel screen task" }.actionIntent
             remote("screen task tap button named Account under Personal and verify Personal account page")
             assertTrue(remote("approve screen task").contains("under Personal"))
             assertTrue(ScreenAccessClient(context).reply(delayedConfirmation).contains("review changed"))
             scenario.onActivity { assertEquals(0, it.taskTapCount) }
-            val manager = context.getSystemService(android.app.NotificationManager::class.java)
+            val oldCancelFinished = CountDownLatch(1)
+            oldCancel.send(context, 0, null, { _, _, _, _, _ -> oldCancelFinished.countDown() }, Handler(Looper.getMainLooper()))
+            assertTrue("Old notification cancellation was not delivered promptly", oldCancelFinished.await(8, TimeUnit.SECONDS))
+            assertTrue("An old notification cancelled the replacement task", ScreenAccessClient(context).taskState().active)
+            scenario.onActivity { assertEquals(0, it.taskTapCount) }
             waitUntil { manager.activeNotifications.any { it.id == ScreenTaskNotifications.ID } }
             val notification = manager.activeNotifications.single { it.id == ScreenTaskNotifications.ID }.notification
             assertEquals(android.app.Notification.VISIBILITY_PRIVATE, notification.visibility)

@@ -99,9 +99,9 @@ Real page transitions, section-qualified duplicate labels, disabled controls,
 notification cancellation and replacement-review rejection passed. Android exposes
 some styled buttons in uppercase; the fixture assertions now use the same case
 normalization as target selection, with roles and section identity still checked.
-The verified increment is merged. Its APK is being held for the combined update.
+The verified increment is merged and included in the published Personal v3.6 series.
 
-The combined feature code passed 661 JVM cases across 104 suites with no failures,
+The combined feature code passed 663 JVM cases across 104 suites with no failures,
 errors or skipped cases, all debug architectures, instrumentation compilation and
 Beta manifest processing. Release/archive tests and the theme contract pass. The
 independent Connection Manager reference APK also builds locally. Final integrated
@@ -115,6 +115,21 @@ also block surrounding text and controls. Acceptance verifies that a marked valu
 and button are neither exposed nor tapped, while public surrounding text may remain
 readable. A missing node during capture invalidates the snapshot rather than
 publishing a partial tree. These additions require the integrated real-service pass.
+
+The next reliability increment gives the notification cancel broadcast foreground
+delivery priority and binds its immutable PendingIntent to the original task.
+Delayed cancellation cannot discard a replacement task or its notification.
+Acceptance sends both an old and current actual notification action and checks
+that only the current task is cancelled. Global voice/UI cancellation still
+invalidates queued actions without waiting for the main looper.
+
+A disappearing root, window or child invalidates the complete screen capture.
+Snapshot reads may attempt one fresh capture within the existing cancellation and
+request deadlines. Partial trees are never returned; changing screens that still
+cannot be captured fail closed. Action dispatch is never retried. The UI smoke
+job similarly retries missing observation dumps within a bound, navigates the
+visible Tools/Support menus and requires every destination to open. It no longer
+searches hidden legacy header buttons or silently skips missing destinations.
 
 ## Release acceptance and practical limits
 
