@@ -28,8 +28,19 @@ object UnifiedMenuSection {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ))
-        // Preserve the original content's sizing within the new section.
-        existing.layoutParams = originalParams
+        // A ScrollView child becomes a LinearLayout child: convert its layout
+        // params rather than passing incompatible ScrollView.LayoutParams.
+        existing.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            if (originalParams is ViewGroup.MarginLayoutParams) {
+                setMargins(
+                    originalParams.leftMargin, originalParams.topMargin,
+                    originalParams.rightMargin, originalParams.bottomMargin
+                )
+            }
+        }
     }
 
     /**
@@ -54,6 +65,20 @@ object UnifiedMenuSection {
         // Preserve every original view and its layout params, including views
         // preceding the first marker. Previously these were silently placed
         // under the first section and their original layout sizing was lost.
+        fun moveToSection(child: View, destination: LinearLayout) {
+            val previous = child.layoutParams
+            (child.parent as? ViewGroup)?.removeView(child)
+            val layout = LinearLayout.LayoutParams(previous.width, previous.height)
+            if (previous is ViewGroup.MarginLayoutParams) {
+                layout.setMargins(previous.leftMargin, previous.topMargin,
+                    previous.rightMargin, previous.bottomMargin)
+            }
+            if (previous is LinearLayout.LayoutParams) {
+                layout.weight = previous.weight
+                layout.gravity = previous.gravity
+            }
+            destination.addView(child, layout)
+        }
         val sections = markers.mapIndexed { index, marker ->
             val from = positions[index]
             val until = if (index + 1 < positions.size) positions[index + 1] else original.size
@@ -61,17 +86,13 @@ object UnifiedMenuSection {
                 orientation = LinearLayout.VERTICAL
             }
             original.subList(from, until).forEach { child ->
-                val params = child.layoutParams
-                (child.parent as? ViewGroup)?.removeView(child)
-                groupContent.addView(child, params)
+                moveToSection(child, groupContent)
             }
             create(scroll.context, marker.second, marker.third, icon, groupContent, initiallyExpanded = true)
         }
         val prefix = original.subList(0, positions.first())
         prefix.forEach { child ->
-            val params = child.layoutParams
-            (child.parent as? ViewGroup)?.removeView(child)
-            content.addView(child, params)
+            moveToSection(child, content)
         }
         sections.forEach { content.addView(it) }
     }
