@@ -42,19 +42,28 @@ object UnifiedMenuSection {
         if (markers.isEmpty()) return
         val original = (0 until content.childCount).map { content.getChildAt(it) }
         val positions = markers.map { original.indexOf(it.first) }
+        // Preserve every original view and its layout params, including views
+        // preceding the first marker. Previously these were silently placed
+        // under the first section and their original layout sizing was lost.
         val sections = markers.mapIndexed { index, marker ->
-            val from = if (index == 0) 0 else positions[index]
+            val from = positions[index]
             val until = if (index + 1 < positions.size) positions[index + 1] else original.size
             val groupContent = LinearLayout(scroll.context).apply {
                 orientation = LinearLayout.VERTICAL
             }
             original.subList(from, until).forEach { child ->
+                val params = child.layoutParams
                 (child.parent as? ViewGroup)?.removeView(child)
-                groupContent.addView(child)
+                groupContent.addView(child, params)
             }
             create(scroll.context, marker.second, marker.third, icon, groupContent, initiallyExpanded = true)
         }
-        content.removeAllViews()
+        val prefix = original.subList(0, positions.first())
+        prefix.forEach { child ->
+            val params = child.layoutParams
+            (child.parent as? ViewGroup)?.removeView(child)
+            content.addView(child, params)
+        }
         sections.forEach { content.addView(it) }
     }
 
