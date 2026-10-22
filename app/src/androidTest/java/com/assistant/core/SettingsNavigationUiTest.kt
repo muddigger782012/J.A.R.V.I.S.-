@@ -132,9 +132,11 @@ class SettingsNavigationUiTest {
                     activity.findViewById<com.google.android.material.tabs.TabLayout>(R.id.appearanceTabs).getTabAt(0)!!.select()
                 }
                 instrumentation.waitForIdleSync()
-                scenario.onActivity { it.findViewById<android.view.View>(R.id.btnThemeStark).performClick() }
+                var beforeTheme: AppearanceSettingsActivity? = null
+                scenario.onActivity { beforeTheme = it; it.findViewById<android.view.View>(R.id.btnThemeStark).performClick() }
                 instrumentation.waitForIdleSync()
                 scenario.onActivity { activity ->
+                    assertNotSame("Theme selection must actually recreate the page", beforeTheme, activity)
                     assertEquals("stark", ThemePreferences.selected(activity))
                     assertEquals(themesY, activity.findViewById<ScrollView>(R.id.appearanceScroll).scrollY)
                     assertTrue(activity.findViewById<android.view.View>(R.id.menuPageClose).isShown)
@@ -148,6 +150,47 @@ class SettingsNavigationUiTest {
                 is Boolean -> edit.putBoolean(key, value)
             } }
             edit.commit()
+        }
+    }
+
+    @Test fun closeNestedSettingsReturnsToTheExistingChatAndRetainsItsDraft() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val settingsMonitor = instrumentation.addMonitor(SettingsActivity::class.java.name, null, false)
+        val appearanceMonitor = instrumentation.addMonitor(AppearanceSettingsActivity::class.java.name, null, false)
+        var settings: android.app.Activity? = null
+        var appearance: android.app.Activity? = null
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                lateinit var originalMain: MainActivity
+                lateinit var originalInput: android.widget.EditText
+                scenario.onActivity { main ->
+                    originalMain = main
+                    originalInput = main.findViewById(R.id.etCommandInput)
+                    originalInput.setText("Keep this unsent draft")
+                    main.startActivity(android.content.Intent(main, SettingsActivity::class.java))
+                }
+                settings = instrumentation.waitForMonitorWithTimeout(settingsMonitor, 5000)
+                assertNotNull("Settings did not open", settings)
+                instrumentation.runOnMainSync {
+                    settings!!.startActivity(android.content.Intent(settings, AppearanceSettingsActivity::class.java))
+                }
+                appearance = instrumentation.waitForMonitorWithTimeout(appearanceMonitor, 5000)
+                assertNotNull("Nested Appearance did not open", appearance)
+                instrumentation.runOnMainSync {
+                    appearance!!.findViewById<android.view.View>(R.id.menuPageClose).performClick()
+                }
+                instrumentation.waitForIdleSync()
+                scenario.onActivity { main ->
+                    assertSame("Close must reuse the existing Chat", originalMain, main)
+                    assertSame(originalInput, main.findViewById(R.id.etCommandInput))
+                    assertEquals("Keep this unsent draft", originalInput.text.toString())
+                    assertEquals(android.view.View.VISIBLE, main.findViewById<android.view.View>(R.id.tabAssistantSection).visibility)
+                    assertEquals(android.view.View.GONE, main.findViewById<android.view.View>(R.id.menuPageNavigation).visibility)
+                }
+            }
+        } finally {
+            instrumentation.removeMonitor(settingsMonitor); instrumentation.removeMonitor(appearanceMonitor)
+            instrumentation.runOnMainSync { appearance?.finish(); settings?.finish() }
         }
     }
 }
