@@ -19,9 +19,10 @@ object UnifiedMenuSection {
     fun install(scroll: ScrollView, title: String, detail: String, icon: Int) {
         if (scroll.childCount != 1) return
         val existing = scroll.getChildAt(0)
+        val originalParams = existing.layoutParams
         scroll.removeView(existing)
         val wrapper = create(scroll.context, title, detail, icon, existing, initiallyExpanded = true)
-        scroll.addView(wrapper)
+        scroll.addView(wrapper, originalParams)
     }
 
     /**
@@ -42,6 +43,7 @@ object UnifiedMenuSection {
         if (markers.isEmpty()) return
         val original = (0 until content.childCount).map { content.getChildAt(it) }
         val positions = markers.map { original.indexOf(it.first) }
+        if (positions.distinct().size != positions.size) return
         // Preserve every original view and its layout params, including views
         // preceding the first marker. Previously these were silently placed
         // under the first section and their original layout sizing was lost.
