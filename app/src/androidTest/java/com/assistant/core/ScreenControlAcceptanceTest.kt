@@ -272,7 +272,8 @@ class ScreenControlAcceptanceTest {
                     screen.text.any { text -> text.contains("CONNECTION MANAGER") } &&
                     screen.text.any { text -> text.contains("NOT TESTED") }
             }.getOrDefault(false) }
-            assertTrue(remote("read my screen").contains("CONNECTION MANAGER"))
+            val managerRead = remote("read my screen")
+            assertTrue("Expected Connection Manager content from remote voice bridge, got: $managerRead; screen=${AndroidScreenPlatform(context).snapshot()}", managerRead.contains("CONNECTION MANAGER"))
             assertFalse(ScreenAccessClient(context).taskState().active)
         }
     }
