@@ -103,14 +103,14 @@ whether the cellular radio is enabled.
 
 ## Current verification
 
-The combined code passed 679 JVM cases across 107 suites with no failures, errors
+The combined code passed 688 JVM cases across 108 suites with no failures, errors
 or skipped cases, all debug architectures, Android-test compilation and Beta
 manifest processing. The 22 release/archive regressions, workflow/Python syntax,
 gateway and theme checks pass. The production build contains the existing signing
 identity, wake assets and native runtime for all three supported architectures.
 
-The actual Android service gate passed all 11 Accessibility/conversation/capture
-preflight cases and all 57 optimized acceptance cases on both the reviewed branch
+The actual Android service gate passed all 13 Accessibility/conversation/capture
+preflight cases and all 59 optimized acceptance cases on both the reviewed branch
 and merged source. This includes real page transitions, section-qualified duplicate
 labels, disabled controls, stale approval rejection, queued cancellation while the
 UI looper is blocked, timeouts and the separate Connection Manager's actual launcher
@@ -132,6 +132,16 @@ Snapshot reads may attempt one fresh capture within the existing cancellation an
 request deadlines. Partial trees are never returned and action dispatch is never
 retried. Continuous changes and other capture failures fail closed.
 
+Screen reads now retain their fixed failure reason and provide specific recovery
+guidance for a busy or changed screen, cancellation, lost access and supported-size
+limits. `screen read diagnostics` reports only the last attempt's outcome, stage,
+bounded node count/time and Android cache mode, separately from current connectivity.
+It reads no screen and cannot approve or advance a task. One transient record
+contains no screen text, labels, app identity, node references or exception payloads;
+protected reads redact counts too. Child queries also check cancellation/deadlines.
+See [screen-read recovery acceptance](SCREEN_READ_DIAGNOSTICS_ACCEPTANCE.md) for
+actual bridge, privacy and task-recovery checks and remaining phone diagnostics.
+
 The UI emulator job passes every current Tools/Support menu destination,
 Default/Stark/Cybertron selections and the small-screen keyboard check. Review
 screenshots include every destination and theme selection; the send control remains
@@ -148,13 +158,13 @@ for the complete matrix, implementation commits and release evidence.
 
 Verification records:
 
-- [Merged-source unit, gateway, Accessibility, voice and UI checks](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39944824951)
-- [Production signing and APK metadata](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39944824865)
-- [Automatic publication and retained receipt](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39946029875)
+- [Merged-source unit, gateway, Accessibility, voice and UI checks](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39958282039)
+- [Production signing and APK metadata](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39958282017)
+- [Automatic publication and retained receipt](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39959459938)
 
 ## Release acceptance and practical limits
 
-Personal [3.6.516 is published](https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/tag/jarvis-3.6.516)
+Personal [3.6.517 is published](https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/tag/jarvis-3.6.517)
 and available through the existing in-app updater. Publication ran automatically
 from the successful main production build after the required merged-source checks.
 The retained receipt confirms the release downloads and updater. An independent
@@ -162,7 +172,7 @@ download of the exact default updater URL matched the manifest SHA-256 and Git b
 Personal package/version, prior production signing identity, native/wake assets and
 expected release assets. Acceptance fixtures are absent, and the production DEX
 contains the task-bound notification cancellation and menu Close/history/Appearance
-state paths, plus live capture engine reporting.
+state paths, plus live capture engine reporting and screen-read recovery/diagnostics.
 
 [Download the updater APK](https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/artifacts/app-debug.apk).
 All three architecture APKs, the ARM64 ZIP and checksums are attached to the release.
