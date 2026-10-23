@@ -107,7 +107,13 @@ class VoiceAssistantService(
     )
     private var currentHotwordEngine = HotwordEngine.SPEECH_FALLBACK
 
-    fun isRecognitionAvailable(): Boolean = SpeechRecognizer.isRecognitionAvailable(context)
+    private fun recognitionEngine(preferOffline: Boolean): SpeechCaptureRouting.Engine? {
+        val platform = AndroidSpeechCapturePlatform(context)
+        return SpeechCaptureRouting.choose(preferOffline && context.packageName == "com.assistant.core", false,
+            platform.deviceAvailable(), platform.systemAvailable())
+    }
+
+    fun isRecognitionAvailable(): Boolean = recognitionEngine(config.preferOfflineCommandRecognition) != null
 
     fun getCurrentHotwordEngine(): HotwordEngine = currentHotwordEngine
 
@@ -478,8 +484,10 @@ class VoiceAssistantService(
 
     private fun handleCommandMatches(matches: List<String>, confidenceScores: FloatArray?) {
         if (!voiceActive) return
-        val command = matches.firstOrNull { it.isNotBlank() }?.trim().orEmpty()
-        if (command.isNullOrBlank()) {
+        val candidates = SpeechRecognitionCandidates.read(matches, confidenceScores)
+        val primary = candidates.firstOrNull()
+        val command = primary?.transcript.orEmpty()
+        if (primary == null) {
             onStatus("No command detected. Push-to-talk ended.")
             if (commandFromWake) { commandFromWake = false; resumeHotwordEngineAfterCommand() }
             onCaptureFinished()
@@ -491,8 +499,8 @@ class VoiceAssistantService(
             onCommandDetected(
                 VoiceRecognitionResult(
                     transcript = command,
-                    confidence = normalizeConfidence(confidenceScores?.getOrNull(0)),
-                    alternatives = matches.filter { it.isNotBlank() },
+                    confidence = primary.confidence,
+                    alternatives = candidates.map { it.transcript },
                     sourceEngine = lastWakeEngineUsed
                 )
             )
@@ -519,8 +527,7 @@ class VoiceAssistantService(
 
     private fun createRecognizer(preferOffline: Boolean): SpeechRecognizer {
         resetRecognition()
-        onDeviceCapture = context.packageName == "com.assistant.core" && preferOffline && android.os.Build.VERSION.SDK_INT >= 31 &&
-            SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+        onDeviceCapture = requireNotNull(recognitionEngine(preferOffline)) { "No requested speech recognizer is available" } == SpeechCaptureRouting.Engine.ON_DEVICE
         val recognizer = if (onDeviceCapture) SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
             else SpeechRecognizer.createSpeechRecognizer(context)
         val token = captures.begin()
@@ -631,8 +638,4 @@ class VoiceAssistantService(
         }
     }
 
-    private fun normalizeConfidence(raw: Float?): Float {
-        if (raw == null || raw < 0f) return 0.5f
-        return raw.coerceIn(0f, 1f)
-    }
 }

@@ -20,6 +20,7 @@ import com.assistant.core.services.VoiceForegroundService
 import com.assistant.core.services.VoicePracticeMicrophone
 import com.assistant.core.services.VoiceProfileStore
 import com.assistant.core.services.WakeCalibrationMetrics
+import com.assistant.core.services.SpeechCaptureRouting
 import com.google.android.material.switchmaterial.SwitchMaterial
 import java.util.Locale
 import java.util.UUID
@@ -160,7 +161,8 @@ class VoiceProfileActivity : MenuActivity("My voice profile", R.id.voiceProfileB
                                 findViewById<View>(R.id.voiceProfileReview).visibility = View.VISIBLE
                                 status("Review the intended wording before approving. Nothing has been saved or run.")
                             }, { error -> endCapture(errorMessage(error)) }, onDeviceOnly = device, useProfileHints = attemptHinted,
-                                onHypotheses = { hypotheses = it })
+                                onHypotheses = { hypotheses = it },
+                                requestedEngine = if (device) SpeechCaptureRouting.Engine.ON_DEVICE else SpeechCaptureRouting.Engine.SYSTEM)
                         }
                         false -> endCapture("The microphone is in use. End live chat or other practice before retrying.")
                         null -> if (++polls >= 30) endCapture("Wake listening did not release the microphone. Retry shortly.") else handler.postDelayed(this, 100L)
