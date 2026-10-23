@@ -5,6 +5,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class VerifiedVolumeLearningTest {
+    @Test fun relativeInterpretationsOfExplicitLevelsNeverAdjustOrLearn() {
+        for (phrase in listOf("set music volume to half", "could you set the sound to twenty five percent?",
+            "boost the sound all the way up")) {
+            assertNull(VerifiedVolumeLearning.execute(phrase, lesson(), true,
+                { fail("Must not execute a conflicting one-step interpretation"); true },
+                { _, _ -> fail("Must not learn a conflicting interpretation"); true }))
+        }
+    }
     @Test fun providerEnvelopeRequiresUsableReplyAndStructuredLesson() {
         assertNull(FallbackAiResult.fromAssistantJson("not json"))
         assertNull(FallbackAiResult.fromAssistantJson("{\"reply\":\"\"}"))

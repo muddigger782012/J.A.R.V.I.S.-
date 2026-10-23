@@ -1143,6 +1143,65 @@ class PersonalFoundationAcceptanceTest {
             assertFalse(down.needsInterpretation)
             assertEquals("Volume decreased.", down.text)
             assertEquals(minimum + 1, audio.getStreamVolume(AudioManager.STREAM_MUSIC))
+            // Simulate a phrase saved by an earlier build. Exact language wins without
+            // rewriting user data or replaying the old relative interpretation.
+            val legacy = """[{"phrase":"set music volume to half","capabilityId":"volume_up","parameters":{},"successes":1}]"""
+            val learned = context.getSharedPreferences("jarvis_validated_commands", Context.MODE_PRIVATE)
+            assertTrue(learned.edit().putString("entries", legacy).commit())
+            for ((phrase, percent) in listOf("set music volume to half" to 50,
+                "Could you please set the sound to twenty five percent?" to 25,
+                "Set music to three quarters" to 75, "Boost the sound all the way up" to 100,
+                "Please put my music at zero percent" to 0)) {
+                val result = service.handleUserInput(phrase)
+                assertFalse(phrase, result.needsInterpretation)
+                assertEquals("Media volume level verified for $percent%, using the nearest supported level.", result.text)
+                assertEquals(phrase, ((maximum.toLong() * percent + 50) / 100).toInt(), audio.getStreamVolume(AudioManager.STREAM_MUSIC))
+                assertEquals(legacy, learned.getString("entries", null))
+            }
+            assertEquals(0, executions)
+            assertEquals(0, context.activityRequests)
+        } finally {
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, before, 0)
+            audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, if (wasMuted) AudioManager.ADJUST_MUTE else AudioManager.ADJUST_UNMUTE, 0)
+        }
+    }
+
+    @Test fun conflictingVolumeTeachingAndAnOlderPendingApprovalCannotChangeAndroidVolume() {
+        assertEquals("Real volume acceptance is restricted to the disposable emulator", "true",
+            InstrumentationRegistry.getArguments().getString("jarvis_disposable_emulator"))
+        val audio = context.getSystemService(AudioManager::class.java)
+        val before = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val wasMuted = audio.isStreamMute(AudioManager.STREAM_MUSIC)
+        val minimum = audio.getStreamMinVolume(AudioManager.STREAM_MUSIC)
+        val maximum = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        assertTrue("Emulator needs several media-volume levels", maximum - minimum >= 3)
+        try {
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, minimum + 1, 0)
+            val baseline = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+            val service = assistant()
+            val rejected = service.handleUserInput("teach set music volume to half means turn volume up")
+            assertFalse(rejected.needsInterpretation)
+            assertTrue(rejected.text, rejected.text.contains("one-step interpretation was cancelled"))
+            assertTrue(rejected.text.contains("Nothing was changed or learned."))
+            assertEquals(baseline, audio.getStreamVolume(AudioManager.STREAM_MUSIC))
+
+            // Write the old persisted format directly: the new proposal API must reject
+            // this conflict, but an upgrade can inherit a still-unexpired old proposal.
+            val pending = context.getSharedPreferences("jarvis_volume_confirmation", Context.MODE_PRIVATE)
+            val old = org.json.JSONObject().put("phrase", "set music volume to half")
+                .put("created", System.currentTimeMillis()).put("explicitTeaching", false)
+                .put("lesson", org.json.JSONObject().put("intent", "DEVICE_SETTING").put("confidence", .95)
+                    .put("learnable", true).put("entities", org.json.JSONObject()
+                        .put("setting", "media_volume").put("direction", "up")))
+            assertTrue(pending.edit().putString("pending", old.toString()).commit())
+            val approval = assistant().handleUserInput("yes")
+            assertFalse(approval.needsInterpretation)
+            assertTrue(approval.text, approval.text.contains("one-step interpretation was cancelled"))
+            assertTrue(approval.text.contains("Nothing was changed or learned."))
+            assertFalse(pending.contains("pending"))
+            assertTrue(assistant().handleUserInput("yes").needsInterpretation)
+            assertEquals(baseline, audio.getStreamVolume(AudioManager.STREAM_MUSIC))
+            assertEquals("[]", context.getSharedPreferences("jarvis_validated_commands", Context.MODE_PRIVATE).getString("entries", "[]"))
             assertEquals(0, executions)
             assertEquals(0, context.activityRequests)
         } finally {

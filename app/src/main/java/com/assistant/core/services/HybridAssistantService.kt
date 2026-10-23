@@ -768,10 +768,11 @@ class HybridAssistantService(
                 normalize(userInput).substringAfterLast(" is the same as ", "")
             }.trimEnd('?', '.', '!')
             val capability = if (target.endsWith("up") || target.startsWith("increase ")) "volume_up" else "volume_down"
+            val exactConflict = ExactVolumeLearning.relativeConflictGuidance(phrase, capability)
             val reserved = LearnedCommandReviewCommands.isReserved(phrase) || phrase.startsWith("teach ", ignoreCase = true) ||
                 normalize(phrase).matches(Regex(".*\\b(?:call|text|message|delete|reset|reboot|pay|purchase|send)\\b.*")) ||
                 normalize(phrase) in setOf("learning status", "clear local learning", "confirm learning reset", "cancel learning reset")
-            val response = if (reserved) {
+            val response = if (exactConflict != null) exactConflict else if (reserved) {
                 "That phrase is reserved and cannot be learned."
             } else {
                 val direction = if (capability == "volume_up") android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER
@@ -1887,6 +1888,7 @@ class HybridAssistantService(
             return "Would you like me to set media volume to $percent%, using the nearest supported level? Say yes to confirm or no to cancel."
         }
         val capability = VerifiedVolumeLearning.capability(lesson) ?: return null
+        ExactVolumeLearning.relativeConflictGuidance(userText, capability)?.let { return it }
         if (!volumeConfirmations.propose(userText, lesson)) return "I couldn't retain this volume request for confirmation. Nothing was changed or learned. Please repeat it."
         return "Would you like me to ${if (capability == "volume_up") "raise" else "lower"} the media volume? Say yes to confirm or no to cancel."
     }
@@ -2002,6 +2004,9 @@ class HybridAssistantService(
             val enabled = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
                 .getBoolean("automatic_command_learning", true)
             return executeExactVolume(userText, percent, learn = (explicitTeaching || enabled) && lesson.canTeachLocally(), requestId = requestId)
+        }
+        VerifiedVolumeLearning.capability(lesson)?.let { capability ->
+            ExactVolumeLearning.relativeConflictGuidance(userText, capability)?.let { return it }
         }
         val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
         val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
