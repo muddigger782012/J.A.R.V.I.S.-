@@ -49,9 +49,27 @@ remain excluded from production and Beta APKs.
 
 Local verification passes 688 JVM cases across 108 suites with no failures, errors
 or skips, all three debug architectures, instrumentation Kotlin and Beta manifest
-processing. Theme, 22 release/archive checks and script syntax pass. Full CI,
-merged-source Android/UI checks, production signing and independent public-updater
-verification must be recorded after they pass. The strict Android regression script
-requires 13 preflight cases and 59 full acceptance cases; no deadline or
-assertion is relaxed for this increment. Phone/OEM behavior, real microphone/deep
-voice quality, installed-data upgrades and live Gemini access remain separate.
+processing. Theme, 22 release/archive checks and script syntax pass. Branch and
+merged-source Android runs passed all 13 preflight and all 59 optimized acceptance
+cases. UI emulator, gateway and theme checks passed. No capture deadline, size
+limit, privacy boundary or action assertion was relaxed.
+
+Personal [3.6.517 is published](https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/tag/jarvis-3.6.517)
+through the existing updater. Production signing, native/wake assets and all three
+architecture APKs passed verification. The retained publication receipt verifies
+release downloads and the updater. An independent download of the exact default
+updater matched its manifest checksum, Git blob, Personal identity and prior
+production signing certificate. Acceptance fixtures are absent, and the production
+APK contains the specific recovery and content-free diagnostic paths.
+
+- [Implementation and review](https://github.com/muddigger782012/J.A.R.V.I.S.-/pull/210)
+- [Branch Android, unit, gateway and UI checks](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39956693856)
+- [Merged-source Android, unit, gateway and UI checks](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39958282039)
+- [Production build and signing](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39958282017)
+- [Automatic publication and retained receipt](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39959459938)
+- [Download the updater APK](https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/artifacts/app-debug.apk)
+
+Phone/OEM behavior, real microphone/deep-voice quality, installed-data upgrades and
+live Gemini access remain separate. Earlier uncached-read failures are not claimed
+fixed solely because controlled checks passed; the new diagnostic identifies the
+read outcome and stage without retaining screen content.
