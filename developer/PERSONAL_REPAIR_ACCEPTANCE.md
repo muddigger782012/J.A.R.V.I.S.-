@@ -22,7 +22,14 @@ general shell executor, automatic repair service or release authority.
    can the publisher create a new isolated Personal repair branch. It checks
    preimages, rechecks the source head, verifies the whole tree and commit parent,
    and never replaces or updates an existing branch.
-6. Open task branch for pull request review opens GitHub's comparison page.
+6. If a commit request is interrupted, explicitly use Verify interrupted commit
+   outcome. It reads the deterministic task branch, pinned source/preimages,
+   complete resulting tree, commit parent and proposal audit identity, then reads
+   the branch again. Only an exact stable match restores the result for explicit
+   CI/review; it never restores approval, retries a write or resumes a closed
+   repair session. A 404 means not observed, including possibly inaccessible or
+   deleted branches; it does not prove that previous writes were undone.
+7. Open task branch for pull request review opens GitHub's comparison page.
    Explicitly create the PR there to run Personal's existing checks. The read-only
    status action selects Personal's workflow and exact task commit. No PR or
    workflow dispatch is automatic. Merge, publication and installation require
@@ -49,6 +56,10 @@ references, claimed revision and digest enter app-owned planning. Source and mod
 output remain untrusted. Changing task, scope, provider/model, reviewed inputs,
 source or diff invalidates the corresponding context or approval. An uncertain
 commit is not automatically retried. Recreation restores no Personal approval.
+Outcome verification also invalidates any newer diff approval. It keeps the
+interrupted proposal in memory only; after recreation, inspect the recorded task
+branch manually and generate a fresh review for any separate writing attempt.
+No unreferenced objects or branches are automatically deleted or rolled back.
 
 These validators are engineering safeguards, not a hostile-code sandbox or a
 comprehensive semantic security audit. Human diff review and existing CI, signing,
@@ -61,18 +72,31 @@ forged blobs; changed proposals and products; package/path boundaries; protected
 controllers; preservation of existing tests; new tests; and product-specific
 publisher, comparison URL and CI attribution. Publisher transports are modeled;
 the production validator and whole-tree creation contract run without live keys.
+Interrupted-response cases cover both products, source movement, missing or
+inaccessible branches, changed preimages/modes, extra changes, wrong parents or
+audit identity, truncated trees, changed ref readback and mutated proposals.
+Every outcome check is GET-only, including failed or rejected checks.
 
 Robolectric exercises real workbench widgets/listeners, explicit read/stage
 actions, invalid inputs, stale callbacks, discard and destroyed activities.
+The full coding widgets also exercise preview, exact approval, interrupted
+commit, outcome verification, a newer approval invalidated by that read, consumed
+proposal reuse, missing/mismatched outcomes and health/token guards. The provider
+and writer responses in these widget tests are explicitly simulated.
 It is an Android simulation, not installed-device evidence.
 
 A dedicated disposable API 34 emulator suite performs actual public GitHub GETs
 through Android, stages verified Personal source, confirms approvals remain
 disabled, rejects protected shares before networking and checks recreation.
-Its strict harness requires all three cases and retains instrumentation output.
-It never calls a model, approves a diff, creates a live repair branch, uses a
-microphone or installs/publishes a production release. Only disposable debug
-app/test APKs are installed for that test.
+Those three cases perform no provider call or diff approval. A fourth Android
+case runs the complete review/approval/interrupted-response/recovery widget flow
+with explicitly modeled provider and writer responses; it verifies that recovery
+makes no second write and leaves CI unchecked and approval consumed. Its internal
+test injection is unavailable to production callers and intent extras.
+The strict harness requires all four cases within the unchanged 180-second
+deadline and retains instrumentation output. It never calls a live model,
+creates a live repair branch, uses a microphone or installs/publishes a production
+release. Only disposable debug app/test APKs are installed for that test.
 
 The current development PR records exact candidate, build, lint and test evidence.
 A live owner-reviewed provider, approved repair, Personal PR/build and signed

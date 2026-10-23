@@ -115,6 +115,16 @@ object PatchPublisher {
     fun commit(token: String, approved: PatchEngine.ApprovedProposal): CommitResult = Publisher(http).commit(token, approved)
     fun ci(token: String, result: CommitResult): CiStatus = Publisher(http).ci(token, result)
 
+    /** Observes an interrupted attempt; this operation cannot create objects or restore approval. */
+    fun inspectOutcome(token: String, proposal: PatchEngine.Proposal): CommitResult? =
+        Publisher(http).inspectOutcome(token, proposal)
+
+    internal fun validateOutcome(proposal: PatchEngine.Proposal, result: CommitResult) {
+        PatchEngine.revalidate(proposal)
+        validateResult(result)
+        require(result == commitResult(proposal, result.commitSha)) { "Commit outcome does not match this proposal" }
+    }
+
     /** Opens GitHub's review UI only; creating a PR still requires the owner's action there. */
     fun reviewUrl(result: CommitResult): String {
         validateResult(result)
@@ -162,7 +172,7 @@ object PatchPublisher {
                 }
                 require(!exists) { "Task branch already exists; no branch was changed" }
                 val entries = JSONArray()
-                val expected = before.toMutableMap()
+                val expected = expectedTree(proposal, before)
                 stage = "unreferenced Git objects"
                 for (edit in proposal.edits) {
                     val bytes = edit.content.toByteArray(Charsets.UTF_8)
@@ -172,25 +182,14 @@ object PatchPublisher {
                         .put("content", Base64.getEncoder().encodeToString(bytes)).put("encoding", "base64"))
                     require(identity(blob) == expectedSha) { "Created blob identity mismatch" }
                     val mode = before[edit.path]?.mode ?: "100644"
-                    expected[edit.path] = Node(edit.path, "blob", mode, expectedSha)
-                    var parent = edit.path.substringBeforeLast('/', "")
-                    while (parent.isNotEmpty()) {
-                        if (!expected.containsKey(parent)) expected[parent] = Node(parent, "tree", "040000", "")
-                        parent = parent.substringBeforeLast('/', "")
-                    }
                     entries.put(JSONObject().put("path", edit.path).put("type", "blob").put("mode", mode).put("sha", expectedSha))
                 }
                 val createdTree = write(token, approved, "/git/trees", JSONObject().put("base_tree", baseTree).put("tree", entries))
                 val treeSha = identity(createdTree)
                 require(treeSha != baseTree) { "Proposal did not create a changed tree" }
                 val actual = tree(token, treeSha)
-                require(actual.keys == expected.keys && actual.all { (path, node) ->
-                    val wanted = expected.getValue(path)
-                    node.type == wanted.type && node.mode == wanted.mode && (node.type == "tree" || node.sha == wanted.sha)
-                }) { "Created tree differs from the approved file changes" }
-                val message = "Jarvis Developer: scoped task ${request.taskId}\n\n" +
-                    "Proposal: ${proposal.id}\nBase: ${request.baseCommitSha}\nSource branch: ${request.baseBranch}\nProduct: ${request.target.name}\n" +
-                    "Provider: ${auditLabel(request.provider)}\nModel: ${auditLabel(request.model)}"
+                validateTree(actual, expected)
+                val message = commitMessage(proposal)
                 val createdCommit = write(token, approved, "/git/commits", JSONObject().put("message", message)
                     .put("tree", treeSha).put("parents", JSONArray().put(request.baseCommitSha)))
                 val commitSha = identity(createdCommit)
@@ -203,8 +202,7 @@ object PatchPublisher {
                 visible = true
                 validateRef(ref, branch, commitSha)
                 require(head(token, branch) == commitSha) { "Task branch readback failed" }
-                return CommitResult(request.taskId, request.provider, request.model, proposal.id,
-                    proposal.edits.map { it.path }.sorted(), request.baseCommitSha, commitSha, branch, proposal.diff, request.baseBranch, request.target)
+                return commitResult(proposal, commitSha)
             } catch (failure: Exception) {
                 // Object creation can leave unreachable objects; a failed ref request can have an unknown outcome.
                 // Never retry or overwrite a ref automatically.
@@ -216,6 +214,33 @@ object PatchPublisher {
                 }
                 val status = if (failure is ApiFailure) " HTTP ${failure.status}." else ""
                 throw IllegalStateException("Scoped commit stopped during $stage.$status $outcome")
+            }
+        }
+
+        /** A 404 is only a missing observation, never proof that a previous write was undone. */
+        fun inspectOutcome(token: String, proposal: PatchEngine.Proposal): CommitResult? {
+            try {
+                PatchEngine.revalidate(proposal)
+                val branch = PatchEngine.branchName(proposal)
+                val observed = try { head(token, branch) } catch (failure: ApiFailure) {
+                    if (failure.status == 404) return null else throw failure
+                }
+                val base = call("GET", "/git/commits/${proposal.request.baseCommitSha}", token)
+                require(identity(base) == proposal.request.baseCommitSha)
+                val baseTree = sha(base.getJSONObject("tree").getString("sha"))
+                val before = tree(token, baseTree)
+                validatePreimages(proposal, before)
+                val candidate = call("GET", "/git/commits/$observed", token)
+                val candidateTree = sha(candidate.getJSONObject("tree").getString("sha"))
+                require(candidateTree != baseTree)
+                validateCommit(candidate, observed, candidateTree, proposal.request.baseCommitSha)
+                require(candidate.getString("message").removeSuffix("\n") == commitMessage(proposal))
+                validateTree(tree(token, candidateTree), expectedTree(proposal, before))
+                require(head(token, branch) == observed) { "Task branch changed during verification" }
+                return commitResult(proposal, observed).also { validateOutcome(proposal, it) }
+            } catch (_: Exception) {
+                // No raw response, signed URL, credentials or nested cause escapes this boundary.
+                throw IllegalStateException("Read-only commit outcome could not be verified. No write or retry was attempted.")
             }
         }
 
@@ -316,6 +341,38 @@ object PatchPublisher {
                 }
             }
         }
+
+        private fun expectedTree(proposal: PatchEngine.Proposal, before: Map<String, Node>): Map<String, Node> =
+            before.toMutableMap().apply {
+                for (edit in proposal.edits) {
+                    this[edit.path] = Node(edit.path, "blob", before[edit.path]?.mode ?: "100644",
+                        blobSha(edit.content.toByteArray(Charsets.UTF_8)))
+                    var parent = edit.path.substringBeforeLast('/', "")
+                    while (parent.isNotEmpty()) {
+                        if (!containsKey(parent)) this[parent] = Node(parent, "tree", "040000", "")
+                        parent = parent.substringBeforeLast('/', "")
+                    }
+                }
+            }
+
+        private fun validateTree(actual: Map<String, Node>, expected: Map<String, Node>) {
+            require(actual.keys == expected.keys && actual.all { (path, node) ->
+                val wanted = expected.getValue(path)
+                node.type == wanted.type && node.mode == wanted.mode && (node.type == "tree" || node.sha == wanted.sha)
+            }) { "Created tree differs from the approved file changes" }
+        }
+    }
+
+    private fun commitMessage(proposal: PatchEngine.Proposal): String = proposal.request.let { request ->
+        "Jarvis Developer: scoped task ${request.taskId}\n\n" +
+            "Proposal: ${proposal.id}\nBase: ${request.baseCommitSha}\nSource branch: ${request.baseBranch}\nProduct: ${request.target.name}\n" +
+            "Provider: ${auditLabel(request.provider)}\nModel: ${auditLabel(request.model)}"
+    }
+
+    private fun commitResult(proposal: PatchEngine.Proposal, sha: String): CommitResult = proposal.request.let { request ->
+        CommitResult(request.taskId, request.provider, request.model, proposal.id,
+            proposal.edits.map { it.path }.sorted(), request.baseCommitSha, sha, PatchEngine.branchName(proposal),
+            proposal.diff, request.baseBranch, request.target)
     }
 
     private data class Node(val path: String, val type: String, val mode: String, val sha: String)

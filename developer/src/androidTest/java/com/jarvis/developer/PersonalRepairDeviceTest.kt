@@ -6,8 +6,11 @@ import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -16,8 +19,11 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONArray
+import org.json.JSONObject
+import java.security.MessageDigest
 
-/** Disposable CI emulator only. Public GitHub GETs, no provider/key, source write or approval. */
+/** Disposable CI emulator: public source GETs plus a modeled repair/recovery interaction. No live writer/key. */
 @RunWith(AndroidJUnit4::class)
 class PersonalRepairDeviceTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
@@ -92,6 +98,76 @@ class PersonalRepairDeviceTest {
             scenario.onActivity { activity ->
                 assertFalse(button(activity, STAGE).isEnabled)
                 noApproval(activity)
+            }
+        }
+    }
+
+    @Test fun modeledInterruptedRepairRequiresApprovalAndRecoversWithoutAnotherWrite() {
+        ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
+            scenario.onActivity { activity ->
+                val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+                activity.setContentView(root)
+                val file = "app/src/main/java/com/assistant/core/services/PersonalityExample.kt"
+                val source = "package com.assistant.core.services\nobject PersonalityExample { val enabled = false }\n"
+                val bytes = source.toByteArray(); val hash = MessageDigest.getInstance("SHA-1")
+                hash.update("blob ${bytes.size}\u0000".toByteArray())
+                val blob = hash.digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) }
+                val sha = "a".repeat(40)
+                val inventory = RepositoryAnalysis.Inventory(listOf(RepositoryAnalysis.SourceFile(file, blob, bytes.size.toLong())), false, sha)
+                var providerCalls = 0
+                var writes = 0
+                var inspections = 0
+                val output = TextView(activity)
+                val status = TextView(activity)
+                val provider = Spinner(activity).apply {
+                    adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, listOf("OpenAI"))
+                }
+                val services = PatchWorkbench.Services(
+                    inventory = { _, branch, target ->
+                        assertEquals("main", branch); assertEquals(PatchEngine.Target.PERSONAL, target); inventory
+                    },
+                    readSource = { _, _, selected -> assertEquals(file, selected); source },
+                    propose = { _, request ->
+                        providerCalls++
+                        PatchEngine.parse(request, JSONObject().put("summary", "Improve the example")
+                            .put("edits", JSONArray().put(JSONObject().put("path", file)
+                                .put("content", source.replace("false", "true")))).toString())
+                    },
+                    commit = { _, approved ->
+                        PatchEngine.validateApproval(approved); writes++
+                        throw IllegalStateException("Simulated interrupted response")
+                    },
+                    inspectOutcome = { _, proposal ->
+                        inspections++
+                        proposal.request.let { request ->
+                            PatchPublisher.CommitResult(request.taskId, request.provider, request.model, proposal.id,
+                                proposal.edits.map { it.path }.sorted(), sha, "d".repeat(40),
+                                PatchEngine.branchName(proposal), proposal.diff, request.baseBranch, request.target)
+                        }
+                    },
+                    ci = { _, _ -> error("CI must be explicitly requested later") },
+                    worker = { it() }
+                )
+                val handle = PatchWorkbench.attach(activity, root, EditText(activity),
+                    EditText(activity).apply { setText("simulated-provider-key") }, provider,
+                    EditText(activity).apply { setText("gpt-4.1-mini") },
+                    EditText(activity).apply { setText("simulated-github-token") }, output, status, { true }, services)
+                val draft = PersonalRepair.parse(share(file).replace("unspecified", sha))
+                assertTrue(handle.preparePersonal(PersonalRepair.prepare(draft, "main", inventory, source)))
+                val approval = views(root).filterIsInstance<CheckBox>().single()
+                assertEquals(0, providerCalls); assertEquals(0, writes); assertEquals(0, inspections)
+                button(activity, "Generate scoped multi-file diff preview").performClick()
+                assertTrue(approval.isEnabled); assertFalse(approval.isChecked)
+                button(activity, "Create task branch and commit approved files (writes)").performClick()
+                assertEquals(0, writes)
+                approval.isChecked = true
+                button(activity, "Create task branch and commit approved files (writes)").performClick()
+                assertEquals(1, writes); assertFalse(approval.isEnabled); assertFalse(approval.isChecked)
+                button(activity, "Verify interrupted commit outcome (read-only)").performClick()
+                assertEquals(1, providerCalls); assertEquals(1, writes); assertEquals(1, inspections)
+                assertFalse(approval.isChecked); assertFalse(approval.isEnabled)
+                assertTrue(button(activity, "Check CI for this exact task commit (read-only)").isEnabled)
+                assertTrue(output.text.contains("CI not checked. Approval remains consumed."))
             }
         }
     }

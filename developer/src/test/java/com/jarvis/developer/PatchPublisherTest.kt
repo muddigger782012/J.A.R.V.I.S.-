@@ -10,6 +10,100 @@ import java.util.Base64
 
 class PatchPublisherTest {
 
+    @Test fun lostRefResponseCanBeVerifiedWithoutRepeatingAnyWriteForEitherProduct() {
+        for (target in PatchEngine.Target.values()) {
+            val f = Fixture(sourceBranch = if (target == PatchEngine.Target.PERSONAL) "main" else "feature/jarvis-developer", target = target)
+            f.loseRefResponse = true
+            assertFailure("outcome is unknown") { f.publisher().commit(TOKEN, f.approved) }
+            assertEquals(NEW_COMMIT, f.branchHead)
+            val posts = f.posts().size
+            f.calls.clear()
+            val result = f.publisher().inspectOutcome(TOKEN, f.proposal)!!
+            PatchPublisher.validateOutcome(f.proposal, result)
+            assertEquals(target, result.target)
+            assertEquals(NEW_COMMIT, result.commitSha)
+            assertTrue(f.calls.all { it.method == "GET" })
+            assertEquals(6, f.calls.size)
+            assertEquals(5.takeIf { target == PatchEngine.Target.DEVELOPER } ?: 4, posts)
+            assertEquals(NEW_COMMIT, f.branchHead)
+        }
+    }
+
+    @Test fun missingBranchIsOnlyAnObservationAndNeverRecreatesObjectsOrARef() {
+        val f = Fixture()
+        assertNull(f.publisher().inspectOutcome(TOKEN, f.proposal))
+        assertEquals(listOf(branchPath(PatchEngine.branchName(f.proposal))), f.calls.map { it.path })
+        assertTrue(f.posts().isEmpty())
+    }
+
+    @Test fun outcomeVerificationPreservesThePinnedSourceEvenIfTheBaseBranchHasMoved() {
+        val f = Fixture()
+        val original = f.publisher().commit(TOKEN, f.approved)
+        f.baseHead = OTHER
+        f.calls.clear()
+        assertEquals(original, f.publisher().inspectOutcome(TOKEN, f.proposal))
+        assertFalse(f.calls.any { it.path == branchPath("feature/jarvis-developer") })
+        assertTrue(f.calls.all { it.method == "GET" })
+    }
+
+    @Test fun outcomeRejectsExtraChangesWrongParentAuditPreimageModesAndTruncatedTrees() {
+        val mutations: List<(Fixture) -> Unit> = listOf(
+            { it.newNodes["unapproved.txt"] = node("unapproved.txt", "blob", "100644", OTHER) },
+            { it.wrongParent = true },
+            { it.committedMessage += "\nUnrelated task" },
+            { it.baseNodes.getValue(KOTLIN).put("sha", OTHER) },
+            { it.newNodes.getValue(KOTLIN).put("mode", "120000") },
+            { it.truncated = true }
+        )
+        for (mutate in mutations) {
+            val f = Fixture()
+            f.publisher().commit(TOKEN, f.approved)
+            mutate(f); f.calls.clear()
+            assertFailure("could not be verified") { f.publisher().inspectOutcome(TOKEN, f.proposal) }
+            assertTrue(f.calls.all { it.method == "GET" })
+        }
+    }
+
+    @Test fun aBranchThatMovesDuringOutcomeReadbackCannotBeReportedAsVerified() {
+        val f = Fixture()
+        f.publisher().commit(TOKEN, f.approved); f.calls.clear()
+        var reads = 0
+        val api = PatchPublisher.GithubApi { method, path, token, payload ->
+            if (path == branchPath(PatchEngine.branchName(f.proposal)) && ++reads == 2)
+                ref(PatchEngine.branchName(f.proposal), OTHER)
+            else f.api.request(method, path, token, payload)
+        }
+        assertFailure("could not be verified") { PatchPublisher.Publisher(api).inspectOutcome(TOKEN, f.proposal) }
+        assertTrue(f.posts().isEmpty())
+    }
+
+    @Test fun modifiedProposalsFailOutcomeValidationBeforeAnyRequest() {
+        val f = Fixture()
+        @Suppress("UNCHECKED_CAST")
+        val edits = f.proposal.edits as MutableList<PatchEngine.Edit>
+        edits[0] = edits[0].copy(content = edits[0].content + "\n")
+        assertFailure("could not be verified") { f.publisher().inspectOutcome(TOKEN, f.proposal) }
+        assertTrue(f.calls.isEmpty())
+    }
+
+    @Test fun outcomeTransportFailuresAreSanitizedAndDoNotBecomeMissingBranchOrApproval() {
+        val f = Fixture()
+        f.failureMessage = "private bearer value https://untrusted.invalid/private"
+        val failure = assertFailure { f.publisher().inspectOutcome(TOKEN, f.proposal) }
+        assertFalse(failure.message!!.contains("private")); assertNull(failure.cause)
+        assertTrue(f.posts().isEmpty())
+        val forbidden = PatchPublisher.GithubApi { _, _, _, _ -> throw PatchPublisher.ApiFailure(403) }
+        assertFailure { PatchPublisher.Publisher(forbidden).inspectOutcome(TOKEN, f.proposal) }
+    }
+
+    @Test fun outcomeMetadataCannotBeRetargetedOrClaimDifferentDiffs() {
+        val f = Fixture(sourceBranch = "main", target = PatchEngine.Target.PERSONAL)
+        val result = f.publisher().commit(TOKEN, f.approved)
+        assertFailure { PatchPublisher.validateOutcome(f.proposal, result.copy(diff = result.diff + "extra")) }
+        assertFailure { PatchPublisher.validateOutcome(f.proposal, result.copy(target = PatchEngine.Target.DEVELOPER)) }
+        assertFailure { PatchPublisher.validateOutcome(f.proposal, result.copy(model = "another-model")) }
+    }
+
     @Test fun pullRequestReviewUrlIsProductBoundAndHasNoRepositoryWrite() {
         val fixture = Fixture(sourceBranch = "main", target = PatchEngine.Target.PERSONAL)
         val result = fixture.publisher().commit(TOKEN, fixture.approved)
@@ -331,6 +425,8 @@ class PatchPublisherTest {
         var collideAtCreate = false
         var wrongReadback = false
         var failureMessage: String? = null
+        var loseRefResponse = false
+        var committedMessage = ""
         var runs = JSONArray()
         private var baseChecks = 0
         private var refCreated = false
@@ -368,7 +464,7 @@ class PatchPublisherTest {
                     ref(PatchEngine.branchName(proposal), if (wrongReadback && refCreated) OTHER else head)
                 }
                 method == "GET" && path == "/git/commits/$BASE" -> commit(BASE, BASE_TREE, OTHER)
-                method == "GET" && path == "/git/commits/$NEW_COMMIT" -> commit(NEW_COMMIT, NEW_TREE, if (wrongParent) OTHER else BASE)
+                method == "GET" && path == "/git/commits/$NEW_COMMIT" -> commit(NEW_COMMIT, NEW_TREE, if (wrongParent) OTHER else BASE).put("message", committedMessage)
                 method == "GET" && path == "/git/trees/$BASE_TREE?recursive=1" -> tree(BASE_TREE, baseNodes, truncated)
                 method == "GET" && path == "/git/trees/$NEW_TREE?recursive=1" -> tree(NEW_TREE, newNodes, false)
                 method == "POST" && path == "/git/blobs" -> {
@@ -388,12 +484,16 @@ class PatchPublisherTest {
                     if (tamperTree) newNodes["unapproved.txt"] = node("unapproved.txt", "blob", "100644", OTHER)
                     JSONObject().put("sha", NEW_TREE)
                 }
-                method == "POST" && path == "/git/commits" -> commit(NEW_COMMIT, NEW_TREE, if (wrongParent) OTHER else BASE)
+                method == "POST" && path == "/git/commits" -> {
+                    committedMessage = payload!!.getString("message")
+                    commit(NEW_COMMIT, NEW_TREE, if (wrongParent) OTHER else BASE).put("message", committedMessage)
+                }
                 method == "POST" && path == "/git/refs" -> {
                     if (collideAtCreate) { branchHead = OTHER; throw PatchPublisher.ApiFailure(422) }
                     assertNull(branchHead)
                     branchHead = payload!!.getString("sha")
                     refCreated = true
+                    if (loseRefResponse) throw IllegalStateException("Simulated lost ref response")
                     ref(PatchEngine.branchName(proposal), branchHead!!)
                 }
                 method == "GET" && path.startsWith("/actions/workflows/") -> JSONObject().put("workflow_runs", runs)

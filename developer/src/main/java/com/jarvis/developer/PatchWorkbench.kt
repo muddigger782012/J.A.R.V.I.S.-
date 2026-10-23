@@ -19,6 +19,17 @@ import kotlin.concurrent.thread
 
 /** Inline, explicit review/approval controls. Attaching this view performs no network operation. */
 object PatchWorkbench {
+    /** Test-only injection is internal; production callers always use the existing bounded engines. */
+    internal class Services(
+        val inventory: (String, String, PatchEngine.Target) -> RepositoryAnalysis.Inventory = RepositoryIntelligence::inventory,
+        val readSource: (String, RepositoryAnalysis.Inventory, String) -> String = RepositoryIntelligence::readSource,
+        val propose: (String, PatchEngine.Request) -> PatchEngine.Proposal = PatchModel::propose,
+        val commit: (String, PatchEngine.ApprovedProposal) -> PatchPublisher.CommitResult = PatchPublisher::commit,
+        val inspectOutcome: (String, PatchEngine.Proposal) -> PatchPublisher.CommitResult? = PatchPublisher::inspectOutcome,
+        val ci: (String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus = PatchPublisher::ci,
+        val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit }
+    )
+
     interface RepairObserver {
         fun committed(ticket: RepairEngine.Ticket, result: PatchPublisher.CommitResult)
         fun failed(ticket: RepairEngine.Ticket, stage: String)
@@ -50,6 +61,12 @@ object PatchWorkbench {
         output: TextView,
         status: TextView,
         canWrite: () -> Boolean
+    ): Handle = attach(activity, root, task, aiKey, provider, model, githubToken, output, status, canWrite, Services())
+
+    internal fun attach(
+        activity: Activity, root: LinearLayout, task: EditText, aiKey: EditText,
+        provider: Spinner, model: EditText, githubToken: EditText, output: TextView,
+        status: TextView, canWrite: () -> Boolean, services: Services
     ): Handle {
         val context = root.context
         root.addView(TextView(context).apply {
@@ -96,6 +113,11 @@ object PatchWorkbench {
             isEnabled = false
         }
         root.addView(commit)
+        val inspectOutcome = Button(context).apply {
+            text = "Verify interrupted commit outcome (read-only)"
+            isEnabled = false
+        }
+        root.addView(inspectOutcome)
         val ci = Button(context).apply {
             text = "Check CI for this exact task commit (read-only)"
             isEnabled = false
@@ -119,6 +141,7 @@ object PatchWorkbench {
         var proposalMetadata: Metadata? = null
         var proposalReport: String? = null
         var lastCommit: PatchPublisher.CommitResult? = null
+        var interruptedAttempt: PatchEngine.Proposal? = null
         // An uncertain write outcome is never retried using the same approval in this session.
         val attemptedProposalIds = HashSet<String>()
 
@@ -149,6 +172,7 @@ object PatchWorkbench {
             manual.isEnabled = !busy && plannedBaseCommitSha != null
             approve.isEnabled = !busy && exact
             commit.isEnabled = !busy && exact && approve.isChecked
+            inspectOutcome.isEnabled = !busy && interruptedAttempt != null
             ci.isEnabled = !busy && lastCommit != null
             openReview.isEnabled = !busy && lastCommit != null
         }
@@ -270,10 +294,10 @@ object PatchWorkbench {
             refresh()
             review.text = "Reading only the explicit source scope at one immutable commit, then requesting a reviewable diff…"
             status.text = "Preparing a scoped diff preview"
-            thread(name = "DeveloperPatchPreview") {
+            services.worker {
                 var stage = "pinned repository inventory"
                 try {
-                    val inventory = RepositoryIntelligence.inventory(token, frozen.baseBranch, frozen.target)
+                    val inventory = services.inventory(token, frozen.baseBranch, frozen.target)
                     if (frozen.expectedBaseCommitSha != null &&
                         inventory.commitSha != frozen.expectedBaseCommitSha) {
                         stage = "queued source revision change"
@@ -285,14 +309,14 @@ object PatchWorkbench {
                         val source = indexed[path]
                         if (source == null) PatchEngine.SourceFile(path, null, null)
                         else PatchEngine.SourceFile(path, source.sha,
-                            RepositoryIntelligence.readSource(token, inventory, path))
+                            services.readSource(token, inventory, path))
                     }
                     val request = PatchEngine.Request(frozen.taskId, frozen.task, inventory.commitSha,
                         frozen.allowedPaths, sources, frozen.provider, frozen.model, frozen.baseBranch, frozen.target)
                     stage = "source scope validation"
                     PatchEngine.validateRequest(request)
                     stage = "selected AI provider proposal"
-                    val generated = PatchModel.propose(key, request)
+                    val generated = services.propose(key, request)
                     stage = "complete diff validation"
                     PatchEngine.revalidate(generated)
                     val report = renderProposal(generated, frozen.fingerprint)
@@ -376,6 +400,8 @@ object PatchWorkbench {
             }
             val repair = activeRepair
             attemptedProposalIds.add(selected.id)
+            interruptedAttempt = selected
+            lastCommit = null
             proposal = null
             proposalMetadata = null
             proposalReport = null
@@ -383,13 +409,15 @@ object PatchWorkbench {
             busy = true
             refresh()
             status.text = "Creating only the approved isolated task branch"
-            thread(name = "DeveloperPatchCommit") {
+            services.worker {
                 try {
-                    val result = PatchPublisher.commit(token, approved)
+                    val result = services.commit(token, approved)
+                    PatchPublisher.validateOutcome(selected, result)
                     val report = renderCommit(result, null)
                     activity.runOnUiThread {
                         if (alive()) {
                             lastCommit = result
+                            interruptedAttempt = null
                             review.text = report
                             output.text = commitAudit(result) + "\nCI has not been checked."
                             status.text = "Task branch committed; CI status is unverified"
@@ -411,7 +439,7 @@ object PatchWorkbench {
                     activity.runOnUiThread {
                         if (alive()) {
                             review.text = renderProposal(selected, frozen.fingerprint) +
-                                "\n\nCOMMIT ATTEMPT STOPPED\n$detail\nApproval was consumed. Unreferenced objects or a task branch may exist; check GitHub before a separate attempt. Rollback is not assumed and no retry will run automatically."
+                                "\n\nCOMMIT ATTEMPT STOPPED\n$detail\nApproval was consumed. Use Verify interrupted commit outcome for a read-only check of this exact proposal, or inspect GitHub manually. Rollback is not assumed and no retry will run automatically."
                             output.text = "Task: ${selected.request.taskId}\nBase SHA: ${selected.request.baseCommitSha}\nProposal: ${selected.id}\nExpected branch: ${PatchEngine.branchName(selected)}\n$detail\nApproval consumed; inspect GitHub before a new attempt."
                             status.text = "Commit stopped; review the recorded outcome before proceeding"
                             failRepair(repair, "commit")
@@ -421,6 +449,52 @@ object PatchWorkbench {
                     activity.runOnUiThread {
                         if (alive()) { busy = false; refresh() }
                     }
+                }
+            }
+        }
+
+        inspectOutcome.setOnClickListener {
+            val selected = interruptedAttempt ?: return@setOnClickListener
+            if (busy) return@setOnClickListener
+            val token = githubToken.text.toString().trim()
+            if (token.isBlank()) {
+                status.text = "Enter an in-memory GitHub token to verify the interrupted attempt. No write will be retried."
+                return@setOnClickListener
+            }
+            // Any newer diff loses its approval; the interrupted attempt's approval stays consumed.
+            failRepair(activeRepair, "approval")
+            invalidate()
+            busy = true
+            refresh()
+            status.text = "Checking the interrupted proposal's branch, parent and complete tree using GET only"
+            services.worker {
+                try {
+                    val result = services.inspectOutcome(token, selected)
+                    if (result != null) PatchPublisher.validateOutcome(selected, result)
+                    activity.runOnUiThread {
+                        if (alive()) {
+                            if (result == null) {
+                                review.text = "GitHub did not return the expected task branch for this interrupted attempt. It may be absent, removed or inaccessible. This does not undo previous writes or make the old approval reusable. Inspect access and GitHub before preparing a separate task."
+                                status.text = "Interrupted branch not observed; approval remains consumed"
+                            } else {
+                                lastCommit = result
+                                interruptedAttempt = null
+                                review.text = renderCommit(result, null) +
+                                    "\n\nInterrupted commit verified against the exact proposal. No write was retried and no approval was restored. A prior repair session is not resumed; read CI and review its result explicitly."
+                                output.text = commitAudit(result) + "\nRead-only outcome verified; CI not checked. Approval remains consumed."
+                                status.text = "Interrupted commit verified; CI still needs an explicit check"
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    activity.runOnUiThread {
+                        if (alive()) {
+                            review.text = "The interrupted branch could not be verified against its exact approved source, parent, audit identity and complete file tree. Its outcome remains unverified. No write was retried, approval restored or rollback assumed. Inspect GitHub manually before a separate task."
+                            status.text = "Interrupted commit outcome remains unverified; no write attempted"
+                        }
+                    }
+                } finally {
+                    activity.runOnUiThread { if (alive()) { busy = false; refresh() } }
                 }
             }
         }
@@ -440,9 +514,9 @@ object PatchWorkbench {
             refresh()
             review.text = renderCommit(result, null) + "\n\nChecking the exact commit's current CI status…"
             status.text = "Checking CI for ${result.commitSha}"
-            thread(name = "DeveloperPatchCI") {
+            services.worker {
                 try {
-                    val build = PatchPublisher.ci(token, result)
+                    val build = services.ci(token, result)
                     activity.runOnUiThread {
                         if (alive()) {
                             review.text = renderCommit(result, build)
