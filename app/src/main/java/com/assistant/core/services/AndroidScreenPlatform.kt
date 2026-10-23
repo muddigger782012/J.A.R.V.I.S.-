@@ -25,7 +25,9 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
         check(!requestExpired())
         val service = JarvisAccessibilityService.active() ?: error("Accessibility disconnected")
         if (locked()) return Capture(ScreenControls.Snapshot("locked", "Android", emptyList(), emptyList(), true), emptyMap(), emptyList())
-        val cacheCleared = Build.VERSION.SDK_INT >= 33 && service.clearCache()
+        // With caching disabled, getChild already queries fresh nodes. clearCache
+        // can return false in that state; it must not select the cached fallback.
+        val freshHierarchy = Build.VERSION.SDK_INT >= 33 && (!service.isCacheEnabled || service.clearCache())
         val generation = service.screenGeneration
         val root = service.rootInActiveWindow ?: throw ScreenCaptureRead.Changed()
         val owned = mutableListOf(root)
@@ -58,11 +60,10 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                 check(SystemClock.uptimeMillis() <= deadline && !requestExpired()) { "Accessibility capture deadline" }
                 val (path, node) = queue.removeFirst()
                 nodes[path] = node
-                // API 33+ cleared the entire service cache before obtaining this
-                // root. getChild returns that fresh hierarchy, including prefetched
-                // nodes; refreshing every child again causes redundant remote IPC
-                // and can exhaust the bounded read on a cold Compose screen.
-                if (!cacheCleared && !node.refresh()) throw ScreenCaptureRead.Changed()
+                // API 33+ either cleared the cache before this root or has caching
+                // disabled. Both paths supply fresh getChild results. Refreshing
+                // them again duplicates remote IPC on cold Compose screens.
+                if (!freshHierarchy && !node.refresh()) throw ScreenCaptureRead.Changed()
                 if (!node.isVisibleToUser) continue
                 val variation = node.inputType and InputType.TYPE_MASK_VARIATION
                 val password = node.isPassword || ((node.inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_TEXT &&
