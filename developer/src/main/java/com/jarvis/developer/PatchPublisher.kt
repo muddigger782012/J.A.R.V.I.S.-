@@ -36,7 +36,8 @@ object PatchPublisher {
         val commitSha: String,
         val branch: String,
         val diff: String,
-        val baseBranch: String = BASE_BRANCH
+        val baseBranch: String = BASE_BRANCH,
+        val target: PatchEngine.Target = PatchEngine.Target.DEVELOPER
     )
 
     enum class CiState { MISSING, QUEUED, RUNNING, PASSED, FAILED }
@@ -114,6 +115,22 @@ object PatchPublisher {
     fun commit(token: String, approved: PatchEngine.ApprovedProposal): CommitResult = Publisher(http).commit(token, approved)
     fun ci(token: String, result: CommitResult): CiStatus = Publisher(http).ci(token, result)
 
+    /** Opens GitHub's review UI only; creating a PR still requires the owner's action there. */
+    fun reviewUrl(result: CommitResult): String {
+        validateResult(result)
+        return "https://github.com/$REPOSITORY/compare/${encode(result.baseBranch)}...${encode(result.branch)}?expand=1"
+    }
+
+    private fun validateResult(result: CommitResult) {
+        sha(result.baseCommitSha); sha(result.commitSha)
+        require(PatchEngine.validSourceBranch(result.baseBranch, result.target)) { "Invalid source branch" }
+        require(result.taskId.matches(Regex("[a-zA-Z0-9][a-zA-Z0-9_-]{0,47}")) &&
+            result.proposalId.matches(Regex("[a-f0-9]{64}")) &&
+            result.branch == PatchEngine.taskBranch(result.taskId, result.proposalId, result.target) &&
+            result.paths.size in 1..PatchEngine.MAX_FILES && result.paths.distinct().size == result.paths.size &&
+            result.paths.all { PatchEngine.allowedPath(it, result.target) }) { "Invalid task build identity" }
+    }
+
     internal class Publisher(
         private val api: GithubApi,
         private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 }
@@ -172,7 +189,7 @@ object PatchPublisher {
                     node.type == wanted.type && node.mode == wanted.mode && (node.type == "tree" || node.sha == wanted.sha)
                 }) { "Created tree differs from the approved file changes" }
                 val message = "Jarvis Developer: scoped task ${request.taskId}\n\n" +
-                    "Proposal: ${proposal.id}\nBase: ${request.baseCommitSha}\nSource branch: ${request.baseBranch}\n" +
+                    "Proposal: ${proposal.id}\nBase: ${request.baseCommitSha}\nSource branch: ${request.baseBranch}\nProduct: ${request.target.name}\n" +
                     "Provider: ${auditLabel(request.provider)}\nModel: ${auditLabel(request.model)}"
                 val createdCommit = write(token, approved, "/git/commits", JSONObject().put("message", message)
                     .put("tree", treeSha).put("parents", JSONArray().put(request.baseCommitSha)))
@@ -187,7 +204,7 @@ object PatchPublisher {
                 validateRef(ref, branch, commitSha)
                 require(head(token, branch) == commitSha) { "Task branch readback failed" }
                 return CommitResult(request.taskId, request.provider, request.model, proposal.id,
-                    proposal.edits.map { it.path }.sorted(), request.baseCommitSha, commitSha, branch, proposal.diff, request.baseBranch)
+                    proposal.edits.map { it.path }.sorted(), request.baseCommitSha, commitSha, branch, proposal.diff, request.baseBranch, request.target)
             } catch (failure: Exception) {
                 // Object creation can leave unreachable objects; a failed ref request can have an unknown outcome.
                 // Never retry or overwrite a ref automatically.
@@ -203,18 +220,14 @@ object PatchPublisher {
         }
 
         fun ci(token: String, result: CommitResult): CiStatus {
-            sha(result.baseCommitSha)
-            sha(result.commitSha)
-            require(BuildDiagnostics.validBranch(result.baseBranch)) { "Invalid source branch" }
-            require(result.taskId.matches(Regex("[a-zA-Z0-9][a-zA-Z0-9_-]{0,47}")) &&
-                result.proposalId.matches(Regex("[a-f0-9]{64}")) &&
-                result.branch == "feature/jarvis-developer-task/${result.taskId}-${result.proposalId.take(12)}") { "Invalid task build identity" }
-            val path = "/actions/workflows/$WORKFLOW/runs?branch=${encode(result.branch)}&head_sha=${result.commitSha}&per_page=20"
+            validateResult(result)
+            val workflow = if (result.target == PatchEngine.Target.PERSONAL) "local-knowledge-checks.yml" else WORKFLOW
+            val path = "/actions/workflows/$workflow/runs?branch=${encode(result.branch)}&head_sha=${result.commitSha}&per_page=20"
             val runs = call("GET", path, token).getJSONArray("workflow_runs")
             require(runs.length() <= 20) { "CI response exceeds requested limit" }
             val matches = (0 until runs.length()).map { runs.getJSONObject(it) }.filter {
                 it.optString("head_sha") == result.commitSha && it.optString("head_branch") == result.branch &&
-                    it.optString("path").substringBefore('@') == ".github/workflows/$WORKFLOW"
+                    it.optString("path").substringBefore('@') == ".github/workflows/$workflow"
             }
             val run = matches.maxWithOrNull(compareBy<JSONObject> { it.optLong("run_number", -1) }.thenBy { it.optInt("run_attempt", 1) })
                 ?: return CiStatus(CiState.MISSING)
@@ -288,7 +301,7 @@ object PatchPublisher {
         private fun validatePreimages(proposal: PatchEngine.Proposal, before: Map<String, Node>) {
             val sources = proposal.request.sources.associateBy { it.path }
             for (edit in proposal.edits) {
-                require(PatchEngine.allowedPath(edit.path)) { "Path is outside approved write scopes" }
+                require(PatchEngine.allowedPath(edit.path, proposal.request.target)) { "Path is outside approved write scopes" }
                 val source = sources.getValue(edit.path)
                 val old = before[edit.path]
                 if (source.sha == null) {
@@ -333,7 +346,7 @@ object PatchPublisher {
         val get = path.matches(Regex("/git/ref/heads/[A-Za-z0-9._%/-]+")) ||
             path.matches(Regex("/git/commits/[a-f0-9]{40}")) ||
             path.matches(Regex("/git/trees/[a-f0-9]{40}\\?recursive=1")) ||
-            path.matches(Regex("/actions/workflows/build-jarvis-developer\\.yml/runs\\?branch=[A-Za-z0-9._%/-]+&head_sha=[a-f0-9]{40}&per_page=20"))
+            path.matches(Regex("/actions/workflows/(?:build-jarvis-developer|local-knowledge-checks)\\.yml/runs\\?branch=[A-Za-z0-9._%/-]+&head_sha=[a-f0-9]{40}&per_page=20"))
         require((method == "GET" && get) || (method == "POST" && path in setOf("/git/blobs", "/git/trees", "/git/commits", "/git/refs"))) {
             "GitHub operation is outside the scoped coding API"
         }

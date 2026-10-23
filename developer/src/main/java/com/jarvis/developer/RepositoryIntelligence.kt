@@ -45,7 +45,7 @@ object RepositoryIntelligence {
     }
 
     private val http = GetTransport { url, token ->
-        requireApiUrl(url)
+        requireApiUrl(url, null) // Reader validates the explicit product before using this shared transport.
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "GET"
@@ -71,7 +71,14 @@ object RepositoryIntelligence {
         }
     }
 
-    fun inventory(token: String, branch: String = BRANCH): RepositoryAnalysis.Inventory = Reader(http).inventory(token, branch)
+    fun inventory(token: String, branch: String = BRANCH, target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): RepositoryAnalysis.Inventory = Reader(http).inventory(token, branch, target)
+
+    /** Explicit GET-only Personal review; the caller still needs a separate complete-diff approval. */
+    fun personalRepair(token: String, draft: PersonalRepair.Draft, branch: String, newTests: List<String> = emptyList()): PersonalRepair.Review {
+        val reader = Reader(http)
+        val inventory = reader.inventory(token, branch, PatchEngine.Target.PERSONAL)
+        return PersonalRepair.prepare(draft, branch, inventory, reader.readSource(token, inventory, draft.path), newTests)
+    }
 
     fun readSource(token: String, inventory: RepositoryAnalysis.Inventory, path: String): String =
         Reader(http).readSource(token, inventory, path)
@@ -89,9 +96,11 @@ object RepositoryIntelligence {
         private val startedAt = nowMillis()
         private var requestCount = 0
         private var stoppedReason: String? = null
+        private var selectedTarget = PatchEngine.Target.DEVELOPER
 
-        fun inventory(token: String, branch: String = BRANCH): RepositoryAnalysis.Inventory {
-            require(BuildDiagnostics.validBranch(branch)) { "Repository branch is outside isolated Developer scope" }
+        fun inventory(token: String, branch: String = BRANCH, target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): RepositoryAnalysis.Inventory {
+            require(PatchEngine.validSourceBranch(branch, target)) { "Repository branch is outside selected product scope" }
+            selectedTarget = target
             val encodedBranch = URLEncoder.encode(branch, "UTF-8")
             val ref = getJson("$API/git/ref/heads/$encodedBranch", token, 64_000)
             require(ref.getString("ref") == "refs/heads/$branch") { "Unexpected repository reference" }
@@ -192,14 +201,14 @@ object RepositoryIntelligence {
         }
 
         private fun getJson(url: String, token: String, limit: Int): JSONObject {
-            requireApiUrl(url)
+            requireApiUrl(url, selectedTarget)
             checkTimeBudget()
             if (requestCount >= MAX_SESSION_REQUESTS) {
                 stop("Repository reads stopped at the 64-request session limit; retrieved context is incomplete.")
             }
             requestCount++
             return transport.get(url, token).use { response ->
-                requireApiUrl(response.finalUrl)
+                requireApiUrl(response.finalUrl, selectedTarget)
                 require(response.finalUrl == url) { "Repository redirects are not permitted" }
                 if (response.status in setOf(401, 403, 429)) {
                     stop("Repository reads stopped after HTTP ${response.status}; check read access or rate limits before retrying.")
@@ -225,7 +234,7 @@ object RepositoryIntelligence {
         }
     }
 
-    internal fun requireApiUrl(value: String) {
+    internal fun requireApiUrl(value: String, target: PatchEngine.Target? = PatchEngine.Target.DEVELOPER) {
         val uri = URI(value)
         require(uri.scheme == "https" && uri.host == "api.github.com" && uri.port == -1 &&
             uri.rawUserInfo == null && uri.rawFragment == null && value.startsWith(API + "/")) {
@@ -237,7 +246,8 @@ object RepositoryIntelligence {
             val encoded = endpoint.removePrefix(refPrefix)
             try {
                 val branch = java.net.URLDecoder.decode(encoded, "UTF-8")
-                BuildDiagnostics.validBranch(branch) && URLEncoder.encode(branch, "UTF-8") == encoded
+                (if (target == null) PatchEngine.Target.entries.any { PatchEngine.validSourceBranch(branch, it) }
+                    else PatchEngine.validSourceBranch(branch, target)) && URLEncoder.encode(branch, "UTF-8") == encoded
             } catch (_: Exception) { false }
         } else false
         val source = if (endpoint.startsWith("/contents/")) {

@@ -28,13 +28,15 @@ object PatchWorkbench {
     class Handle internal constructor(
         private val prepareAction: (String, String, List<String>, String, String) -> Boolean,
         private val repairAction: (RepairEngine.Ticket, RepairObserver) -> Boolean,
-        private val invalidateAction: () -> Boolean
+        private val invalidateAction: () -> Boolean,
+        private val personalAction: (PersonalRepair.Review) -> Boolean = { false }
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
             prepareAction(taskId, task, paths, baseCommitSha, baseBranch)
         fun prepareRepair(ticket: RepairEngine.Ticket, observer: RepairObserver): Boolean = repairAction(ticket, observer)
         fun invalidate(): Boolean = invalidateAction()
+        fun preparePersonal(review: PersonalRepair.Review): Boolean = personalAction(review)
     }
 
     fun attach(
@@ -99,11 +101,17 @@ object PatchWorkbench {
             isEnabled = false
         }
         root.addView(ci)
+        val openReview = Button(context).apply {
+            text = "Open task branch for pull request review"
+            isEnabled = false
+        }
+        root.addView(openReview)
 
         var busy = false
         var revision = 0L
         var plannedBaseCommitSha: String? = null
         var plannedBaseBranch = "feature/jarvis-developer"
+        var plannedTarget = PatchEngine.Target.DEVELOPER
         var activeRepair: Pair<RepairEngine.Ticket, RepairObserver>? = null
         var queuedContextNeedsRefresh = false
         var settingQueuedInputs = false
@@ -127,7 +135,7 @@ object PatchWorkbench {
             return Metadata(rawId.trim(), rawTask.trim(), providerName, selectedModel,
                 rawPaths.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList(),
                 fingerprint(listOf(rawId, rawTask, providerName, rawModel, rawPaths,
-                    plannedBaseCommitSha.orEmpty(), plannedBaseBranch)), plannedBaseCommitSha, plannedBaseBranch)
+                    plannedBaseCommitSha.orEmpty(), plannedBaseBranch, plannedTarget.name)), plannedBaseCommitSha, plannedBaseBranch, plannedTarget)
         }
         fun current(): Boolean {
             val candidate = proposal ?: return false
@@ -142,6 +150,7 @@ object PatchWorkbench {
             approve.isEnabled = !busy && exact
             commit.isEnabled = !busy && exact && approve.isChecked
             ci.isEnabled = !busy && lastCommit != null
+            openReview.isEnabled = !busy && lastCommit != null
         }
         fun invalidate() {
             revision++
@@ -206,12 +215,20 @@ object PatchWorkbench {
             failRepair(activeRepair, "approval")
             plannedBaseCommitSha = null
             plannedBaseBranch = "feature/jarvis-developer"
+            plannedTarget = PatchEngine.Target.DEVELOPER
             activeRepair = null
             queuedContextNeedsRefresh = false
             queuedSource.text = "Manual coding task: a new preview reads the current development branch."
             invalidate()
         }
         manual.setOnClickListener { if (!busy) clearQueuedSource() }
+        openReview.setOnClickListener {
+            val result = lastCommit ?: return@setOnClickListener
+            runCatching {
+                activity.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse(PatchPublisher.reviewUrl(result))))
+            }.onFailure { status.text = "Unable to open GitHub review. Check the task branch in your browser; no pull request was created." }
+        }
 
         preview.setOnClickListener {
             val frozen = metadata()
@@ -231,8 +248,8 @@ object PatchWorkbench {
                     "Enter 1–8 exact source paths, one per line."
                 frozen.allowedPaths.distinct().size != frozen.allowedPaths.size ->
                     "Remove duplicate source paths from the allowlist."
-                !frozen.allowedPaths.all(PatchEngine::allowedPath) ->
-                    "The allowlist contains a protected or unsupported path. Use permitted Developer Kotlin, Java, XML or existing Gradle files."
+                !frozen.allowedPaths.all { PatchEngine.allowedPath(it, frozen.target) } ->
+                    "The allowlist contains a protected or unsupported path for this product. Personal repairs require an explicitly staged source review."
                 else -> null
             }
             if (invalid != null) {
@@ -256,7 +273,7 @@ object PatchWorkbench {
             thread(name = "DeveloperPatchPreview") {
                 var stage = "pinned repository inventory"
                 try {
-                    val inventory = RepositoryIntelligence.inventory(token, frozen.baseBranch)
+                    val inventory = RepositoryIntelligence.inventory(token, frozen.baseBranch, frozen.target)
                     if (frozen.expectedBaseCommitSha != null &&
                         inventory.commitSha != frozen.expectedBaseCommitSha) {
                         stage = "queued source revision change"
@@ -271,7 +288,7 @@ object PatchWorkbench {
                             RepositoryIntelligence.readSource(token, inventory, path))
                     }
                     val request = PatchEngine.Request(frozen.taskId, frozen.task, inventory.commitSha,
-                        frozen.allowedPaths, sources, frozen.provider, frozen.model, frozen.baseBranch)
+                        frozen.allowedPaths, sources, frozen.provider, frozen.model, frozen.baseBranch, frozen.target)
                     stage = "source scope validation"
                     PatchEngine.validateRequest(request)
                     stage = "selected AI provider proposal"
@@ -457,12 +474,12 @@ object PatchWorkbench {
             }
         }
         fun prepareInputs(id: String, description: String, paths: List<String>, base: String,
-            sourceBranch: String): Boolean {
+            sourceBranch: String, target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): Boolean {
             val safe = id.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,47}")) &&
                 description.isNotBlank() && description.length <= 12_000 &&
                 paths.size in 1..PatchEngine.MAX_FILES && paths.distinct().size == paths.size &&
-                paths.all(PatchEngine::allowedPath) && base.matches(Regex("[a-f0-9]{40}")) &&
-                BuildDiagnostics.validBranch(sourceBranch) &&
+                paths.all { PatchEngine.allowedPath(it, target) } && base.matches(Regex("[a-f0-9]{40}")) &&
+                PatchEngine.validSourceBranch(sourceBranch, target) &&
                 (listOf(id, description, sourceBranch) + paths).all {
                     RepositoryRedaction.line(it) == it && !it.contains("PRIVATE KEY-----") &&
                         it.none { char -> char == '\u0000' || char == '\u007f' ||
@@ -480,15 +497,16 @@ object PatchWorkbench {
             // Pin after synchronous text watchers run; every preview checks this exact branch/SHA.
             plannedBaseCommitSha = base
             plannedBaseBranch = sourceBranch
+            plannedTarget = target
             queuedContextNeedsRefresh = false
-            queuedSource.text = "Queued task source: $sourceBranch @ $base\nA moved source branch requires fresh analysis and diff review. No approval was restored."
+            queuedSource.text = "Queued ${target.name.lowercase()} task source: $sourceBranch @ $base\nA moved source branch requires fresh analysis and diff review. No approval was restored."
             review.text = "Queued scope loaded. Generate a fresh diff, review every change and approve it explicitly."
             status.text = "Queued step prepared for a new diff; no provider call or Git write requested"
             refresh()
             return true
         }
         refresh()
-        return Handle(prepareAction = ::prepareInputs, repairAction = { ticket, observer ->
+        return Handle(prepareAction = { id, description, paths, base, branch -> prepareInputs(id, description, paths, base, branch) }, repairAction = { ticket, observer ->
             if (prepareInputs(ticket.taskId, ticket.task, ticket.scope, ticket.baseCommitSha, ticket.baseBranch)) {
                 activeRepair = ticket to observer
                 true
@@ -503,6 +521,11 @@ object PatchWorkbench {
                 }
                 true
             }
+        }, personalAction = { selected ->
+            try {
+                PersonalRepair.validate(selected)
+                prepareInputs(selected.taskId, selected.task, selected.scope, selected.sourceSha, selected.branch, PatchEngine.Target.PERSONAL)
+            } catch (_: Exception) { false }
         })
     }
 
@@ -514,7 +537,8 @@ object PatchWorkbench {
         val allowedPaths: List<String>,
         val fingerprint: String,
         val expectedBaseCommitSha: String?,
-        val baseBranch: String
+        val baseBranch: String,
+        val target: PatchEngine.Target
     )
 
     private fun fingerprint(parts: List<String>): String {
@@ -532,6 +556,7 @@ object PatchWorkbench {
         append("Task: ").append(request.taskId).append('\n')
         append("Provider: ").append(request.provider).append(" / ").append(request.model).append('\n')
         append("Source branch: ").append(request.baseBranch).append('\n')
+        append("Product: ").append(request.target.name).append('\n')
         append("Base commit SHA: ").append(request.baseCommitSha).append('\n')
         append("Proposal SHA-256: ").append(proposal.id).append('\n')
         append("Input SHA-256: ").append(inputFingerprint).append('\n')
@@ -548,6 +573,7 @@ object PatchWorkbench {
         append("Provider: ").append(result.provider).append(" / ").append(result.model).append('\n')
         append("Proposal SHA-256: ").append(result.proposalId).append('\n')
         append("Source branch: ").append(result.baseBranch).append('\n')
+        append("Product: ").append(result.target.name).append('\n')
         append("Base commit SHA: ").append(result.baseCommitSha).append('\n')
         append("Task commit SHA: ").append(result.commitSha).append('\n')
         append("Task branch: ").append(result.branch).append('\n')
@@ -567,6 +593,7 @@ object PatchWorkbench {
             PatchPublisher.CiState.FAILED -> "CI status: exact task commit did not pass (${build.conclusion ?: "unknown"})."
         })
         build.runUrl?.let { append("\nBuild URL: ").append(it) }
-        append("\nPublication and installation require separate approval.")
+        append("\nIf no CI run exists, open a pull request for this task branch; no workflow is dispatched here.")
+        append("\nMerge, publication and installation require separate approval.")
     }
 }

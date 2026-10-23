@@ -258,6 +258,7 @@ class MainActivity : Activity() {
         TaskPlanningWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         RepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         SelfDevelopmentWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        PersonalRepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         val projectStartIndex = root.childCount
         applicationWorkbench = ApplicationApprovalWorkbench.attach(this, root)
         val projectViews = (projectStartIndex until root.childCount).map { root.getChildAt(it) }

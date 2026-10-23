@@ -11,6 +11,25 @@ import java.util.Base64
 
 /** Network-free contract tests: the fixture has no write operation and keeps every requested URL. */
 class RepositoryIntelligenceTest {
+
+    @Test fun personalMainRequiresAnExplicitProductSelectionAndStillPinsVerifiedBlobBytes() {
+        val personalPath = "app/src/main/java/com/assistant/core/services/AssistantPersonality.kt"
+        val bytes = "package com.assistant.core.services\nobject AssistantPersonality\n".toByteArray()
+        val fake = fixture(listOf(node(personalPath, bytes)))
+        fake.json("$api/git/ref/heads/main", JSONObject().put("ref", "refs/heads/main")
+            .put("object", JSONObject().put("type", "commit").put("sha", commit)))
+        fake.json(sourceUrl(personalPath), blob(personalPath, bytes))
+        fails { RepositoryIntelligence.Reader(fake).inventory("", "main") }
+        assertTrue(fake.requests.isEmpty())
+        val reader = RepositoryIntelligence.Reader(fake)
+        RepositoryIntelligence.requireApiUrl("$api/git/ref/heads/main", PatchEngine.Target.PERSONAL)
+        fails { RepositoryIntelligence.requireApiUrl(refUrl(), PatchEngine.Target.PERSONAL) }
+        val inventory = reader.inventory("", "main", PatchEngine.Target.PERSONAL)
+        assertEquals(commit, inventory.commitSha)
+        assertEquals(String(bytes), reader.readSource("", inventory, personalPath))
+        assertEquals(4, fake.requests.size)
+        assertTrue(fake.requests.all { it.startsWith(api + "/") })
+    }
     private val api = "https://api.github.com/repos/muddigger782012/J.A.R.V.I.S.-"
     private val commit = "a".repeat(40)
     private val treeSha = "b".repeat(40)

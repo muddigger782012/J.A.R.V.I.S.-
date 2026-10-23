@@ -354,6 +354,8 @@ class CandidateAuditTest(unittest.TestCase):
         branch = "feature/jarvis-developer-task/fixture-123456789abc"
         for changed in ("M\tdeveloper/build.gradle", "M\t.github/workflows/build.yml", "M\tdeveloper/tools/candidate_audit.py",
                         "M\tdeveloper/src/main/java/com/jarvis/developer/PatchEngine.kt",
+                        "M\tdeveloper/src/main/java/com/jarvis/developer/PersonalRepair.kt",
+                        "M\tdeveloper/src/main/java/com/jarvis/developer/PersonalRepairWorkbench.kt",
                         "M\tdeveloper/src/test/java/com/jarvis/developer/TaskFileSummaryTest.kt"):
             def modeled_git(args, controller):
                 if args[:2] == ["rev-parse", "HEAD"]:

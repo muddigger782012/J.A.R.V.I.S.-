@@ -9,6 +9,47 @@ import java.security.MessageDigest
 import java.util.Base64
 
 class PatchPublisherTest {
+
+    @Test fun pullRequestReviewUrlIsProductBoundAndHasNoRepositoryWrite() {
+        val fixture = Fixture(sourceBranch = "main", target = PatchEngine.Target.PERSONAL)
+        val result = fixture.publisher().commit(TOKEN, fixture.approved)
+        val calls = fixture.calls.size
+        val url = PatchPublisher.reviewUrl(result)
+        assertTrue(url.startsWith("https://github.com/muddigger782012/J.A.R.V.I.S.-/compare/main...feature%2Fjarvis-personal-repair%2F"))
+        assertTrue(url.endsWith("?expand=1"))
+        assertEquals(calls, fixture.calls.size)
+        assertFailure { PatchPublisher.reviewUrl(result.copy(branch = "main")) }
+        assertFailure { PatchPublisher.reviewUrl(result.copy(target = PatchEngine.Target.DEVELOPER)) }
+        assertFailure { PatchPublisher.reviewUrl(result.copy(paths = listOf("developer/build.gradle"))) }
+    }
+
+    @Test fun personalApprovalCreatesOnlyAnIsolatedPersonalBranchAndUsesPersonalCi() {
+        val fixture = Fixture(sourceBranch = "main", target = PatchEngine.Target.PERSONAL)
+        val result = fixture.publisher().commit(TOKEN, fixture.approved)
+        assertEquals(PatchEngine.Target.PERSONAL, result.target)
+        assertEquals("main", result.baseBranch)
+        assertTrue(result.branch.startsWith("feature/jarvis-personal-repair/"))
+        assertEquals(BASE, fixture.baseHead)
+        assertEquals(1, fixture.posts().count { it.path == "/git/refs" })
+        assertTrue(fixture.calls.none { it.method in setOf("PATCH", "PUT", "DELETE") || it.path.contains("releases") || it.path.contains("dispatches") })
+        fixture.runs.put(run(result, "completed", "success").put("path", ".github/workflows/build-jarvis-developer.yml"))
+        assertEquals(PatchPublisher.CiState.MISSING, fixture.publisher().ci(TOKEN, result).state)
+        fixture.runs.put(run(result, "completed", "success").put("path", ".github/workflows/local-knowledge-checks.yml"))
+        assertEquals(PatchPublisher.CiState.PASSED, fixture.publisher().ci(TOKEN, result).state)
+        assertTrue(fixture.calls.last().path.startsWith("/actions/workflows/local-knowledge-checks.yml/runs?"))
+    }
+
+    @Test fun personalSourceMovementAndProductIdentityMismatchNeverWrite() {
+        val fixture = Fixture(sourceBranch = "main", target = PatchEngine.Target.PERSONAL)
+        fixture.baseHead = OTHER
+        assertFailure("base revision check") { fixture.publisher().commit(TOKEN, fixture.approved) }
+        assertTrue(fixture.posts().isEmpty())
+        fixture.baseHead = BASE
+        val result = fixture.publisher().commit(TOKEN, fixture.approved)
+        fixture.calls.clear()
+        assertFailure("Invalid source branch") { fixture.publisher().ci(TOKEN, result.copy(target = PatchEngine.Target.DEVELOPER)) }
+        assertTrue(fixture.calls.isEmpty())
+    }
     @Test fun twoFileCommitCreatesOneCompleteNewBranchAndPreservesModes() {
         val fixture = Fixture()
         fixture.baseNodes.getValue(KOTLIN).put("mode", "100755")
@@ -261,12 +302,17 @@ class PatchPublisherTest {
 
     private data class Call(val method: String, val path: String, val body: JSONObject?)
 
-    private class Fixture(creation: Boolean = false, private val sourceBranch: String = "feature/jarvis-developer") {
-        private val originals = linkedMapOf(
+    private class Fixture(creation: Boolean = false, private val sourceBranch: String = "feature/jarvis-developer",
+        private val target: PatchEngine.Target = PatchEngine.Target.DEVELOPER) {
+        private val originals = if (target == PatchEngine.Target.PERSONAL) linkedMapOf(
+            PERSONAL to "package com.assistant.core.services\nobject PersonalityExample { val enabled = false }\n"
+        ) else linkedMapOf(
             KOTLIN to "package com.jarvis.developer\nobject PublisherExample { val enabled = false }\n",
             XML to "<resources><string name=\"publisher_example\">Before</string></resources>\n"
         )
-        private val changes = if (creation) linkedMapOf(NEW_FILE to "package com.jarvis.developer.newfeature\nobject NewExample { val enabled = true }\n") else linkedMapOf(
+        private val changes = if (target == PatchEngine.Target.PERSONAL) linkedMapOf(
+            PERSONAL to "package com.assistant.core.services\nobject PersonalityExample { val enabled = true }\n"
+        ) else if (creation) linkedMapOf(NEW_FILE to "package com.jarvis.developer.newfeature\nobject NewExample { val enabled = true }\n") else linkedMapOf(
             KOTLIN to "package com.jarvis.developer\nobject PublisherExample { val enabled = true }\n",
             XML to "<resources><string name=\"publisher_example\">After</string></resources>\n"
         )
@@ -298,7 +344,7 @@ class PatchPublisherTest {
                 PatchEngine.SourceFile(path, content?.let { blob(it) }, content)
             }
             val request = PatchEngine.Request("publisher-test", "Make a bounded example improvement", BASE,
-                changes.keys.toList(), sources, "openai", "test-model", sourceBranch)
+                changes.keys.toList(), sources, "openai", "test-model", sourceBranch, target)
             val edits = JSONArray()
             changes.forEach { (path, content) -> edits.put(JSONObject().put("path", path).put("content", content)) }
             proposal = PatchEngine.parse(request, JSONObject().put("summary", "Improve two scoped example sources").put("edits", edits).toString())
@@ -363,6 +409,7 @@ class PatchPublisherTest {
         private val NEW_TREE = "c".repeat(40)
         private val NEW_COMMIT = "d".repeat(40)
         private val OTHER = "e".repeat(40)
+        private const val PERSONAL = "app/src/main/java/com/assistant/core/services/PersonalityExample.kt"
         private const val KOTLIN = "developer/src/main/java/com/jarvis/developer/ExampleStatus.kt"
         private const val XML = "developer/src/main/res/values/example_status.xml"
         private const val NEW_FILE = "developer/src/main/java/com/jarvis/developer/newfeature/NewExample.kt"
