@@ -5,6 +5,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class VolumeConfirmationStoreTest {
+    @Test fun exactLevelRequestsCannotBeProposedAsOneStepActions() {
+        var writes = 0
+        var pending: String? = null
+        val store = VolumeConfirmationStore({ pending }, { pending = it; writes++; true })
+        for (phrase in listOf("set music volume to half", "set the sound to twenty five percent",
+            "boost the sound all the way up")) assertFalse(store.propose(phrase, lesson()))
+        assertEquals(0, writes)
+        assertNull(pending)
+        val exact = FallbackIntentLesson("DEVICE_SETTING", .95,
+            mapOf("setting" to "media_volume", "percent" to "50"), learnable = true)
+        assertTrue(store.propose("set music volume to half", exact))
+        assertEquals(50, ExactVolumeLearning.fromLesson(store.consume("yes")!!.pending.lesson))
+    }
     private fun lesson() = FallbackIntentLesson("DEVICE_SETTING", 0.95,
         mapOf("setting" to "media_volume", "direction" to "down"), learnable = true)
 
