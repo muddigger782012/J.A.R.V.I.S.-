@@ -65,7 +65,9 @@ screens, installed-data upgrades and live provider connectivity still need real
 phone checks. Creating/destroying a recognizer is not a speech-recognition pass.
 The compatibility test never starts a microphone, voice pipeline, call or app.
 
-The next self-improvement milestone remains a Personal source proposal in Jarvis
-Developer with an exact revision/path/diff scope, explicit approval and renewed
-approval after any material change. These owner-authorized development repairs do
-not mean the Personal app can yet implement its own approved repairs.
+The source-bound Personal proposal extension is implemented in the separate
+[Developer review PR](https://github.com/muddigger782012/J.A.R.V.I.S.-/pull/214).
+It still needs live approved repair, signed-companion and phone verification.
+Compatible builds require exact revision/path/diff approval and renewed review
+after material changes. These repository repairs do not mean the installed
+Personal app can already implement its own approved repairs.

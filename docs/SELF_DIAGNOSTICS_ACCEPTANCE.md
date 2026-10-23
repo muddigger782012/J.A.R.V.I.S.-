@@ -74,15 +74,17 @@ grants no source-write, merge, publication or installation authority. Missing
 Developer is reported without any device/source effect. No credentials, approval
 tokens, patches or arbitrary imported instructions cross this boundary.
 
-Inspection of the existing Developer self-development implementation confirms its
-allowlist currently covers Developer's own source, not Personal. A real Personal
-repair therefore needs a separately reviewed scope extension and source-bound
-proposal/approval contract. This increment does not pretend a shared draft is an
-approved repair, independently attest imported evidence, or add duplicate repair
-machinery. Actual cross-app delivery with the installed signed Developer APK is
-still a separate device check. Actual document-provider cancellation/timeout and
-installed-companion delivery also require device checks. Recovery opens existing instructions only; it does
-not install, deploy, downgrade, undo or claim a rollback.
+The compatible Developer extension is implemented separately in
+[Connect Personal diagnostics to approved Developer repair proposals](https://github.com/muddigger782012/J.A.R.V.I.S.-/pull/214).
+It verifies source and reuses the existing complete-diff approval and isolated
+branch publisher. Older installed Developer builds may still support only their
+own source. The Personal page neither attests the installed companion version nor
+creates an approval; it now explains the compatible review flow without claiming
+that an opened draft approves edits. No duplicate repair machinery is added here.
+Actual signed cross-app delivery, live provider/approved repair execution and
+document-provider cancellation/timeout still require device checks. Recovery
+opens existing instructions only; it does not install, deploy, downgrade, undo or
+claim a rollback.
 
 ## Verification
 
@@ -113,21 +115,23 @@ A row counts as passed only when its named automated check has passed.
 | Prioritized recommendations with benefit/risk/effort | Implemented; engine/viewer tests |
 | Supplied build/crash-log diagnosis and source binding | Implemented; controlled log tests |
 | Themed Personal review with persistent navigation | Implemented; UI/native gates required |
-| Approved Personal repair through Developer | Not implemented |
+| Approved Personal repair through Developer | Companion implementation under review; live approved execution unverified |
 | Verified repair execution/recovery through runtime workflow | Not implemented |
 
 | Phase 6 workstream criterion | State |
 | --- | --- |
 | Reproducible evidence references without secret/raw-content export | Implemented; tests |
 | Supervised recommendation/review draft with no write authority | Implemented; tests |
-| Immutable Personal proposal, exact owner approval and scope renewal | Not implemented |
-| Approved isolated patch and test-result workflow for Personal | Not implemented |
+| Immutable Personal proposal, exact owner approval and scope renewal | Companion contract implemented; live approval handoff unverified |
+| Approved isolated patch and test-result workflow for Personal | Companion integration under review; live execution unverified |
 | Separate executable merge/publication/installation approval gates | Not implemented in this new bridge |
 | Verified recovery of a failed approved Personal repair | Not implemented |
 
 After the UI gate passes, the scoped ratios are **4/6 (67%) for Phase 5** and
 **2/6 (33%) for Phase 6**. They must not be reused as overall phase-completion
-percentages. The next milestone is a source-bound Personal repair proposal in
-Developer: exact revision, allowed paths, intended patch/tests, owner approve or
-reject, invalidation on changed scope/head/diff, and an isolated development PR.
-Merge, signing/publication and installation remain separate owner decisions.
+percentages. The companion's modeled publisher and real source-read/staging tests
+do not complete the live execution/recovery criteria above. The next milestone is
+an actual owner-approved Personal repair through a compatible Developer build:
+secure provider access, exact revision/scope/diff approval, isolated branch and PR,
+verified Personal CI and failure recovery. Signed cross-app/phone verification,
+merge, signing/publication and installation remain separate owner decisions.

@@ -87,7 +87,7 @@ class SelfDiagnosticsActivity : MenuActivity("Self Diagnostics & Improvements") 
             }
         }
         row("Pending Approvals", "No source-write, merge, publication or installation approvals are created here") {
-            message("Pending Approvals", "Review drafts require source verification and a separate owner approval in Jarvis Developer. Developer currently limits its self-development scope to its own app. Personal source repair needs an explicit supported scope extension; opening a draft grants no authority.")
+            message("Pending Approvals", "Opening a draft grants no approval. In compatible Developer builds, use Personal Jarvis diagnostic repair review to verify source and stage a bounded proposal. Review the complete diff and explicitly approve its isolated branch there; changed source or scope needs fresh review. If Personal review is unavailable, retain the draft for manual review until a compatible Developer build is installed. Merge, publication and installation require separate approval.")
         }
         row("Development History", "Local imports and opened review drafts only; no repair completion is inferred") {
             val history = runCatching { JSONArray(prefs.getString("history", "[]")) }.getOrNull()
