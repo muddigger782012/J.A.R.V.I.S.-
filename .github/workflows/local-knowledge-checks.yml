@@ -47,11 +47,22 @@ jobs:
           timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke
       - name: Verify release automation and APK archive checks
         run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
-      - run: bash gradlew --no-daemon testDebugUnitTest assembleDebug
+      - run: bash gradlew --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-lint-report
+          path: app/build/reports/lint-results-debug.*
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: layout-smoke-apk
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-compatibility-tests
+          path: app/build/outputs/apk/androidTest/debug/*.apk
           if-no-files-found: error
   gateway:
     runs-on: ubuntu-latest
@@ -98,6 +109,49 @@ jobs:
         with:
           name: jarvis-ui-review
           path: ui-review/
+
+  android-compatibility:
+    name: android-compatibility (${{ matrix.api }})
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [26, 34]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@v4
+        with:
+          name: layout-smoke-apk
+          path: app/build/outputs/apk/debug
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-compatibility-tests
+          path: app/build/outputs/apk/androidTest/debug
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          emulator-boot-timeout: 300
+          profile: pixel_2
+          disable-animations: true
+          script: bash scripts/android_compatibility_acceptance.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-compatibility-${{ matrix.api }}
+          path: android-compatibility-results.txt
 
   voice-playback:
     runs-on: ubuntu-latest

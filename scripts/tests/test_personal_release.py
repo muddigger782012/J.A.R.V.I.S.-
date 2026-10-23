@@ -187,12 +187,29 @@ class PersonalReleaseTests(unittest.TestCase):
         def api(repo, path):
             if '/runs?' in path:
                 return {'workflow_runs': [run]}
-            return {'jobs': [{'name': n, 'conclusion': 'success'} for n in ('test', 'gateway', 'voice-playback', 'theme')]}
+            return {'jobs': [{'name': n, 'conclusion': 'success'} for n in ('test', 'gateway', 'voice-playback', 'ui-layout',
+                'android-compatibility (26)', 'android-compatibility (34)', 'theme')]}
         with patch.object(release, 'api', side_effect=api), \
                 patch.object(release, 'same_inputs', return_value=True), \
                 patch.object(release.subprocess, 'run') as process:
             process.return_value.returncode = 0
             self.assertEqual(2, len(release.gate_checks('owner/repo', 'b' * 40, 0)))
+
+    def test_ui_and_each_android_compatibility_gate_cannot_be_missing_failed_or_skipped(self):
+        run = {'id': 11, 'head_sha': 'b' * 40, 'head_repository': {'full_name': 'owner/repo'},
+               'status': 'completed', 'conclusion': 'success'}
+        names = ('test', 'gateway', 'voice-playback', 'ui-layout', 'android-compatibility (26)', 'android-compatibility (34)', 'theme')
+        for target in ('ui-layout', 'android-compatibility (26)', 'android-compatibility (34)'):
+            for result in ('missing', 'failure', 'skipped'):
+                def api(repo, path):
+                    if '/runs?' in path: return {'workflow_runs': [run]}
+                    return {'jobs': [{'name': n, 'conclusion': result if n == target else 'success'}
+                                     for n in names if n != target or result != 'missing']}
+                with self.subTest(target=target, result=result), patch.object(release, 'api', side_effect=api), \
+                        patch.object(release, 'same_inputs', return_value=True), patch.object(release.subprocess, 'run') as process:
+                    process.return_value.returncode = 0
+                    with self.assertRaisesRegex(ValueError, 'missing/skipped'):
+                        release.gate_checks('owner/repo', 'b' * 40, 0)
 
     def test_unpublished_draft_is_verified_by_release_record_without_a_tag_lookup(self):
         draft = {'tag_name': 'jarvis-3.5.496', 'prerelease': False, 'draft': True, 'assets': []}

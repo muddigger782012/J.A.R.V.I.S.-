@@ -7,9 +7,11 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.assistant.core.MainActivity
 import com.assistant.core.R
@@ -88,6 +90,11 @@ class VoiceForegroundService : Service() {
         }
     }
 
+    private fun startVoiceForeground(message: String) {
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(message),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0)
+    }
+
     override fun onCreate() {
         super.onCreate()
         // Keep Service.onCreate lightweight. A failure in Sherpa/assistant
@@ -122,7 +129,7 @@ class VoiceForegroundService : Service() {
             }
             ACTION_LIVE_START -> {
                 if (practiceToken != null) return START_NOT_STICKY
-                startForeground(NOTIFICATION_ID, buildNotification("Starting live chat…"))
+                startVoiceForeground("Starting live chat…")
                 if (!liveChatActive) {
                     try {
                         resumeWakeAfterLive = pipelineStarted || intent.getBooleanExtra("resume_wake", false)
@@ -165,7 +172,7 @@ class VoiceForegroundService : Service() {
             }
             else -> {
                 if (liveChatActive || practiceToken != null) return START_NOT_STICKY
-                startForeground(NOTIFICATION_ID, buildNotification("Voice service is active"))
+                startVoiceForeground("Voice service is active")
                 persistStage("entered-start-command")
                 publishEvent("Foreground service entered start command.")
                 // Android may deliver repeated startService intents (activity resume,

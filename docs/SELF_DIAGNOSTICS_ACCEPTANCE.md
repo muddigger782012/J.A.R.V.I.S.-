@@ -86,15 +86,16 @@ not install, deploy, downgrade, undo or claim a rollback.
 
 ## Verification
 
-Local verification passes 701 JVM cases across 109 suites, all three debug
-architectures, instrumentation Kotlin and Beta manifest processing. All 37
-Python release/scanner checks and the theme check pass. The scanner also diagnosed
-the actual local lint failure and bound its first finding to inspected source.
-Full Android lint remains blocked by 13 pre-existing errors in source unchanged
-from the stable parent (the manifest adds only the new unrelated activity). No
-lint issue is attributed to either new diagnostics class; no baseline or rule was
-weakened. Native acceptance and UI evidence will be recorded after CI completes. The native harness adds a real page/recreation/privacy case;
-required counts become 15 strict preflight and 61 full optimized cases, retaining
+The initial increment passed 701 JVM cases across 109 suites, all three debug
+architectures, instrumentation Kotlin and Beta manifest processing. The scanner
+also diagnosed the actual local lint failure and bound its first finding to
+inspected source. The owner then authorized repairs to those existing blockers;
+see [Android lint and compatibility repairs](ANDROID_LINT_REPAIR_ACCEPTANCE.md)
+for the changes, two narrowly documented special-permission exceptions and
+additional API 26/34 security/compatibility gates. The current verified commit,
+full-lint results and final CI evidence are recorded in
+[the development PR](https://github.com/muddigger782012/J.A.R.V.I.S.-/pull/212). The native harness adds a real page/recreation/privacy case;
+required counts become 15 strict preflight and 65 full optimized cases, retaining
 the existing 120/360-second deadlines. Existing Settings row and utility matrices
 include the new destination rather than dropping old assertions. UI smoke visits
 the page through Settings and checks Back navigation. Source/static theme checks
@@ -111,7 +112,7 @@ A row counts as passed only when its named automated check has passed.
 | Bounded authorized source inspection and evidence | Implemented; safety tests |
 | Prioritized recommendations with benefit/risk/effort | Implemented; engine/viewer tests |
 | Supplied build/crash-log diagnosis and source binding | Implemented; controlled log tests |
-| Themed Personal review with persistent navigation | Implemented; emulator gate pending |
+| Themed Personal review with persistent navigation | Implemented; UI/native gates required |
 | Approved Personal repair through Developer | Not implemented |
 | Verified repair execution/recovery through runtime workflow | Not implemented |
 

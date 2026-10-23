@@ -10,8 +10,7 @@ on:
     paths:
       - 'scripts/jarvis_self_diagnostics.py'
       - 'scripts/tests/test_jarvis_self_diagnostics.py'
-      - 'app/src/main/java/com/assistant/core/SelfDiagnosticsActivity.kt'
-      - 'app/src/main/java/com/assistant/core/services/SelfDiagnosticsReport.kt'
+      - 'app/src/main/**'
       - '.github/workflows/self-diagnostics.yml'
 permissions:
   contents: read

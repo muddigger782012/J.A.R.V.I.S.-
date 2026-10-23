@@ -100,5 +100,6 @@
 # Separately compiled capture acceptance uses controlled recognizers, never production hooks.
 -keep,allowoptimization class com.assistant.core.services.LiveSpeechCapture** { public *; }
 -keep,allowoptimization class com.assistant.core.services.SpeechCapturePlatform** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AndroidSpeechCapturePlatform** { public *; }
 -keep,allowoptimization class com.assistant.core.services.SpeechCaptureRouting** { public *; }
 -keep,allowoptimization class com.assistant.core.services.SpeechRecognitionCandidates** { public *; }
