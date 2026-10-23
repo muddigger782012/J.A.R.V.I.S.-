@@ -1,0 +1,54 @@
+name: Read-only self diagnostics
+on:
+  workflow_dispatch:
+    inputs:
+      failed_run:
+        description: Optional Actions run to diagnose (read only, this repository)
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - 'scripts/jarvis_self_diagnostics.py'
+      - 'scripts/tests/test_jarvis_self_diagnostics.py'
+      - 'app/src/main/java/com/assistant/core/SelfDiagnosticsActivity.kt'
+      - 'app/src/main/java/com/assistant/core/services/SelfDiagnosticsReport.kt'
+      - '.github/workflows/self-diagnostics.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify bounded traversal and secret exclusion
+        run: python3 -m unittest discover -s scripts/tests -p 'test_jarvis_self_diagnostics.py' -v
+      - name: Produce a read-only report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          FAILED_RUN: ${{ inputs.failed_run }}
+          SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--root . --repository "$GH_REPO" --revision "$SOURCE_REVISION" --json)
+          if [[ -n "$FAILED_RUN" ]]; then
+            [[ "$FAILED_RUN" =~ ^[1-9][0-9]{0,19}$ ]] || { echo 'Invalid run selection'; exit 1; }
+            gh run view "$FAILED_RUN" --repo "$GH_REPO" --log-failed > "$RUNNER_TEMP/diagnostic-build.log"
+            args+=(--build-log "$RUNNER_TEMP/diagnostic-build.log")
+          fi
+          python3 -I scripts/jarvis_self_diagnostics.py "${args[@]}" > "$RUNNER_TEMP/self-diagnostics.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: self-diagnostics-report
+          path: ${{ runner.temp }}/self-diagnostics.json
+          if-no-files-found: error
+          retention-days: 7

@@ -31,6 +31,7 @@ class SettingsActivity : MenuActivity("Settings") {
         destination("Appearance", "Themes, fonts and chat contrast", R.drawable.ic_tools_settings, AppearanceSettingsActivity::class.java)
         section("Intelligence and connections")
         destination("Learning and memory", "Commands, routines, outcomes and local learning", R.drawable.ic_jarvis_core, IntelligenceActivity::class.java)
+        if (BuildConfig.BUILD_TYPE != "beta") destination("Self Diagnostics & Improvements", "Read-only source findings and Developer review drafts", R.drawable.ic_jarvis_core, SelfDiagnosticsActivity::class.java)
         panel.addView(SettingsMenuViews.row(this, "AI and weather", "Provider credentials and weather location", R.drawable.ic_composer_tools) { AiConnectionSettings.show(this) })
         destination("Assistant connections", "Optional assistant integrations", R.drawable.ic_composer_tools, AssistantConnectionsActivity::class.java)
         setContentView(ScrollView(this).apply {
