@@ -4,7 +4,7 @@ import java.util.Locale
 
 /** Local, explicit screen commands. No transcript, node or approval is stored on disk. */
 class ScreenControls(private val platform: Platform, private val now: () -> Long = System::currentTimeMillis) {
-    enum class Kind { HELP, STATUS, SETUP, APP, READ, LIST, TAP_LABEL, TAP_NUMBER, CONFIRM, CANCEL, SCROLL_DOWN, SCROLL_UP, BACK, HOME, RECENTS, NOTIFICATIONS, QUICK_SETTINGS, INVALID }
+    enum class Kind { HELP, STATUS, DIAGNOSTICS, SETUP, APP, READ, LIST, TAP_LABEL, TAP_NUMBER, CONFIRM, CANCEL, SCROLL_DOWN, SCROLL_UP, BACK, HOME, RECENTS, NOTIFICATIONS, QUICK_SETTINGS, INVALID }
     data class Command(val kind: Kind, val label: String = "", val number: Int = 0,
                        val role: ScreenSemantics.Role? = null, val contextLabel: String = "")
     data class Control(val path: String, val label: String, val clickable: Boolean, val scrollable: Boolean,
@@ -17,6 +17,7 @@ class ScreenControls(private val platform: Platform, private val now: () -> Long
     data class Confirmation(val text: String, val outcome: Result? = null, val beforeKey: String? = null)
     interface Platform {
         fun connected(): Boolean
+        fun readDiagnostics(): ScreenReadDiagnostics? = null
         fun snapshot(): Snapshot
         fun perform(snapshot: Snapshot, control: Control, scroll: Kind? = null): Result
         fun global(kind: Kind): Result
@@ -39,6 +40,8 @@ class ScreenControls(private val platform: Platform, private val now: () -> Long
                 if (review != null) "A tap review is pending; confirm screen action checks the same screen again before one attempt." else "No tap review is pending. Say 'show screen controls' to inspect the active app."
                 else { discard(); setup() }
             Kind.SETUP -> { discard(); setup() }
+            Kind.DIAGNOSTICS -> (if (platform.connected()) "Jarvis Accessibility is currently connected. " else "Jarvis Accessibility is currently disconnected. ") +
+                (platform.readDiagnostics()?.report() ?: "No previous screen-read attempt is available. Say 'read my screen' to request one; diagnostics do not inspect the screen.")
             Kind.CONFIRM -> confirmReviewedTap().text
             else -> {
                 review = null
@@ -64,7 +67,7 @@ class ScreenControls(private val platform: Platform, private val now: () -> Long
                 }
             }
         }
-    } catch (_: Exception) { discard(); "Screen access could not be verified. Check Jarvis Accessibility and the current app before trying again. No automatic action retry was made." }
+    } catch (failure: Exception) { discard(); ScreenReadFailure.guidance(failure) }
 
     private fun select(command: Command, snapshot: Snapshot): String {
         val numbered = command.number != 0 || command.kind == Kind.TAP_NUMBER
@@ -107,7 +110,7 @@ class ScreenControls(private val platform: Platform, private val now: () -> Long
         dispatchStarted = true
         val outcome = platform.perform(fresh, saved.control)
         Confirmation(result(outcome, "tap '${saved.control.label}'"), outcome, fresh.key)
-    } catch (_: Exception) { discard(); Confirmation("Screen access could not be verified. Check Jarvis Accessibility and the current app before trying again. No automatic action retry was made.", if (dispatchStarted) Result.UNKNOWN else null) } }
+    } catch (failure: Exception) { discard(); Confirmation(ScreenReadFailure.guidance(if (dispatchStarted) IllegalStateException() else failure), if (dispatchStarted) Result.UNKNOWN else null) } }
     private fun list(snapshot: Snapshot): String {
         choices = Choices(snapshot.copy(controls = snapshot.controls.take(20), text = emptyList(), headings = emptyList()), now())
         if (snapshot.controls.isEmpty()) return "This app exposes no supported clickable or scrollable accessibility controls. Use its own controls or request Back/Home."
@@ -125,12 +128,13 @@ class ScreenControls(private val platform: Platform, private val now: () -> Long
         private val globals = setOf(Kind.BACK, Kind.HOME, Kind.RECENTS, Kind.NOTIFICATIONS, Kind.QUICK_SETTINGS)
         private fun clean(text: String) = text.trim().replace(Regex("\\s+"), " ").lowercase(Locale.ROOT)
         fun setup() = "Enable Jarvis in Android Accessibility settings for voice screen control. Say 'open accessibility settings', select Jarvis and approve Android's access prompt yourself. If Android marks it restricted, review Jarvis App info and its restricted-settings option first. No access is granted automatically."
-        fun help() = "Voice screen control: show screen controls; read my screen; tap followed by an exact label; tap screen item one; confirm screen action; cancel screen action; scroll down/up; scroll screen item one down/up; go back; go home; show recent apps; open notifications; open quick settings. For a labelled section, say 'press the button named Account under Work'. Task help is available with 'screen task help'. Tap requests are reviewed before one confirmed attempt. Android Accessibility must be enabled manually. Screen data stays local and transient. Protected/password/security screens, arbitrary gestures, typing and automatic multi-app sequences are not supported by this slice."
+        fun help() = "Voice screen control: show screen controls; read my screen; screen read diagnostics; tap followed by an exact label; tap screen item one; confirm screen action; cancel screen action; scroll down/up; scroll screen item one down/up; go back; go home; show recent apps; open notifications; open quick settings. Diagnostics report only the last read's outcome and timing without inspecting the screen. For a labelled section, say 'press the button named Account under Work'. Task help is available with 'screen task help'. Tap requests are reviewed before one confirmed attempt. Android Accessibility must be enabled manually. Screen data stays local and transient. Protected/password/security screens, arbitrary gestures, typing and automatic multi-app sequences are not supported by this slice."
         fun parse(text: String): Command? {
             val raw = text.trim().trimEnd('.', '?', '!').trim()
             val value = clean(raw).removePrefix("please ")
             val fixed = mapOf("screen control help" to Kind.HELP, "voice screen control help" to Kind.HELP,
                 "screen control status" to Kind.STATUS, "accessibility status" to Kind.STATUS,
+                "screen read status" to Kind.DIAGNOSTICS, "screen read diagnostics" to Kind.DIAGNOSTICS, "screen control diagnostics" to Kind.DIAGNOSTICS,
                 "open accessibility settings" to Kind.SETUP, "enable voice screen control" to Kind.SETUP,
                 "which app am i in" to Kind.APP, "what app is on screen" to Kind.APP, "foreground app" to Kind.APP,
                 "what can you do on this screen" to Kind.LIST,

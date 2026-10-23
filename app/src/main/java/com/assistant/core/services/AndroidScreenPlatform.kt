@@ -14,6 +14,29 @@ import java.security.MessageDigest
 /** On-demand, bounded node access. No gestures, injected events, files or network traffic. */
 class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platform {
     override fun connected() = JarvisAccessibilityService.active() != null
+    @Volatile private var lastRead: ScreenReadDiagnostics? = null
+    override fun readDiagnostics() = lastRead
+    private class ReadTrace {
+        val started = SystemClock.uptimeMillis()
+        var stage = ScreenReadDiagnostics.Stage.PREPARE
+        var nodes = 0
+        var cache = ScreenReadDiagnostics.Cache.UNKNOWN
+        var protectedScreen = false
+        fun result(reason: ScreenReadFailure.Reason? = null, blocked: Boolean = protectedScreen) =
+            ScreenReadDiagnostics(reason, blocked, stage, if (blocked) 0 else nodes.coerceIn(0, 300),
+                (SystemClock.uptimeMillis() - started).coerceIn(0, 60_000), cache)
+    }
+    private fun readFailure(failure: Exception): ScreenReadFailure = when {
+        requestCancelled.get()?.invoke() == true -> ScreenReadFailure(ScreenReadFailure.Reason.CANCELLED)
+        SystemClock.uptimeMillis() >= (requestDeadline.get() ?: Long.MAX_VALUE) -> ScreenReadFailure(ScreenReadFailure.Reason.BUSY)
+        failure is ScreenReadFailure -> failure
+        !connected() -> ScreenReadFailure(ScreenReadFailure.Reason.DISCONNECTED)
+        else -> ScreenReadFailure(ScreenReadFailure.Reason.UNAVAILABLE)
+    }
+    private fun within(deadline: Long = Long.MAX_VALUE) {
+        if (requestExpired()) throw readFailure(IllegalStateException())
+        if (SystemClock.uptimeMillis() > deadline) throw ScreenReadFailure(ScreenReadFailure.Reason.BUSY)
+    }
     private fun locked(): Boolean = (context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager)?.let {
         it.isDeviceLocked || it.isKeyguardLocked
     } ?: true
@@ -22,25 +45,37 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
         @Suppress("DEPRECATION") override fun close() { owned.forEach { it.recycle() } }
     }
     private fun capture(): Capture {
-        check(!requestExpired())
-        val service = JarvisAccessibilityService.active() ?: error("Accessibility disconnected")
-        if (locked()) return Capture(ScreenControls.Snapshot("locked", "Android", emptyList(), emptyList(), true), emptyMap(), emptyList())
-        // With caching disabled, getChild already queries fresh nodes. clearCache
-        // can return false in that state; it must not select the cached fallback.
-        val freshHierarchy = Build.VERSION.SDK_INT >= 33 && (!service.isCacheEnabled || service.clearCache())
-        val generation = service.screenGeneration
-        val root = service.rootInActiveWindow ?: throw ScreenCaptureRead.Changed()
-        val owned = mutableListOf(root)
+        val trace = ReadTrace()
+        val owned = mutableListOf<AccessibilityNodeInfo>()
         try {
+            within()
+            val service = JarvisAccessibilityService.active() ?: throw ScreenReadFailure(ScreenReadFailure.Reason.DISCONNECTED)
+            if (locked()) {
+                lastRead = trace.result(blocked = true)
+                return Capture(ScreenControls.Snapshot("locked", "Android", emptyList(), emptyList(), true), emptyMap(), emptyList())
+            }
+            // With caching disabled, getChild already queries fresh nodes. clearCache
+            // can return false in that state; it must not select the cached fallback.
+            val caching = if (Build.VERSION.SDK_INT >= 33) service.isCacheEnabled else null
+            trace.cache = when (caching) { true -> ScreenReadDiagnostics.Cache.ENABLED; false -> ScreenReadDiagnostics.Cache.DISABLED; null -> ScreenReadDiagnostics.Cache.UNKNOWN }
+            val freshHierarchy = Build.VERSION.SDK_INT >= 33 && (caching == false || service.clearCache())
+            val generation = service.screenGeneration
+            trace.stage = ScreenReadDiagnostics.Stage.ROOT
+            val root = service.rootInActiveWindow ?: throw ScreenCaptureRead.Changed()
+            owned.add(root)
             if (!root.refresh()) throw ScreenCaptureRead.Changed()
             val pkg = root.packageName?.toString()?.takeIf { it.length in 1..200 } ?: error("No active package")
+            trace.stage = ScreenReadDiagnostics.Stage.WINDOW
             val window = root.window ?: throw ScreenCaptureRead.Changed()
             @Suppress("DEPRECATION") val windowType = try { window.type } finally { window.recycle() }
             val appLabel = appLabel(pkg)
             val protected = windowType != AccessibilityWindowInfo.TYPE_APPLICATION || pkg in setOf("android", "com.android.settings", "com.android.systemui", "com.android.packageinstaller",
                 "com.google.android.packageinstaller", "com.samsung.android.settings") ||
                 listOf("permissioncontroller", "packageinstaller", "securitycenter").any { pkg.contains(it, true) }
-            if (protected) return Capture(ScreenControls.Snapshot("protected", pkg, emptyList(), emptyList(), true, appLabel), emptyMap(), owned)
+            if (protected) {
+                lastRead = trace.result(blocked = true)
+                return Capture(ScreenControls.Snapshot("protected", pkg, emptyList(), emptyList(), true, appLabel), emptyMap(), owned)
+            }
             val deadline = minOf(SystemClock.uptimeMillis() + 1500, requestDeadline.get() ?: Long.MAX_VALUE)
             val queue = ArrayDeque<Pair<String, AccessibilityNodeInfo>>()
             queue.add("0" to root)
@@ -54,12 +89,15 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
             var characters = 0
             var sensitive = false
             fun hash(value: String) { digest.update(value.toByteArray(Charsets.UTF_8)); digest.update(0.toByte()) }
+            fun limit(allowed: Boolean) { if (!allowed) throw ScreenReadFailure(ScreenReadFailure.Reason.LIMIT) }
             hash(generation); hash(root.windowId.toString()); hash(pkg)
+            trace.stage = ScreenReadDiagnostics.Stage.CONTROLS
             while (queue.isNotEmpty()) {
-                check(nodes.size < 300) { "Accessibility capture node limit" }
-                check(SystemClock.uptimeMillis() <= deadline && !requestExpired()) { "Accessibility capture deadline" }
+                limit(nodes.size < 300)
+                within(deadline)
                 val (path, node) = queue.removeFirst()
                 nodes[path] = node
+                trace.nodes = nodes.size
                 // API 33+ either cleared the cache before this root or has caching
                 // disabled. Both paths supply fresh getChild results. Refreshing
                 // them again duplicates remote IPC on cold Compose screens.
@@ -69,12 +107,14 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                 val password = node.isPassword || ((node.inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_TEXT &&
                     variation in setOf(InputType.TYPE_TEXT_VARIATION_PASSWORD, InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD, InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)) ||
                     ((node.inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_NUMBER && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD)
-                if (password || Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive) { sensitive = true; continue } // Never read this node or its descendants.
+                if (password || Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive) {
+                    sensitive = true; trace.protectedScreen = true; continue // Never read this node or its descendants.
+                }
                 val label = node.text?.toString()?.trim().orEmpty()
                 val description = node.contentDescription?.toString()?.trim().orEmpty()
                 val hint = node.hintText?.toString()?.trim().orEmpty()
-                check(label.length <= 2000 && description.length <= 2000 && hint.length <= 2000)
-                characters += label.length + description.length + hint.length; check(characters <= 50_000)
+                limit(label.length <= 2000 && description.length <= 2000 && hint.length <= 2000)
+                characters += label.length + description.length + hint.length; limit(characters <= 50_000)
                 nodeLabels[path] = label.ifBlank { description }
                 val bounds = Rect(); node.getBoundsInScreen(bounds)
                 boundsByPath[path] = bounds
@@ -94,10 +134,11 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                     controls.add(ScreenControls.Control(path, display(controlLabel, 100), click, scroll, role,
                         enabled = node.isEnabled, checked = if (node.isCheckable) node.isChecked else null, selected = node.isSelected))
                 }
-                check(path.count { it == '/' } < 30 && node.childCount <= 300)
+                limit(path.count { it == '/' } < 30 && node.childCount <= 300)
                 for (index in 0 until node.childCount) {
+                    within(deadline) // Stop a wide parent before issuing another remote child query.
                     val child = node.getChild(index) ?: throw ScreenCaptureRead.Changed()
-                    owned.add(child); check(owned.size <= 300); queue.add("$path/$index" to child)
+                    owned.add(child); limit(owned.size <= 300); queue.add("$path/$index" to child)
                 }
             }
             // Password-entry windows expose neither surrounding text nor executable targets.
@@ -118,19 +159,32 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                 val headingPath = (sameSection.ifEmpty { preceding }).maxByOrNull { boundsByPath.getValue(it).top }
                 control.copy(contextLabel = display(parentLabel ?: headingPath?.let { headings[it] }.orEmpty(), 100))
             }
+            trace.stage = ScreenReadDiagnostics.Stage.VERIFY
             if (service.screenGeneration != generation) throw ScreenCaptureRead.Changed()
-            check(SystemClock.uptimeMillis() <= deadline && !requestExpired()) { "Accessibility capture deadline" }
+            within(deadline)
             val snapshot = ScreenControls.Snapshot(digest.digest().joinToString("") { "%02x".format(it) }, pkg,
                 if (sensitive) emptyList() else labelled, if (sensitive) emptyList() else text.distinct(), sensitive,
                 appLabel, if (sensitive) emptyList() else headings.values.distinct().take(20))
+            lastRead = trace.result(blocked = sensitive)
             return Capture(snapshot, nodes, owned)
         } catch (failure: Exception) {
             @Suppress("DEPRECATION") owned.forEach { it.recycle() }
-            throw failure
+            val safeFailure = readFailure(failure)
+            lastRead = trace.result(safeFailure.reason)
+            throw safeFailure
         }
     }
-    override fun snapshot(): ScreenControls.Snapshot = ScreenCaptureRead.read({ !requestExpired() && connected() }) {
-        capture().use { it.snapshot }
+    override fun snapshot(): ScreenControls.Snapshot {
+        var attempted = false
+        return try { ScreenCaptureRead.read({ !requestExpired() && connected() }) {
+            attempted = true
+            capture().use { it.snapshot }
+        } } catch (failure: Exception) {
+            val safeFailure = readFailure(failure)
+            lastRead = if (!attempted) ScreenReadDiagnostics(reason = safeFailure.reason)
+                else lastRead?.copy(reason = safeFailure.reason) ?: ScreenReadDiagnostics(reason = safeFailure.reason)
+            throw safeFailure
+        }
     }
     override fun perform(snapshot: ScreenControls.Snapshot, control: ScreenControls.Control, scroll: ScreenControls.Kind?): ScreenControls.Result = try {
         capture().use { current ->

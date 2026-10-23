@@ -93,6 +93,34 @@ class ScreenControlAcceptanceTest {
         }
     }
 
+    @Test fun actualCaptureDiagnosticsSeparateDeadlinesCancellationAndSuccessfulReadsWithoutScreenContent(): Unit = withAccess(true) {
+        launchFixture().use { scenario ->
+            instrumentation.waitForIdleSync(); settled()
+            val platform = AndroidScreenPlatform(context)
+            val timedOut = assertThrows(ScreenReadFailure::class.java) {
+                AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() - 1) { platform.snapshot() }
+            }
+            assertEquals(ScreenReadFailure.Reason.BUSY, timedOut.reason)
+            assertEquals(0, platform.readDiagnostics()!!.nodes)
+            val cancelled = assertThrows(ScreenReadFailure::class.java) {
+                AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() + 3000, { true }) { platform.snapshot() }
+            }
+            assertEquals(ScreenReadFailure.Reason.CANCELLED, cancelled.reason)
+            assertEquals(0, platform.readDiagnostics()!!.nodes)
+            assertTrue(platform.snapshot().text.contains("Screen control fixture"))
+            val successful = requireNotNull(platform.readDiagnostics())
+            assertNull(successful.reason); assertTrue(successful.nodes > 0)
+            assertEquals(successful, platform.readDiagnostics())
+            assertTrue(remote("read my screen").contains("Screen control fixture"))
+            val report = remote("screen read diagnostics")
+            assertTrue(report, report.contains("Last screen-read attempt: completed"))
+            assertTrue(report, report.contains("not the current screen"))
+            assertFalse(report.contains("Screen control fixture")); assertFalse(report.contains("Practice button"))
+            assertFalse(report.contains(context.packageName))
+            scenario.onActivity { assertEquals(0, it.tapCount) }
+        }
+    }
+
     @Test fun realAccessibilityBridgeFromAnotherProcessReviewsTapsRejectsStaleScreensAndScrolls(): Unit = withAccess(true) {
         launchFixture().use { scenario ->
             instrumentation.waitForIdleSync(); settled()
@@ -159,6 +187,10 @@ class ScreenControlAcceptanceTest {
             scenario.onActivity { it.showPassword() }; instrumentation.waitForIdleSync(); settled()
             val protected = remote("read my screen")
             assertTrue(protected, protected.contains("password-entry")); assertFalse(protected.contains("private-fixture-password"))
+            val protectedReport = remote("screen read status")
+            assertTrue(protectedReport, protectedReport.contains("protected screen; no content exposed"))
+            assertTrue(protectedReport, protectedReport.contains("Examined nodes: 0"))
+            assertFalse(protectedReport.contains("private-fixture-password"))
             assertTrue(remote("tap Practice button").contains("protected"))
             scenario.onActivity { assertEquals(2, it.tapCount) }
             if (android.os.Build.VERSION.SDK_INT >= 34) {
@@ -288,7 +320,10 @@ class ScreenControlAcceptanceTest {
                 try {
                     assertTrue(service.setCacheEnabled(false))
                     val withoutCache = remote("read my screen")
-                    assertTrue("Disabled caching must retain the supported fresh-node read: $withoutCache", withoutCache.contains("CONNECTION MANAGER"))
+                    val diagnostics = remote("screen read diagnostics")
+                    assertTrue("Disabled caching must retain the supported fresh-node read: $withoutCache; $diagnostics", withoutCache.contains("CONNECTION MANAGER"))
+                    assertTrue(diagnostics, diagnostics.contains("Android cache: disabled"))
+                    assertFalse(diagnostics.contains("CONNECTION MANAGER")); assertFalse(diagnostics.contains("NOT TESTED"))
                 } finally { service.setCacheEnabled(caching) }
             }
             assertFalse(ScreenAccessClient(context).taskState().active)

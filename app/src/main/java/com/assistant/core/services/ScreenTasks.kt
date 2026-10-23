@@ -142,8 +142,11 @@ class ScreenTasks(private val platform: ScreenControls.Platform, private val now
             if (failure is Boundary) {
                 if (phase != Phase.OBSERVE) phase = if (approved) Phase.PAUSED else Phase.REVIEW
                 failure.guidance
-            } else if (phase == Phase.OBSERVE) "The observed result could not be read yet. Check the app, then say 'continue screen task' to inspect again. No tap will be repeated."
-            else { phase = if (approved) Phase.PAUSED else Phase.REVIEW; "The current app or Accessibility access could not be verified. Check it, then review or continue the task; no automatic tap retry was made." }
+            } else if (phase == Phase.OBSERVE) (if (failure is ScreenReadFailure) ScreenReadFailure.guidance(failure) + " " else "The observed result could not be read yet. Check the app. ") +
+                "Say 'continue screen task' to inspect again. No tap will be repeated."
+            else { phase = if (approved) Phase.PAUSED else Phase.REVIEW
+                if (failure is ScreenReadFailure) ScreenReadFailure.guidance(failure) + " Review or continue the paused task for a fresh target."
+                else "The current app or Accessibility access could not be verified. Check it, then review or continue the task; no automatic tap retry was made." }
         }
     }
     private fun snapshot(): ScreenControls.Snapshot {
@@ -277,7 +280,7 @@ class ScreenSession(platform: ScreenControls.Platform, now: () -> Long = System:
         val command = ScreenControls.parse(text) ?: return "No supported screen request was recognized."
         if (command.kind == ScreenControls.Kind.CONFIRM && tasks.active)
             return "The active task needs its exact numbered step confirmation. Say 'screen task status' to review it; a generic screen confirmation cannot run a task step."
-        if (command.kind !in setOf(ScreenControls.Kind.READ, ScreenControls.Kind.LIST, ScreenControls.Kind.APP, ScreenControls.Kind.STATUS, ScreenControls.Kind.HELP)) tasks.discard()
+        if (command.kind !in setOf(ScreenControls.Kind.READ, ScreenControls.Kind.LIST, ScreenControls.Kind.APP, ScreenControls.Kind.STATUS, ScreenControls.Kind.DIAGNOSTICS, ScreenControls.Kind.HELP)) tasks.discard()
         return direct.reply(command)
     }
     companion object {

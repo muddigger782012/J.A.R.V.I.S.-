@@ -13,11 +13,12 @@ class ScreenTasksTest {
         var lastPath = ""
         var change = true
         var throwAfterDispatch = false
+        var readFailure: Exception? = null
         var result = ScreenControls.Result.ACCEPTED
         var value = ScreenControls.Snapshot("start", "example", listOf(
             ScreenControls.Control("0/1", "Menu", true, false, ScreenSemantics.Role.BUTTON)), listOf("Start page"), appLabel = "Sample app")
         override fun connected() = available
-        override fun snapshot(): ScreenControls.Snapshot { reads++; return value }
+        override fun snapshot(): ScreenControls.Snapshot { reads++; readFailure?.let { throw it }; return value }
         override fun perform(snapshot: ScreenControls.Snapshot, control: ScreenControls.Control, scroll: ScreenControls.Kind?): ScreenControls.Result {
             actions++; lastPath = control.path
             if (throwAfterDispatch) error("transport uncertainty")
@@ -30,6 +31,34 @@ class ScreenTasksTest {
         override fun global(kind: ScreenControls.Kind): ScreenControls.Result { actions++; return result }
     }
     private fun start(session: ScreenSession) = session.reply("help me open Menu then Downloads and verify Downloads page")
+
+    @Test fun diagnosticsNeverAdvanceOrApproveAnActiveTask() {
+        val phone = Phone(); val session = ScreenSession(phone)
+        start(session); session.reply("approve screen task")
+        val token = session.pendingToken; val reads = phone.reads
+        assertTrue(session.reply("screen read diagnostics").contains("No previous screen-read attempt"))
+        assertEquals(token, session.pendingToken); assertEquals(reads, phone.reads); assertEquals(0, phone.actions)
+        assertTrue(session.active)
+        session.reply("confirm screen step one"); assertEquals(1, phone.actions)
+    }
+
+    @Test fun typedReadFailuresPauseUnattemptedStepsAndCannotReplayAcceptedOnes() {
+        val phone = Phone(); val session = ScreenSession(phone)
+        start(session); session.reply("approve screen task")
+        phone.readFailure = ScreenReadFailure(ScreenReadFailure.Reason.BUSY)
+        assertTrue(session.reply("confirm screen step one").contains("Let the screen settle"))
+        assertEquals(0, phone.actions)
+        phone.readFailure = null
+        session.reply("confirm screen step one"); assertEquals(0, phone.actions)
+        session.reply("continue screen task"); session.reply("confirm screen step one"); assertEquals(1, phone.actions)
+        phone.readFailure = ScreenReadFailure(ScreenReadFailure.Reason.CHANGED)
+        assertTrue(session.reply("continue screen task").contains("screen changed while"))
+        assertTrue(session.observing); assertEquals(1, phone.actions)
+        session.reply("confirm screen step one"); assertEquals(1, phone.actions)
+        phone.readFailure = null
+        assertTrue(session.reply("continue screen task").contains("confirm screen step two"))
+        assertEquals(1, phone.actions)
+    }
 
     @Test fun naturalRequestsBecomeBoundedDataRatherThanHostCommands() {
         val request = ScreenTaskCommands.parse("help me open Menu then run shell reboot and verify Done")!!
