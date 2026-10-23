@@ -93,6 +93,20 @@ class PersonalFoundationAcceptanceTest {
         assertTrue(service.getConversationSnapshot().isEmpty())
     }
 
+    @Test fun screenReadDiagnosticsStayLocalWithoutLearningOrDeviceExecution() {
+        val memory = ConversationMemory(context)
+        assertTrue(memory.record("Synthetic remembered objective", "Synthetic remembered reply"))
+        val service = assistant(); val before = service.getConversationSnapshot()
+        assertFalse(before.isBlank())
+        for (command in listOf("screen read diagnostics", "screen read status", "screen control diagnostics")) {
+            val reply = service.handleUserInput(command)
+            assertFalse(command, reply.needsInterpretation)
+            assertTrue(reply.text, reply.text.contains("Jarvis Accessibility is currently"))
+            assertEquals(before, service.getConversationSnapshot())
+        }
+        assertEquals(0, executions); assertEquals(0, context.activityRequests)
+    }
+
     @Test fun interruptedRoutineRestoresThroughTheActualServiceWithoutReplayingAnAction() {
         val access = LocalRoutineWorkflowAccess(context)
         val engine = WorkflowEngine(approvedRoutine = { ApprovedRoutineRegistry.Routine("focus time", listOf("timer:300")) }, store = access.store)

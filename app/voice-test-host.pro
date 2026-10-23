@@ -81,6 +81,8 @@
 -keep,allowoptimization class com.assistant.core.services.ScreenControls** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ScreenAccessClient** { public *; }
 -keep,allowoptimization class com.assistant.core.services.AndroidScreenPlatform** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ScreenReadDiagnostics** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ScreenReadFailure** { public *; }
 -keep,allowoptimization class com.assistant.core.services.JarvisAccessibilityService** { public *; }
 
 # Debug/optimized-host-only real-window and separate-process acceptance fixtures.

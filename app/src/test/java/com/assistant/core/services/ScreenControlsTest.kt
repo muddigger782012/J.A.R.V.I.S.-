@@ -17,10 +17,14 @@ class ScreenControlsTest {
         var outcome = ScreenControls.Result.ACCEPTED
         var fail = false
         var failDispatch = false
+        var dispatchFailure: Exception? = null
+        var readFailure: Exception? = null
+        var diagnostics: ScreenReadDiagnostics? = null
         override fun connected() = available
-        override fun snapshot(): ScreenControls.Snapshot { reads++; check(!fail); return value }
+        override fun readDiagnostics() = diagnostics
+        override fun snapshot(): ScreenControls.Snapshot { reads++; readFailure?.let { throw it }; check(!fail); return value }
         override fun perform(snapshot: ScreenControls.Snapshot, control: ScreenControls.Control, scroll: ScreenControls.Kind?): ScreenControls.Result {
-            actions++; last = control; if (failDispatch) error("private content"); return outcome
+            actions++; last = control; dispatchFailure?.let { throw it }; if (failDispatch) error("private content"); return outcome
         }
         override fun global(kind: ScreenControls.Kind): ScreenControls.Result { actions++; return outcome }
     }
@@ -30,7 +34,8 @@ class ScreenControlsTest {
 
     @Test fun visibleLabelsAreInertEvenWhenTheyLookLikeShellCommandsOrVoiceControls() {
         val parser = VoiceCommandParser(ActionRegistry())
-        for (text in listOf("tap run shell reboot", "tap stop voice", "click open voice settings", "tap create project", "tap screen item one")) {
+        for (text in listOf("tap run shell reboot", "tap stop voice", "click open voice settings", "tap create project", "tap screen item one",
+            "screen read diagnostics", "screen read status", "screen control diagnostics")) {
             val result = parser.parse(text, VoiceConfig(true, "hey jarvis", .8f, false, true, .58f,
                 "assistant_demo", true, false, "", "", "", "", "", "", ""))
             assertNull(result.actionRequest); assertEquals(LocalVoiceCommand.NONE, result.localCommand)
@@ -39,6 +44,39 @@ class ScreenControlsTest {
         }
         assertNull(ScreenControls.parse("What does read my screen mean?"))
         assertNull(ScreenControls.parse("yes")); assertNull(ScreenControls.parse("first one"))
+    }
+    @Test fun diagnosticsAreReadFreeAndSeparateHistoricalOutcomesFromCurrentConnectivity() {
+        val phone = phone(tap); val service = ScreenControls(phone)
+        assertTrue(reply(service, "screen read diagnostics").contains("No previous screen-read attempt"))
+        phone.diagnostics = ScreenReadDiagnostics(cache = ScreenReadDiagnostics.Cache.DISABLED)
+        phone.available = false
+        val report = reply(service, "screen read status")
+        assertTrue(report.contains("currently disconnected")); assertTrue(report.contains("not the current screen"))
+        assertFalse(report.contains("Sample text")); assertFalse(report.contains("Send")); assertFalse(report.contains("com.example.app"))
+        assertEquals(0, phone.reads); assertEquals(0, phone.actions)
+    }
+    @Test fun failedReadsConsumeBothTapReviewsAndNumberChoicesWithoutDispatchingOrRetrying() {
+        for (reason in ScreenReadFailure.Reason.values()) {
+            val phone = phone(tap); val service = ScreenControls(phone)
+            reply(service, "show screen controls"); reply(service, "tap screen item one")
+            val before = phone.reads
+            phone.readFailure = ScreenReadFailure(reason)
+            assertEquals(ScreenReadFailure.guidance(phone.readFailure!!), reply(service, "confirm screen action"))
+            assertEquals(before + 1, phone.reads); assertEquals(0, phone.actions)
+            phone.readFailure = null
+            assertTrue(reply(service, "confirm screen action").contains("No current"))
+            assertTrue(reply(service, "tap screen item one").contains("missing"))
+            assertEquals(0, phone.actions)
+        }
+    }
+    @Test fun anExceptionAfterDispatchRemainsUncertainAndCannotClaimOnlyTheReadFailed() {
+        val phone = phone(tap); val service = ScreenControls(phone)
+        reply(service, "tap Send"); phone.dispatchFailure = ScreenReadFailure(ScreenReadFailure.Reason.BUSY)
+        val result = service.confirmReviewedTap()
+        assertEquals(ScreenControls.Result.UNKNOWN, result.outcome)
+        assertFalse(result.text.contains("Let the screen settle"))
+        assertEquals(1, phone.actions)
+        assertTrue(reply(service, "confirm screen action").contains("No current")); assertEquals(1, phone.actions)
     }
     @Test fun readingListingStatusAndTapPreviewNeverDispatch() {
         val phone = phone(tap, scroll); val service = ScreenControls(phone)

@@ -2,7 +2,7 @@ package com.assistant.core.services
 
 /** A disappearing node invalidates the entire read. Only a fresh read may be retried. */
 internal object ScreenCaptureRead {
-    class Changed : IllegalStateException("The Accessibility tree changed during capture")
+    class Changed : ScreenReadFailure(ScreenReadFailure.Reason.CHANGED)
 
     fun <T> read(allowed: () -> Boolean, capture: () -> T): T {
         check(allowed())

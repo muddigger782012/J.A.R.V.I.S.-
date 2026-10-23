@@ -1,5 +1,12 @@
 Personal Jarvis v3.6 — Intelligent Device Assistance:
 
+- Explain screen-read timeouts, changed screens, lost access, cancellation and
+  size limits with specific recovery guidance. Failed reads never revive approvals.
+- Ask "screen read diagnostics" for the last attempt's outcome, stage, node count,
+  timing and Android cache mode. Diagnostics inspect no screen and retain no text,
+  labels or user values; protected reads also redact counts.
+- Check cancellation and deadlines between child queries on wide screen trees,
+  preserving existing capture limits, protected-screen rules and per-tap approval.
 - Prefer available Android on-device recognition for Personal live chat as well as
   commands. Report the capture engine; allow one announced system-provider fallback
   for unavailable local models while keeping explicit on-device practice strict.
