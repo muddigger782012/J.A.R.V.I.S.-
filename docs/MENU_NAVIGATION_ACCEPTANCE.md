@@ -37,9 +37,45 @@ Local verification: 672 JVM tests across 106 suites pass without failures, error
 skips; debug APKs for all supported ABIs, instrumentation Kotlin and Beta manifest
 processing pass. Release/archive regressions, Python syntax and UI theme checks pass.
 
-Required before merge/publication: actual Accessibility/conversation preflight,
-the full optimized Android suite (53 cases, including every utility activity,
-Appearance restoration and closing nested menus without losing the Chat draft), UI emulator Back/Close/history/menu tests, gateway/theme checks,
-production signing and public updater byte verification. Real-phone wake quality,
+Verified delivery: [Personal 3.6.515](https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/tag/jarvis-3.6.515)
+is public and available through the existing in-app updater.
+[Download the updater APK](https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/artifacts/app-debug.apk).
+
+The reviewed branch and merged source pass the actual Accessibility/conversation
+preflight (7 cases) and full optimized Android suite (53 cases). This includes all
+nine utility activities' persistent exits, independent Appearance positions and
+unfinished edits, actual theme recreation, and closing nested menus back to the
+same Chat and unsent draft. Settings rows wrap across all 12 themes at 150% app
+font size. UI emulator tests pass Android Back and Close for every main utility
+panel, panel history, popup parent/exit behavior, Default/Stark/Cybertron selection,
+and the small-screen keyboard case.
+
+Default/Stark/Cybertron screenshots were reviewed. Eight Chat widget bounds,
+classes and descriptions match the published baseline, and Chat's layout resource
+is unchanged. The uncached-read correction also passes the unchanged real
+Connection Manager assertion with Accessibility caching disabled. It retains all
+capture, protected-content and cancellation bounds.
+
+Production verification passes all three architectures with the existing signing
+identity, native runtime and wake assets. Automatic publication generated the
+manifest, ARM64 ZIP and checksums without manual artifact preparation. The retained
+receipt verifies the public release and updater. An independent download of the
+exact default updater URL matches the manifest SHA-256 and pinned Git blob, Personal
+package/version and verified prior production signer. Acceptance fixtures are
+absent; production DEX includes menu Close/history/Appearance state and task-bound
+notification cancellation.
+
+Implementation and verification:
+
+- [Complete themed utility navigation and preserve Appearance state](https://github.com/muddigger782012/J.A.R.V.I.S.-/pull/204)
+- [Keep uncached Accessibility screen reads within existing bounds](https://github.com/muddigger782012/J.A.R.V.I.S.-/pull/205)
+- [Merged-source unit, gateway, Accessibility, voice and UI checks](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39923987802)
+- [Theme contract](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39923988011)
+- [Production signing and APK metadata](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39923987790)
+- [Automatic publication and retained receipt](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39925237566)
+
+This completes the menu delivery milestone. Phone/OEM wake and deep-voice quality,
 installed-data upgrade and live configured-provider availability remain separate
-from unit/emulator evidence.
+from unit/emulator evidence. Further voice/device improvements, live AI diagnostics,
+broader supervised automation and independent companion-app development remain the
+next priorities; this increment does not claim they are complete.
