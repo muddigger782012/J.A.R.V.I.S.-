@@ -21,7 +21,7 @@ def hierarchy():
             adb('shell', 'rm', '-f', '/sdcard/window.xml')
             adb('shell', 'uiautomator', 'dump', '/sdcard/window.xml')
             root = ET.fromstring(adb('shell', 'cat', '/sdcard/window.xml'))
-            assert any(root.iter('node')), 'Empty Accessibility hierarchy'
+            assert next(root.iter('node'), None) is not None, 'Empty Accessibility hierarchy'
             return root
         except (subprocess.CalledProcessError, ET.ParseError, AssertionError):
             if attempt == 2:
@@ -80,9 +80,15 @@ def tap_text(label):
     time.sleep(1)
 
 
-def open_settings_destination(label):
-    # Start from the public Chat button; a fresh Settings page starts at its top.
+def open_settings():
+    # The Chat gear opens the top-level menu, not the Settings activity itself.
     tap('btnVoiceSettings')
+    tap_text('Settings')
+    assert any(node.get('text') == 'Back to chat' for node in hierarchy().iter('node')), 'Settings page did not open'
+
+
+def open_settings_destination(label):
+    open_settings()
     tap_text(label)
 
 
@@ -133,7 +139,7 @@ try:
     time.sleep(1)
     assert any(n.get('text') == '4' for n in hierarchy().iter('node')), 'Chat response card not rendered'
     capture('conversation')
-    tap('btnVoiceSettings')
+    open_settings()
     capture('settings')
     text_node('AI and weather')
     adb('shell', 'input', 'keyevent', '4')
