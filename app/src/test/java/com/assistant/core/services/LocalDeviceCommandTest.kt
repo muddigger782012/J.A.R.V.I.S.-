@@ -26,4 +26,20 @@ class LocalDeviceCommandTest {
         assertNull(LocalDeviceCommand.parse("What is volume?"))
         assertNull(LocalDeviceCommand.parse("Turn the volume up and send a text"))
     }
+
+    @Test fun naturalExplicitMediaRequestsRemainSingleOfflineSteps() {
+        for (phrase in listOf("Could you please make the music a little louder?", "Please turn my media volume up one step",
+            "Hey Jarvis, can you raise the music volume a bit please!  ", "please volume up"))
+            assertEquals(phrase, LocalDeviceCommand.Action.VOLUME_UP, LocalDeviceCommand.parse(phrase))
+        for (phrase in listOf("Could you turn the music down a little please?", "Make the media volume quieter", "Please reduce my music volume one step",
+            "Jarvis, lower the sound a bit!   "))
+            assertEquals(phrase, LocalDeviceCommand.Action.VOLUME_DOWN, LocalDeviceCommand.parse(phrase))
+    }
+
+    @Test fun politeNegationsQuestionsOtherStreamsAndCompoundRequestsDoNotExecute() {
+        for (phrase in listOf("Could you not turn the music up?", "Please don't lower the volume", "How do I make the music louder?",
+            "Please turn the alarm volume down", "Make your voice louder", "Turn it up", "Can you turn the music up and call Alex?",
+            "If I ask, make the music quieter", "Please turn the media volume down 20 percent"))
+            assertNull(phrase, LocalDeviceCommand.parse(phrase))
+    }
 }

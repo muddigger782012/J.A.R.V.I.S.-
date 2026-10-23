@@ -94,3 +94,9 @@
 # Connectivity bridge acceptance uses standard Android API observations and reviewed app choices.
 -keep,allowoptimization class com.assistant.core.services.ConnectionAssistance** { public *; }
 -keep,allowoptimization class com.assistant.core.services.AndroidConnectionAssistance** { public *; }
+
+# Separately compiled capture acceptance uses controlled recognizers, never production hooks.
+-keep,allowoptimization class com.assistant.core.services.LiveSpeechCapture** { public *; }
+-keep,allowoptimization class com.assistant.core.services.SpeechCapturePlatform** { public *; }
+-keep,allowoptimization class com.assistant.core.services.SpeechCaptureRouting** { public *; }
+-keep,allowoptimization class com.assistant.core.services.SpeechRecognitionCandidates** { public *; }

@@ -297,7 +297,14 @@ class VoiceForegroundService : Service() {
                         }
                     }
                 },
-                onError = { error -> liveCaptureError(turn, error) })
+                onError = { error -> liveCaptureError(turn, error) },
+                onEngine = { engine ->
+                    if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING) {
+                        val source = if (engine == SpeechCaptureRouting.Engine.ON_DEVICE) "Listening on device."
+                            else "Listening with the system speech recognizer; it may use a network connection."
+                        liveStatus(VoiceInteractionState.LISTENING, "$source Say “end live chat” to finish.")
+                    }
+                })
             liveHandler.postDelayed({
                 if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING) {
                     liveCapture.stop()

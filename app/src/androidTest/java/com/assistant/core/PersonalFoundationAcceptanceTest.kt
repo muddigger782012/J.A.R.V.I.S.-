@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.database.DatabaseErrorHandler
 import android.database.sqlite.SQLiteDatabase
+import android.media.AudioManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.assistant.core.engine.*
@@ -1106,6 +1107,34 @@ class PersonalFoundationAcceptanceTest {
         assertEquals("my-manual-model", prefs.getString("gemini_model", ""))
         assertEquals(0, executions); assertEquals(0, context.activityRequests)
         assertTrue(service.getConversationSnapshot().isEmpty())
+    }
+
+    @Test fun naturalMediaCommandsExecuteOfflineAndVerifyActualAndroidVolumeChanges() {
+        assertEquals("Real volume acceptance is restricted to the disposable emulator", "true",
+            InstrumentationRegistry.getArguments().getString("jarvis_disposable_emulator"))
+        val audio = context.getSystemService(AudioManager::class.java)
+        val before = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val wasMuted = audio.isStreamMute(AudioManager.STREAM_MUSIC)
+        val minimum = audio.getStreamMinVolume(AudioManager.STREAM_MUSIC)
+        val maximum = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        assertTrue("Emulator needs several media-volume levels", maximum - minimum >= 3)
+        try {
+            val service = assistant()
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, minimum + 1, 0)
+            val up = service.handleUserInput("Could you please make the music a little louder?")
+            assertFalse(up.needsInterpretation)
+            assertEquals("Volume increased.", up.text)
+            assertEquals(minimum + 2, audio.getStreamVolume(AudioManager.STREAM_MUSIC))
+            val down = service.handleUserInput("Could you turn the music down a little please?")
+            assertFalse(down.needsInterpretation)
+            assertEquals("Volume decreased.", down.text)
+            assertEquals(minimum + 1, audio.getStreamVolume(AudioManager.STREAM_MUSIC))
+            assertEquals(0, executions)
+            assertEquals(0, context.activityRequests)
+        } finally {
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, before, 0)
+            audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, if (wasMuted) AudioManager.ADJUST_MUTE else AudioManager.ADJUST_UNMUTE, 0)
+        }
     }
 
     private fun assistant(researchFetch: ((String) -> SearchRouter.Response)? = null): HybridAssistantService {

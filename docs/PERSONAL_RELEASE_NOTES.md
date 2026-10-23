@@ -1,5 +1,13 @@
 Personal Jarvis v3.6 — Intelligent Device Assistance:
 
+- Prefer available Android on-device recognition for Personal live chat as well as
+  commands. Report the capture engine; allow one announced system-provider fallback
+  for unavailable local models while keeping explicit on-device practice strict.
+- Preserve explicit default-provider practice and its offline-preference hint.
+  Reject late recognizer callbacks after cancellation, replacement or fallback;
+  keep transcript confidence aligned when blank results are removed.
+- Understand polite, explicit media-volume requests such as "make the music a
+  little louder" and "turn the music down a little" as one verified local step.
 - Utility menus use the Settings theme with persistent Back and Close controls.
   Android Back returns through visited utility panels or the previous activity;
   Close returns to Chat. Existing controls, actions and the Chat interface remain.
