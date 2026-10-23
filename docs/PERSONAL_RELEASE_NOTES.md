@@ -1,5 +1,13 @@
 Personal Jarvis v3.6 — Intelligent Device Assistance:
 
+- Set media volume offline with natural exact levels: "set music volume to half",
+  "set the sound to twenty five percent" or "set music to three quarters".
+  Read back Android's nearest supported level before reporting success.
+- Treat "boost the sound all the way up" as maximum media volume rather than one
+  step. Keep explicit levels ahead of older relative shortcuts without deleting
+  saved aliases. Reject conflicting teaching and old pending relative approvals
+  before changing volume or learning a different meaning.
+
 - Explain screen-read timeouts, changed screens, lost access, cancellation and
   size limits with specific recovery guidance. Failed reads never revive approvals.
 - Ask "screen read diagnostics" for the last attempt's outcome, stage, node count,

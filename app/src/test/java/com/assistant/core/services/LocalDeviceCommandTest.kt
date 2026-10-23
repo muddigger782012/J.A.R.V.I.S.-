@@ -1,5 +1,6 @@
 package com.assistant.core.services
 
+import com.assistant.core.engine.ActionRegistry
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -20,7 +21,8 @@ class LocalDeviceCommandTest {
 
     @Test fun volumeCommandsWorkAcrossInputMethods() {
         assertEquals(LocalDeviceCommand.Action.VOLUME_UP, LocalDeviceCommand.parse("Turn the volume up"))
-        assertEquals(LocalDeviceCommand.Action.VOLUME_UP, LocalDeviceCommand.parse("Boost the sound all the way up"))
+        assertNull(LocalDeviceCommand.parse("Boost the sound all the way up"))
+        assertEquals(100, ExactVolumeLearning.parse("Boost the sound all the way up"))
         assertEquals(LocalDeviceCommand.Action.VOLUME_UP, LocalDeviceCommand.parse("Hey Jarvis boost the sound"))
         assertEquals(LocalDeviceCommand.Action.VOLUME_DOWN, LocalDeviceCommand.parse("Lower the volume"))
         assertNull(LocalDeviceCommand.parse("What is volume?"))
@@ -41,5 +43,19 @@ class LocalDeviceCommandTest {
             "Please turn the alarm volume down", "Make your voice louder", "Turn it up", "Can you turn the music up and call Alex?",
             "If I ask, make the music quieter", "Please turn the media volume down 20 percent"))
             assertNull(phrase, LocalDeviceCommand.parse(phrase))
+    }
+
+    @Test fun absoluteLevelsReachTheSharedVoiceFallbackWithoutBecomingOneStepCommands() {
+        val parser = VoiceCommandParser(ActionRegistry())
+        for (phrase in listOf("Could you set music volume to half please?", "Set the sound to twenty five percent",
+            "Hey Jarvis, boost the sound all the way up!", "Set music to three quarters")) {
+            assertNotNull(phrase, ExactVolumeLearning.parse(phrase))
+            assertNull(phrase, LocalDeviceCommand.parse(phrase))
+            val result = parser.parse(phrase, VoiceConfig(true, "hey jarvis", .8f, false, true, .58f,
+                "assistant_demo", true, false, "", "", "", "", "", "", ""))
+            assertNull(result.actionRequest)
+            assertEquals(LocalVoiceCommand.NONE, result.localCommand)
+            assertEquals(phrase, result.fallbackTextCommand)
+        }
     }
 }
