@@ -57,7 +57,32 @@ public-updater verification gates remain required before publication.
 Local verification passes 679 JVM cases across 107 suites without failures, errors
 or skips, all debug architectures, instrumentation Kotlin and Beta manifest
 processing. Theme checks, 22 release/archive regressions and script syntax pass.
-Actual runtime/publication results must be recorded after the candidate passes.
+Branch and merged-source Android gates passed all 11 preflight and all 57 full
+optimized acceptance cases. The UI emulator, gateway and theme checks passed too.
+
+Personal [3.6.516 is published](https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/tag/jarvis-3.6.516)
+through the existing in-app updater. All three architecture APKs, the ARM64 ZIP
+and checksums are attached to the release. Automatic signing/publication checks
+passed, and an independent download of the exact default updater matched the
+manifest, Git blob, Personal identity and prior production signing certificate.
+Native/wake assets are present and acceptance fixtures are absent. The production
+APK also contains the live capture engine reporting paths.
+
+The first merged-source preflight failed one uncached Connection Manager screen
+read and publication stopped. The unchanged source then passed both required
+suites on a fresh emulator; no test assertions, capture deadlines or action rules
+were relaxed. The initial log shows heavy emulator startup load, but the exact
+capture failure is not diagnosed. Cold-window/OEM read availability and more
+specific privacy-safe failure diagnostics remain follow-up work. A failed read
+provides no screen controls and never retries an action automatically.
+
+- [Implementation and review](https://github.com/muddigger782012/J.A.R.V.I.S.-/pull/207)
+- [Branch Android, unit, gateway and UI verification](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39943019672)
+- [Merged-source Android, unit, gateway and UI verification](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39944824951)
+- [Production build and signing](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39944824865)
+- [Automatic publication and retained receipt](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39946029875)
+- [Download the updater APK](https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/artifacts/app-debug.apk)
+
 Phone/OEM wake-word and deep-voice microphone quality, installed-data upgrade and
 live Gemini/provider availability remain separate from controlled unit/emulator
 results. No measured recognition improvement is inferred from compilation or
