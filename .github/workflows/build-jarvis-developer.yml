@@ -8,6 +8,7 @@ on:
       - 'settings.gradle'
       - 'build.gradle'
       - '.github/workflows/build-jarvis-developer.yml'
+      - '.github/workflows/local-knowledge-checks.yml'
 permissions:
   contents: read
 jobs:
