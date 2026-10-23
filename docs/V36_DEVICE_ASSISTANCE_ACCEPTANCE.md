@@ -93,14 +93,14 @@ whether the cellular radio is enabled.
 
 ## Current verification
 
-The combined code passed 668 JVM cases across 105 suites with no failures, errors
+The combined code passed 672 JVM cases across 106 suites with no failures, errors
 or skipped cases, all debug architectures, Android-test compilation and Beta
 manifest processing. The 22 release/archive regressions, workflow/Python syntax,
 gateway and theme checks pass. The production build contains the existing signing
 identity, wake assets and native runtime for all three supported architectures.
 
 The actual Android service gate passed all seven Accessibility/conversation
-preflight cases and all 50 optimized acceptance cases on both the reviewed branch
+preflight cases and all 53 optimized acceptance cases on both the reviewed branch
 and merged source. This includes real page transitions, section-qualified duplicate
 labels, disabled controls, stale approval rejection, queued cancellation while the
 UI looper is blocked, timeouts and the separate Connection Manager's actual launcher
@@ -129,22 +129,30 @@ visible at 320dp width with enlarged system text and the keyboard open. The job 
 the visible menus, requires destinations to open and discards stale hierarchy dumps
 before bounded observation retries. It never retries a tap automatically.
 
+Utility menus now have persistent themed Back and Close controls, previous-panel
+history and Android Back navigation. Appearance retains independent tab positions
+and unfinished font edits while switching tabs, and restores scroll after applying
+a theme. Native acceptance covers every utility activity and returning from nested
+menus to the original Chat and draft. See [utility menu acceptance](MENU_NAVIGATION_ACCEPTANCE.md)
+for the complete matrix, implementation commits and release evidence.
+
 Verification records:
 
-- [Merged-source unit, gateway, Accessibility, voice and UI checks](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39855274120)
-- [Production signing and APK metadata](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39855274640)
-- [Automatic publication and retained receipt](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39856189047)
+- [Merged-source unit, gateway, Accessibility, voice and UI checks](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39923987802)
+- [Production signing and APK metadata](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39923987790)
+- [Automatic publication and retained receipt](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39925237566)
 
 ## Release acceptance and practical limits
 
-Personal [3.6.512 is published](https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/tag/jarvis-3.6.512)
+Personal [3.6.515 is published](https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/tag/jarvis-3.6.515)
 and available through the existing in-app updater. Publication ran automatically
 from the successful main production build after the required merged-source checks.
 The retained receipt confirms the release downloads and updater. An independent
 download of the exact default updater URL matched the manifest SHA-256 and Git blob,
 Personal package/version, prior production signing identity, native/wake assets and
 expected release assets. Acceptance fixtures are absent, and the production DEX
-contains the task-bound notification cancellation path.
+contains the task-bound notification cancellation and menu Close/history/Appearance
+state paths.
 
 [Download the updater APK](https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/artifacts/app-debug.apk).
 All three architecture APKs, the ARM64 ZIP and checksums are attached to the release.
@@ -156,5 +164,6 @@ availability requires the owner's API access and is not inferred from CI.
 Phone/OEM wake quality, actual microphone/voice recognition, background restrictions,
 physical HUD appearance and installed-data upgrade still need a real phone. Existing
 configuration/data namespaces and the production signing identity are preserved;
-no destructive migration or visual redesign is included. No physical-phone pass or
+no destructive migration was added. Chat and HUD layout are preserved; utility
+menus now share the Settings theme and persistent navigation. No physical-phone pass or
 measured completion percentage is inferred from compilation or emulator results.
