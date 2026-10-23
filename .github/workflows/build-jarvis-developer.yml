@@ -9,6 +9,7 @@ on:
       - 'build.gradle'
       - '.github/workflows/build-jarvis-developer.yml'
       - '.github/workflows/local-knowledge-checks.yml'
+      - 'scripts/ui_layout_smoke.py'
 permissions:
   contents: read
 jobs:
