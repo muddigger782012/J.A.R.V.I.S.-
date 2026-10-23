@@ -63,6 +63,16 @@ AI interpretations. Each recognizer owns a generation; callbacks from stopped or
 replaced recognizers cannot become commands. Screen confirmations and continuation
 are bound to the review that existed when capture began, including live chat.
 
+Personal capture now prefers Android's on-device recognizer when requested and
+available, including phones without a configured default system recognizer. Live
+chat reports its selected engine and can make one system-provider attempt when the
+local model is unavailable; that status explains possible network use. Explicit
+on-device practice remains strict. Late callbacks after cancellation/replacement
+are rejected, and blank transcripts retain their original score indices. Polite
+explicit music-volume requests execute one verified local Android step. See
+[voice/offline acceptance](VOICE_OFFLINE_ACCEPTANCE.md) for the controlled-callback
+and real AudioManager checks, privacy boundaries and pending microphone acceptance.
+
 Personal's Weather and AI dialog retains API key/model discovery/custom model
 controls and adds a primary conversation provider and an optional alternate-provider
 fallback. Supported local commands run first. Gemini and the user's HTTPS gateway
@@ -93,14 +103,14 @@ whether the cellular radio is enabled.
 
 ## Current verification
 
-The combined code passed 672 JVM cases across 106 suites with no failures, errors
+The combined code passed 679 JVM cases across 107 suites with no failures, errors
 or skipped cases, all debug architectures, Android-test compilation and Beta
 manifest processing. The 22 release/archive regressions, workflow/Python syntax,
 gateway and theme checks pass. The production build contains the existing signing
 identity, wake assets and native runtime for all three supported architectures.
 
-The actual Android service gate passed all seven Accessibility/conversation
-preflight cases and all 53 optimized acceptance cases on both the reviewed branch
+The actual Android service gate passed all 11 Accessibility/conversation/capture
+preflight cases and all 57 optimized acceptance cases on both the reviewed branch
 and merged source. This includes real page transitions, section-qualified duplicate
 labels, disabled controls, stale approval rejection, queued cancellation while the
 UI looper is blocked, timeouts and the separate Connection Manager's actual launcher
@@ -138,13 +148,13 @@ for the complete matrix, implementation commits and release evidence.
 
 Verification records:
 
-- [Merged-source unit, gateway, Accessibility, voice and UI checks](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39923987802)
-- [Production signing and APK metadata](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39923987790)
-- [Automatic publication and retained receipt](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39925237566)
+- [Merged-source unit, gateway, Accessibility, voice and UI checks](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39944824951)
+- [Production signing and APK metadata](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39944824865)
+- [Automatic publication and retained receipt](https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/39946029875)
 
 ## Release acceptance and practical limits
 
-Personal [3.6.515 is published](https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/tag/jarvis-3.6.515)
+Personal [3.6.516 is published](https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/tag/jarvis-3.6.516)
 and available through the existing in-app updater. Publication ran automatically
 from the successful main production build after the required merged-source checks.
 The retained receipt confirms the release downloads and updater. An independent
@@ -152,7 +162,7 @@ download of the exact default updater URL matched the manifest SHA-256 and Git b
 Personal package/version, prior production signing identity, native/wake assets and
 expected release assets. Acceptance fixtures are absent, and the production DEX
 contains the task-bound notification cancellation and menu Close/history/Appearance
-state paths.
+state paths, plus live capture engine reporting.
 
 [Download the updater APK](https://raw.githubusercontent.com/muddigger782012/J.A.R.V.I.S.-/main/artifacts/app-debug.apk).
 All three architecture APKs, the ARM64 ZIP and checksums are attached to the release.
