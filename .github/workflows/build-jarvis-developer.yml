@@ -8,9 +8,51 @@ on:
       - 'settings.gradle'
       - 'build.gradle'
       - '.github/workflows/build-jarvis-developer.yml'
+      - '.github/workflows/local-knowledge-checks.yml'
+      - 'scripts/ui_layout_smoke.py'
 permissions:
   contents: read
 jobs:
+  personal-repair-android:
+    needs: developer-debug
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@v4
+        with:
+          name: Jarvis-Developer-debug-APK
+          path: developer/build/outputs/apk/debug
+      - uses: actions/download-artifact@v4
+        with:
+          name: Jarvis-Developer-device-test-APK
+          path: developer/build/outputs/apk/androidTest/debug
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_2
+          emulator-boot-timeout: 300
+          disable-animations: true
+          script: bash developer/tools/personal_repair_acceptance.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Jarvis-Developer-Personal-repair-device-results
+          path: personal-repair-device-results.txt
+          if-no-files-found: error
   developer-debug:
     runs-on: ubuntu-latest
     timeout-minutes: 25

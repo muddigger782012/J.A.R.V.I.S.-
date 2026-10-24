@@ -128,6 +128,9 @@ object CandidateEvaluation {
         require(nowMillis >= 0 && nowMillis <= Long.MAX_VALUE - REVIEW_DURATION_MILLIS) { "Invalid candidate review time" }
         BuildDiagnostics.validateReport(baseline)
         BuildDiagnostics.validateReport(candidate)
+        require(baseline.target == PatchEngine.Target.DEVELOPER && candidate.target == PatchEngine.Target.DEVELOPER) {
+            "Personal feedback cannot authorize Developer candidate promotion"
+        }
         val blockers = linkedSetOf<String>()
         if (!passed(baseline)) blockers.add("Baseline CI must contain complete, nonempty passing test evidence")
         if (!passed(candidate)) blockers.add("Candidate CI must contain complete, nonempty passing test evidence")

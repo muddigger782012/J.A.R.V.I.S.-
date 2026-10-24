@@ -10,6 +10,38 @@ import java.security.MessageDigest
 
 /** Real request/response serialization through an injectable POST-only provider boundary. */
 class PatchModelTest {
+
+    @Test fun cancelledPreviewNeverPostsToEitherProvider() {
+        for (provider in listOf("OpenAI", "Gemini")) {
+            val cancellation = PatchPreviewCancellation { it() }.apply { cancel() }
+            val fake = Fixture()
+            try { PatchModel.Client(fake, cancellation).propose(key, request(provider)); fail("Cancellation required") }
+            catch (failure: IllegalStateException) {
+                assertNull(failure.cause); assertFalse(failure.toString().contains(key))
+            }
+            assertTrue(fake.requests.isEmpty())
+        }
+    }
+
+    @Test fun cancellationDuringProviderReadClosesTheResponseWithoutProducingADiffOrLeakingItsBody() {
+        val cancellation = PatchPreviewCancellation { it() }
+        val fake = Fixture().apply { body(openAi()) }
+        fake.stream = {
+            object : ByteArrayInputStream(fake.bytes) {
+                override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                    val read = super.read(bytes, offset, length)
+                    cancellation.cancel()
+                    return read
+                }
+            }
+        }
+        try { PatchModel.Client(fake, cancellation).propose(key, request()); fail("Cancelled diff must be discarded") }
+        catch (failure: IllegalStateException) {
+            assertEquals("Patch proposal failed; check provider access, model and bounded request/output format.", failure.message)
+            assertNull(failure.cause); assertFalse(failure.toString().contains(key))
+        }
+        assertEquals(1, fake.requests.size); assertEquals(1, fake.closed)
+    }
     private val key = "runtime-provider-key-42"
     private val first = "developer/src/main/java/com/jarvis/developer/Feature.kt"
     private val second = "developer/src/main/res/values/feature_labels.xml"

@@ -27,6 +27,56 @@ class BuildDiagnosticsTest {
         try { block(); fail("Expected bounded evidence rejection") } catch (_: IllegalArgumentException) { }
     }
 
+    @Test fun personalDiagnosisRequiresExplicitProductAndPreservesEvidenceLimits() {
+        val path = "app/src/main/java/com/assistant/core/services/AssistantPersonality.kt"
+        val log = "e: $path:12:1 Unresolved reference: objective\n"
+        rejected { BuildDiagnostics.parse(commit, "main", 42, 1, "completed", "failure", log) }
+        val personal = BuildDiagnostics.parse(commit, "main", 42, 1, "completed", "failure", log,
+            PatchEngine.Target.PERSONAL)
+        assertEquals(PatchEngine.Target.PERSONAL, personal.target)
+        assertEquals(path, personal.diagnostics.single().path)
+        assertEquals(12, personal.diagnostics.single().line)
+        assertFalse(personal.evidenceComplete); assertNull(personal.totals)
+        assertTrue(personal.limitations.any { it.contains("No complete JUnit") })
+        assertTrue(BuildDiagnostics.render(personal).contains("Personal feedback is read-only"))
+        rejected { BuildDiagnostics.validateReport(personal.copy(target = PatchEngine.Target.DEVELOPER)) }
+    }
+
+    @Test fun personalLogsCannotTurnForeignPathsOrSecretValuesIntoTrustedEvidence() {
+        val log = "e: developer/src/main/java/com/jarvis/developer/TaskFileSummary.kt:3:1 Wrong product\n" +
+            "e: app/src/main/java/com/assistant/core/services/Example.kt:4:1 api_key=private-value\n"
+        val personal = BuildDiagnostics.parse(commit, "main", 42, 1, "completed", "failure", log, PatchEngine.Target.PERSONAL)
+        assertNull(personal.diagnostics.first().path)
+        assertTrue(personal.limitations.any { it.contains("safe repository") })
+        assertFalse(BuildDiagnostics.render(personal).contains("private-value"))
+        assertFalse(PatchEngine.allowedPath("app/src/main/java/com/assistant/core/services/PermissionManager.kt", personal.target))
+    }
+
+    @Test fun personalProductIsBoundAndSuppliedTestInventoriesCannotClaimCompletion() {
+        val personal = BuildDiagnostics.parse(commit, "main", 42, 1, "completed", "success", marker(), PatchEngine.Target.PERSONAL)
+        assertFalse(personal.evidenceComplete); assertNull(personal.totals); assertTrue(personal.tests.isEmpty())
+        val developer = report(marker(), "success")
+        assertNotEquals(developer.fingerprint, personal.fingerprint)
+        assertNotEquals(BuildDiagnostics.failureSignature(developer), BuildDiagnostics.failureSignature(personal))
+        rejected { BuildDiagnostics.validateReport(developer.copy(target = PatchEngine.Target.PERSONAL)) }
+        rejected { BuildDiagnostics.parse(commit, branch, 42, 1, "completed", "success", marker(), PatchEngine.Target.PERSONAL) }
+    }
+
+    @Test fun personalMessagesAndTestReferencesDoNotRetainFreeformLogOrContactData() {
+        val privateText = "contact@example.test +1-202-555-0101 private-contact-payload"
+        val log = "e: app/src/main/java/com/assistant/core/services/Example.kt:4:1 Unresolved reference: $privateText\n" +
+            "ExampleSuite > $privateText FAILED\n" +
+            "JARVIS_JUNIT_SUMMARY=" + summary().toString().replace("case0", privateText)
+        val report = BuildDiagnostics.parse(commit, "main", 42, 1, "completed", "failure", log, PatchEngine.Target.PERSONAL)
+        val rendered = BuildDiagnostics.render(report)
+        for (value in listOf("contact@example.test", "202-555-0101", "private-contact-payload")) assertFalse(rendered.contains(value))
+        assertTrue(rendered.contains("Unresolved reference; check imports"))
+        assertEquals(1, report.tests.size)
+        assertTrue(report.tests.keys.single().startsWith("PersonalTest#case-"))
+        assertTrue(rendered.contains(report.tests.keys.single()))
+        assertFalse(report.evidenceComplete); assertNull(report.totals)
+    }
+
     @Test fun kotlinCompilerPathsAndNumbersSurviveTimestampsAndAnsi() {
         val logs = "2026-10-16T12:34:56.1234567Z \u001b[31me: file:///home/runner/work/J.A.R.V.I.S.-/J.A.R.V.I.S.-/$source:27:15 Unresolved reference: count\u001b[0m\n" +
             "e: /home/runner/work/repository/$source: (31, 4): Type mismatch: inferred type is String but Int was expected"

@@ -37,15 +37,17 @@ object PatchModel {
         override fun close() { try { body.close() } finally { disconnect() } }
     }
 
-    private val http = PostTransport { request ->
+    private fun http(cancellation: PatchPreviewCancellation? = null) = PostTransport { request ->
         requireProviderUrl(request.url)
         require(request.body.size <= MAX_REQUEST_BYTES) { "Patch model request exceeds byte limit" }
         val connection = URL(request.url).openConnection() as HttpURLConnection
+        val stop = cancellation?.registerStop { connection.disconnect() }
         val deadline = Timer("JarvisDeveloper-PatchTimeout", true)
         deadline.schedule(object : TimerTask() {
             override fun run() { try { connection.disconnect() } catch (_: Exception) { /* no background error logging */ } }
         }, MAX_SESSION_MILLIS)
         try {
+            cancellation?.check()
             connection.requestMethod = "POST"
             connection.instanceFollowRedirects = false
             connection.doOutput = true
@@ -61,21 +63,27 @@ object PatchModel {
             // Error bodies may reflect credentials. They are never opened or incorporated into errors.
             val body = if (status in 200..299) connection.inputStream else ByteArrayInputStream(byteArrayOf())
             PostResponse(status, connection.contentLengthLong, connection.url.toString(), body) {
+                stop?.close()
                 deadline.cancel()
                 connection.disconnect()
             }
         } catch (_: Exception) {
+            stop?.close()
             deadline.cancel()
             connection.disconnect()
             throw IllegalStateException("Patch model connection failed")
         }
     }
 
-    fun propose(key: String, request: PatchEngine.Request): PatchEngine.Proposal = Client(http).propose(key, request)
+    fun propose(key: String, request: PatchEngine.Request): PatchEngine.Proposal = Client(http()).propose(key, request)
+
+    internal fun propose(key: String, request: PatchEngine.Request, cancellation: PatchPreviewCancellation): PatchEngine.Proposal =
+        Client(http(cancellation), cancellation).propose(key, request)
 
     /** Injectable POST-only transport for contract tests; one invocation makes at most one request. */
     internal class Client(
         private val transport: PostTransport,
+        private val cancellation: PatchPreviewCancellation? = null,
         private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 }
     ) {
         fun propose(key: String, request: PatchEngine.Request): PatchEngine.Proposal {
@@ -88,24 +96,27 @@ object PatchModel {
                 val outbound = outbound(key, frozen)
                 checkBudget(started)
                 val responseText = transport.post(outbound).use { response ->
-                    requireProviderUrl(response.finalUrl)
-                    require(response.finalUrl == outbound.url) { "Patch model redirects are not permitted" }
-                    require(response.status in 200..299) { "Patch model HTTP ${response.status}" }
-                    require(response.contentLength in -1..MAX_RESPONSE_BYTES.toLong()) { "Patch model response exceeds byte limit" }
-                    val output = ByteArrayOutputStream()
-                    val buffer = ByteArray(8192)
-                    var count = 0
-                    while (true) {
+                    cancellation?.registerStop { response.body.close() }.use {
                         checkBudget(started)
-                        val read = response.body.read(buffer, 0, minOf(buffer.size, MAX_RESPONSE_BYTES - count + 1))
-                        checkBudget(started)
-                        if (read == -1) break
-                        require(read > 0) { "Patch model response made no progress" }
-                        count += read
-                        require(count <= MAX_RESPONSE_BYTES) { "Patch model response exceeds byte limit" }
-                        output.write(buffer, 0, read)
+                        requireProviderUrl(response.finalUrl)
+                        require(response.finalUrl == outbound.url) { "Patch model redirects are not permitted" }
+                        require(response.status in 200..299) { "Patch model HTTP ${response.status}" }
+                        require(response.contentLength in -1..MAX_RESPONSE_BYTES.toLong()) { "Patch model response exceeds byte limit" }
+                        val output = ByteArrayOutputStream()
+                        val buffer = ByteArray(8192)
+                        var count = 0
+                        while (true) {
+                            checkBudget(started)
+                            val read = response.body.read(buffer, 0, minOf(buffer.size, MAX_RESPONSE_BYTES - count + 1))
+                            checkBudget(started)
+                            if (read == -1) break
+                            require(read > 0) { "Patch model response made no progress" }
+                            count += read
+                            require(count <= MAX_RESPONSE_BYTES) { "Patch model response exceeds byte limit" }
+                            output.write(buffer, 0, read)
+                        }
+                        strictUtf8(output.toByteArray())
                     }
-                    strictUtf8(output.toByteArray())
                 }
                 val envelope = strictObject(responseText)
                 rejectCredential(envelope, key)
@@ -125,6 +136,7 @@ object PatchModel {
         }
 
         private fun checkBudget(started: Long) {
+            cancellation?.check()
             val elapsed = nowMillis() - started
             require(elapsed in 0 until MAX_SESSION_MILLIS) { "Patch model time budget exceeded" }
         }
@@ -135,6 +147,7 @@ object PatchModel {
             .put("taskId", request.taskId).put("task", request.task)
             .put("baseCommitSha", request.baseCommitSha)
             .put("baseBranch", request.baseBranch)
+            .put("product", request.target.name)
             .put("allowedPaths", JSONArray(request.allowedPaths))
             .put("sources", JSONArray(request.sources.map { source ->
                 JSONObject().put("path", source.path).put("sha", source.sha ?: JSONObject.NULL)
