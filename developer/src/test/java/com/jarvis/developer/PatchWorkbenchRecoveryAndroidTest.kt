@@ -24,6 +24,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
 
 /** Actual review widgets with explicit simulated provider/writer responses; no live credentials. */
 @RunWith(RobolectricTestRunner::class)
@@ -52,6 +53,10 @@ class PatchWorkbenchRecoveryAndroidTest {
         var writes = 0
         var inspections = 0
         var feedbacks = 0
+        val feedbackTokens = ArrayList<PatchPreviewCancellation>()
+        val followUpTokens = ArrayList<PatchPreviewCancellation>()
+        var afterFeedback: (() -> Unit)? = null
+        var afterFollowUp: (() -> Unit)? = null
         var feedbackFailure: BuildFeedback.Failure? = null
         var wrongFeedback = 0
         var followUpReads = 0
@@ -106,8 +111,10 @@ class PatchWorkbenchRecoveryAndroidTest {
                     }
                 },
                 ci = { _, _ -> error("CI must remain an explicit later action") },
-                feedback = { _, result ->
+                feedback = { _, result, cancellation ->
                     feedbacks++
+                    feedbackTokens += cancellation
+                    afterFeedback?.invoke()
                     feedbackFailure?.let { throw it }
                     BuildDiagnostics.parse(if (wrongFeedback == 2) "e".repeat(40) else result.commitSha,
                         if (wrongFeedback == 1) "feature/jarvis-developer" else result.branch, 23, 1, "completed",
@@ -116,8 +123,10 @@ class PatchWorkbenchRecoveryAndroidTest {
                             (if (wrongFeedback == 4) "Could not GET dependency: HTTP 503\n" else ""),
                         if (wrongFeedback == 1) PatchEngine.Target.DEVELOPER else result.target)
                 },
-                followUpSource = { _, result, report, selected ->
+                followUpSource = { _, result, report, selected, cancellation ->
                     followUpReads++; failedBranch = result.branch
+                    followUpTokens += cancellation
+                    afterFollowUp?.invoke()
                     if (wrongFollowUp) PersonalRepair.prepare(PersonalRepair.Draft("Outstanding review marker", path, 2,
                         "source", base, "b".repeat(64)), "main", inventory(), source)
                     else {
@@ -151,9 +160,10 @@ class PatchWorkbenchRecoveryAndroidTest {
         val followUpFile get() = views(root).filterIsInstance<Spinner>().single { it.contentDescription == "Failed Personal source file" }
         fun selectFollowUp() { followUpFile.setSelection(1); shadowOf(Looper.getMainLooper()).idle() }
         fun diagnose() {
-            interrupted(); button("Verify interrupted").performClick(); finish()
+            recover()
             button("Read exact task build").performClick(); finish()
         }
+        fun recover() { interrupted(); button("Verify interrupted").performClick(); finish() }
         fun finish() { pending.removeFirst().invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun preview() { button("Generate scoped").performClick(); finish() }
         fun interrupted() {
@@ -164,6 +174,157 @@ class PatchWorkbenchRecoveryAndroidTest {
             assertFalse(status.text.contains("private transport"))
         }
         fun close() { if (!activity.isDestroyed) controller.pause().stop().destroy() }
+    }
+
+    @Test fun cancellingQueuedTaskFeedbackPreservesTheCommitButRequiresAnExplicitFreshRead() {
+        val h = Harness()
+        try {
+            h.recover()
+            h.button("Read exact task build").performClick()
+            h.button("Cancel task diagnostics").performClick()
+            assertFalse(h.button("Cancel task diagnostics").isEnabled)
+            assertFalse(h.button("Read exact task build").isEnabled)
+            assertFalse(h.button("Generate scoped").isEnabled)
+            h.button("Read exact task build").performClick(); assertEquals(1, h.pending.size)
+            h.finish()
+            assertEquals(0, h.feedbacks); assertTrue(h.status.text.contains("read cancelled"))
+            assertFalse(h.followUpFile.isEnabled); assertFalse(h.button("Stage follow-up").isEnabled)
+            assertFalse(h.approval.isChecked); assertFalse(h.approval.isEnabled)
+            assertTrue(h.button("Read exact task build").isEnabled)
+            h.button("Read exact task build").performClick(); h.finish()
+            assertEquals(1, h.feedbacks); assertEquals(1, h.providers); assertEquals(1, h.writes)
+            assertTrue(h.output.text.contains("Unresolved reference; check imports"))
+            assertFalse(h.approval.isEnabled)
+        } finally { h.close() }
+    }
+
+    @Test fun aCancelledLateBuildReportCannotRestoreFollowUpScopeOrApproval() {
+        val h = Harness()
+        try {
+            h.recover(); h.afterFeedback = { h.button("Cancel task diagnostics").performClick() }
+            h.button("Read exact task build").performClick(); h.finish()
+            assertTrue(h.feedbackTokens.single().isCancelled)
+            assertFalse(h.output.text.contains("Unresolved reference; check imports"))
+            assertFalse(h.followUpFile.isEnabled); assertFalse(h.button("Stage follow-up").isEnabled)
+            assertFalse(h.approval.isEnabled); assertEquals(1, h.feedbacks)
+            assertEquals(1, h.providers); assertEquals(1, h.writes); assertTrue(h.pending.isEmpty())
+            h.afterFeedback = null
+            h.button("Read exact task build").performClick(); h.finish()
+            assertEquals(2, h.feedbackTokens.size)
+            assertNotSame(h.feedbackTokens[0], h.feedbackTokens[1]); assertFalse(h.feedbackTokens[1].isCancelled)
+            assertTrue(h.followUpFile.isEnabled)
+        } finally { h.close() }
+    }
+
+    @Test fun credentialModelAndTaskEditsCancelQueuedTaskFeedbackWithoutAnyReadOrRestoredApproval() {
+        for (edit in listOf("credential", "model", "task")) {
+            val h = Harness()
+            try {
+                h.recover(); h.button("Read exact task build").performClick()
+                when (edit) {
+                    "credential" -> h.token.setText("different-private-token")
+                    "model" -> h.model.setText("gpt-4.1")
+                    else -> h.task.setText("A different task")
+                }
+                assertFalse(h.button("Cancel task diagnostics").isEnabled)
+                h.finish()
+                assertEquals(0, h.feedbacks); assertTrue(h.status.text.contains("read cancelled"))
+                assertFalse(h.output.text.contains("different-private-token"))
+                assertFalse(h.followUpFile.isEnabled); assertFalse(h.approval.isEnabled)
+                assertEquals(1, h.providers); assertEquals(1, h.writes)
+            } finally { h.close() }
+        }
+    }
+
+    @Test fun disposingTaskDiagnosticsPreventsBothReadKindsAndDiscardsTheirCallbacks() {
+        for (followUp in listOf(false, true)) {
+            val h = Harness()
+            try {
+                if (followUp) { h.diagnose(); h.selectFollowUp() } else h.recover()
+                h.button(if (followUp) "Read selected failed" else "Read exact task build").performClick()
+                h.handle.dispose(); h.handle.dispose()
+                val before = h.output.text.toString()
+                h.finish()
+                assertEquals(before, h.output.text.toString())
+                assertEquals(if (followUp) 1 else 0, h.feedbacks); assertEquals(0, h.followUpReads)
+                assertFalse(h.approval.isEnabled); assertFalse(h.approval.isChecked)
+                assertEquals(1, h.providers); assertEquals(1, h.writes)
+            } finally { h.close() }
+        }
+    }
+
+    @Test fun cancellingQueuedFailedSourcePreservesFeedbackAndRequiresAnotherReadBeforeStaging() {
+        val h = Harness()
+        try {
+            h.diagnose(); h.selectFollowUp()
+            h.button("Read selected failed").performClick(); h.button("Cancel task diagnostics").performClick()
+            assertFalse(h.button("Read selected failed").isEnabled)
+            assertFalse(h.button("Stage follow-up").isEnabled)
+            h.finish()
+            assertEquals(0, h.followUpReads); assertFalse(h.button("Stage follow-up").isEnabled)
+            assertFalse(h.approval.isEnabled)
+            h.button("Read selected failed").performClick(); h.finish()
+            assertEquals(1, h.followUpReads); assertTrue(h.button("Stage follow-up").isEnabled)
+            h.button("Stage follow-up").performClick(); h.preview()
+            assertEquals(2, h.providers); assertEquals(1, h.writes)
+            assertTrue(h.approval.isEnabled); assertFalse(h.approval.isChecked)
+            h.button("Create task branch").performClick()
+            assertTrue(h.pending.isEmpty()); assertEquals(1, h.writes)
+        } finally { h.close() }
+    }
+
+    @Test fun cancelledLateFailedSourceCannotBeStagedOrReuseConsumedApproval() {
+        val h = Harness()
+        try {
+            h.diagnose(); h.selectFollowUp()
+            h.afterFollowUp = { h.button("Cancel task diagnostics").performClick() }
+            h.button("Read selected failed").performClick(); h.finish()
+            assertTrue(h.followUpTokens.single().isCancelled)
+            assertFalse(h.button("Stage follow-up").isEnabled)
+            assertTrue(h.status.text.contains("read cancelled"))
+            assertFalse(h.approval.isEnabled); assertEquals(1, h.followUpReads)
+            h.button("Stage follow-up").performClick()
+            assertTrue(h.pending.isEmpty()); assertEquals(1, h.providers); assertEquals(1, h.writes)
+        } finally { h.close() }
+    }
+
+    @Test @LooperMode(LooperMode.Mode.PAUSED)
+    fun cancellingAfterTheWorkerPostsItsCallbackStillDiscardsBothKindsOfResult() {
+        for (followUp in listOf(false, true)) {
+            val h = Harness()
+            val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+            try {
+                if (followUp) { h.diagnose(); h.selectFollowUp() } else h.recover()
+                h.button(if (followUp) "Read selected failed" else "Read exact task build").performClick()
+                val operation = h.pending.removeFirst()
+                executor.submit { operation() }.get(3, java.util.concurrent.TimeUnit.SECONDS)
+                assertTrue(h.button("Cancel task diagnostics").isEnabled)
+                h.button("Cancel task diagnostics").performClick()
+                shadowOf(Looper.getMainLooper()).idle()
+                assertTrue(h.status.text.contains("read cancelled"))
+                assertFalse(h.button("Stage follow-up").isEnabled); assertFalse(h.approval.isEnabled)
+                assertFalse(h.output.text.contains("Unresolved reference; check imports"))
+                assertTrue(h.pending.isEmpty()); assertEquals(1, h.providers); assertEquals(1, h.writes)
+            } finally { executor.shutdownNow(); h.close() }
+        }
+    }
+
+    @Test fun taskReadCancellationCannotStopOrRetryAClaimedWriteOrItsOutcomeCheck() {
+        val h = Harness()
+        try {
+            h.preview(); h.approval.isChecked = true
+            h.button("Create task branch").performClick()
+            assertFalse(h.button("Cancel task diagnostics").isEnabled)
+            h.button("Cancel task diagnostics").performClick(); h.finish()
+            assertEquals(1, h.writes); assertFalse(h.approval.isChecked)
+            assertTrue(h.button("Verify interrupted").isEnabled)
+            h.button("Verify interrupted").performClick()
+            assertFalse(h.button("Cancel task diagnostics").isEnabled)
+            h.button("Cancel task diagnostics").performClick(); h.finish()
+            assertEquals(1, h.inspections); assertEquals(1, h.writes); assertEquals(1, h.providers)
+            assertTrue(h.output.text.contains("Approval remains consumed"))
+            assertFalse(h.approval.isEnabled); assertTrue(h.pending.isEmpty())
+        } finally { h.close() }
     }
 
     @Test fun cancelBeforeTheQueuedPreviewPreventsAllReadsProvidersAndWrites() {
@@ -473,7 +634,7 @@ class PatchWorkbenchRecoveryAndroidTest {
             h.diagnose(); h.selectFollowUp(); h.button("Read selected failed").performClick()
             h.model.setText("gpt-4.1"); h.finish()
             assertFalse(h.button("Stage follow-up").isEnabled)
-            assertTrue(h.status.text.contains("Stale follow-up"))
+            assertTrue(h.status.text.contains("read cancelled")); assertEquals(0, h.followUpReads)
             h.button("Read selected failed").performClick(); h.close(); h.finish()
             assertFalse(h.button("Stage follow-up").isEnabled); assertEquals(1, h.writes)
         } finally { h.close() }

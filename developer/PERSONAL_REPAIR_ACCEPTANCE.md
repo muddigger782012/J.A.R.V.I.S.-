@@ -177,6 +177,20 @@ attempt budgets are unchanged; no source scope, retry or approval is restored.
 Successful report fingerprints, origin/redirect/credential checks and all
 existing request, byte and deadline limits remain unchanged.
 
+The scoped coding workbench also offers **Cancel task diagnostics / source
+read** for its explicit exact-task build diagnosis and selected failed-source
+inspection. Both use the existing cancellable readers. Task/model/source-choice
+changes, credential edits and disposal cancel the active read. A queued or late
+response cannot repopulate source scope or stage a follow-up, even after its
+worker has posted a UI callback. Previous feedback/source output is replaced
+when a new read begins. The verified task commit remains available for an
+explicit reread; cancelled source inspection requires another verified read
+before staging a new diff. Busy remains held until worker exit, and renewed
+diff approval remains mandatory. The read token is never passed to provider,
+commit, interrupted-outcome or publication operations. Source review checks the
+existing time/cancellation budget after the last response as well as before
+returning its prepared review. Existing successful identities are unchanged.
+
 An active repair session can recover after a read failure: its failed feedback is
 cleared until a fresh verified read, while its original attempt budget remains.
 This does not stage another attempt or restore approval. Storage HTTP failures
@@ -227,6 +241,10 @@ makes no second write, then requires an explicit read-only failure diagnosis and
 keeps approval consumed. It also selects, reads and stages the failed source,
 generates a second preview at the failed branch, and verifies that another write
 still requires a fresh approval. Source responses in that case are modeled too.
+That modeled native workflow also cancels a queued build diagnosis and a queued
+failed-source inspection before their transports run, then explicitly rereads
+and stages a new diff whose write still requires renewed approval. These added
+assertions retain the existing case and strict outer deadline.
 A fifth case reads actual public metadata for an
 immutable completed Personal workflow. Protected/expired logs may be unavailable;
 it verifies the source and product without inventing complete test evidence.

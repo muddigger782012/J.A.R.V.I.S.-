@@ -39,6 +39,39 @@ class RepositoryIntelligenceTest {
             "Reviewed diff", "main", PatchEngine.Target.PERSONAL)
     }
 
+    @Test fun cancelledFailedSourceInspectionCannotStartAnyRepositoryRead() {
+        val path = "app/src/main/java/com/assistant/core/services/AssistantPersonality.kt"
+        val result = followUpResult(path)
+        val report = BuildDiagnostics.parse(commit, result.branch, 23, 1, "completed", "failure",
+            "e: $path:2:1 Unresolved reference", PatchEngine.Target.PERSONAL)
+        val fake = fixture()
+        val cancellation = PatchPreviewCancellation { it() }.apply { cancel() }
+        fails { RepositoryIntelligence.Reader(fake, cancellation).personalFollowUp("", result, report, path) }
+        assertTrue(fake.requests.isEmpty())
+    }
+
+    @Test fun cancellationAfterTheLastSourceResponseCannotReturnAFollowUpReview() {
+        val path = "app/src/main/java/com/assistant/core/services/AssistantPersonality.kt"
+        val bytes = "package com.assistant.core.services\nobject AssistantPersonality\n".toByteArray()
+        val result = followUpResult(path)
+        val report = BuildDiagnostics.parse(commit, result.branch, 23, 1, "completed", "failure",
+            "e: $path:2:1 Unresolved reference", PatchEngine.Target.PERSONAL)
+        val fake = fixture(listOf(node(path, bytes)))
+        val ref = "$api/git/ref/heads/${java.net.URLEncoder.encode(result.branch, "UTF-8")}"
+        fake.json(ref, JSONObject().put("ref", "refs/heads/${result.branch}")
+            .put("object", JSONObject().put("type", "commit").put("sha", commit)))
+        val cancellation = PatchPreviewCancellation { it() }
+        val encoded = blob(path, bytes).toString().toByteArray()
+        fake.replies[sourceUrl(path)] = {
+            RepositoryIntelligence.GetResponse(200, encoded.size.toLong(), sourceUrl(path), ByteArrayInputStream(encoded)) {
+                fake.closed++; cancellation.cancel()
+            }
+        }
+        fails { RepositoryIntelligence.Reader(fake, cancellation).personalFollowUp("", result, report, path) }
+        assertEquals(listOf(ref, commitUrl(), treeUrl(), sourceUrl(path)), fake.requests)
+        assertEquals(4, fake.closed); assertTrue(cancellation.isCancelled)
+    }
+
     @Test fun failedPersonalFollowUpUsesOnlyVerifiedGetReadsAtItsExactTaskBranch() {
         val personalPath = "app/src/main/java/com/assistant/core/services/AssistantPersonality.kt"
         val bytes = "package com.assistant.core.services\nobject AssistantPersonality\n".toByteArray()

@@ -91,6 +91,10 @@ object RepositoryIntelligence {
     fun personalFollowUp(token: String, result: PatchPublisher.CommitResult, report: BuildDiagnostics.Report,
         path: String): PersonalRepair.Review = Reader(http()).personalFollowUp(token, result, report, path)
 
+    internal fun personalFollowUp(token: String, result: PatchPublisher.CommitResult, report: BuildDiagnostics.Report,
+        path: String, cancellation: PatchPreviewCancellation): PersonalRepair.Review =
+        Reader(http(cancellation), cancellation).personalFollowUp(token, result, report, path)
+
     fun readSource(token: String, inventory: RepositoryAnalysis.Inventory, path: String): String =
         Reader(http()).readSource(token, inventory, path)
 
@@ -116,9 +120,12 @@ object RepositoryIntelligence {
         fun personalFollowUp(token: String, result: PatchPublisher.CommitResult, report: BuildDiagnostics.Report,
             path: String): PersonalRepair.Review {
             require(path in PersonalRepair.followUpPaths(result, report))
+            checkTimeBudget()
             val inventory = inventory(token, result.branch, PatchEngine.Target.PERSONAL)
             require(inventory.commitSha == result.commitSha) { "Failed source branch moved; read current CI again" }
-            return PersonalRepair.prepareFollowUp(result, report, path, inventory, readSource(token, inventory, path))
+            val source = readSource(token, inventory, path)
+            checkTimeBudget()
+            return PersonalRepair.prepareFollowUp(result, report, path, inventory, source).also { checkTimeBudget() }
         }
 
         fun inventory(token: String, branch: String = BRANCH, target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): RepositoryAnalysis.Inventory {

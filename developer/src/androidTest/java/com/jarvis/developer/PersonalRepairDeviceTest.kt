@@ -159,6 +159,8 @@ class PersonalRepairDeviceTest {
         var inspections = 0
         var feedbackCalls = 0
         var sourceReads = 0
+        var queueReads = false
+        val pendingReads = java.util.ArrayDeque<() -> Unit>()
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
             scenario.onActivity { activity ->
                 val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
@@ -213,16 +215,16 @@ class PersonalRepairDeviceTest {
                         }
                     },
                     ci = { _, _ -> error("CI must be explicitly requested later") },
-                    feedback = { _, result ->
+                    feedback = { _, result, _ ->
                         feedbackCalls++
                         BuildDiagnostics.parse(result.commitSha, result.branch, 23, 1, "completed", "failure",
                             "e: $file:2:1 Unresolved reference: objective\n", result.target)
                     },
-                    followUpSource = { _, result, report, selected ->
+                    followUpSource = { _, result, report, selected, _ ->
                         sourceReads++; failedBranch = result.branch
                         PersonalRepair.prepareFollowUp(result, report, selected, failedInventory, failedSource)
                     },
-                    worker = { it() }
+                    worker = { if (queueReads) pendingReads.add(it) else it() }
                 )
                 val handle = PatchWorkbench.attach(activity, root, EditText(activity),
                     EditText(activity).apply { setText("simulated-provider-key") }, provider,
@@ -245,6 +247,17 @@ class PersonalRepairDeviceTest {
                 assertTrue(button(activity, "Check CI for this exact task commit (read-only)").isEnabled)
                 assertTrue(output.text.contains("CI not checked. Approval remains consumed."))
                 assertEquals(0, feedbackCalls)
+                queueReads = true
+                button(activity, "Read exact task build diagnostics (GET only)").performClick()
+                assertTrue(button(activity, "Cancel task diagnostics / source read").isEnabled)
+                button(activity, "Cancel task diagnostics / source read").performClick()
+                assertFalse(button(activity, "Read exact task build diagnostics (GET only)").isEnabled)
+                assertFalse(button(activity, "Cancel task diagnostics / source read").isEnabled)
+                pendingReads.removeFirst().invoke()
+                assertEquals(0, feedbackCalls)
+                assertTrue(status.text.contains("read cancelled"))
+                assertFalse(approval.isChecked); assertFalse(approval.isEnabled)
+                queueReads = false
                 button(activity, "Read exact task build diagnostics (GET only)").performClick()
                 assertEquals(1, feedbackCalls); assertEquals(1, providerCalls); assertEquals(1, writes)
                 assertTrue(output.text.contains("Product: Personal Jarvis"))
@@ -257,6 +270,15 @@ class PersonalRepairDeviceTest {
             instrumentation.waitForIdleSync()
             scenario.onActivity { activity ->
                 val approval = views(activity.window.decorView).filterIsInstance<CheckBox>().single()
+                queueReads = true
+                button(activity, "Read selected failed Personal source (GET only)").performClick()
+                button(activity, "Cancel task diagnostics / source read").performClick()
+                assertFalse(button(activity, "Read selected failed Personal source (GET only)").isEnabled)
+                assertFalse(button(activity, "Stage follow-up for a NEW exact diff review").isEnabled)
+                pendingReads.removeFirst().invoke()
+                assertEquals(0, sourceReads)
+                assertFalse(approval.isChecked); assertFalse(approval.isEnabled)
+                queueReads = false
                 button(activity, "Read selected failed Personal source (GET only)").performClick()
                 assertEquals(1, sourceReads); assertEquals(1, providerCalls); assertEquals(1, writes)
                 assertTrue(button(activity, "Stage follow-up for a NEW exact diff review").isEnabled)

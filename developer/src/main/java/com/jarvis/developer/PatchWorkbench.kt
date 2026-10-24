@@ -28,10 +28,10 @@ object PatchWorkbench {
         val commit: (String, PatchEngine.ApprovedProposal) -> PatchPublisher.CommitResult = PatchPublisher::commit,
         val inspectOutcome: (String, PatchEngine.Proposal) -> PatchPublisher.CommitResult? = PatchPublisher::inspectOutcome,
         val ci: (String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus = PatchPublisher::ci,
-        val feedback: (String, PatchPublisher.CommitResult) -> BuildDiagnostics.Report = { token, result ->
-            BuildFeedback.read(token, result.branch, result.commitSha, target = result.target)
+        val feedback: (String, PatchPublisher.CommitResult, PatchPreviewCancellation) -> BuildDiagnostics.Report = { token, result, cancellation ->
+            BuildFeedback.read(token, result.branch, result.commitSha, result.target, cancellation)
         },
-        val followUpSource: (String, PatchPublisher.CommitResult, BuildDiagnostics.Report, String) -> PersonalRepair.Review =
+        val followUpSource: (String, PatchPublisher.CommitResult, BuildDiagnostics.Report, String, PatchPreviewCancellation) -> PersonalRepair.Review =
             RepositoryIntelligence::personalFollowUp,
         val history: RepairHistoryWorkbench.Services = RepairHistoryWorkbench.Services(),
         val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit }
@@ -144,6 +144,8 @@ object PatchWorkbench {
             isEnabled = false
         }
         root.addView(feedback)
+        val cancelRead = Button(context).apply { text = "Cancel task diagnostics / source read"; isEnabled = false }
+        root.addView(cancelRead)
         root.addView(TextView(context).apply {
             text = "Personal compiler follow-up: choose a file from the failed repair's existing source scope, read it, then stage a new review. Different files or test-only/infrastructure failures need separate source analysis. Logs never authorize a retry."
         })
@@ -165,7 +167,9 @@ object PatchWorkbench {
         root.addView(openReview)
 
         var busy = false
+        var disposed = false
         var activePreview: PatchPreviewCancellation? = null
+        var activeRead: PatchPreviewCancellation? = null
         var revision = 0L
         var plannedBaseCommitSha: String? = null
         var plannedBaseBranch = "feature/jarvis-developer"
@@ -185,7 +189,7 @@ object PatchWorkbench {
         // An uncertain write outcome is never retried using the same approval in this session.
         val attemptedProposalIds = HashSet<String>()
 
-        fun alive() = !activity.isFinishing && !activity.isDestroyed
+        fun alive() = !disposed && !activity.isFinishing && !activity.isDestroyed
         fun selectedFollowUpPath() = followUpFile.selectedItem?.toString()?.takeIf { it in followUpPaths }
         fun metadata(): Metadata {
             val providerName = provider.selectedItem?.toString().orEmpty()
@@ -211,6 +215,7 @@ object PatchWorkbench {
             val exact = current()
             preview.isEnabled = !busy
             cancelPreview.isEnabled = busy && activePreview?.isCancelled == false
+            cancelRead.isEnabled = busy && activeRead?.isCancelled == false
             manual.isEnabled = !busy && plannedBaseCommitSha != null
             approve.isEnabled = !busy && exact
             commit.isEnabled = !busy && exact && approve.isChecked
@@ -222,8 +227,18 @@ object PatchWorkbench {
             stageFollowUp.isEnabled = !busy && followUpReview != null
             openReview.isEnabled = !busy && lastCommit != null
         }
+        fun cancelledRead(finished: Boolean) {
+            followUpReview = null
+            val message = if (finished)
+                "Task diagnostic read cancelled. Its result was discarded. Choose an explicit fresh read; no source was staged, approval restored or write retried."
+            else "Task diagnostic cancellation requested. Waiting for the bounded reader to close; its result will be discarded. No source was staged, approval restored or write retried."
+            review.text = message
+            output.text = message
+            status.text = message
+        }
         fun invalidate() {
             activePreview?.cancel()
+            activeRead?.let { it.cancel(); if (alive()) cancelledRead(false) }
             revision++
             val hadPreview = proposal != null
             proposal = null
@@ -269,6 +284,18 @@ object PatchWorkbench {
             refresh()
         }
         cancelPreview.setOnClickListener { stopPreview() }
+        fun stopRead() {
+            val pending = activeRead ?: return
+            pending.cancel()
+            if (alive()) { cancelledRead(false); refresh() }
+        }
+        cancelRead.setOnClickListener { stopRead() }
+        val readCredentialChanges = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) { stopRead() }
+        }
+        githubToken.addTextChangedListener(readCredentialChanges)
         fun inputChanges(changesScope: Boolean) = object : TextWatcher {
             override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
@@ -606,42 +633,57 @@ object PatchWorkbench {
 
         feedback.setOnClickListener {
             val result = lastCommit ?: return@setOnClickListener
-            if (busy) return@setOnClickListener
+            if (busy || !alive()) return@setOnClickListener
             setFeedbackContext(null)
             failRepair(activeRepair, "approval")
             invalidate()
+            val startedRevision = revision
+            val cancellation = PatchPreviewCancellation()
+            activeRead = cancellation
             val token = githubToken.text.toString().trim()
             busy = true
             refresh()
             status.text = "Reading bounded build diagnostics for the exact task commit; no repair is started"
+            review.text = renderCommit(result, null) + "\n\nBuild diagnostics are being read; previous feedback is no longer current."
+            output.text = commitAudit(result) + "\nBuild diagnostics are being read; previous feedback is no longer current."
             services.worker {
                 try {
-                    val report = services.feedback(token, result)
+                    cancellation.check()
+                    val report = services.feedback(token, result, cancellation)
+                    cancellation.check()
                     BuildDiagnostics.validateReport(report)
                     require(report.target == result.target && report.branch == result.branch && report.commitSha == result.commitSha)
                     val rendered = BuildDiagnostics.render(report)
+                    cancellation.check()
                     activity.runOnUiThread {
                         if (alive()) {
-                            setFeedbackContext(result to report)
-                            review.text = commitAudit(result) + "\n\n" + rendered +
-                                "\n\nComplete approved diff:\n" + result.diff +
-                                "\n\nDiagnostics do not approve changes or start a repair. Generate and review a fresh exact diff before any separate writing attempt."
-                            output.text = commitAudit(result) + "\n" + rendered
-                            status.text = "Exact task build diagnostics ready; review evidence limits before proceeding"
+                            if (cancellation.isCancelled || revision != startedRevision) cancelledRead(true)
+                            else {
+                                // Publishing the verified result can trigger selector callbacks, not another read.
+                                activeRead = null
+                                setFeedbackContext(result to report)
+                                review.text = commitAudit(result) + "\n\n" + rendered +
+                                    "\n\nComplete approved diff:\n" + result.diff +
+                                    "\n\nDiagnostics do not approve changes or start a repair. Generate and review a fresh exact diff before any separate writing attempt."
+                                output.text = commitAudit(result) + "\n" + rendered
+                                status.text = "Exact task build diagnostics ready; review evidence limits before proceeding"
+                            }
                         }
                     }
                 } catch (failure: Exception) {
                     activity.runOnUiThread {
                         if (alive()) {
-                            val detail = BuildFeedback.explainFailure(failure) ?: "Build diagnostics could not be verified for this product, branch and exact commit. Check GitHub access and retained logs; no repair, provider call or write was started."
-                            review.text = renderCommit(result, null) +
-                                "\n\n" + detail
-                            output.text = commitAudit(result) + "\n" + detail
-                            status.text = "Exact task build diagnostics remain unverified"
+                            if (cancellation.isCancelled || revision != startedRevision) cancelledRead(true)
+                            else {
+                                val detail = BuildFeedback.explainFailure(failure) ?: "Build diagnostics could not be verified for this product, branch and exact commit. Check GitHub access and retained logs; no repair, provider call or write was started."
+                                review.text = renderCommit(result, null) + "\n\n" + detail
+                                output.text = commitAudit(result) + "\n" + detail
+                                status.text = "Exact task build diagnostics remain unverified"
+                            }
                         }
                     }
                 } finally {
-                    activity.runOnUiThread { if (alive()) { busy = false; refresh() } }
+                    activity.runOnUiThread { if (alive()) { activeRead = null; busy = false; refresh() } }
                 }
             }
         }
@@ -649,23 +691,30 @@ object PatchWorkbench {
         readFollowUp.setOnClickListener {
             val sourceContext = lastFeedback ?: return@setOnClickListener
             val path = selectedFollowUpPath() ?: return@setOnClickListener
-            if (busy) return@setOnClickListener
+            if (busy || !alive()) return@setOnClickListener
             followUpReview = null
             failRepair(activeRepair, "approval")
             invalidate()
             val startedRevision = revision
+            val cancellation = PatchPreviewCancellation()
+            activeRead = cancellation
             val token = githubToken.text.toString().trim()
             busy = true; refresh()
             status.text = "Re-reading the failed Personal source at its pinned commit; no provider call or approval"
+            review.text = "Reading selected failed source; previous source review is no longer current."
+            output.text = review.text
             services.worker {
                 try {
-                    val sourceReview = services.followUpSource(token, sourceContext.first, sourceContext.second, path)
+                    cancellation.check()
+                    val sourceReview = services.followUpSource(token, sourceContext.first, sourceContext.second, path, cancellation)
+                    cancellation.check()
                     PersonalRepair.validateFollowUp(sourceReview, sourceContext.first, sourceContext.second, path)
                     activity.runOnUiThread {
                         if (alive()) {
-                            if (revision != startedRevision || lastFeedback !== sourceContext || selectedFollowUpPath() != path) {
-                                status.text = "Stale follow-up source review discarded. Select and read the current failed source again."
+                            if (cancellation.isCancelled || revision != startedRevision || lastFeedback !== sourceContext || selectedFollowUpPath() != path) {
+                                cancelledRead(true)
                             } else {
+                                activeRead = null
                                 followUpReview = sourceReview
                                 output.text = PersonalRepair.render(sourceReview)
                                 review.text = PersonalRepair.render(sourceReview)
@@ -675,10 +724,13 @@ object PatchWorkbench {
                     }
                 } catch (_: Exception) {
                     activity.runOnUiThread {
-                        if (alive()) status.text = "Follow-up source could not be verified. Start a new source analysis if the branch moved, or check source access. Nothing was staged or approved."
+                        if (alive()) {
+                            if (cancellation.isCancelled || revision != startedRevision) cancelledRead(true)
+                            else status.text = "Follow-up source could not be verified. Start a new source analysis if the branch moved, or check source access. Nothing was staged or approved."
+                        }
                     }
                 } finally {
-                    activity.runOnUiThread { if (alive()) { busy = false; refresh() } }
+                    activity.runOnUiThread { if (alive()) { activeRead = null; busy = false; refresh() } }
                 }
             }
         }
@@ -744,7 +796,7 @@ object PatchWorkbench {
                         it.none { char -> char == '\u0000' || char == '\u007f' ||
                             (char < ' ' && char !in "\n\r\t") }
                 }
-            if (busy || !safe) return false
+            if (busy || !alive() || !safe) return false
             failRepair(activeRepair, "approval")
             invalidate()
             settingQueuedInputs = true
@@ -815,7 +867,13 @@ object PatchWorkbench {
                 PersonalRepair.validate(selected)
                 prepareInputs(selected.taskId, selected.task, selected.scope, selected.sourceSha, selected.branch, PatchEngine.Target.PERSONAL)
             } catch (_: Exception) { false }
-        }, cancelPreviewAction = ::stopPreview, disposeAction = { stopPreview(); disposeHistory() })
+        }, cancelPreviewAction = ::stopPreview, disposeAction = {
+            stopPreview()
+            activeRead?.cancel()
+            disposed = true
+            githubToken.removeTextChangedListener(readCredentialChanges)
+            disposeHistory()
+        })
     }
 
     private data class Metadata(
