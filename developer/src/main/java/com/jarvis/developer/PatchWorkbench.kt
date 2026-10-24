@@ -302,8 +302,9 @@ object PatchWorkbench {
                 }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {
+                val changed = selectedFollowUp != null || followUpReview != null
                 selectedFollowUp = null; followUpReview = null
-                failRepair(activeRepair, "approval"); invalidate()
+                if (changed) { failRepair(activeRepair, "approval"); invalidate() } else refresh()
             }
         }
         openReview.setOnClickListener {

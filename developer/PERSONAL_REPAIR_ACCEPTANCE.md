@@ -88,6 +88,8 @@ the scope. Multiple file choices are explicit, and multiple line references to a
 single file do not choose an arbitrary line. New commits, CI checks, feedback
 rereads or changed selection discard the corresponding old review. Moved branches
 need a new source analysis instead of silently switching to a newer revision.
+An empty selector notification with no selected file or follow-up review leaves
+an unrelated reviewed diff and its explicit approval intact.
 
 These validators are engineering safeguards, not a hostile-code sandbox or a
 comprehensive semantic security audit. Human diff review and existing CI, signing,

@@ -335,6 +335,18 @@ class PatchWorkbenchRecoveryAndroidTest {
         }
     }
 
+    @Test fun emptyFollowUpSelectorCallbackDoesNotInvalidateAnUnrelatedReviewedDiff() {
+        val h = Harness()
+        try {
+            h.preview(); h.approval.isChecked = true
+            assertTrue(h.button("Create task branch").isEnabled)
+            h.followUpFile.onItemSelectedListener!!.onNothingSelected(h.followUpFile)
+            assertTrue(h.approval.isChecked)
+            assertTrue(h.button("Create task branch").isEnabled)
+            assertEquals(0, h.writes)
+        } finally { h.close() }
+    }
+
     private fun blob(source: String): String {
         val bytes = source.toByteArray(); val hash = MessageDigest.getInstance("SHA-1")
         hash.update("blob ${bytes.size}\u0000".toByteArray())
