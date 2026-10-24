@@ -141,14 +141,17 @@ class SelfDevelopmentWorkbenchAndroidTest {
         val screen = harness.screen()
         screen.field(BASE_SHA_HINT).setText(BASE_SHA)
         screen.field(BASE_RUN).setText("71")
+        screen.button(READ_BASELINE).performClick()
+        harness.finishWork()
         harness.wrongDebugIdentity = true
         screen.button(READ_BASELINE).performClick()
         harness.finishWork()
         assertTrue(screen.status.text.contains("Feedback identity could not be verified"))
+        assertEquals(screen.status.text.toString(), screen.output.text.toString())
         assertTrue(screen.texts().any { it.contains("Baseline debug feedback: not read") })
         assertFalse(screen.button(COMPARE).isEnabled)
         assertFalse(screen.approval.isEnabled)
-        assertEquals(1, harness.reads)
+        assertEquals(2, harness.reads)
     }
 
     @Test fun typedDebugFailureReplacesOldEvidenceAndLeavesCandidateApprovalBlocked() {

@@ -44,7 +44,7 @@ object BuildFeedback {
     }
 
     enum class Problem(val label: String) {
-        HTTP("GitHub did not return the required response"),
+        HTTP("The server did not return the required response"),
         CONNECTION("The connection or response stream was interrupted"),
         TIMEOUT("The network request timed out"), FORMAT("The response format could not be read"),
         LIMIT("The read reached its evidence or time limit"),
@@ -65,7 +65,9 @@ object BuildFeedback {
     fun explainFailure(failure: Throwable): String? {
         if (failure !is Failure) return null
         val next = when (failure.problem) {
-            Problem.HTTP -> when (failure.httpStatus ?: 0) {
+            Problem.HTTP -> if (failure.stage == Stage.LOG_STORAGE)
+                "Request a fresh read from GitHub for a current log link. If that fails, inspect retained logs in GitHub."
+            else when (failure.httpStatus ?: 0) {
                 401 -> "Check the GitHub account or read credential used for this build."
                 403 -> "Check access to this build and GitHub request limits."
                 404 -> "Verify that the run is retained and visible to your GitHub account."

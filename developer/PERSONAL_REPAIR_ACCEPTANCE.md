@@ -163,6 +163,12 @@ cause of the earlier intermittent live-metadata failure that passed an unchanged
 rerun. Repair inputs remain pinned while a read is active, and destroyed views
 discard callbacks.
 
+An active repair session can recover after a read failure: its failed feedback is
+cleared until a fresh verified read, while its original attempt budget remains.
+This does not stage another attempt or restore approval. Storage HTTP failures
+recommend a fresh retained-log read; GitHub API access guidance stays specific to
+the API response. Source-mismatched development feedback also replaces old output.
+
 ## Verification and remaining work
 
 Unit checks cover malformed, duplicate and oversized shares; stale revisions;

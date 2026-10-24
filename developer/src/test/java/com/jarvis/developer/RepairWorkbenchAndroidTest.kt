@@ -48,9 +48,11 @@ class RepairWorkbenchAndroidTest {
             RepairWorkbench.attach(activity, root, EditText(activity).apply { setText("Fix the bounded summary") },
                 EditText(activity), output, status, patches, RepairWorkbench.Services(
                     read = { _, branch, source, run ->
-                        reads++; assertEquals("feature/jarvis-developer", branch); assertEquals(sha, source); assertEquals(17L, run)
+                        reads++; assertEquals("feature/jarvis-developer", branch); assertEquals(sha, source)
+                        assertTrue(run == 17L || run == 18L)
                         failure?.let { throw it }
-                        baseline()
+                        if (run == 17L) baseline() else BuildDiagnostics.parse(sha, branch, 18, 1, "completed", "failure",
+                            "e: developer/src/main/java/com/jarvis/developer/TaskFileSummary.kt:1:1 Unresolved reference: broken\n")
                     }, worker = { pending.add(it) }))
             field("Successful baseline: exact").setText(sha)
             field("Optional baseline workflow").setText("17")
@@ -113,5 +115,31 @@ class RepairWorkbenchAndroidTest {
         destroyed.finish()
         assertEquals(before, destroyed.output.text.toString())
         assertEquals(0, destroyed.stages)
+    }
+
+    @Test fun freshVerifiedReadRecoversTheExistingSessionWithoutResettingItsAttemptBudget() {
+        val h = Harness()
+        try {
+            h.failure = null
+            h.field("Repair allowlist:").setText("developer/src/main/java/com/jarvis/developer/TaskFileSummary.kt")
+            h.button("Read successful baseline").performClick(); h.finish()
+            h.field("Failing / latest repair: exact").setText(sha)
+            h.field("Optional failing / latest workflow").setText("18")
+            h.button("Read exact failing").performClick(); h.finish()
+            h.button("Start NEW session").performClick()
+            assertTrue(h.status.text.startsWith("New explicit repair session started"))
+            assertTrue(h.button("Reserve ONE repair").isEnabled)
+            h.button("Reserve ONE repair").performClick()
+            assertTrue(h.views(h.root).filterIsInstance<TextView>().any { it.text.contains("Budget: 1/2;") })
+            assertEquals(1, h.stages)
+            h.failure = BuildFeedback.Failure(BuildFeedback.Stage.WORKFLOW_METADATA, BuildFeedback.Problem.TIMEOUT)
+            h.button("Read exact failing").performClick(); h.finish()
+            assertFalse(h.button("Reserve ONE repair").isEnabled)
+            h.failure = null
+            h.button("Read exact failing").performClick(); h.finish()
+            assertTrue(h.button("Reserve ONE repair").isEnabled)
+            assertTrue(h.views(h.root).filterIsInstance<TextView>().any { it.text.contains("Budget: 1/2;") })
+            assertEquals(4, h.reads); assertEquals(1, h.stages)
+        } finally { h.close() }
     }
 }

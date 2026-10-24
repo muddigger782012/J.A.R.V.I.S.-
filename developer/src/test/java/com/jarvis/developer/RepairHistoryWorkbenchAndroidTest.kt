@@ -127,7 +127,8 @@ class RepairHistoryWorkbenchAndroidTest {
             h.loadAndSelect(); h.mismatch = 5
             h.button("Recheck selected").performClick(); h.finish()
             assertTrue(h.text().contains("reading retained log storage"))
-            assertTrue(h.text().contains("Check access to this build"))
+            assertTrue(h.text().contains("Request a fresh read from GitHub for a current log link"))
+            assertFalse(h.text().contains("GitHub request limits"))
             assertFalse(h.text().contains("clear damaged local history"))
             assertEquals(listOf(entry), RepairHistoryStore(directory).load())
             assertNull(h.current); assertEquals(1, h.reads); assertTrue(h.pending.isEmpty())

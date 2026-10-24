@@ -257,7 +257,6 @@ object RepairWorkbench {
                         }
                     }, onFailure = { failure ->
                         if (baselineRead) baseline = null else failed = null
-                        canRetry = false
                         val detail = BuildFeedback.explainFailure(failure)
                         status.text = detail ?: "Could not read verified CI feedback. Check repository access and exact source/run identity; no write or retry occurred."
                         output.text = detail ?: "No verified feedback was retrieved for ${frozen.branch} at ${frozen.sha}."
