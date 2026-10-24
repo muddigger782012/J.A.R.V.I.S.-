@@ -12,6 +12,51 @@ import java.util.Base64
 /** Network-free contract tests: the fixture has no write operation and keeps every requested URL. */
 class RepositoryIntelligenceTest {
 
+    private fun followUpResult(personalPath: String): PatchPublisher.CommitResult {
+        val id = "c".repeat(64)
+        return PatchPublisher.CommitResult("failed-review", "Fixture", "review-only", id, listOf(personalPath),
+            "d".repeat(40), commit, PatchEngine.taskBranch("failed-review", id, PatchEngine.Target.PERSONAL),
+            "Reviewed diff", "main", PatchEngine.Target.PERSONAL)
+    }
+
+    @Test fun failedPersonalFollowUpUsesOnlyVerifiedGetReadsAtItsExactTaskBranch() {
+        val personalPath = "app/src/main/java/com/assistant/core/services/AssistantPersonality.kt"
+        val bytes = "package com.assistant.core.services\nobject AssistantPersonality\n".toByteArray()
+        val result = followUpResult(personalPath)
+        val report = BuildDiagnostics.parse(commit, result.branch, 23, 1, "completed", "failure",
+            "e: $personalPath:2:1 Unresolved reference", PatchEngine.Target.PERSONAL)
+        val fake = fixture(listOf(node(personalPath, bytes)))
+        val ref = "$api/git/ref/heads/${java.net.URLEncoder.encode(result.branch, "UTF-8")}"
+        fake.json(ref, JSONObject().put("ref", "refs/heads/${result.branch}")
+            .put("object", JSONObject().put("type", "commit").put("sha", commit)))
+        fake.json(sourceUrl(personalPath), blob(personalPath, bytes))
+        val review = RepositoryIntelligence.Reader(fake).personalFollowUp("", result, report, personalPath)
+        assertEquals(listOf(ref, commitUrl(), treeUrl(), sourceUrl(personalPath)), fake.requests)
+        assertEquals(fake.requests.size, fake.closed)
+        assertEquals(commit, review.sourceSha); assertEquals(listOf(personalPath), review.scope)
+        assertEquals(report.fingerprint, review.buildReference!!.reportFingerprint)
+        assertTrue(review.task.contains("not a retry authorization"))
+    }
+
+    @Test fun movedPersonalFollowUpAndForeignFileCannotFetchSourceBytes() {
+        val personalPath = "app/src/main/java/com/assistant/core/services/AssistantPersonality.kt"
+        val bytes = "package com.assistant.core.services\nobject AssistantPersonality\n".toByteArray()
+        val result = followUpResult(personalPath)
+        val report = BuildDiagnostics.parse(commit, result.branch, 23, 1, "completed", "failure",
+            "e: $personalPath:2:1 Broken", PatchEngine.Target.PERSONAL)
+        val fake = fixture(listOf(node(personalPath, bytes)))
+        fails { RepositoryIntelligence.Reader(fake).personalFollowUp("", result, report, "app/src/main/java/com/assistant/core/Other.kt") }
+        assertTrue(fake.requests.isEmpty())
+        val moved = "e".repeat(40)
+        val ref = "$api/git/ref/heads/${java.net.URLEncoder.encode(result.branch, "UTF-8")}"
+        fake.json(ref, JSONObject().put("ref", "refs/heads/${result.branch}")
+            .put("object", JSONObject().put("type", "commit").put("sha", moved)))
+        fake.json("$api/git/commits/$moved", JSONObject().put("sha", moved).put("tree", JSONObject().put("sha", treeSha)))
+        fails("moved") { RepositoryIntelligence.Reader(fake).personalFollowUp("", result, report, personalPath) }
+        assertFalse(fake.requests.any { it.contains("/contents/") })
+        assertEquals(3, fake.requests.size)
+    }
+
     @Test fun personalMainRequiresAnExplicitProductSelectionAndStillPinsVerifiedBlobBytes() {
         val personalPath = "app/src/main/java/com/assistant/core/services/AssistantPersonality.kt"
         val bytes = "package com.assistant.core.services\nobject AssistantPersonality\n".toByteArray()

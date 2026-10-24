@@ -80,6 +80,9 @@ object RepositoryIntelligence {
         return PersonalRepair.prepare(draft, branch, inventory, reader.readSource(token, inventory, draft.path), newTests)
     }
 
+    fun personalFollowUp(token: String, result: PatchPublisher.CommitResult, report: BuildDiagnostics.Report,
+        path: String): PersonalRepair.Review = Reader(http).personalFollowUp(token, result, report, path)
+
     fun readSource(token: String, inventory: RepositoryAnalysis.Inventory, path: String): String =
         Reader(http).readSource(token, inventory, path)
 
@@ -97,6 +100,14 @@ object RepositoryIntelligence {
         private var requestCount = 0
         private var stoppedReason: String? = null
         private var selectedTarget = PatchEngine.Target.DEVELOPER
+
+        fun personalFollowUp(token: String, result: PatchPublisher.CommitResult, report: BuildDiagnostics.Report,
+            path: String): PersonalRepair.Review {
+            require(path in PersonalRepair.followUpPaths(result, report))
+            val inventory = inventory(token, result.branch, PatchEngine.Target.PERSONAL)
+            require(inventory.commitSha == result.commitSha) { "Failed source branch moved; read current CI again" }
+            return PersonalRepair.prepareFollowUp(result, report, path, inventory, readSource(token, inventory, path))
+        }
 
         fun inventory(token: String, branch: String = BRANCH, target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): RepositoryAnalysis.Inventory {
             require(PatchEngine.validSourceBranch(branch, target)) { "Repository branch is outside selected product scope" }

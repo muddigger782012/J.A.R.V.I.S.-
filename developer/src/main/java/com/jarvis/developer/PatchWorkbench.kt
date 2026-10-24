@@ -7,6 +7,7 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -30,6 +31,8 @@ object PatchWorkbench {
         val feedback: (String, PatchPublisher.CommitResult) -> BuildDiagnostics.Report = { token, result ->
             BuildFeedback.read(token, result.branch, result.commitSha, target = result.target)
         },
+        val followUpSource: (String, PatchPublisher.CommitResult, BuildDiagnostics.Report, String) -> PersonalRepair.Review =
+            RepositoryIntelligence::personalFollowUp,
         val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit }
     )
 
@@ -131,6 +134,20 @@ object PatchWorkbench {
             isEnabled = false
         }
         root.addView(feedback)
+        root.addView(TextView(context).apply {
+            text = "Personal compiler follow-up: choose a file from the failed repair's existing source scope, read it, then stage a new review. Different files or test-only/infrastructure failures need separate source analysis. Logs never authorize a retry."
+        })
+        val chooseFile = "Select a failed Personal source file"
+        val followUpFile = Spinner(context).apply {
+            contentDescription = "Failed Personal source file"
+            adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, listOf(chooseFile))
+            isEnabled = false
+        }
+        root.addView(followUpFile)
+        val readFollowUp = Button(context).apply { text = "Read selected failed Personal source (GET only)"; isEnabled = false }
+        val stageFollowUp = Button(context).apply { text = "Stage follow-up for a NEW exact diff review"; isEnabled = false }
+        root.addView(readFollowUp)
+        root.addView(stageFollowUp)
         val openReview = Button(context).apply {
             text = "Open task branch for pull request review"
             isEnabled = false
@@ -150,10 +167,15 @@ object PatchWorkbench {
         var proposalReport: String? = null
         var lastCommit: PatchPublisher.CommitResult? = null
         var interruptedAttempt: PatchEngine.Proposal? = null
+        var lastFeedback: Pair<PatchPublisher.CommitResult, BuildDiagnostics.Report>? = null
+        var followUpPaths = emptyList<String>()
+        var followUpReview: PersonalRepair.Review? = null
+        var selectedFollowUp: String? = null
         // An uncertain write outcome is never retried using the same approval in this session.
         val attemptedProposalIds = HashSet<String>()
 
         fun alive() = !activity.isFinishing && !activity.isDestroyed
+        fun selectedFollowUpPath() = followUpFile.selectedItem?.toString()?.takeIf { it in followUpPaths }
         fun metadata(): Metadata {
             val providerName = provider.selectedItem?.toString().orEmpty()
             val rawModel = model.text.toString()
@@ -183,6 +205,9 @@ object PatchWorkbench {
             inspectOutcome.isEnabled = !busy && interruptedAttempt != null
             ci.isEnabled = !busy && lastCommit != null
             feedback.isEnabled = !busy && lastCommit != null
+            followUpFile.isEnabled = !busy && followUpPaths.isNotEmpty()
+            readFollowUp.isEnabled = !busy && selectedFollowUpPath() != null
+            stageFollowUp.isEnabled = !busy && followUpReview != null
             openReview.isEnabled = !busy && lastCommit != null
         }
         fun invalidate() {
@@ -196,6 +221,17 @@ object PatchWorkbench {
                 review.text = "The task, model or explicit source scope changed. Generate and review a fresh diff before approving a write."
                 status.text = "Previous diff approval invalidated"
             }
+            refresh()
+        }
+        fun setFeedbackContext(value: Pair<PatchPublisher.CommitResult, BuildDiagnostics.Report>?) {
+            followUpReview = null
+            selectedFollowUp = null
+            lastFeedback = value
+            followUpPaths = value?.let { runCatching { PersonalRepair.followUpPaths(it.first, it.second) }.getOrDefault(emptyList()) }
+                ?: emptyList()
+            followUpFile.adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item,
+                listOf(chooseFile) + followUpPaths)
+            followUpFile.setSelection(0)
             refresh()
         }
         fun closeRepairContext() {
@@ -255,6 +291,21 @@ object PatchWorkbench {
             invalidate()
         }
         manual.setOnClickListener { if (!busy) clearQueuedSource() }
+        followUpFile.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val path = selectedFollowUpPath()
+                if (path != selectedFollowUp) {
+                    selectedFollowUp = path
+                    followUpReview = null
+                    failRepair(activeRepair, "approval")
+                    invalidate()
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {
+                selectedFollowUp = null; followUpReview = null
+                failRepair(activeRepair, "approval"); invalidate()
+            }
+        }
         openReview.setOnClickListener {
             val result = lastCommit ?: return@setOnClickListener
             runCatching {
@@ -411,6 +462,7 @@ object PatchWorkbench {
             attemptedProposalIds.add(selected.id)
             interruptedAttempt = selected
             lastCommit = null
+            setFeedbackContext(null)
             proposal = null
             proposalMetadata = null
             proposalReport = null
@@ -488,6 +540,7 @@ object PatchWorkbench {
                             } else {
                                 lastCommit = result
                                 interruptedAttempt = null
+                                setFeedbackContext(null)
                                 review.text = renderCommit(result, null) +
                                     "\n\nInterrupted commit verified against the exact proposal. No write was retried and no approval was restored. A prior repair session is not resumed; read CI and review its result explicitly."
                                 output.text = commitAudit(result) + "\nRead-only outcome verified; CI not checked. Approval remains consumed."
@@ -511,6 +564,7 @@ object PatchWorkbench {
         feedback.setOnClickListener {
             val result = lastCommit ?: return@setOnClickListener
             if (busy) return@setOnClickListener
+            setFeedbackContext(null)
             failRepair(activeRepair, "approval")
             invalidate()
             val token = githubToken.text.toString().trim()
@@ -525,6 +579,7 @@ object PatchWorkbench {
                     val rendered = BuildDiagnostics.render(report)
                     activity.runOnUiThread {
                         if (alive()) {
+                            setFeedbackContext(result to report)
                             review.text = commitAudit(result) + "\n\n" + rendered +
                                 "\n\nComplete approved diff:\n" + result.diff +
                                 "\n\nDiagnostics do not approve changes or start a repair. Generate and review a fresh exact diff before any separate writing attempt."
@@ -546,9 +601,47 @@ object PatchWorkbench {
             }
         }
 
+        readFollowUp.setOnClickListener {
+            val sourceContext = lastFeedback ?: return@setOnClickListener
+            val path = selectedFollowUpPath() ?: return@setOnClickListener
+            if (busy) return@setOnClickListener
+            followUpReview = null
+            failRepair(activeRepair, "approval")
+            invalidate()
+            val startedRevision = revision
+            val token = githubToken.text.toString().trim()
+            busy = true; refresh()
+            status.text = "Re-reading the failed Personal source at its pinned commit; no provider call or approval"
+            services.worker {
+                try {
+                    val sourceReview = services.followUpSource(token, sourceContext.first, sourceContext.second, path)
+                    PersonalRepair.validateFollowUp(sourceReview, sourceContext.first, sourceContext.second, path)
+                    activity.runOnUiThread {
+                        if (alive()) {
+                            if (revision != startedRevision || lastFeedback !== sourceContext || selectedFollowUpPath() != path) {
+                                status.text = "Stale follow-up source review discarded. Select and read the current failed source again."
+                            } else {
+                                followUpReview = sourceReview
+                                output.text = PersonalRepair.render(sourceReview)
+                                review.text = PersonalRepair.render(sourceReview)
+                                status.text = "Follow-up source verified. Stage explicitly, then generate and approve a new complete diff."
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    activity.runOnUiThread {
+                        if (alive()) status.text = "Follow-up source could not be verified. Start a new source analysis if the branch moved, or check source access. Nothing was staged or approved."
+                    }
+                } finally {
+                    activity.runOnUiThread { if (alive()) { busy = false; refresh() } }
+                }
+            }
+        }
+
         ci.setOnClickListener {
             val result = lastCommit ?: return@setOnClickListener
             if (busy) return@setOnClickListener
+            setFeedbackContext(null)
             val token = githubToken.text.toString().trim()
             if (token.isBlank()) {
                 status.text = "Enter an in-memory GitHub token to check this exact task commit."
@@ -625,6 +718,23 @@ object PatchWorkbench {
             status.text = "Queued step prepared for a new diff; no provider call or Git write requested"
             refresh()
             return true
+        }
+        stageFollowUp.setOnClickListener {
+            val selected = followUpReview ?: return@setOnClickListener
+            val sourceContext = lastFeedback ?: return@setOnClickListener
+            val path = selectedFollowUpPath() ?: return@setOnClickListener
+            if (busy) return@setOnClickListener
+            try {
+                PersonalRepair.validateFollowUp(selected, sourceContext.first, sourceContext.second, path)
+                require(prepareInputs(selected.taskId, selected.task, selected.scope, selected.sourceSha,
+                    selected.branch, PatchEngine.Target.PERSONAL))
+                followUpReview = null
+                status.text = "Follow-up source staged for a NEW diff. The previous approval remains consumed; generate, review and explicitly approve the new proposal."
+            } catch (_: Exception) {
+                followUpReview = null
+                status.text = "Follow-up staging refused. Read current failed source again; no provider call, retry or approval occurred."
+            }
+            refresh()
         }
         refresh()
         return Handle(prepareAction = { id, description, paths, base, branch -> prepareInputs(id, description, paths, base, branch) }, repairAction = { ticket, observer ->

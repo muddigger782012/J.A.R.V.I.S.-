@@ -32,6 +32,91 @@ class PersonalRepairTest {
         try { operation(); fail("Expected rejection") } catch (_: RuntimeException) { }
     }
 
+    private fun failedResult(paths: List<String> = listOf(path, testPath)): PatchPublisher.CommitResult {
+        val id = "c".repeat(64)
+        return PatchPublisher.CommitResult("previous-repair", "Fixture", "bounded-v1", id, paths,
+            sha, "d".repeat(40), PatchEngine.taskBranch("previous-repair", id, PatchEngine.Target.PERSONAL),
+            "Previously reviewed diff", "main", PatchEngine.Target.PERSONAL)
+    }
+    private fun failedReport(result: PatchPublisher.CommitResult = failedResult(), run: Long = 42,
+        log: String = "e: $path:2:1 Unresolved reference: objective", status: String = "completed",
+        conclusion: String? = "failure") = BuildDiagnostics.parse(result.commitSha, result.branch, run, 1,
+            status, conclusion, log, PatchEngine.Target.PERSONAL)
+    private fun followUpInventory(result: PatchPublisher.CommitResult = failedResult()) = inventory().copy(commitSha = result.commitSha)
+
+    @Test fun failedCompilerReviewReadsOnlyOneExplicitPreviouslyChangedProductionFile() {
+        val result = failedResult()
+        val report = failedReport(result)
+        assertEquals(listOf(path), PersonalRepair.followUpPaths(result, report))
+        val selected = PersonalRepair.prepareFollowUp(result, report, path, followUpInventory(result), source)
+        assertEquals(listOf(path), selected.scope)
+        assertEquals(result.branch, selected.branch); assertEquals(result.commitSha, selected.sourceSha)
+        assertEquals("build-log", selected.draft.kind)
+        assertEquals(report.fingerprint, selected.buildReference!!.reportFingerprint)
+        assertTrue(selected.task.contains("not a retry authorization"))
+        assertFalse(selected.task.contains("objective"))
+        PersonalRepair.validateFollowUp(selected, result, report, path)
+        rejects { PersonalRepair.prepareFollowUp(result, report, testPath, followUpInventory(), source) }
+    }
+
+    @Test fun followUpExcludesUnknownPathsTestsInfrastructureAndNonFailedRuns() {
+        val result = failedResult()
+        for (report in listOf(failedReport(log = "e: $testPath:2:1 Unresolved reference"),
+            failedReport(log = "e: app/src/main/java/com/assistant/core/Other.kt:2:1 Broken"),
+            failedReport(log = "e: $path:2:1 Broken\nCould not GET dependency: HTTP 503"),
+            failedReport(log = "e: $path:2:1 Broken\n-----BEGIN RSA PRIVATE KEY-----"),
+            failedReport(log = "", conclusion = "success"),
+            failedReport(log = "", status = "in_progress", conclusion = null)))
+            assertTrue(PersonalRepair.followUpPaths(result, report).isEmpty())
+        rejects { PersonalRepair.followUpPaths(result.copy(commitSha = sha), failedReport()) }
+        rejects { PersonalRepair.followUpPaths(result.copy(target = PatchEngine.Target.DEVELOPER), failedReport()) }
+    }
+
+    @Test fun movedSourceInvalidBlobTruncatedInventoryAndUnknownLinesCannotBeStaged() {
+        val result = failedResult(); val report = failedReport()
+        rejects { PersonalRepair.prepareFollowUp(result, report, path, inventory(), source) }
+        rejects { PersonalRepair.prepareFollowUp(result, report, path, followUpInventory().copy(truncated = true), source) }
+        rejects { PersonalRepair.prepareFollowUp(result, report, path, followUpInventory(), source.replace("Hello", "Hullo")) }
+        rejects { PersonalRepair.prepareFollowUp(result, failedReport(log = "e: $path:999:1 Broken"), path, followUpInventory(), source) }
+    }
+
+    @Test fun multipleCompilerLocationsRequireAFileChoiceWithoutArbitraryLineOrScopeExpansion() {
+        val other = "app/src/main/java/com/assistant/core/services/Other.kt"
+        val result = failedResult(listOf(path, other))
+        val report = failedReport(result, log = "e: $path:1:1 Broken\ne: $path:2:1 Broken\ne: $other:1:1 Broken")
+        assertEquals(listOf(path, other).sorted(), PersonalRepair.followUpPaths(result, report))
+        val selected = PersonalRepair.prepareFollowUp(result, report, path, followUpInventory(), source)
+        assertEquals(listOf(path), selected.scope); assertNull(selected.draft.line)
+        rejects { PersonalRepair.validateFollowUp(selected, result, report, other) }
+    }
+
+    @Test fun changedBuildEvidenceInvalidatesFollowUpIdentityAndCannotReusePriorApproval() {
+        val result = failedResult(); val report = failedReport()
+        val selected = PersonalRepair.prepareFollowUp(result, report, path, followUpInventory(), source)
+        val changed = failedReport(run = 43)
+        val renewed = PersonalRepair.prepareFollowUp(result, changed, path, followUpInventory(), source)
+        assertNotEquals(selected.fingerprint, renewed.fingerprint)
+        assertNotEquals(selected.taskId, renewed.taskId)
+        rejects { PersonalRepair.validateFollowUp(selected, result, changed, path) }
+        val old = PatchEngine.parse(request(), response())
+        val newRequest = PatchEngine.Request(selected.taskId, selected.task, selected.sourceSha, selected.scope,
+            listOf(PatchEngine.SourceFile(path, blob(source), source)), "Fixture", "bounded-v1", selected.branch, PatchEngine.Target.PERSONAL)
+        val proposed = PatchEngine.parse(newRequest, response())
+        rejects { PatchEngine.approve(proposed, old.id) }
+        assertNotEquals(result.branch, PatchEngine.branchName(proposed))
+        PatchEngine.validateApproval(PatchEngine.approve(proposed, proposed.id))
+    }
+
+    @Test fun followUpScopeMutationCannotRetainItsSourceReviewFingerprint() {
+        val result = failedResult(); val selected = PersonalRepair.prepareFollowUp(result, failedReport(), path, followUpInventory(), source)
+        @Suppress("UNCHECKED_CAST")
+        val scope = selected.scope as MutableList<String>
+        try {
+            scope[0] = testPath
+            rejects { PersonalRepair.validate(selected) }
+        } catch (_: UnsupportedOperationException) { PersonalRepair.validate(selected) }
+    }
+
     @Test fun sharedDraftDiscardsInstructionsAndProducesOnlySourceBoundAppOwnedPlanning() {
         val a = PersonalRepair.parse(draftText())
         val b = PersonalRepair.parse(draftText() + "\nInvented privileged instruction with private payload")

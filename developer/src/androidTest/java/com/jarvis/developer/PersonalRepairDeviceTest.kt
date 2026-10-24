@@ -103,6 +103,11 @@ class PersonalRepairDeviceTest {
     }
 
     @Test fun modeledInterruptedRepairRequiresApprovalAndRecoversWithoutAnotherWrite() {
+        var providerCalls = 0
+        var writes = 0
+        var inspections = 0
+        var feedbackCalls = 0
+        var sourceReads = 0
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
             scenario.onActivity { activity ->
                 val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
@@ -114,10 +119,13 @@ class PersonalRepairDeviceTest {
                 val blob = hash.digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) }
                 val sha = "a".repeat(40)
                 val inventory = RepositoryAnalysis.Inventory(listOf(RepositoryAnalysis.SourceFile(file, blob, bytes.size.toLong())), false, sha)
-                var providerCalls = 0
-                var writes = 0
-                var inspections = 0
-                var feedbackCalls = 0
+                val failedSource = source.replace("false", "true")
+                val failedBytes = failedSource.toByteArray(); val failedHash = MessageDigest.getInstance("SHA-1")
+                failedHash.update("blob ${failedBytes.size}\u0000".toByteArray())
+                val failedBlob = failedHash.digest(failedBytes).joinToString("") { "%02x".format(it.toInt() and 255) }
+                val failedInventory = RepositoryAnalysis.Inventory(listOf(RepositoryAnalysis.SourceFile(file,
+                    failedBlob, failedBytes.size.toLong())), false, "d".repeat(40))
+                var failedBranch: String? = null
                 val output = TextView(activity)
                 val status = TextView(activity)
                 val provider = Spinner(activity).apply {
@@ -125,14 +133,21 @@ class PersonalRepairDeviceTest {
                 }
                 val services = PatchWorkbench.Services(
                     inventory = { _, branch, target ->
-                        assertEquals("main", branch); assertEquals(PatchEngine.Target.PERSONAL, target); inventory
+                        assertEquals(PatchEngine.Target.PERSONAL, target)
+                        if (branch == "main") inventory else { assertEquals(failedBranch, branch); failedInventory }
                     },
-                    readSource = { _, _, selected -> assertEquals(file, selected); source },
+                    readSource = { _, snapshot, selected ->
+                        assertEquals(file, selected)
+                        if (snapshot.commitSha == sha) source else failedSource
+                    },
                     propose = { _, request ->
                         providerCalls++
+                        val before = request.sources.single().content!!
+                        val after = if (before.contains("false")) before.replace("false", "true")
+                            else before.replace("enabled = true", "enabled = true; val recovered = true")
                         PatchEngine.parse(request, JSONObject().put("summary", "Improve the example")
                             .put("edits", JSONArray().put(JSONObject().put("path", file)
-                                .put("content", source.replace("false", "true")))).toString())
+                                .put("content", after))).toString())
                     },
                     commit = { _, approved ->
                         PatchEngine.validateApproval(approved); writes++
@@ -151,6 +166,10 @@ class PersonalRepairDeviceTest {
                         feedbackCalls++
                         BuildDiagnostics.parse(result.commitSha, result.branch, 23, 1, "completed", "failure",
                             "e: $file:2:1 Unresolved reference: objective\n", result.target)
+                    },
+                    followUpSource = { _, result, report, selected ->
+                        sourceReads++; failedBranch = result.branch
+                        PersonalRepair.prepareFollowUp(result, report, selected, failedInventory, failedSource)
                     },
                     worker = { it() }
                 )
@@ -181,6 +200,24 @@ class PersonalRepairDeviceTest {
                 assertTrue(output.text.contains("Unresolved reference; check imports"))
                 assertTrue(output.text.contains("Evidence: incomplete"))
                 assertFalse(approval.isChecked); assertFalse(approval.isEnabled)
+                assertEquals(0, sourceReads)
+                views(root).filterIsInstance<Spinner>().single { it.contentDescription == "Failed Personal source file" }.setSelection(1)
+            }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                val approval = views(activity.window.decorView).filterIsInstance<CheckBox>().single()
+                button(activity, "Read selected failed Personal source (GET only)").performClick()
+                assertEquals(1, sourceReads); assertEquals(1, providerCalls); assertEquals(1, writes)
+                assertTrue(button(activity, "Stage follow-up for a NEW exact diff review").isEnabled)
+                assertFalse(approval.isChecked); assertFalse(approval.isEnabled)
+                button(activity, "Stage follow-up for a NEW exact diff review").performClick()
+                assertEquals(1, providerCalls); assertEquals(1, writes)
+                assertFalse(approval.isChecked); assertFalse(approval.isEnabled)
+                button(activity, "Generate scoped multi-file diff preview").performClick()
+                assertEquals(2, providerCalls); assertEquals(1, writes)
+                assertTrue(approval.isEnabled); assertFalse(approval.isChecked)
+                button(activity, "Create task branch and commit approved files (writes)").performClick()
+                assertEquals(1, writes)
             }
         }
     }

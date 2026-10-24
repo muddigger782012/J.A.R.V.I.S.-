@@ -15,19 +15,69 @@ object PersonalRepair {
     data class Draft(val label: String, val path: String, val line: Int?, val kind: String,
         val claimedRevision: String?, val inventoryClaim: String)
 
+    data class BuildReference internal constructor(val proposalId: String, val reportFingerprint: String,
+        val runId: Long, val runAttempt: Int)
+
     class Review private constructor(val draft: Draft, val branch: String, val sourceSha: String,
-        val blobSha: String, val taskId: String, val task: String, val scope: List<String>, val fingerprint: String) {
+        val blobSha: String, val taskId: String, val task: String, val scope: List<String>, val fingerprint: String,
+        val buildReference: BuildReference?) {
         companion object {
-            internal fun create(draft: Draft, branch: String, sha: String, blob: String, scope: List<String>): Review {
-                val task = description(draft, sha, blob)
-                val fingerprint = digest(listOf("personal-review-v1", draft.label, draft.path,
+            internal fun create(draft: Draft, branch: String, sha: String, blob: String, scope: List<String>,
+                build: BuildReference? = null): Review {
+                val task = description(draft, sha, blob) + (build?.let {
+                    "\nFollow-up for reported failed Personal CI run ${it.runId}, attempt ${it.runAttempt}. " +
+                        "Previous proposal: ${it.proposalId}; diagnostic fingerprint: ${it.reportFingerprint}. " +
+                        "Reproduce the problem before proposing a fix. This is a new source review, not a retry authorization."
+                } ?: "")
+                val fields = listOf(if (build == null) "personal-review-v1" else "personal-followup-review-v1", draft.label, draft.path,
                     draft.line?.toString().orEmpty(), draft.kind, draft.claimedRevision.orEmpty(),
-                    draft.inventoryClaim, branch, sha, blob, task) + scope)
+                    draft.inventoryClaim, branch, sha, blob, task) + scope + (build?.let {
+                    listOf(it.proposalId, it.reportFingerprint, it.runId.toString(), it.runAttempt.toString())
+                } ?: emptyList())
+                val fingerprint = digest(fields)
                 return Review(draft.copy(), branch, sha, blob, "personal-${fingerprint.take(16)}", task,
-                    scope.toList(), fingerprint)
+                    scope.toList(), fingerprint, build?.copy())
             }
         }
     }
+
+    /** A log location can nominate a source read, never expand scope or authorize a repair. */
+    fun followUpPaths(result: PatchPublisher.CommitResult, report: BuildDiagnostics.Report): List<String> {
+        PatchPublisher.validateResult(result)
+        BuildDiagnostics.validateReport(report)
+        require(result.target == PatchEngine.Target.PERSONAL && report.target == result.target &&
+            report.branch == result.branch && report.commitSha == result.commitSha) { "Follow-up source identity mismatch" }
+        if (report.status != "completed" || report.conclusion != "failure" ||
+            report.diagnostics.any { it.kind in setOf(BuildDiagnostics.Kind.INFRASTRUCTURE, BuildDiagnostics.Kind.UNKNOWN) }) return emptyList()
+        return report.diagnostics.filter { it.kind == BuildDiagnostics.Kind.COMPILER }.mapNotNull { it.path }
+            .filter { it in result.paths && it.startsWith("app/src/main/") && PatchEngine.allowedPath(it, result.target) }
+            .distinct().sorted()
+    }
+
+    fun prepareFollowUp(result: PatchPublisher.CommitResult, report: BuildDiagnostics.Report, path: String,
+        inventory: RepositoryAnalysis.Inventory, source: String): Review {
+        require(path in followUpPaths(result, report)) { "Select a compiler location within the prior Personal source scope" }
+        require(!inventory.truncated && inventory.commitSha == result.commitSha) { "Failed source branch moved; read current CI again" }
+        val lines = report.diagnostics.filter { it.kind == BuildDiagnostics.Kind.COMPILER && it.path == path }
+            .mapNotNull { it.line }.distinct()
+        val inventoryId = digest(listOf("personal-source-inventory-v1", inventory.commitSha) + inventory.files.sortedBy { it.path }
+            .flatMap { listOf(it.path, it.sha, it.size.toString()) })
+        val draft = Draft("Reported compilation failure", path, lines.singleOrNull(), "build-log", result.commitSha, inventoryId)
+        val verified = prepare(draft, result.branch, inventory, source)
+        return Review.create(verified.draft, verified.branch, verified.sourceSha, verified.blobSha,
+            verified.scope, reference(result, report)).also { validateFollowUp(it, result, report, path) }
+    }
+
+    fun validateFollowUp(review: Review, result: PatchPublisher.CommitResult, report: BuildDiagnostics.Report, path: String) {
+        validate(review)
+        require(path in followUpPaths(result, report) && review.draft.path == path && review.scope == listOf(path) &&
+            review.branch == result.branch && review.sourceSha == result.commitSha &&
+            review.draft.kind == "build-log" && review.draft.label == "Reported compilation failure" &&
+            review.buildReference == reference(result, report)) { "Follow-up review no longer matches its source and evidence" }
+    }
+
+    private fun reference(result: PatchPublisher.CommitResult, report: BuildDiagnostics.Report) =
+        BuildReference(result.proposalId, report.fingerprint, report.runId, report.runAttempt)
 
     fun parse(text: String): Draft {
         require(text.toByteArray(Charsets.UTF_8).size <= 16_000 &&
@@ -79,10 +129,16 @@ object PersonalRepair {
         require(PatchEngine.validSourceBranch(review.branch, PatchEngine.Target.PERSONAL) &&
             review.sourceSha.matches(Regex("[a-f0-9]{40}")) && review.blobSha.matches(Regex("[a-f0-9]{40}")))
         require(review.draft.claimedRevision == null || review.draft.claimedRevision == review.sourceSha)
+        review.buildReference?.let {
+            require(review.branch.startsWith("feature/jarvis-personal-repair/") &&
+                it.proposalId.matches(Regex("[a-f0-9]{64}")) && it.reportFingerprint.matches(Regex("[a-f0-9]{64}")) &&
+                it.runId > 0 && it.runAttempt in 1..100 && review.draft.kind == "build-log" &&
+                review.draft.label == "Reported compilation failure")
+        }
         require(review.scope.size in 1..4 && review.scope == review.scope.distinct().sorted() &&
             review.draft.path in review.scope && review.scope.all { PatchEngine.allowedPath(it, PatchEngine.Target.PERSONAL) } &&
             review.scope.filter { it != review.draft.path }.all { it.startsWith("app/src/test/") || it.startsWith("app/src/androidTest/") })
-        val rebuilt = Review.create(review.draft, review.branch, review.sourceSha, review.blobSha, review.scope)
+        val rebuilt = Review.create(review.draft, review.branch, review.sourceSha, review.blobSha, review.scope, review.buildReference)
         require(review.fingerprint == rebuilt.fingerprint && review.task == rebuilt.task && review.taskId == rebuilt.taskId)
     }
 

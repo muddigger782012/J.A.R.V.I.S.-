@@ -42,6 +42,14 @@ general shell executor, automatic repair service or release authority.
    inaccessible or oversized logs remain explicitly incomplete; workflow status
    never becomes an attested test inventory or approval. No model request, retry
    or repair starts automatically.
+9. For a completed failed Personal compilation, choose a reported production file
+   inside that repair's exact changed scope. Explicitly read the selected failed
+   source, inspect its verified review, then explicitly stage a follow-up for a
+   NEW diff. The reader checks the task branch still points to the failed commit
+   before fetching source bytes and reuses the existing blob/path/size checks.
+   The review binds the parent proposal and CI report/run/attempt into a separate
+   fingerprint. Generate a new diff and review/approve it explicitly; the prior
+   approval cannot authorize this source or a new branch.
 
 ## Boundaries
 
@@ -73,6 +81,13 @@ branch and historical fingerprint behavior remain unchanged. Personal feedback
 cannot start/prepare a Developer repair or authorize Developer candidate
 promotion, even if a caller supplies a success conclusion. A read invalidates any
 newer diff approval; destroyed activities discard its callbacks.
+Compiler follow-ups cover exactly one explicitly selected, previously changed
+ordinary production file. Existing tests remain immutable; no test-only failure,
+infrastructure/unknown failure, passing/running workflow or foreign path expands
+the scope. Multiple file choices are explicit, and multiple line references to a
+single file do not choose an arbitrary line. New commits, CI checks, feedback
+rereads or changed selection discard the corresponding old review. Moved branches
+need a new source analysis instead of silently switching to a newer revision.
 
 These validators are engineering safeguards, not a hostile-code sandbox or a
 comprehensive semantic security audit. Human diff review and existing CI, signing,
@@ -93,6 +108,10 @@ Interrupted-response cases cover both products, source movement, missing or
 inaccessible branches, changed preimages/modes, extra changes, wrong parents or
 audit identity, truncated trees, changed ref readback and mutated proposals.
 Every outcome check is GET-only, including failed or rejected checks.
+Follow-up checks cover file choice, single-file scope, changed report identity,
+new-diff approval, moved/truncated/forged source, immutable tests, and pinned
+GET-only source retrieval. Prior static-review fingerprints retain their V1
+behavior; the follow-up domain includes its build reference.
 
 Robolectric exercises real workbench widgets/listeners, explicit read/stage
 actions, invalid inputs, stale callbacks, discard and destroyed activities.
@@ -109,7 +128,10 @@ Those three cases perform no provider call or diff approval. A fourth Android
 case runs the complete review/approval/interrupted-response/recovery widget flow
 with explicitly modeled provider and writer responses; it verifies that recovery
 makes no second write, then requires an explicit read-only failure diagnosis and
-keeps approval consumed. A fifth case reads actual public metadata for an
+keeps approval consumed. It also selects, reads and stages the failed source,
+generates a second preview at the failed branch, and verifies that another write
+still requires a fresh approval. Source responses in that case are modeled too.
+A fifth case reads actual public metadata for an
 immutable completed Personal workflow. Protected/expired logs may be unavailable;
 it verifies the source and product without inventing complete test evidence.
 Its internal

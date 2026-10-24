@@ -46,6 +46,10 @@ class PatchWorkbenchRecoveryAndroidTest {
         var inspections = 0
         var feedbacks = 0
         var wrongFeedback = 0
+        var followUpReads = 0
+        var movedFollowUp = false
+        var wrongFollowUp = false
+        var failedBranch: String? = null
         var found = true
         var wrongOutcome = false
         var healthy = true
@@ -57,15 +61,24 @@ class PatchWorkbenchRecoveryAndroidTest {
             }
             val services = PatchWorkbench.Services(
                 inventory = { _, branch, target ->
-                    assertEquals("main", branch); assertEquals(PatchEngine.Target.PERSONAL, target)
-                    inventory()
+                    assertEquals(PatchEngine.Target.PERSONAL, target)
+                    if (branch == "main") inventory() else {
+                        assertEquals(failedBranch, branch)
+                        inventory(source.replace("false", "true"), created)
+                    }
                 },
-                readSource = { _, inventory, selected -> assertEquals(base, inventory.commitSha); assertEquals(path, selected); source },
+                readSource = { _, inventory, selected ->
+                    assertEquals(path, selected)
+                    if (inventory.commitSha == base) source else { assertEquals(created, inventory.commitSha); source.replace("false", "true") }
+                },
                 propose = { _, request ->
                     providers++
+                    val before = request.sources.single { it.path == path }.content!!
+                    val after = if (before.contains("false")) before.replace("false", "true")
+                        else before.replace("enabled = true", "enabled = true; val recovered = true")
                     PatchEngine.parse(request, JSONObject().put("summary", "Improve the scoped example")
                         .put("edits", JSONArray().put(JSONObject().put("path", path)
-                            .put("content", source.replace("false", "true")))).toString())
+                            .put("content", after))).toString())
                 },
                 commit = { _, approved ->
                     PatchEngine.validateApproval(approved); writes++
@@ -84,9 +97,21 @@ class PatchWorkbenchRecoveryAndroidTest {
                 feedback = { _, result ->
                     feedbacks++
                     BuildDiagnostics.parse(if (wrongFeedback == 2) "e".repeat(40) else result.commitSha,
-                        if (wrongFeedback == 1) "feature/jarvis-developer" else result.branch, 23, 1, "completed", "failure",
-                        "e: $path:2:1 Unresolved reference: objective\n",
+                        if (wrongFeedback == 1) "feature/jarvis-developer" else result.branch, 23, 1, "completed",
+                        if (wrongFeedback == 3) "success" else "failure",
+                        if (wrongFeedback == 3) "" else "e: $path:2:1 Unresolved reference: objective\n" +
+                            (if (wrongFeedback == 4) "Could not GET dependency: HTTP 503\n" else ""),
                         if (wrongFeedback == 1) PatchEngine.Target.DEVELOPER else result.target)
+                },
+                followUpSource = { _, result, report, selected ->
+                    followUpReads++; failedBranch = result.branch
+                    if (wrongFollowUp) PersonalRepair.prepare(PersonalRepair.Draft("Outstanding review marker", path, 2,
+                        "source", base, "b".repeat(64)), "main", inventory(), source)
+                    else {
+                        val current = source.replace("false", "true")
+                        PersonalRepair.prepareFollowUp(result, report, selected,
+                            inventory(current, if (movedFollowUp) base else created), current)
+                    }
                 },
                 worker = { pending.add(it) }
             )
@@ -99,11 +124,18 @@ class PatchWorkbenchRecoveryAndroidTest {
             assertTrue(handle.preparePersonal(PersonalRepair.prepare(draft, "main", inventory(), source)))
             shadowOf(Looper.getMainLooper()).idle()
         }
-        fun inventory() = RepositoryAnalysis.Inventory(listOf(RepositoryAnalysis.SourceFile(path, blob(source), source.toByteArray().size.toLong())), false, base)
+        fun inventory(text: String = source, revision: String = base) = RepositoryAnalysis.Inventory(
+            listOf(RepositoryAnalysis.SourceFile(path, blob(text), text.toByteArray().size.toLong())), false, revision)
         fun views(view: View): List<View> = listOf(view) + if (view is ViewGroup)
             (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
         fun button(prefix: String) = views(root).filterIsInstance<Button>().single { it.text.startsWith(prefix) }
         val approval get() = views(root).filterIsInstance<CheckBox>().single()
+        val followUpFile get() = views(root).filterIsInstance<Spinner>().single { it.contentDescription == "Failed Personal source file" }
+        fun selectFollowUp() { followUpFile.setSelection(1); shadowOf(Looper.getMainLooper()).idle() }
+        fun diagnose() {
+            interrupted(); button("Verify interrupted").performClick(); finish()
+            button("Read exact task build").performClick(); finish()
+        }
         fun finish() { pending.removeFirst().invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun preview() { button("Generate scoped").performClick(); finish() }
         fun interrupted() {
@@ -229,6 +261,78 @@ class PatchWorkbenchRecoveryAndroidTest {
             assertFalse(h.output.text.contains("Unresolved reference; check imports"))
             assertEquals(1, h.writes)
         } finally { h.close() }
+    }
+
+    @Test fun failedPersonalSourceNeedsExplicitSelectionReadStageAndANewDiffApproval() {
+        val h = Harness()
+        try {
+            h.diagnose()
+            assertEquals(0, h.followUpReads); assertFalse(h.button("Read selected failed").isEnabled)
+            h.selectFollowUp(); assertEquals(0, h.followUpReads)
+            h.button("Read selected failed").performClick(); h.finish()
+            assertEquals(1, h.followUpReads); assertTrue(h.button("Stage follow-up").isEnabled)
+            assertFalse(h.approval.isEnabled); assertEquals(1, h.providers); assertEquals(1, h.writes)
+            h.button("Stage follow-up").performClick()
+            assertFalse(h.button("Stage follow-up").isEnabled); assertFalse(h.approval.isChecked)
+            assertTrue(h.task.text.contains("Follow-up for reported failed Personal CI run"))
+            h.preview()
+            assertEquals(2, h.providers); assertEquals(1, h.writes)
+            assertTrue(h.approval.isEnabled); assertFalse(h.approval.isChecked)
+            h.button("Create task branch").performClick()
+            assertTrue(h.pending.isEmpty()); assertEquals(1, h.writes)
+        } finally { h.close() }
+    }
+
+    @Test fun movedOrWrongFollowUpSourceCannotBeStaged() {
+        for (moved in listOf(true, false)) {
+            val h = Harness()
+            try {
+                h.diagnose(); h.selectFollowUp(); h.movedFollowUp = moved; h.wrongFollowUp = !moved
+                h.button("Read selected failed").performClick(); h.finish()
+                assertFalse(h.button("Stage follow-up").isEnabled)
+                assertTrue(h.status.text.contains("could not be verified"))
+                assertFalse(h.approval.isEnabled); assertEquals(1, h.providers); assertEquals(1, h.writes)
+            } finally { h.close() }
+        }
+    }
+
+    @Test fun changedInputsAndDestroyedActivitiesDiscardQueuedFollowUpReads() {
+        val h = Harness()
+        try {
+            h.diagnose(); h.selectFollowUp(); h.button("Read selected failed").performClick()
+            h.model.setText("gpt-4.1"); h.finish()
+            assertFalse(h.button("Stage follow-up").isEnabled)
+            assertTrue(h.status.text.contains("Stale follow-up"))
+            h.button("Read selected failed").performClick(); h.close(); h.finish()
+            assertFalse(h.button("Stage follow-up").isEnabled); assertEquals(1, h.writes)
+        } finally { h.close() }
+    }
+
+    @Test fun recheckingFeedbackOrCiDiscardsTheOldFollowUpReview() {
+        val h = Harness()
+        try {
+            h.diagnose(); h.selectFollowUp(); h.button("Read selected failed").performClick(); h.finish()
+            assertTrue(h.button("Stage follow-up").isEnabled)
+            h.button("Read exact task build").performClick()
+            assertFalse(h.button("Stage follow-up").isEnabled); h.finish()
+            h.selectFollowUp(); h.button("Read selected failed").performClick(); h.finish()
+            assertTrue(h.button("Stage follow-up").isEnabled)
+            h.button("Check CI").performClick()
+            assertFalse(h.button("Stage follow-up").isEnabled); h.finish()
+            assertFalse(h.followUpFile.isEnabled); assertFalse(h.approval.isChecked)
+        } finally { h.close() }
+    }
+
+    @Test fun passingAndInfrastructureFeedbackCannotQueueAFollowUpSourceRead() {
+        for (state in listOf(3, 4)) {
+            val h = Harness()
+            try {
+                h.wrongFeedback = state; h.diagnose()
+                assertFalse(h.followUpFile.isEnabled); assertFalse(h.button("Read selected failed").isEnabled)
+                h.button("Read selected failed").performClick()
+                assertTrue(h.pending.isEmpty()); assertEquals(0, h.followUpReads); assertEquals(1, h.writes)
+            } finally { h.close() }
+        }
     }
 
     private fun blob(source: String): String {

@@ -131,7 +131,7 @@ object PatchPublisher {
         return "https://github.com/$REPOSITORY/compare/${encode(result.baseBranch)}...${encode(result.branch)}?expand=1"
     }
 
-    private fun validateResult(result: CommitResult) {
+    internal fun validateResult(result: CommitResult) {
         sha(result.baseCommitSha); sha(result.commitSha)
         require(PatchEngine.validSourceBranch(result.baseBranch, result.target)) { "Invalid source branch" }
         require(result.taskId.matches(Regex("[a-zA-Z0-9][a-zA-Z0-9_-]{0,47}")) &&
