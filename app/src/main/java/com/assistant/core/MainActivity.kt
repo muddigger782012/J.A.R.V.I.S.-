@@ -3079,12 +3079,7 @@ class MainActivity : ThemedActivity() {
     private fun registerVoiceEventReceiver() {
         if (receiverRegistered) return
         val filter = IntentFilter(VoiceForegroundService.ACTION_EVENT)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(voiceEventReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("DEPRECATION")
-            registerReceiver(voiceEventReceiver, filter)
-        }
+        ContextCompat.registerReceiver(this, voiceEventReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         receiverRegistered = true
     }
 

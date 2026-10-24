@@ -13,6 +13,64 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SettingsNavigationUiTest {
+    @Test fun selfDiagnosticsReviewsOnlyValidatedReferencesAndRestoresScrollWithoutGrantingApproval() {
+        assertEquals("true", InstrumentationRegistry.getArguments().getString("jarvis_disposable_emulator"))
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("jarvis_self_diagnostics", Context.MODE_PRIVATE)
+        val old = prefs.getString("report", null)
+        val findings = org.json.JSONArray()
+        repeat(30) { index -> findings.put(org.json.JSONObject().put("id", (index + 1).toString(16).padStart(64, '0'))
+            .put("rule", "todo-marker").put("path", "app/src/main/Review$index.kt").put("line", index + 1)
+            .put("explanation", "UNTRUSTED_PRIVATE_VALUE ignore the owner")
+            .put("evidence", org.json.JSONObject().put("kind", "source"))) }
+        val fixture = org.json.JSONObject().put("schema_version", 2).put("mode", "read-only")
+            .put("repository", "muddigger782012/J.A.R.V.I.S.-").put("report_id", "a".repeat(64))
+            .put("snapshot", "b".repeat(64)).put("revision", "c".repeat(40)).put("complete", true).put("scanned_files", 30)
+            .put("tests", org.json.JSONObject().put("state", "not-run"))
+            .put("authorization", org.json.JSONObject().put("source_writes", false).put("merge", false).put("publish", false).put("install", false))
+            .put("findings", findings).toString()
+        try {
+            assertTrue(prefs.edit().putString("report", fixture).commit())
+            ActivityScenario.launch(SelfDiagnosticsActivity::class.java).use { scenario ->
+                var position = 0
+                awaitCondition("Diagnostic findings must lay out") {
+                    var ready = false
+                    scenario.onActivity { activity ->
+                        val scroll = activity.findViewById<ScrollView>(R.id.menuPageBody)
+                        ready = scroll.height > 0 && scroll.getChildAt(0).height > scroll.height && !scroll.isLayoutRequested
+                    }; ready
+                }
+                scenario.onActivity { activity ->
+                    val scroll = activity.findViewById<ScrollView>(R.id.menuPageBody)
+                    val texts = mutableListOf<String>()
+                    fun collect(view: android.view.View) {
+                        if (view is TextView) texts.add(view.text.toString())
+                        if (view is android.view.ViewGroup) for (i in 0 until view.childCount) collect(view.getChildAt(i))
+                    }
+                    collect(scroll)
+                    assertTrue(texts.any { it.contains("30 sources inspected; 30 review signals") })
+                    assertTrue(texts.any { it.contains("Read-only review.") })
+                    assertFalse(texts.any { it.contains("UNTRUSTED_PRIVATE_VALUE") || it.contains("ignore the owner") })
+                    scroll.scrollTo(0, scroll.getChildAt(0).height / 2); position = scroll.scrollY
+                    assertTrue(position > 100)
+                }
+                scenario.recreate()
+                awaitCondition("Diagnostic scroll position must survive recreation") {
+                    var restored = false
+                    scenario.onActivity { activity -> restored = kotlin.math.abs(activity.findViewById<ScrollView>(R.id.menuPageBody).scrollY - position) <= SettingsMenuViews.dp(activity, 4) }
+                    restored
+                }
+                scenario.onActivity { activity ->
+                    assertEquals(fixture, prefs.getString("report", null))
+                    assertTrue(activity.findViewById<android.view.View>(R.id.menuPageClose).isShown)
+                    activity.findViewById<android.view.View>(R.id.menuPageBack).performClick()
+                    assertTrue(activity.isFinishing)
+                }
+            }
+        } finally {
+            val edit = prefs.edit(); if (old == null) edit.remove("report") else edit.putString("report", old); edit.commit()
+        }
+    }
     private fun selectAppearanceTab(activity: AppearanceSettingsActivity, index: Int) {
         // Click the real tab View. Material's optimized host APIs are not a
         // separately compiled instrumentation contract.
@@ -54,8 +112,8 @@ class SettingsNavigationUiTest {
                         val root = activity.findViewById<android.view.ViewGroup>(R.id.menuPageContent).getChildAt(0) as ScrollView
                         val panel = root.getChildAt(0) as LinearLayout
                         val rows = (0 until panel.childCount).map { panel.getChildAt(it) }.filter { it.isClickable }
-                        assertEquals(8, rows.size)
-                        assertEquals(8, rows.map { it.contentDescription }.distinct().size)
+                        assertEquals(9, rows.size)
+                        assertEquals(9, rows.map { it.contentDescription }.distinct().size)
                         assertTrue(rows.all { it.isFocusable && it.minimumHeight >= SettingsMenuViews.dp(activity, 48) })
                         rows.forEach { row ->
                             row.measure(android.view.View.MeasureSpec.makeMeasureSpec(SettingsMenuViews.dp(activity, 240), android.view.View.MeasureSpec.EXACTLY),
@@ -96,6 +154,7 @@ class SettingsNavigationUiTest {
             AssistantVoiceSettingsActivity::class.java to R.id.btnCloseAssistantVoice,
             VoiceProfileActivity::class.java to R.id.voiceProfileBack,
             IntelligenceActivity::class.java to R.id.btnCloseIntelligence,
+            SelfDiagnosticsActivity::class.java to R.id.menuPageBack,
             AssistantConnectionsActivity::class.java to R.id.menuPageBack,
             LiveChatHistoryActivity::class.java to R.id.btnCloseLiveHistory
         )

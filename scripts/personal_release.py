@@ -181,7 +181,8 @@ def same_inputs(left, right, paths):
 
 def gate_checks(repo, source, timeout_seconds):
     deadline = time.monotonic() + timeout_seconds
-    expected = {'local-knowledge-checks.yml': ('test', 'gateway', 'voice-playback'),
+    expected = {'local-knowledge-checks.yml': ('test', 'gateway', 'voice-playback', 'ui-layout',
+                                             'android-compatibility (26)', 'android-compatibility (34)'),
                 'ui-theme-check.yml': ('theme',)}
     evidence = {}
     while True:
@@ -208,7 +209,7 @@ def gate_checks(repo, source, timeout_seconds):
             require(run['conclusion'] == 'success', 'Required source-equivalent checks did not pass')
             observed = api(repo, f'actions/runs/{run["id"]}/jobs?per_page=100')['jobs']
             require(all(any(j['name'] == name and j['conclusion'] == 'success' for j in observed) for name in jobs),
-                    'Required unit, gateway, real Accessibility or theme job is missing/skipped')
+                    'Required unit, gateway, UI, Android compatibility, real Accessibility or theme job is missing/skipped')
             evidence[workflow] = run['id']
         if not pending:
             return evidence

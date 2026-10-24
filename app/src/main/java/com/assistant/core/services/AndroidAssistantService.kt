@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.Settings
 import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.ContactsContract
 import android.provider.CalendarContract
 import java.text.SimpleDateFormat
@@ -162,7 +163,7 @@ class AndroidAssistantService(private val context: Context) {
     fun launchAppByLabel(label: String): Boolean {
         val pm = context.packageManager
         val target = label.trim().lowercase()
-        val apps = pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+        val apps = installedApplications(pm)
         val match = apps.firstOrNull { info ->
             pm.getApplicationLabel(info).toString().trim().lowercase() == target
         } ?: apps.firstOrNull { info ->
@@ -173,7 +174,7 @@ class AndroidAssistantService(private val context: Context) {
 
     fun amazonMusic(playMusic: Boolean): String {
         val pm = context.packageManager
-        val app = pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0)).firstOrNull {
+        val app = installedApplications(pm).firstOrNull {
             pm.getApplicationLabel(it).toString().trim().lowercase(java.util.Locale.ROOT) in
                 setOf("amazon music", "music amazon", "amazon prime music")
         } ?: return "I couldn't find Amazon Music installed. Install it and sign in, then try again."
@@ -190,6 +191,14 @@ class AndroidAssistantService(private val context: Context) {
             else "Opening Amazon Music."
         } else "Android couldn't open Amazon Music. Check that the app is enabled."
     }
+
+    private fun installedApplications(pm: PackageManager): List<android.content.pm.ApplicationInfo> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getInstalledApplications(0)
+        }
 
     fun playPauseMedia(): Boolean = dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
     fun nextMedia(): Boolean = dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_NEXT)

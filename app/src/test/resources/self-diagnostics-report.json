@@ -1,0 +1,45 @@
+{
+  "schema_version": 2,
+  "mode": "read-only",
+  "repository": "muddigger782012/J.A.R.V.I.S.-",
+  "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "revision_verified": false,
+  "snapshot": "71e85d055ca6d0b85c0674b079ae0c9792b087818fcd99a883776b51dc61cea3",
+  "complete": true,
+  "limitations": [],
+  "scanned_files": 1,
+  "visited_entries": 1,
+  "read_bytes": 25,
+  "skipped_files": 0,
+  "findings": [
+    {
+      "id": "9b85587e64965f635348622432b598c257b2d405290388571557a71740efc9dd",
+      "rule": "todo-marker",
+      "priority": 6,
+      "severity": "low",
+      "category": "technical-debt",
+      "path": "Main.kt",
+      "line": 1,
+      "explanation": "An outstanding TODO or FIXME marker needs review.",
+      "expected_benefit": "Triage the marked debt against actual supported behavior.",
+      "risk": "Comments can be stale; no incomplete feature is inferred automatically.",
+      "difficulty": "low",
+      "confidence": "static-review-signal",
+      "evidence": {
+        "kind": "source",
+        "sha256": "b3ef88535672884567c4c1aa18e16fec3908155acb9678b67a58c836920487d4",
+        "line": 1
+      }
+    }
+  ],
+  "tests": {
+    "state": "not-run"
+  },
+  "authorization": {
+    "source_writes": false,
+    "merge": false,
+    "publish": false,
+    "install": false
+  },
+  "report_id": "3e765d9711b7f4aeaeef2ff34d539064bc2d1a7e7c9d8def1395ab0f0d8045de"
+}

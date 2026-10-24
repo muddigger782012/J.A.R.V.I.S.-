@@ -527,9 +527,9 @@ class VoiceAssistantService(
 
     private fun createRecognizer(preferOffline: Boolean): SpeechRecognizer {
         resetRecognition()
-        onDeviceCapture = requireNotNull(recognitionEngine(preferOffline)) { "No requested speech recognizer is available" } == SpeechCaptureRouting.Engine.ON_DEVICE
-        val recognizer = if (onDeviceCapture) SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
-            else SpeechRecognizer.createSpeechRecognizer(context)
+        val engine = requireNotNull(recognitionEngine(preferOffline)) { "No requested speech recognizer is available" }
+        onDeviceCapture = engine == SpeechCaptureRouting.Engine.ON_DEVICE
+        val recognizer = AndroidSpeechCapturePlatform.createRecognizer(context, engine)
         val token = captures.begin()
         captureToken = token
         recognizer.setRecognitionListener(object : RecognitionListener {

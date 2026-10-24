@@ -142,6 +142,11 @@ try:
     capture('intelligence')
     adb('shell', 'input', 'keyevent', '4')
     time.sleep(1)
+    open_settings_destination('Self Diagnostics & Improvements')
+    assert any('Read-only review.' in n.get('text', '') for n in hierarchy().iter('node')), 'Self Diagnostics screen did not open'
+    capture('self-diagnostics')
+    tap('menuPageBack')
+    time.sleep(1)
     open_settings_destination('Appearance')
     assert any(n.get('resource-id') == 'com.assistant.core:id/appearanceTabs' for n in hierarchy().iter('node')), 'Appearance screen did not open'
     capture('appearance')
