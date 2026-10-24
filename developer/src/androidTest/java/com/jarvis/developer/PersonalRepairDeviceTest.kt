@@ -327,6 +327,51 @@ class PersonalRepairDeviceTest {
         }
         assertEquals(0, reads); assertEquals(0, providers); assertEquals(0, writes)
     }
+
+    @Test fun buildReadFailureShowsSafeGuidanceAndCannotStartOrStageARepair() {
+        var requests = 0
+        var bodyReads = 0
+        var closed = 0
+        var stages = 0
+        ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
+            scenario.onActivity { activity ->
+                val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+                activity.setContentView(root)
+                val output = TextView(activity)
+                val status = TextView(activity)
+                val transport = BuildFeedback.Transport { url, _, _ ->
+                    requests++
+                    BuildFeedback.Response(403, 100, url, object : java.io.InputStream() {
+                        override fun read(): Int {
+                            bodyReads++
+                            error("private token and signed server address must remain unread")
+                        }
+                    }) { closed++ }
+                }
+                val patches = PatchWorkbench.Handle(prepareAction = { _, _, _, _, _ -> stages++; false },
+                    repairAction = { _, _ -> stages++; false }, invalidateAction = { true })
+                RepairWorkbench.attach(activity, root, EditText(activity), EditText(activity), output, status, patches,
+                    RepairWorkbench.Services(read = { token, branch, sha, run ->
+                        BuildFeedback.Client(transport).read(token, branch, sha, run)
+                    }, worker = { it() }))
+                views(root).filterIsInstance<EditText>().single {
+                    it.hint?.startsWith("Successful baseline: exact") == true
+                }.setText("a".repeat(40))
+                views(root).filterIsInstance<EditText>().single {
+                    it.hint?.startsWith("Optional baseline workflow") == true
+                }.setText("17")
+                button(activity, "Read successful baseline CI and regression expectations (GET only)").performClick()
+                assertTrue(status.text.contains("reading workflow metadata"))
+                assertTrue(status.text.contains("HTTP 403")); assertTrue(status.text.contains("Check access"))
+                assertFalse(output.text.contains("private token"))
+                assertFalse(button(activity, "Start NEW session: reset to 2 attempts and a 30-minute budget").isEnabled)
+                assertFalse(button(activity, "Reserve ONE repair attempt and stage a NEW diff review").isEnabled)
+            }
+            scenario.recreate()
+            scenario.onActivity { noApproval(it) }
+        }
+        assertEquals(1, requests); assertEquals(0, bodyReads); assertEquals(1, closed); assertEquals(0, stages)
+    }
     companion object {
         private const val READ = "Read Personal diagnostic source (GET only)"
         private const val STAGE = "Stage Personal source for a NEW exact diff review"

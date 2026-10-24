@@ -1,16 +1,20 @@
 package com.jarvis.developer
 
 import org.json.JSONObject
+import org.json.JSONException
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.InputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
 import java.net.URLEncoder
+import java.net.SocketTimeoutException
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
+import java.nio.charset.CharacterCodingException
 import java.util.Timer
 import java.util.TimerTask
 
@@ -31,6 +35,58 @@ object BuildFeedback {
     // bounded independently while allowing a normal page; all bytes also share the 2 MiB cap.
     private const val MAX_METADATA_BYTES = 1_048_576
     private val shaPattern = Regex("[a-f0-9]{40}")
+
+    enum class Stage(val label: String) {
+        DISCOVERY("selecting the build"), WORKFLOW_METADATA("reading workflow metadata"),
+        WORKFLOW_VALIDATION("checking workflow identity"), JOB_METADATA("reading the job inventory"),
+        JOB_VALIDATION("checking job identities"), LOG_READ("reading job logs"),
+        LOG_STORAGE("reading retained log storage"), REPORT("interpreting build evidence")
+    }
+
+    enum class Problem(val label: String) {
+        HTTP("GitHub did not return the required response"),
+        CONNECTION("The connection or response stream was interrupted"),
+        TIMEOUT("The network request timed out"), FORMAT("The response format could not be read"),
+        LIMIT("The read reached its evidence or time limit"),
+        VERIFICATION("The build metadata could not be verified against the selected source"),
+        LOCATION("The response location was not allowed"), UNKNOWN("The read could not be verified")
+    }
+
+    /** Only app-owned enums and a bounded HTTP number cross this error boundary. */
+    class Failure internal constructor(val stage: Stage, val problem: Problem, val httpStatus: Int? = null) :
+        IllegalStateException("Build feedback could not verify exact-source evidence [${stage.name}/${problem.name}]" +
+            (httpStatus?.let { " (HTTP $it)" } ?: "")) {
+        init {
+            require(if (problem == Problem.HTTP) httpStatus != null && httpStatus in 100..599 else httpStatus == null)
+        }
+    }
+
+    /** Never render Throwable messages, causes, suppressed exceptions, URLs or server text. */
+    fun explainFailure(failure: Throwable): String? {
+        if (failure !is Failure) return null
+        val next = when (failure.problem) {
+            Problem.HTTP -> when (failure.httpStatus ?: 0) {
+                401 -> "Check the GitHub account or read credential used for this build."
+                403 -> "Check access to this build and GitHub request limits."
+                404 -> "Verify that the run is retained and visible to your GitHub account."
+                429 -> "Wait for GitHub request limits to clear before an explicit fresh read."
+                in 500..599 -> "Try an explicit fresh read when GitHub is available."
+                else -> "Inspect the selected build in GitHub before another explicit read."
+            }
+            Problem.CONNECTION, Problem.TIMEOUT -> "Check connectivity, then explicitly read this build again."
+            Problem.FORMAT, Problem.LOCATION -> "Inspect the build in GitHub; keep evidence verification blocked until a fresh read succeeds."
+            Problem.LIMIT -> "Review this build on GitHub; its evidence could not be fully read within the supported limits."
+            Problem.VERIFICATION -> "Review the selected product, branch, commit and run in GitHub before a fresh source analysis."
+            Problem.UNKNOWN -> "Inspect this build in GitHub, then request a fresh read when ready."
+        }
+        val status = failure.httpStatus?.let { " (HTTP $it)" }.orEmpty()
+        return "Build feedback stopped while ${failure.stage.label}. ${failure.problem.label}$status. $next " +
+            "This read did not start a repair, restore approval or retry automatically."
+    }
+
+    private class LimitFailure : IllegalStateException()
+    private class LocationFailure : IllegalStateException()
+    private class TransportFailure(val problem: Problem) : IllegalStateException()
 
     /** Null authentication is mandatory for the single signed-storage redirect. */
     internal fun interface Transport {
@@ -79,10 +135,14 @@ object BuildFeedback {
                 deadline.cancel()
                 connection.disconnect()
             }
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
             deadline.cancel()
             connection.disconnect()
-            throw IllegalStateException("Build feedback transport failed")
+            throw TransportFailure(when (failure) {
+                is SocketTimeoutException -> Problem.TIMEOUT
+                is IOException -> Problem.CONNECTION
+                else -> Problem.UNKNOWN
+            })
         }
     }
 
@@ -97,16 +157,20 @@ object BuildFeedback {
         private val started = nowMillis()
         private var requests = 0
         private var receivedBytes = 0
+        private var stage = Stage.DISCOVERY
 
         fun read(token: String, branch: String, commitSha: String, runId: Long? = null,
             target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): BuildDiagnostics.Report {
             require(BuildDiagnostics.validBranch(branch, target) && shaPattern.matches(commitSha)) { "Invalid isolated build source identity" }
             require(token.length <= 4096 && token.none { it.isISOControl() }) { "Invalid in-memory GitHub token" }
             require(runId == null || runId > 0) { "Invalid build run identity" }
+            stage = if (runId == null) Stage.DISCOVERY else Stage.WORKFLOW_METADATA
             try {
                 val selectedId = runId ?: latestRun(token, branch, commitSha, target)
                     ?: return BuildDiagnostics.parse(commitSha, branch, 0, 1, "missing", null, "", target)
+                stage = Stage.WORKFLOW_METADATA
                 val run = json("$API/actions/runs/$selectedId", token)
+                stage = Stage.WORKFLOW_VALIDATION
                 validateRun(run, branch, commitSha, selectedId, target)
                 val attempt = positiveInt(run, "run_attempt")
                 val status = run.getString("status")
@@ -114,9 +178,12 @@ object BuildFeedback {
                 val empty = BuildDiagnostics.parse(commitSha, branch, selectedId, attempt, status, conclusion, "", target)
                 // A queued or running job is deliberately not harvested as partial evidence.
                 if (status != "completed") return empty
+                stage = Stage.JOB_METADATA
                 val jobsResponse = json("$API/actions/runs/$selectedId/attempts/$attempt/jobs?per_page=$MAX_JOBS", token)
+                stage = Stage.JOB_VALIDATION
                 val jobs = jobsResponse.getJSONArray("jobs")
                 val total = positiveInt(jobsResponse, "total_count")
+                checkLimit(total <= MAX_JOBS)
                 require(total in 1..MAX_JOBS && jobs.length() == total) { "Build job inventory is incomplete" }
                 val ids = HashSet<Long>()
                 var allCompleted = true
@@ -137,27 +204,47 @@ object BuildFeedback {
                 val logs = StringBuilder()
                 try {
                     for (id in ids.sorted()) {
+                        stage = Stage.LOG_READ
                         val text = log("$API/actions/jobs/$id/logs", token)
                         logs.append("\n=== Verified build job ").append(id).append(" ===\n").append(text).append('\n')
                     }
                 } catch (failure: Exception) {
+                    val detail = explainFailure(sanitized(failure))!!
+                    stage = Stage.REPORT
                     val report = BuildDiagnostics.parse(commitSha, branch, selectedId, attempt, status, conclusion, logs.toString(), target)
-                    val suffix = if (failure is HttpFailure) " (HTTP ${failure.status})" else ""
-                    return BuildDiagnostics.incomplete(report, "Build log evidence is incomplete$suffix; no automatic retry was attempted.")
+                    return BuildDiagnostics.incomplete(report, "Build log evidence is incomplete. $detail")
                 }
+                stage = Stage.REPORT
                 return BuildDiagnostics.parse(commitSha, branch, selectedId, attempt, status, conclusion, logs.toString(), target)
             } catch (failure: Exception) {
-                val suffix = if (failure is HttpFailure) " (HTTP ${failure.status})" else ""
                 // Never retain a cause: exceptions may carry signed URLs or credentials.
-                throw IllegalStateException("Build feedback could not verify exact-source evidence$suffix")
+                throw sanitized(failure)
             }
         }
+
+        private fun sanitized(failure: Exception): Failure {
+            val status = (failure as? HttpFailure)?.status?.takeIf { it in 100..599 }
+            val problem = when {
+                status != null -> Problem.HTTP
+                failure is LimitFailure -> Problem.LIMIT
+                failure is LocationFailure -> Problem.LOCATION
+                failure is TransportFailure -> failure.problem
+                failure is SocketTimeoutException -> Problem.TIMEOUT
+                failure is JSONException || failure is CharacterCodingException -> Problem.FORMAT
+                failure is IOException -> Problem.CONNECTION
+                stage in setOf(Stage.WORKFLOW_VALIDATION, Stage.JOB_VALIDATION) -> Problem.VERIFICATION
+                else -> Problem.UNKNOWN
+            }
+            return Failure(stage, problem, status)
+        }
+
+        private fun checkLimit(allowed: Boolean) { if (!allowed) throw LimitFailure() }
 
         private fun latestRun(token: String, branch: String, commitSha: String, target: PatchEngine.Target): Long? {
             val encoded = URLEncoder.encode(branch, "UTF-8")
             val response = json("$API/actions/workflows/${workflow(target)}/runs?branch=$encoded&head_sha=$commitSha&per_page=20", token)
             val runs = response.getJSONArray("workflow_runs")
-            require(runs.length() <= 20) { "Build run list exceeds requested limit" }
+            checkLimit(runs.length() <= 20)
             val matching = (0 until runs.length()).map { runs.getJSONObject(it) }.filter {
                 it.optString("head_sha") == commitSha && it.optString("head_branch") == branch && it.optString("path") == ".github/workflows/${workflow(target)}"
             }
@@ -189,10 +276,11 @@ object BuildFeedback {
                 if (response.status == 200) return strictUtf8(body(response, MAX_LOG_BYTES))
                 if (response.status != 302) throw HttpFailure(response.status)
                 val redirect = response.location ?: error("Missing signed log location")
-                requireStorageUrl(redirect)
+                try { requireStorageUrl(redirect) } catch (_: Exception) { throw LocationFailure() }
                 // Close the API response before opening storage. No token or API headers survive this hop.
             }
             val location = first.location ?: error("Missing signed log location")
+            stage = Stage.LOG_STORAGE
             return open(location, null).use { response ->
                 if (response.status != 200) throw HttpFailure(response.status)
                 strictUtf8(body(response, MAX_LOG_BYTES))
@@ -202,13 +290,13 @@ object BuildFeedback {
         private fun open(url: String, token: String?): Response {
             if (token == null) requireStorageUrl(url) else requireApiUrl(url)
             val remaining = remaining()
-            require(requests < MAX_REQUESTS) { "Build feedback request budget exceeded" }
-            require(receivedBytes <= MAX_SESSION_BYTES) { "Build feedback byte budget exceeded" }
+            checkLimit(requests < MAX_REQUESTS)
+            checkLimit(receivedBytes <= MAX_SESSION_BYTES)
             requests++
             val response = transport.get(url, token, remaining)
             try {
                 remaining()
-                require(response.finalUrl == url) { "Unexpected build feedback redirect" }
+                if (response.finalUrl != url) throw LocationFailure()
                 require(response.contentLength >= -1) { "Invalid build feedback length" }
                 return response
             } catch (failure: Exception) { response.close(); throw failure }
@@ -216,18 +304,19 @@ object BuildFeedback {
 
         private fun body(response: Response, maximum: Int): ByteArray {
             val limit = minOf(maximum, MAX_SESSION_BYTES - receivedBytes)
-            require(limit >= 0 && response.contentLength in -1..limit.toLong()) { "Build evidence exceeds byte budget" }
+            checkLimit(limit >= 0 && response.contentLength in -1..limit.toLong())
             val output = ByteArrayOutputStream(minOf(8192, limit))
             val buffer = ByteArray(8192)
             var count = 0
             while (true) {
                 remaining()
                 val read = response.body.read(buffer, 0, minOf(buffer.size, limit - count + 1))
+                remaining()
                 if (read == -1) break
                 require(read > 0) { "Build evidence stream made no progress" }
                 count += read
                 receivedBytes += read
-                require(count <= limit && receivedBytes <= MAX_SESSION_BYTES) { "Build evidence exceeds byte budget" }
+                checkLimit(count <= limit && receivedBytes <= MAX_SESSION_BYTES)
                 output.write(buffer, 0, read)
             }
             return output.toByteArray()
@@ -235,7 +324,7 @@ object BuildFeedback {
 
         private fun remaining(): Long {
             val elapsed = nowMillis() - started
-            require(elapsed in 0 until MAX_MILLIS) { "Build feedback time budget exceeded" }
+            checkLimit(elapsed in 0 until MAX_MILLIS)
             return MAX_MILLIS - elapsed
         }
     }

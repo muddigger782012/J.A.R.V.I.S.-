@@ -10,6 +10,133 @@ import java.net.URLEncoder
 
 /** The fixture can perform GET only and records the credential boundary on every hop. */
 class BuildFeedbackTest {
+    @Test fun httpFailuresExposeTheFixedPhaseStatusAndActionWithoutReadingErrorBodies() {
+        for (status in listOf(401, 403, 404, 429, 503, 302)) {
+            val fake = fixture()
+            var bodyRead = false
+            fake.replies[runUrl()] = {
+                BuildFeedback.Response(status, 100, runUrl(), object : InputStream() {
+                    override fun read(): Int { bodyRead = true; error("$token $storage") }
+                }) { fake.closed++ }
+            }
+            val failure = rejected { BuildFeedback.Client(fake).read(token, branch, sha, 17) } as BuildFeedback.Failure
+            assertEquals(BuildFeedback.Stage.WORKFLOW_METADATA, failure.stage)
+            assertEquals(BuildFeedback.Problem.HTTP, failure.problem); assertEquals(status, failure.httpStatus)
+            val text = BuildFeedback.explainFailure(failure)!!
+            assertTrue(text.contains("reading workflow metadata")); assertTrue(text.contains("HTTP $status"))
+            assertFalse(text.contains(token)); assertFalse(text.contains("sig=")); assertFalse(bodyRead)
+            assertNull(failure.cause); assertTrue(failure.suppressed.isEmpty())
+            assertEquals(1, fake.requests.size); assertEquals(1, fake.closed)
+        }
+    }
+
+    @Test fun timeoutConnectionAndUnknownFailuresAreSanitizedWithoutGuessingTheirCause() {
+        val failures = listOf(java.net.SocketTimeoutException("$token $storage") to BuildFeedback.Problem.TIMEOUT,
+            java.io.IOException("$token $storage") to BuildFeedback.Problem.CONNECTION,
+            IllegalStateException("$token $storage") to BuildFeedback.Problem.UNKNOWN)
+        for ((raw, problem) in failures) {
+            val fake = fixture()
+            raw.addSuppressed(IllegalStateException("private server text $token"))
+            fake.replies[runUrl()] = { throw raw }
+            val failure = rejected { BuildFeedback.Client(fake).read(token, branch, sha, 17) } as BuildFeedback.Failure
+            assertEquals(problem, failure.problem); assertEquals(BuildFeedback.Stage.WORKFLOW_METADATA, failure.stage)
+            assertNull(failure.cause); assertTrue(failure.suppressed.isEmpty())
+            val text = failure.toString() + BuildFeedback.explainFailure(failure)
+            assertFalse(text.contains(token)); assertFalse(text.contains("sig=")); assertFalse(text.contains("private server"))
+            assertEquals(1, fake.requests.size)
+        }
+    }
+
+    @Test fun discoveryAndJobMetadataFailuresAreAttributedToTheirOwnReads() {
+        val discovery = fixture()
+        discovery.replies[listUrl()] = { throw java.io.IOException("untrusted network details") }
+        val first = rejected { BuildFeedback.Client(discovery).read(token, branch, sha) } as BuildFeedback.Failure
+        assertEquals(BuildFeedback.Stage.DISCOVERY, first.stage)
+        assertEquals(BuildFeedback.Problem.CONNECTION, first.problem)
+        assertEquals(1, discovery.requests.size)
+        val inventory = fixture()
+        inventory.reply(jobsUrl(), status = 503)
+        val second = rejected { BuildFeedback.Client(inventory).read(token, branch, sha, 17) } as BuildFeedback.Failure
+        assertEquals(BuildFeedback.Stage.JOB_METADATA, second.stage)
+        assertEquals(BuildFeedback.Problem.HTTP, second.problem)
+        assertEquals(2, inventory.requests.size); assertEquals(2, inventory.closed)
+    }
+
+    @Test fun malformedJsonAndUtf8ResponsesNeverAppearInFailureDescriptions() {
+        for (bytes in listOf("invalid JSON $token $storage".toByteArray(), byteArrayOf(0xc3.toByte(), 0x28))) {
+            val fake = fixture()
+            fake.replies[runUrl()] = {
+                BuildFeedback.Response(200, bytes.size.toLong(), runUrl(), ByteArrayInputStream(bytes)) { fake.closed++ }
+            }
+            val failure = rejected { BuildFeedback.Client(fake).read(token, branch, sha, 17) } as BuildFeedback.Failure
+            assertEquals(BuildFeedback.Problem.FORMAT, failure.problem)
+            assertEquals(BuildFeedback.Stage.WORKFLOW_METADATA, failure.stage)
+            assertNull(failure.cause); assertTrue(failure.suppressed.isEmpty())
+            val text = failure.message + BuildFeedback.explainFailure(failure)
+            assertFalse(text.contains(token)); assertFalse(text.contains("sig=")); assertFalse(text.contains("invalid JSON"))
+            assertEquals(1, fake.closed)
+        }
+    }
+
+    @Test fun workflowAndJobIdentityFailuresRemainBlockedWithDistinctValidationPhases() {
+        val workflow = fixture()
+        workflow.json(runUrl(), run().put("head_sha", "b".repeat(40)))
+        val first = rejected { BuildFeedback.Client(workflow).read(token, branch, sha, 17) } as BuildFeedback.Failure
+        assertEquals(BuildFeedback.Stage.WORKFLOW_VALIDATION, first.stage)
+        assertEquals(BuildFeedback.Problem.VERIFICATION, first.problem)
+        val inventory = fixture()
+        inventory.json(jobsUrl(), jobs(listOf(job().put("head_sha", "b".repeat(40)))))
+        val second = rejected { BuildFeedback.Client(inventory).read(token, branch, sha, 17) } as BuildFeedback.Failure
+        assertEquals(BuildFeedback.Stage.JOB_VALIDATION, second.stage)
+        assertEquals(BuildFeedback.Problem.VERIFICATION, second.problem)
+        assertEquals(1, workflow.requests.size); assertEquals(2, inventory.requests.size)
+    }
+
+    @Test fun evidenceLimitsAndDeadlineExpiryAfterTheFinalReadNeverBecomeNetworkGuesses() {
+        val oversized = fixture()
+        oversized.reply(runUrl(), "", length = 1_048_577)
+        val limit = rejected { BuildFeedback.Client(oversized).read(token, branch, sha, 17) } as BuildFeedback.Failure
+        assertEquals(BuildFeedback.Problem.LIMIT, limit.problem)
+        var clock = 0L
+        val timed = fixture()
+        timed.replies[runUrl()] = {
+            BuildFeedback.Response(200, -1, runUrl(), object : InputStream() {
+                override fun read(): Int { clock = BuildFeedback.MAX_MILLIS; return -1 }
+            }) { timed.closed++ }
+        }
+        val expired = rejected { BuildFeedback.Client(timed) { clock }.read(token, branch, sha, 17) } as BuildFeedback.Failure
+        assertEquals(BuildFeedback.Problem.LIMIT, expired.problem)
+        assertEquals(BuildFeedback.Stage.WORKFLOW_METADATA, expired.stage)
+        assertEquals(1, timed.requests.size); assertEquals(1, timed.closed)
+    }
+
+    @Test fun logStorageFailuresRetainSafeActionsAndIncompletePersonalEvidenceWithoutSignedUrls() {
+        val fake = personalFixture()
+        fake.reply(logUrl(), status = 302, location = storage)
+        fake.reply(storage, "$token private server body", status = 403)
+        val report = BuildFeedback.Client(fake).read(token, personalBranch, sha, 17, PatchEngine.Target.PERSONAL)
+        val text = BuildDiagnostics.render(report)
+        assertFalse(report.evidenceComplete); assertTrue(report.tests.isEmpty()); assertNull(report.totals)
+        assertTrue(text.contains("reading retained log storage")); assertTrue(text.contains("HTTP 403"))
+        assertTrue(text.contains("Check access to this build"))
+        assertFalse(text.contains(token)); assertFalse(text.contains("sig=")); assertFalse(text.contains("private server body"))
+        assertNull(fake.requests.last().token); assertEquals(4, fake.requests.size)
+        BuildDiagnostics.validateReport(report)
+    }
+
+    @Test fun failureRenderingIgnoresForgedThrowableGraphsAndRejectsUnboundedStatuses() {
+        val failure = BuildFeedback.Failure(BuildFeedback.Stage.JOB_METADATA, BuildFeedback.Problem.HTTP, 403)
+        failure.initCause(IllegalStateException("$token $storage"))
+        failure.addSuppressed(IllegalStateException("private server text"))
+        val text = BuildFeedback.explainFailure(failure)!!
+        assertFalse(text.contains(token)); assertFalse(text.contains("sig=")); assertFalse(text.contains("private server"))
+        assertNull(BuildFeedback.explainFailure(IllegalStateException("$token $storage")))
+        for (status in listOf(-1, 0, 600, Int.MAX_VALUE)) {
+            try { BuildFeedback.Failure(BuildFeedback.Stage.LOG_READ, BuildFeedback.Problem.HTTP, status); fail("Invalid HTTP status") }
+            catch (_: IllegalArgumentException) { }
+        }
+    }
+
     private val repository = "muddigger782012/J.A.R.V.I.S.-"
     private val api = "https://api.github.com/repos/$repository"
     private val branch = "feature/jarvis-developer-task/repair-012345abcdef"
@@ -160,7 +287,9 @@ class BuildFeedbackTest {
             val wrong = fixture()
             wrong.json(runUrl(), run().also(mutate))
             val failure = rejected { BuildFeedback.Client(wrong).read(token, branch, sha, 17) }
-            assertEquals("Build feedback could not verify exact-source evidence", failure.message)
+            assertEquals(BuildFeedback.Stage.WORKFLOW_VALIDATION, (failure as BuildFeedback.Failure).stage)
+            assertTrue(failure.message.orEmpty().startsWith("Build feedback could not verify exact-source evidence"))
+            assertNull(failure.cause)
             assertEquals(1, wrong.requests.size)
             assertEquals(1, wrong.closed)
         }

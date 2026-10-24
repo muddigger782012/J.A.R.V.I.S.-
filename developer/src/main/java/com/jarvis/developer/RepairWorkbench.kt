@@ -26,7 +26,22 @@ object RepairWorkbench {
         status: TextView,
         patches: PatchWorkbench.Handle
     ) {
-        Controller(activity, root, task, githubToken, output, status, patches).attach()
+        attach(activity, root, task, githubToken, output, status, patches, Services())
+    }
+
+    /** GET-only seams for widget/lifecycle checks; no provider or publisher operation is exposed. */
+    internal class Services(
+        val read: (String, String, String, Long?) -> BuildDiagnostics.Report = { token, branch, sha, run ->
+            BuildFeedback.read(token, branch, sha, run)
+        },
+        val worker: (() -> Unit) -> Unit = { operation ->
+            thread(name = "JarvisDeveloper-RepairFeedback") { operation() }; Unit
+        }
+    )
+
+    internal fun attach(activity: Activity, root: LinearLayout, task: EditText, githubToken: EditText,
+        output: TextView, status: TextView, patches: PatchWorkbench.Handle, services: Services) {
+        Controller(activity, root, task, githubToken, output, status, patches, services).attach()
     }
 
     private class Controller(
@@ -36,7 +51,8 @@ object RepairWorkbench {
         private val githubToken: EditText,
         private val output: TextView,
         private val status: TextView,
-        private val patches: PatchWorkbench.Handle
+        private val patches: PatchWorkbench.Handle,
+        private val services: Services
     ) {
         private val context = root.context
         private val container = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -199,8 +215,8 @@ object RepairWorkbench {
             status.text = "Reading bounded GET-only feedback for ${frozen.branch} at ${frozen.sha}."
             output.text = "Reading exact-source CI feedback; previous results do not establish this run's outcome."
             refresh()
-            thread(name = "JarvisDeveloper-RepairFeedback") {
-                val result = runCatching { BuildFeedback.read(token, frozen.branch, frozen.sha, frozen.runId) }
+            services.worker {
+                val result = runCatching { services.read(token, frozen.branch, frozen.sha, frozen.runId) }
                 activity.runOnUiThread {
                     if (!alive()) return@runOnUiThread
                     busy = false
@@ -239,10 +255,12 @@ object RepairWorkbench {
                             canRetry = false
                             status.text = "Feedback was not eligible for this baseline or repair state. No new attempt or approval was created."
                         }
-                    }, onFailure = {
+                    }, onFailure = { failure ->
                         if (baselineRead) baseline = null else failed = null
-                        status.text = "Could not read verified CI feedback. Check repository access and exact source/run identity; no write or retry occurred."
-                        output.text = "No verified feedback was retrieved for ${frozen.branch} at ${frozen.sha}."
+                        canRetry = false
+                        val detail = BuildFeedback.explainFailure(failure)
+                        status.text = detail ?: "Could not read verified CI feedback. Check repository access and exact source/run identity; no write or retry occurred."
+                        output.text = detail ?: "No verified feedback was retrieved for ${frozen.branch} at ${frozen.sha}."
                     })
                     refresh()
                 }

@@ -71,8 +71,8 @@ object RepairHistoryWorkbench {
             result.text = "Reading or updating private metadata. No source write or approval is requested."
             refresh()
             services.worker {
-                val message = try { action() } catch (_: Exception) {
-                    "Repair history operation could not be verified. Check access or explicitly clear damaged local history. No approval, source change or retry was created."
+                val message = try { action() } catch (failure: Exception) {
+                    BuildFeedback.explainFailure(failure) ?: "Repair history operation could not be verified. Check access or explicitly clear damaged local history. No approval, source change or retry was created."
                 }
                 activity.runOnUiThread {
                     if (alive()) {

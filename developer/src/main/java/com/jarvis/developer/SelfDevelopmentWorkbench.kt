@@ -279,7 +279,11 @@ object SelfDevelopmentWorkbench {
                             output.text = BuildDiagnostics.render(it)
                             status.text = "Exact-source feedback retained for an explicit baseline comparison; no passing candidate is assumed."
                         } catch (_: Exception) { status.text = "Feedback identity could not be verified; candidate review remains blocked." }
-                    }, onFailure = { status.text = "Could not verify debug feedback; check source identity and read access." })
+                    }, onFailure = { failure ->
+                        val detail = BuildFeedback.explainFailure(failure) ?: "Could not verify debug feedback; check source identity and read access."
+                        status.text = detail
+                        output.text = detail
+                    })
                     refresh()
                 }
             }

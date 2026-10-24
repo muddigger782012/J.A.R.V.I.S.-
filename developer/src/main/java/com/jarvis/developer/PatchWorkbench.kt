@@ -628,11 +628,13 @@ object PatchWorkbench {
                             status.text = "Exact task build diagnostics ready; review evidence limits before proceeding"
                         }
                     }
-                } catch (_: Exception) {
+                } catch (failure: Exception) {
                     activity.runOnUiThread {
                         if (alive()) {
+                            val detail = BuildFeedback.explainFailure(failure) ?: "Build diagnostics could not be verified for this product, branch and exact commit. Check GitHub access and retained logs; no repair, provider call or write was started."
                             review.text = renderCommit(result, null) +
-                                "\n\nBuild diagnostics could not be verified for this product, branch and exact commit. Check GitHub access and retained logs; no repair, provider call or write was started."
+                                "\n\n" + detail
+                            output.text = commitAudit(result) + "\n" + detail
                             status.text = "Exact task build diagnostics remain unverified"
                         }
                     }

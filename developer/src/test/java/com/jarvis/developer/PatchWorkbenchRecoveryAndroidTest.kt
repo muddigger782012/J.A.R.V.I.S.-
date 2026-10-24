@@ -52,6 +52,7 @@ class PatchWorkbenchRecoveryAndroidTest {
         var writes = 0
         var inspections = 0
         var feedbacks = 0
+        var feedbackFailure: BuildFeedback.Failure? = null
         var wrongFeedback = 0
         var followUpReads = 0
         var movedFollowUp = false
@@ -107,6 +108,7 @@ class PatchWorkbenchRecoveryAndroidTest {
                 ci = { _, _ -> error("CI must remain an explicit later action") },
                 feedback = { _, result ->
                     feedbacks++
+                    feedbackFailure?.let { throw it }
                     BuildDiagnostics.parse(if (wrongFeedback == 2) "e".repeat(40) else result.commitSha,
                         if (wrongFeedback == 1) "feature/jarvis-developer" else result.branch, 23, 1, "completed",
                         if (wrongFeedback == 3) "success" else "failure",
@@ -363,6 +365,27 @@ class PatchWorkbenchRecoveryAndroidTest {
             assertTrue(h.output.text.contains("Evidence: incomplete"))
             assertFalse(h.approval.isChecked); assertFalse(h.approval.isEnabled)
             assertTrue(h.pending.isEmpty())
+        } finally { h.close() }
+    }
+
+    @Test fun typedFeedbackFailureReplacesOldOutputAndConsumesNewerApprovalWithoutQueuingARepair() {
+        val h = Harness()
+        try {
+            h.interrupted(); h.button("Verify interrupted").performClick(); h.finish()
+            h.button("Read exact task build").performClick(); h.finish()
+            assertTrue(h.output.text.contains("Unresolved reference; check imports"))
+            h.model.setText("gpt-4.1"); h.preview(); h.approval.isChecked = true
+            h.feedbackFailure = BuildFeedback.Failure(BuildFeedback.Stage.JOB_METADATA, BuildFeedback.Problem.HTTP, 403).apply {
+                initCause(IllegalStateException("private token and signed server address"))
+            }
+            h.button("Read exact task build").performClick(); h.finish()
+            assertTrue(h.output.text.contains("reading the job inventory")); assertTrue(h.output.text.contains("HTTP 403"))
+            assertFalse(h.output.text.contains("Unresolved reference; check imports"))
+            assertFalse(h.output.text.contains("private token"))
+            assertFalse(h.approval.isChecked); assertFalse(h.approval.isEnabled)
+            assertFalse(h.button("Read selected failed").isEnabled)
+            assertFalse(h.button("Stage follow-up").isEnabled)
+            assertEquals(1, h.writes); assertEquals(2, h.providers)
         } finally { h.close() }
     }
 

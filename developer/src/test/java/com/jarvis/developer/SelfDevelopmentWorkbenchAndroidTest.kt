@@ -151,6 +151,20 @@ class SelfDevelopmentWorkbenchAndroidTest {
         assertEquals(1, harness.reads)
     }
 
+    @Test fun typedDebugFailureReplacesOldEvidenceAndLeavesCandidateApprovalBlocked() {
+        val harness = Harness()
+        val screen = harness.screen()
+        screen.field(BASE_SHA_HINT).setText(BASE_SHA)
+        screen.field(BASE_RUN).setText("71")
+        screen.button(READ_BASELINE).performClick(); harness.finishWork()
+        harness.debugFailure = BuildFeedback.Failure(BuildFeedback.Stage.WORKFLOW_METADATA, BuildFeedback.Problem.TIMEOUT)
+        screen.button(READ_BASELINE).performClick(); harness.finishWork()
+        assertTrue(screen.output.text.contains("network request timed out"))
+        assertTrue(screen.status.text.contains("Check connectivity"))
+        assertTrue(screen.texts().any { it.contains("Baseline debug feedback: not read") })
+        assertFalse(screen.button(COMPARE).isEnabled); assertFalse(screen.approval.isEnabled)
+    }
+
     @Test fun readyEvidenceStillNeedsExactFingerprintAndExplicitMetadataConfirmation() {
         val harness = Harness()
         val screen = harness.screen()
@@ -247,6 +261,7 @@ class SelfDevelopmentWorkbenchAndroidTest {
         var reads = 0
         var patchBusy = false
         var wrongDebugIdentity = false
+        var debugFailure: BuildFeedback.Failure? = null
         var now = 1_000L
         private val services = SelfDevelopmentWorkbench.Services(
             analyze = { token, goal ->
@@ -258,6 +273,7 @@ class SelfDevelopmentWorkbenchAndroidTest {
             readDebug = { token, branch, sha, run ->
                 assertEquals("", token)
                 reads++
+                debugFailure?.let { throw it }
                 if (wrongDebugIdentity) modeledReport(CANDIDATE_SHA, TASK_BRANCH, 72L, true)
                 else {
                     assertEquals(if (sha == BASE_SHA) BASE_BRANCH else TASK_BRANCH, branch)

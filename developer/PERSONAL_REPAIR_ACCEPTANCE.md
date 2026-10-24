@@ -134,6 +134,35 @@ operations retain their existing result/uncertain-outcome verification flow.
 Repair sessions record PREVIEW_CANCELLED while consuming the attempt. A claimed
 write still records WRITE_UNCERTAIN even if a caller mislabels it as cancellation.
 
+## Safe build-read failure diagnostics
+
+The existing BuildFeedback reader now reports an app-owned phase (discovery,
+workflow/job metadata, identity validation, logs/storage, or report interpretation)
+and a bounded category. Known HTTP statuses, connection/stream errors, socket
+timeouts, invalid formats, response locations and existing evidence/time limits
+are distinguished. Unclassified exceptions remain unknown; no network cause is
+guessed. Validation failures still reject the same product/source/run/attempt
+identities before logs are accepted.
+
+Only fixed enums and a valid HTTP status cross the failure boundary. Original
+messages, causes, suppressed exceptions, response bodies, URLs, signed storage
+locations and credentials are discarded. The UI reconstructs its explanation
+from the typed fields and gives a specific read-only next step; it never renders
+Throwable text. Unknown exceptions retain the existing generic fallback.
+
+Task feedback, private history, bounded repair and supervised development views
+use the same formatter. A remote-read failure does not suggest deleting local
+history. Failed rereads clear prior evidence or baseline/candidate eligibility;
+they create no attempt, source scope, retry or approval. Log-access/limit failures
+still return incomplete reports with safe limitations. Existing successful-report
+fingerprints remain unchanged. No API scope, transport retry, redirect allowance,
+request/byte/deadline budget or production gate is expanded.
+
+This adds diagnostic visibility for future failures. It does not establish the
+cause of the earlier intermittent live-metadata failure that passed an unchanged
+rerun. Repair inputs remain pinned while a read is active, and destroyed views
+discard callbacks.
+
 ## Verification and remaining work
 
 Unit checks cover malformed, duplicate and oversized shares; stale revisions;
@@ -191,7 +220,11 @@ A seventh case uses native preview/cancel controls with a queued modeled worker.
 Cancellation prevents every repository/provider/writer request, releases controls
 only when that worker exits, and restores no approval across recreation. It makes
 no cloud or GitHub request.
-The strict harness requires all seven cases within the unchanged 180-second
+An eighth case drives the actual repair widgets and production feedback client
+through a modeled HTTP 403. It verifies phase/action visibility, an unread error
+body, closed response, no retry or staged repair, and no restored approval after
+recreation. It makes no actual network request.
+The strict harness requires all eight cases within the unchanged 180-second
 deadline and retains instrumentation output. It never calls a live model,
 creates a live repair branch, uses a microphone or installs/publishes a production
 release. Only disposable debug app/test APKs are installed for that test.

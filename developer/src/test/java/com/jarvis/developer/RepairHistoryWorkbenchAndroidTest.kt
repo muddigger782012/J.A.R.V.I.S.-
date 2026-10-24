@@ -53,6 +53,7 @@ class RepairHistoryWorkbenchAndroidTest {
                     assertEquals("simulated-ephemeral-token", authentication)
                     assertEquals(entry, selected)
                     if (mismatch == 4) error("private token and transport content must not be shown")
+                    if (mismatch == 5) throw BuildFeedback.Failure(BuildFeedback.Stage.LOG_STORAGE, BuildFeedback.Problem.HTTP, 403)
                     BuildDiagnostics.parse(if (mismatch == 1) "e".repeat(40) else selected.commitSha,
                         if (mismatch == 2) PatchEngine.taskBranch("other", proposal, target) else selected.branch,
                         23, 1, "completed", "failure", "", if (mismatch == 3) PatchEngine.Target.DEVELOPER else target)
@@ -116,6 +117,21 @@ class RepairHistoryWorkbenchAndroidTest {
                 assertNull(h.current); assertEquals(1, h.reads)
             } finally { h.close() }
         }
+    }
+
+    @Test fun typedRemoteFailureExplainsAccessWithoutSuggestingLocalHistoryDeletionOrRestoringAuthority() {
+        val directory = temporary.newFolder()
+        RepairHistoryStore(directory).save(entry)
+        val h = Harness(directory)
+        try {
+            h.loadAndSelect(); h.mismatch = 5
+            h.button("Recheck selected").performClick(); h.finish()
+            assertTrue(h.text().contains("reading retained log storage"))
+            assertTrue(h.text().contains("Check access to this build"))
+            assertFalse(h.text().contains("clear damaged local history"))
+            assertEquals(listOf(entry), RepairHistoryStore(directory).load())
+            assertNull(h.current); assertEquals(1, h.reads); assertTrue(h.pending.isEmpty())
+        } finally { h.close() }
     }
 
     @Test fun activeOperationIsSerializedAndDestroyedActivityDiscardsItsCallback() {
