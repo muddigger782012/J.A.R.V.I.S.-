@@ -62,7 +62,11 @@ object RepairHistoryWorkbench {
             refresh()
         }
         fun operate(isCurrent: () -> Boolean = { true }, action: () -> String) {
-            if (busy || !begin()) return
+            if (busy) return
+            if (!begin()) {
+                result.text = "Another coding operation is active. Finish it before using repair history; no history request was started."
+                return
+            }
             busy = true
             result.text = "Reading or updating private metadata. No source write or approval is requested."
             refresh()

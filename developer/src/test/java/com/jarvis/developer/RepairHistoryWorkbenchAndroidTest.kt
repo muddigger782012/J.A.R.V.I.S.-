@@ -125,6 +125,7 @@ class RepairHistoryWorkbenchAndroidTest {
         h.loadAndSelect()
         h.permitted = false
         h.button("Recheck selected").performClick(); assertTrue(h.pending.isEmpty())
+        assertTrue(h.text().contains("Another coding operation is active"))
         h.permitted = true
         h.button("Recheck selected").performClick()
         assertFalse(h.button("Recheck selected").isEnabled)
