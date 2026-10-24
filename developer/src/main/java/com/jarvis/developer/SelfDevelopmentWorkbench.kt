@@ -272,6 +272,7 @@ object SelfDevelopmentWorkbench {
                     } else result.fold(onSuccess = {
                         try {
                             BuildDiagnostics.validateReport(it)
+                            require(it.target == PatchEngine.Target.DEVELOPER)
                             require(it.branch == frozen.branch && it.commitSha == frozen.sha &&
                                 (frozen.runId == null || frozen.runId == it.runId))
                             if (baselineRead) baseline = it else candidate = it

@@ -18,7 +18,10 @@ import java.util.TimerTask
 object BuildFeedback {
     private const val REPOSITORY = "muddigger782012/J.A.R.V.I.S.-"
     private const val API = "https://api.github.com/repos/$REPOSITORY"
-    private const val WORKFLOW = ".github/workflows/build-jarvis-developer.yml"
+    private fun workflow(target: PatchEngine.Target): String = when (target) {
+        PatchEngine.Target.DEVELOPER -> "build-jarvis-developer.yml"
+        PatchEngine.Target.PERSONAL -> "local-knowledge-checks.yml"
+    }
     internal const val MAX_REQUESTS = 20
     internal const val MAX_JOBS = 10
     internal const val MAX_MILLIS = 180_000L
@@ -83,8 +86,9 @@ object BuildFeedback {
         }
     }
 
-    fun read(token: String, branch: String, commitSha: String, runId: Long? = null): BuildDiagnostics.Report =
-        Client(http).read(token, branch, commitSha, runId)
+    fun read(token: String, branch: String, commitSha: String, runId: Long? = null,
+        target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): BuildDiagnostics.Report =
+        Client(http).read(token, branch, commitSha, runId, target)
 
     internal class Client(
         private val transport: Transport,
@@ -94,19 +98,20 @@ object BuildFeedback {
         private var requests = 0
         private var receivedBytes = 0
 
-        fun read(token: String, branch: String, commitSha: String, runId: Long? = null): BuildDiagnostics.Report {
-            require(BuildDiagnostics.validBranch(branch) && shaPattern.matches(commitSha)) { "Invalid isolated build source identity" }
+        fun read(token: String, branch: String, commitSha: String, runId: Long? = null,
+            target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): BuildDiagnostics.Report {
+            require(BuildDiagnostics.validBranch(branch, target) && shaPattern.matches(commitSha)) { "Invalid isolated build source identity" }
             require(token.length <= 4096 && token.none { it.isISOControl() }) { "Invalid in-memory GitHub token" }
             require(runId == null || runId > 0) { "Invalid build run identity" }
             try {
-                val selectedId = runId ?: latestRun(token, branch, commitSha)
-                    ?: return BuildDiagnostics.parse(commitSha, branch, 0, 1, "missing", null, "")
+                val selectedId = runId ?: latestRun(token, branch, commitSha, target)
+                    ?: return BuildDiagnostics.parse(commitSha, branch, 0, 1, "missing", null, "", target)
                 val run = json("$API/actions/runs/$selectedId", token)
-                validateRun(run, branch, commitSha, selectedId)
+                validateRun(run, branch, commitSha, selectedId, target)
                 val attempt = positiveInt(run, "run_attempt")
                 val status = run.getString("status")
                 val conclusion = conclusion(run)
-                val empty = BuildDiagnostics.parse(commitSha, branch, selectedId, attempt, status, conclusion, "")
+                val empty = BuildDiagnostics.parse(commitSha, branch, selectedId, attempt, status, conclusion, "", target)
                 // A queued or running job is deliberately not harvested as partial evidence.
                 if (status != "completed") return empty
                 val jobsResponse = json("$API/actions/runs/$selectedId/attempts/$attempt/jobs?per_page=$MAX_JOBS", token)
@@ -136,11 +141,11 @@ object BuildFeedback {
                         logs.append("\n=== Verified build job ").append(id).append(" ===\n").append(text).append('\n')
                     }
                 } catch (failure: Exception) {
-                    val report = BuildDiagnostics.parse(commitSha, branch, selectedId, attempt, status, conclusion, logs.toString())
+                    val report = BuildDiagnostics.parse(commitSha, branch, selectedId, attempt, status, conclusion, logs.toString(), target)
                     val suffix = if (failure is HttpFailure) " (HTTP ${failure.status})" else ""
                     return BuildDiagnostics.incomplete(report, "Build log evidence is incomplete$suffix; no automatic retry was attempted.")
                 }
-                return BuildDiagnostics.parse(commitSha, branch, selectedId, attempt, status, conclusion, logs.toString())
+                return BuildDiagnostics.parse(commitSha, branch, selectedId, attempt, status, conclusion, logs.toString(), target)
             } catch (failure: Exception) {
                 val suffix = if (failure is HttpFailure) " (HTTP ${failure.status})" else ""
                 // Never retain a cause: exceptions may carry signed URLs or credentials.
@@ -148,22 +153,22 @@ object BuildFeedback {
             }
         }
 
-        private fun latestRun(token: String, branch: String, commitSha: String): Long? {
+        private fun latestRun(token: String, branch: String, commitSha: String, target: PatchEngine.Target): Long? {
             val encoded = URLEncoder.encode(branch, "UTF-8")
-            val response = json("$API/actions/workflows/build-jarvis-developer.yml/runs?branch=$encoded&head_sha=$commitSha&per_page=20", token)
+            val response = json("$API/actions/workflows/${workflow(target)}/runs?branch=$encoded&head_sha=$commitSha&per_page=20", token)
             val runs = response.getJSONArray("workflow_runs")
             require(runs.length() <= 20) { "Build run list exceeds requested limit" }
             val matching = (0 until runs.length()).map { runs.getJSONObject(it) }.filter {
-                it.optString("head_sha") == commitSha && it.optString("head_branch") == branch && it.optString("path") == WORKFLOW
+                it.optString("head_sha") == commitSha && it.optString("head_branch") == branch && it.optString("path") == ".github/workflows/${workflow(target)}"
             }
             val selected = matching.maxWithOrNull(compareBy<JSONObject> { positiveLong(it, "run_number") }
                 .thenBy { positiveInt(it, "run_attempt") }) ?: return null
             return positiveLong(selected, "id")
         }
 
-        private fun validateRun(run: JSONObject, branch: String, commitSha: String, id: Long) {
+        private fun validateRun(run: JSONObject, branch: String, commitSha: String, id: Long, target: PatchEngine.Target) {
             require(positiveLong(run, "id") == id && run.getString("head_sha") == commitSha &&
-                run.getString("head_branch") == branch && run.getString("path") == WORKFLOW &&
+                run.getString("head_branch") == branch && run.getString("path") == ".github/workflows/${workflow(target)}" &&
                 run.getJSONObject("repository").getString("full_name") == REPOSITORY &&
                 run.getJSONObject("head_repository").getString("full_name") == REPOSITORY &&
                 run.getString("html_url") == "https://github.com/$REPOSITORY/actions/runs/$id") { "Build run source identity mismatch" }
@@ -257,17 +262,19 @@ object BuildFeedback {
         val fixed = path.matches(Regex("/actions/runs/[1-9][0-9]{0,18}")) ||
             path.matches(Regex("/actions/runs/[1-9][0-9]{0,18}/attempts/[1-9][0-9]{0,9}/jobs\\?per_page=10")) ||
             path.matches(Regex("/actions/jobs/[1-9][0-9]{0,18}/logs"))
-        val prefix = "/actions/workflows/build-jarvis-developer.yml/runs?branch="
-        val list = if (path.startsWith(prefix)) {
-            val query = path.removePrefix(prefix)
-            val branch = query.substringBefore("&head_sha=")
-            val suffix = query.substringAfter("&head_sha=", "")
-            try {
-                BuildDiagnostics.validBranch(java.net.URLDecoder.decode(branch, "UTF-8")) &&
-                    branch == URLEncoder.encode(java.net.URLDecoder.decode(branch, "UTF-8"), "UTF-8") &&
-                    suffix.matches(Regex("[a-f0-9]{40}&per_page=20"))
-            } catch (_: Exception) { false }
-        } else false
+        val list = PatchEngine.Target.values().any { target ->
+            val prefix = "/actions/workflows/${workflow(target)}/runs?branch="
+            if (path.startsWith(prefix)) {
+                val query = path.removePrefix(prefix)
+                val branch = query.substringBefore("&head_sha=")
+                val suffix = query.substringAfter("&head_sha=", "")
+                try {
+                    BuildDiagnostics.validBranch(java.net.URLDecoder.decode(branch, "UTF-8"), target) &&
+                        branch == URLEncoder.encode(java.net.URLDecoder.decode(branch, "UTF-8"), "UTF-8") &&
+                        suffix.matches(Regex("[a-f0-9]{40}&per_page=20"))
+                } catch (_: Exception) { false }
+            } else false
+        }
         require(fixed || list) { "Build operation is outside the read-only feedback API" }
     }
 

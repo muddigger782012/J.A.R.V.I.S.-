@@ -63,6 +63,75 @@ class BuildFeedbackTest {
         error("Unreachable")
     }
 
+    private val personalBranch = "feature/jarvis-personal-repair/diagnostic-012345abcdef"
+    private fun personalList() = "$api/actions/workflows/local-knowledge-checks.yml/runs?branch=${URLEncoder.encode(personalBranch, "UTF-8")}&head_sha=$sha&per_page=20"
+    private fun personalRun() = run().put("head_branch", personalBranch).put("path", ".github/workflows/local-knowledge-checks.yml")
+    private fun personalFixture() = fixture().apply {
+        json(personalList(), JSONObject().put("workflow_runs", JSONArray().put(personalRun())))
+        json(runUrl(), personalRun())
+        reply(logUrl(), "e: app/src/main/java/com/assistant/core/services/Example.kt:8:1 Unresolved reference: objective\n")
+    }
+
+    @Test fun personalDiscoveryUsesOnlyItsOwnExactSourceWorkflowAndReturnsReadOnlyDiagnostics() {
+        val fake = personalFixture()
+        fake.json(personalList(), JSONObject().put("workflow_runs", JSONArray()
+            .put(personalRun().put("id", 99).put("run_number", 99).put("path", ".github/workflows/build-jarvis-developer.yml"))
+            .put(personalRun())))
+        val report = BuildFeedback.Client(fake).read(token, personalBranch, sha, target = PatchEngine.Target.PERSONAL)
+        assertEquals(PatchEngine.Target.PERSONAL, report.target)
+        assertEquals(listOf(personalList(), runUrl(), jobsUrl(), logUrl()), fake.requests.map { it.url })
+        assertEquals("app/src/main/java/com/assistant/core/services/Example.kt", report.diagnostics.single().path)
+        assertFalse(report.evidenceComplete); assertNull(report.totals)
+        assertEquals(4, fake.closed)
+        assertTrue(BuildDiagnostics.render(report).contains("Personal feedback is read-only"))
+    }
+
+    @Test fun personalWrongWorkflowSourceRepositoryOrJobIsRejectedBeforeLogs() {
+        for (mutate in listOf<(JSONObject) -> Unit>(
+            { it.put("path", ".github/workflows/build-jarvis-developer.yml") },
+            { it.put("path", ".github/workflows/release-personal.yml") },
+            { it.put("head_sha", "b".repeat(40)) },
+            { it.put("head_branch", branch) },
+            { it.put("head_repository", JSONObject().put("full_name", "someone/else")) }
+        )) {
+            val fake = personalFixture()
+            fake.json(runUrl(), personalRun().also(mutate))
+            rejected { BuildFeedback.Client(fake).read(token, personalBranch, sha, 17, PatchEngine.Target.PERSONAL) }
+            assertEquals(listOf(runUrl()), fake.requests.map { it.url })
+        }
+        val fake = personalFixture()
+        fake.json(jobsUrl(), jobs(listOf(job().put("head_sha", "b".repeat(40)))))
+        rejected { BuildFeedback.Client(fake).read(token, personalBranch, sha, 17, PatchEngine.Target.PERSONAL) }
+        assertEquals(listOf(runUrl(), jobsUrl()), fake.requests.map { it.url })
+    }
+
+    @Test fun personalLogAccessFailureAndStorageRedirectNeverLeakCredentialsOrInventTests() {
+        val fake = personalFixture()
+        fake.reply(logUrl(), status = 302, location = storage)
+        fake.reply(storage, status = 403)
+        val report = BuildFeedback.Client(fake).read(token, personalBranch, sha, 17, PatchEngine.Target.PERSONAL)
+        assertFalse(report.evidenceComplete); assertTrue(report.tests.isEmpty())
+        assertEquals(PatchEngine.Target.PERSONAL, report.target)
+        assertTrue(report.limitations.any { it.contains("HTTP 403") })
+        assertNull(fake.requests.last().token)
+        assertEquals(4, fake.requests.size)
+        assertFalse(BuildDiagnostics.render(report).contains("transient-only"))
+    }
+
+    @Test fun productScopeIsRequiredBeforeNetworkAndCanonicalListEndpointsCannotCrossProducts() {
+        val fake = personalFixture()
+        try { BuildFeedback.Client(fake).read(token, personalBranch, sha); fail("Explicit Personal product required") }
+        catch (_: IllegalArgumentException) { }
+        assertTrue(fake.requests.isEmpty())
+        BuildFeedback.requireApiUrl(personalList())
+        BuildFeedback.requireApiUrl(listUrl())
+        for (url in listOf(personalList().replace("local-knowledge-checks", "build-jarvis-developer"),
+            listUrl().replace("build-jarvis-developer", "local-knowledge-checks"), personalList() + "&unexpected=true")) {
+            try { BuildFeedback.requireApiUrl(url); fail("Cross-product or expanded query accepted") }
+            catch (_: IllegalArgumentException) { }
+        }
+    }
+
     @Test fun exactRunAndAttemptAreVerifiedBeforeReadingCompletedJobLogs() {
         val fake = fixture()
         val report = BuildFeedback.Client(fake).read(token, branch, sha)

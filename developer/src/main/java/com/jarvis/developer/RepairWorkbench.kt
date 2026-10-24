@@ -211,6 +211,7 @@ object RepairWorkbench {
                     result.fold(onSuccess = { report ->
                         try {
                             BuildDiagnostics.validateReport(report)
+                            require(report.target == PatchEngine.Target.DEVELOPER)
                             require(report.commitSha == frozen.sha && report.branch == frozen.branch)
                             require(frozen.runId == null || report.runId == frozen.runId)
                             if (baselineRead) {

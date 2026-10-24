@@ -32,7 +32,8 @@ class CandidateEvaluationTest {
 
     private fun report(source: String = candidateSha, sourceBranch: String = branch,
         states: List<String> = listOf("passed", "passed"), names: List<String> = states.indices.map { "case$it" },
-        conclusion: String = "success", complete: Boolean = true): BuildDiagnostics.Report {
+        conclusion: String = "success", complete: Boolean = true,
+        target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): BuildDiagnostics.Report {
         val counts = JSONObject().put("tests", states.size).put("failures", states.count { it == "failure" })
             .put("errors", states.count { it == "error" }).put("skipped", states.count { it == "skipped" })
         val suite = "com.jarvis.developer.TaskFileSummaryTest"
@@ -42,7 +43,7 @@ class CandidateEvaluationTest {
             .put("suites", JSONArray().put(JSONObject(counts.toString()).put("name", suite).put("sha256", "4".repeat(64))))
             .put("cases", cases)
         return BuildDiagnostics.parse(source, sourceBranch, 77, 1, "completed", conclusion,
-            if (complete) "JARVIS_JUNIT_SUMMARY=$summary" else "")
+            if (complete) "JARVIS_JUNIT_SUMMARY=$summary" else "", target)
     }
     private fun baseline() = report(controllerSha, "feature/jarvis-developer")
     private fun evidence(json: JSONObject = manifest(), identity: CandidateEvaluation.Expected = expected) =
@@ -59,6 +60,13 @@ class CandidateEvaluationTest {
         try { block(); fail("Expected candidate gate to reject") }
         catch (_: IllegalArgumentException) { }
         catch (_: IllegalStateException) { }
+    }
+
+    @Test fun personalFeedbackCannotBeUsedForDeveloperCandidatePromotion() {
+        val personal = report(sourceBranch = "main", target = PatchEngine.Target.PERSONAL)
+        assertFalse(personal.evidenceComplete)
+        rejected { review(candidate = personal) }
+        rejected { review(baseline = personal) }
     }
 
     @Test fun completeModeledEvidenceCreatesOnlyOneMetadataPromotionRequest() {

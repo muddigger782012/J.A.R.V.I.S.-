@@ -44,6 +44,8 @@ class PatchWorkbenchRecoveryAndroidTest {
         var providers = 0
         var writes = 0
         var inspections = 0
+        var feedbacks = 0
+        var wrongFeedback = 0
         var found = true
         var wrongOutcome = false
         var healthy = true
@@ -79,6 +81,13 @@ class PatchWorkbenchRecoveryAndroidTest {
                     }
                 },
                 ci = { _, _ -> error("CI must remain an explicit later action") },
+                feedback = { _, result ->
+                    feedbacks++
+                    BuildDiagnostics.parse(if (wrongFeedback == 2) "e".repeat(40) else result.commitSha,
+                        if (wrongFeedback == 1) "feature/jarvis-developer" else result.branch, 23, 1, "completed", "failure",
+                        "e: $path:2:1 Unresolved reference: objective\n",
+                        if (wrongFeedback == 1) PatchEngine.Target.DEVELOPER else result.target)
+                },
                 worker = { pending.add(it) }
             )
             handle = PatchWorkbench.attach(activity, root, task,
@@ -175,6 +184,50 @@ class PatchWorkbenchRecoveryAndroidTest {
             h.healthy = true; h.button("Create task branch").performClick(); h.finish()
             h.token.setText(""); h.button("Verify interrupted").performClick()
             assertTrue(h.pending.isEmpty()); assertEquals(0, h.inspections); assertEquals(1, h.writes)
+        } finally { h.close() }
+    }
+
+    @Test fun personalFailureDetailsAreExplicitReadOnlyAndCannotRestoreApprovalOrInventTestSuccess() {
+        val h = Harness()
+        try {
+            h.interrupted(); h.button("Verify interrupted").performClick(); h.finish()
+            assertEquals(0, h.feedbacks)
+            h.button("Read exact task build").performClick(); h.finish()
+            assertEquals(1, h.feedbacks); assertEquals(1, h.providers); assertEquals(1, h.writes)
+            assertTrue(h.output.text.contains("Product: Personal Jarvis"))
+            assertTrue(h.output.text.contains("Unresolved reference; check imports"))
+            assertTrue(h.output.text.contains("No complete JUnit summary"))
+            assertTrue(h.output.text.contains("Evidence: incomplete"))
+            assertFalse(h.approval.isChecked); assertFalse(h.approval.isEnabled)
+            assertTrue(h.pending.isEmpty())
+        } finally { h.close() }
+    }
+
+    @Test fun feedbackForAnotherProductOrCommitCannotBeDisplayedAsTheTaskDiagnosis() {
+        for (wrong in listOf(1, 2)) {
+            val h = Harness()
+            try {
+                h.interrupted(); h.button("Verify interrupted").performClick(); h.finish()
+                h.wrongFeedback = wrong
+                h.button("Read exact task build").performClick(); h.finish()
+                assertTrue(h.status.text.contains("remain unverified"))
+                assertFalse(h.output.text.contains("Unresolved reference; check imports"))
+                assertFalse(h.approval.isEnabled); assertEquals(1, h.writes)
+            } finally { h.close() }
+        }
+    }
+
+    @Test fun feedbackConsumesNewerPreviewApprovalAndDestroyedViewsDiscardItsCallback() {
+        val h = Harness()
+        try {
+            h.interrupted(); h.button("Verify interrupted").performClick(); h.finish()
+            h.model.setText("gpt-4.1"); h.preview(); h.approval.isChecked = true
+            assertTrue(h.button("Create task branch").isEnabled)
+            h.button("Read exact task build").performClick()
+            assertFalse(h.approval.isChecked); assertFalse(h.approval.isEnabled)
+            h.close(); h.finish()
+            assertFalse(h.output.text.contains("Unresolved reference; check imports"))
+            assertEquals(1, h.writes)
         } finally { h.close() }
     }
 

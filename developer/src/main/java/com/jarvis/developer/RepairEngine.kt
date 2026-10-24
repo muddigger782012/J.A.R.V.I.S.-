@@ -110,6 +110,7 @@ object RepairEngine {
         require(maxAttempts in 1..2) { "Repair budget must be one or two attempts" }
         require(nowMillis >= 0 && nowMillis <= Long.MAX_VALUE - MAX_DURATION) { "Invalid repair start time" }
         BuildDiagnostics.validateReport(baseline)
+        require(baseline.target == PatchEngine.Target.DEVELOPER) { "Personal feedback cannot authorize a Developer repair session" }
         require(success(baseline)) { "A completed passing baseline with complete nonempty test evidence is required" }
         safeMetadata(baseline.branch)
         val gate = Gate(nowMillis)
@@ -129,6 +130,7 @@ object RepairEngine {
         require(session.attempts.lastOrNull()?.outcome !in setOf("PREPARING", "AWAITING_CI")) { "Finish the current repair before preparing another" }
         check(session.attempts.size < session.maxAttempts) { "Repair attempt budget is exhausted" }
         BuildDiagnostics.validateReport(failedReport)
+        require(failedReport.target == PatchEngine.Target.DEVELOPER) { "Personal feedback cannot prepare a Developer repair attempt" }
         safeMetadata(failedReport.branch)
         if (session.retryFingerprint != null && session.retryFingerprint != failedReport.fingerprint) {
             stop(session, "Repair feedback changed; start a new explicitly reviewed session")
@@ -191,7 +193,7 @@ object RepairEngine {
         val attempt = requireNotNull(session.attempts.lastOrNull()) { "There is no committed repair awaiting CI" }
         require(attempt.outcome == "AWAITING_CI") { "There is no committed repair awaiting CI" }
         BuildDiagnostics.validateReport(report)
-        if (report.commitSha != attempt.commitSha || report.branch != attempt.branch) {
+        if (report.target != PatchEngine.Target.DEVELOPER || report.commitSha != attempt.commitSha || report.branch != attempt.branch) {
             session.gate.stopped = "CI evidence does not match the exact repair commit and branch"
             return@synchronized Assessment(session, false, false, session.stopReason!!)
         }

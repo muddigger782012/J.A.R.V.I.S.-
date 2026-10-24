@@ -34,6 +34,14 @@ general shell executor, automatic repair service or release authority.
    status action selects Personal's workflow and exact task commit. No PR or
    workflow dispatch is automatic. Merge, publication and installation require
    separate owner decisions.
+8. Explicitly read exact task build diagnostics to inspect Personal's own
+   workflow, pinned head, attempt and complete job inventory. The existing GET
+   reader supplies only fixed Personal error categories, normalized source
+   locations and anonymous failed/skipped test references. Raw messages, source
+   excerpts, log test names and supplied JUnit inventories are omitted. Missing,
+   inaccessible or oversized logs remain explicitly incomplete; workflow status
+   never becomes an attested test inventory or approval. No model request, retry
+   or repair starts automatically.
 
 ## Boundaries
 
@@ -60,6 +68,11 @@ Outcome verification also invalidates any newer diff approval. It keeps the
 interrupted proposal in memory only; after recreation, inspect the recorded task
 branch manually and generate a fresh review for any separate writing attempt.
 No unreferenced objects or branches are automatically deleted or rolled back.
+Personal feedback has a separate product integrity domain. Default Developer
+branch and historical fingerprint behavior remain unchanged. Personal feedback
+cannot start/prepare a Developer repair or authorize Developer candidate
+promotion, even if a caller supplies a success conclusion. A read invalidates any
+newer diff approval; destroyed activities discard its callbacks.
 
 These validators are engineering safeguards, not a hostile-code sandbox or a
 comprehensive semantic security audit. Human diff review and existing CI, signing,
@@ -72,6 +85,10 @@ forged blobs; changed proposals and products; package/path boundaries; protected
 controllers; preservation of existing tests; new tests; and product-specific
 publisher, comparison URL and CI attribution. Publisher transports are modeled;
 the production validator and whole-tree creation contract run without live keys.
+Personal CI tests cover explicit product/workflow/source/repository/job binding,
+GET-only discovery, inaccessible logs, storage credential stripping, report
+privacy, anonymous case references and rejection at Developer write/promotion
+boundaries. No supplied Personal log inventory is treated as complete evidence.
 Interrupted-response cases cover both products, source movement, missing or
 inaccessible branches, changed preimages/modes, extra changes, wrong parents or
 audit identity, truncated trees, changed ref readback and mutated proposals.
@@ -91,9 +108,13 @@ disabled, rejects protected shares before networking and checks recreation.
 Those three cases perform no provider call or diff approval. A fourth Android
 case runs the complete review/approval/interrupted-response/recovery widget flow
 with explicitly modeled provider and writer responses; it verifies that recovery
-makes no second write and leaves CI unchecked and approval consumed. Its internal
+makes no second write, then requires an explicit read-only failure diagnosis and
+keeps approval consumed. A fifth case reads actual public metadata for an
+immutable completed Personal workflow. Protected/expired logs may be unavailable;
+it verifies the source and product without inventing complete test evidence.
+Its internal
 test injection is unavailable to production callers and intent extras.
-The strict harness requires all four cases within the unchanged 180-second
+The strict harness requires all five cases within the unchanged 180-second
 deadline and retains instrumentation output. It never calls a live model,
 creates a live repair branch, uses a microphone or installs/publishes a production
 release. Only disposable debug app/test APKs are installed for that test.

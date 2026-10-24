@@ -18,7 +18,8 @@ class RepairEngineTest {
 
     private fun report(
         commit: String = a, branch: String = base, conclusion: String? = "success",
-        cases: Map<String, String>? = passed, log: String = "", status: String = "completed", run: Long = 1
+        cases: Map<String, String>? = passed, log: String = "", status: String = "completed", run: Long = 1,
+        target: PatchEngine.Target = PatchEngine.Target.DEVELOPER
     ): BuildDiagnostics.Report {
         var text = log
         if (cases != null) {
@@ -31,7 +32,7 @@ class RepairEngineTest {
                 .put("cases", JSONArray(cases.map { (name, state) -> JSONObject().put("suite", "FixtureSuite").put("name", name).put("result", state) }))
             text += "\nJARVIS_JUNIT_SUMMARY=$summary\n"
         }
-        return BuildDiagnostics.parse(commit, branch, run, 1, status, conclusion, text)
+        return BuildDiagnostics.parse(commit, branch, run, 1, status, conclusion, text, target)
     }
 
     private fun compiler(commit: String = a, branch: String = base, message: String = "Unresolved reference: broken", source: String = path) =
@@ -73,6 +74,17 @@ class RepairEngineTest {
         catch (error: IllegalArgumentException) { return error }
         catch (error: IllegalStateException) { return error }
         throw AssertionError("Expected rejection")
+    }
+
+    @Test fun personalFeedbackCannotStartOrPrepareADeveloperRepair() {
+        val personal = report(branch = "main", target = PatchEngine.Target.PERSONAL)
+        assertFalse(personal.evidenceComplete)
+        assertTrue(rejects { RepairEngine.start("fixture", listOf(path), personal, nowMillis = 1_000) }.message!!.contains("Personal"))
+        val session = start()
+        val failed = report(branch = "main", conclusion = "failure", cases = null,
+            log = "e: app/src/main/java/com/assistant/core/services/Example.kt:8:1 Broken", target = PatchEngine.Target.PERSONAL)
+        rejects { RepairEngine.prepare(session, failed, "Repair the scoped failure", 1_001) }
+        assertTrue(session.attempts.isEmpty())
     }
 
     @Test fun baselineRequiresCompletePassingNonemptyTests() {

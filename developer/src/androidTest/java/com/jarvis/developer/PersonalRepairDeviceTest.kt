@@ -23,7 +23,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 
-/** Disposable CI emulator: public source GETs plus a modeled repair/recovery interaction. No live writer/key. */
+/** Disposable CI emulator: public source/CI GETs plus a modeled repair/recovery interaction. No live writer/key. */
 @RunWith(AndroidJUnit4::class)
 class PersonalRepairDeviceTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
@@ -117,6 +117,7 @@ class PersonalRepairDeviceTest {
                 var providerCalls = 0
                 var writes = 0
                 var inspections = 0
+                var feedbackCalls = 0
                 val output = TextView(activity)
                 val status = TextView(activity)
                 val provider = Spinner(activity).apply {
@@ -146,6 +147,11 @@ class PersonalRepairDeviceTest {
                         }
                     },
                     ci = { _, _ -> error("CI must be explicitly requested later") },
+                    feedback = { _, result ->
+                        feedbackCalls++
+                        BuildDiagnostics.parse(result.commitSha, result.branch, 23, 1, "completed", "failure",
+                            "e: $file:2:1 Unresolved reference: objective\n", result.target)
+                    },
                     worker = { it() }
                 )
                 val handle = PatchWorkbench.attach(activity, root, EditText(activity),
@@ -168,8 +174,31 @@ class PersonalRepairDeviceTest {
                 assertFalse(approval.isChecked); assertFalse(approval.isEnabled)
                 assertTrue(button(activity, "Check CI for this exact task commit (read-only)").isEnabled)
                 assertTrue(output.text.contains("CI not checked. Approval remains consumed."))
+                assertEquals(0, feedbackCalls)
+                button(activity, "Read exact task build diagnostics (GET only)").performClick()
+                assertEquals(1, feedbackCalls); assertEquals(1, providerCalls); assertEquals(1, writes)
+                assertTrue(output.text.contains("Product: Personal Jarvis"))
+                assertTrue(output.text.contains("Unresolved reference; check imports"))
+                assertTrue(output.text.contains("Evidence: incomplete"))
+                assertFalse(approval.isChecked); assertFalse(approval.isEnabled)
             }
         }
+    }
+
+    @Test fun publicPersonalCiMetadataIsVerifiedWithoutInventingCompleteTestEvidence() {
+        // An immutable completed Personal run; public metadata may outlive protected/expired logs.
+        val sha = "ede9c4c8c0498e9bec15a6f09bd409600d6be79a"
+        val report = BuildFeedback.read("", "feature/self-diagnostics-phase5-readonly", sha,
+            39978603584L, PatchEngine.Target.PERSONAL)
+        assertEquals(sha, report.commitSha)
+        assertEquals(39978603584L, report.runId)
+        assertEquals(PatchEngine.Target.PERSONAL, report.target)
+        assertEquals("completed", report.status)
+        assertEquals("success", report.conclusion)
+        // This Personal workflow has no source-bound JUnit inventory. Never upgrade its metadata.
+        assertFalse(report.evidenceComplete)
+        assertTrue(report.limitations.any { it.contains("No complete JUnit summary") })
+        assertTrue(BuildDiagnostics.render(report).contains("Personal feedback is read-only"))
     }
     companion object {
         private const val READ = "Read Personal diagnostic source (GET only)"

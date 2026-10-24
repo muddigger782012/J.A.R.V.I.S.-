@@ -27,6 +27,9 @@ object PatchWorkbench {
         val commit: (String, PatchEngine.ApprovedProposal) -> PatchPublisher.CommitResult = PatchPublisher::commit,
         val inspectOutcome: (String, PatchEngine.Proposal) -> PatchPublisher.CommitResult? = PatchPublisher::inspectOutcome,
         val ci: (String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus = PatchPublisher::ci,
+        val feedback: (String, PatchPublisher.CommitResult) -> BuildDiagnostics.Report = { token, result ->
+            BuildFeedback.read(token, result.branch, result.commitSha, target = result.target)
+        },
         val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit }
     )
 
@@ -123,6 +126,11 @@ object PatchWorkbench {
             isEnabled = false
         }
         root.addView(ci)
+        val feedback = Button(context).apply {
+            text = "Read exact task build diagnostics (GET only)"
+            isEnabled = false
+        }
+        root.addView(feedback)
         val openReview = Button(context).apply {
             text = "Open task branch for pull request review"
             isEnabled = false
@@ -174,6 +182,7 @@ object PatchWorkbench {
             commit.isEnabled = !busy && exact && approve.isChecked
             inspectOutcome.isEnabled = !busy && interruptedAttempt != null
             ci.isEnabled = !busy && lastCommit != null
+            feedback.isEnabled = !busy && lastCommit != null
             openReview.isEnabled = !busy && lastCommit != null
         }
         fun invalidate() {
@@ -491,6 +500,44 @@ object PatchWorkbench {
                         if (alive()) {
                             review.text = "The interrupted branch could not be verified against its exact approved source, parent, audit identity and complete file tree. Its outcome remains unverified. No write was retried, approval restored or rollback assumed. Inspect GitHub manually before a separate task."
                             status.text = "Interrupted commit outcome remains unverified; no write attempted"
+                        }
+                    }
+                } finally {
+                    activity.runOnUiThread { if (alive()) { busy = false; refresh() } }
+                }
+            }
+        }
+
+        feedback.setOnClickListener {
+            val result = lastCommit ?: return@setOnClickListener
+            if (busy) return@setOnClickListener
+            failRepair(activeRepair, "approval")
+            invalidate()
+            val token = githubToken.text.toString().trim()
+            busy = true
+            refresh()
+            status.text = "Reading bounded build diagnostics for the exact task commit; no repair is started"
+            services.worker {
+                try {
+                    val report = services.feedback(token, result)
+                    BuildDiagnostics.validateReport(report)
+                    require(report.target == result.target && report.branch == result.branch && report.commitSha == result.commitSha)
+                    val rendered = BuildDiagnostics.render(report)
+                    activity.runOnUiThread {
+                        if (alive()) {
+                            review.text = commitAudit(result) + "\n\n" + rendered +
+                                "\n\nComplete approved diff:\n" + result.diff +
+                                "\n\nDiagnostics do not approve changes or start a repair. Generate and review a fresh exact diff before any separate writing attempt."
+                            output.text = commitAudit(result) + "\n" + rendered
+                            status.text = "Exact task build diagnostics ready; review evidence limits before proceeding"
+                        }
+                    }
+                } catch (_: Exception) {
+                    activity.runOnUiThread {
+                        if (alive()) {
+                            review.text = renderCommit(result, null) +
+                                "\n\nBuild diagnostics could not be verified for this product, branch and exact commit. Check GitHub access and retained logs; no repair, provider call or write was started."
+                            status.text = "Exact task build diagnostics remain unverified"
                         }
                     }
                 } finally {
