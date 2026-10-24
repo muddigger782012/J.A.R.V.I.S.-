@@ -12,6 +12,26 @@ import java.util.Base64
 /** Network-free contract tests: the fixture has no write operation and keeps every requested URL. */
 class RepositoryIntelligenceTest {
 
+    @Test fun cancelledPreviewReadsNeverStartAGitHubRequest() {
+        val cancellation = PatchPreviewCancellation { it() }.apply { cancel() }
+        val fake = fixture()
+        fails { RepositoryIntelligence.Reader(fake, cancellation).inventory("") }
+        assertTrue(fake.requests.isEmpty())
+    }
+
+    @Test fun cancellationWhileARepositoryResponseArrivesStopsBeforeTheNextRequest() {
+        val cancellation = PatchPreviewCancellation { it() }
+        var gets = 0
+        var closes = 0
+        val transport = RepositoryIntelligence.GetTransport { url, _ ->
+            gets++
+            cancellation.cancel()
+            RepositoryIntelligence.GetResponse(200, 2, url, ByteArrayInputStream("{}".toByteArray())) { closes++ }
+        }
+        fails { RepositoryIntelligence.Reader(transport, cancellation).inventory("") }
+        assertEquals(1, gets); assertEquals(1, closes)
+    }
+
     private fun followUpResult(personalPath: String): PatchPublisher.CommitResult {
         val id = "c".repeat(64)
         return PatchPublisher.CommitResult("failed-review", "Fixture", "review-only", id, listOf(personalPath),

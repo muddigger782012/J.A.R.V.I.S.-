@@ -115,6 +115,25 @@ These validators are engineering safeguards, not a hostile-code sandbox or a
 comprehensive semantic security audit. Human diff review and existing CI, signing,
 backup, recovery, promotion and installation controls remain necessary.
 
+## Preview cancellation
+
+Cancel source / proposal preview stops the current coding preview before a source
+write is authorized. It signals immediately, closes active repository/provider
+connections and response streams off Android's main thread, and checks the signal
+before each source/provider phase and after responses. A provider request may
+already have been sent and cannot be recalled. The current worker retains its
+operation slot until it exits, so repeated cancellation cannot accumulate new
+parallel preview requests. Existing request, byte and time budgets still apply;
+there is no automatic retry, provider switch or budget refund.
+
+Changed preview inputs and Activity destruction also signal cancellation. Pending
+and late results cannot populate the review, re-enable approval or overwrite a
+newer operation. A fresh completed preview still needs explicit exact-diff
+approval. The control applies only to the source/proposal preview; approved commit
+operations retain their existing result/uncertain-outcome verification flow.
+Repair sessions record PREVIEW_CANCELLED while consuming the attempt. A claimed
+write still records WRITE_UNCERTAIN even if a caller mislabels it as cancellation.
+
 ## Verification and remaining work
 
 Unit checks cover malformed, duplicate and oversized shares; stale revisions;
@@ -168,7 +187,11 @@ A sixth case uses the actual private filesystem and native history controls to
 load an explicitly modeled saved reference, choose it, recreate the Activity and
 verify that neither coding scope nor approval nor selection is restored. It makes
 no provider, writer or build request.
-The strict harness requires all six cases within the unchanged 180-second
+A seventh case uses native preview/cancel controls with a queued modeled worker.
+Cancellation prevents every repository/provider/writer request, releases controls
+only when that worker exits, and restores no approval across recreation. It makes
+no cloud or GitHub request.
+The strict harness requires all seven cases within the unchanged 180-second
 deadline and retains instrumentation output. It never calls a live model,
 creates a live repair branch, uses a microphone or installs/publishes a production
 release. Only disposable debug app/test APKs are installed for that test.

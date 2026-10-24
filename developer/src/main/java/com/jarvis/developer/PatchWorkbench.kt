@@ -22,9 +22,9 @@ import kotlin.concurrent.thread
 object PatchWorkbench {
     /** Test-only injection is internal; production callers always use the existing bounded engines. */
     internal class Services(
-        val inventory: (String, String, PatchEngine.Target) -> RepositoryAnalysis.Inventory = RepositoryIntelligence::inventory,
-        val readSource: (String, RepositoryAnalysis.Inventory, String) -> String = RepositoryIntelligence::readSource,
-        val propose: (String, PatchEngine.Request) -> PatchEngine.Proposal = PatchModel::propose,
+        val inventory: (String, String, PatchEngine.Target, PatchPreviewCancellation) -> RepositoryAnalysis.Inventory = RepositoryIntelligence::inventory,
+        val readSource: (String, RepositoryAnalysis.Inventory, String, PatchPreviewCancellation) -> String = RepositoryIntelligence::readSource,
+        val propose: (String, PatchEngine.Request, PatchPreviewCancellation) -> PatchEngine.Proposal = PatchModel::propose,
         val commit: (String, PatchEngine.ApprovedProposal) -> PatchPublisher.CommitResult = PatchPublisher::commit,
         val inspectOutcome: (String, PatchEngine.Proposal) -> PatchPublisher.CommitResult? = PatchPublisher::inspectOutcome,
         val ci: (String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus = PatchPublisher::ci,
@@ -47,7 +47,8 @@ object PatchWorkbench {
         private val prepareAction: (String, String, List<String>, String, String) -> Boolean,
         private val repairAction: (RepairEngine.Ticket, RepairObserver) -> Boolean,
         private val invalidateAction: () -> Boolean,
-        private val personalAction: (PersonalRepair.Review) -> Boolean = { false }
+        private val personalAction: (PersonalRepair.Review) -> Boolean = { false },
+        private val cancelPreviewAction: () -> Unit = {}
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
@@ -55,6 +56,7 @@ object PatchWorkbench {
         fun prepareRepair(ticket: RepairEngine.Ticket, observer: RepairObserver): Boolean = repairAction(ticket, observer)
         fun invalidate(): Boolean = invalidateAction()
         fun preparePersonal(review: PersonalRepair.Review): Boolean = personalAction(review)
+        fun cancelPreview() = cancelPreviewAction()
     }
 
     fun attach(
@@ -104,6 +106,11 @@ object PatchWorkbench {
         root.addView(manual)
         val preview = Button(context).apply { text = "Generate scoped multi-file diff preview" }
         root.addView(preview)
+        val cancelPreview = Button(context).apply {
+            text = "Cancel source / proposal preview"
+            isEnabled = false
+        }
+        root.addView(cancelPreview)
         val review = TextView(context).apply {
             setTextIsSelectable(true)
             text = "A complete diff, immutable base SHA and proposal fingerprint will appear here for review. GitHub source reads can use public access; creating a task branch requires your in-memory GitHub token."
@@ -156,6 +163,7 @@ object PatchWorkbench {
         root.addView(openReview)
 
         var busy = false
+        var activePreview: PatchPreviewCancellation? = null
         var revision = 0L
         var plannedBaseCommitSha: String? = null
         var plannedBaseBranch = "feature/jarvis-developer"
@@ -200,6 +208,7 @@ object PatchWorkbench {
         fun refresh() {
             val exact = current()
             preview.isEnabled = !busy
+            cancelPreview.isEnabled = busy && activePreview?.isCancelled == false
             manual.isEnabled = !busy && plannedBaseCommitSha != null
             approve.isEnabled = !busy && exact
             commit.isEnabled = !busy && exact && approve.isChecked
@@ -212,6 +221,7 @@ object PatchWorkbench {
             openReview.isEnabled = !busy && lastCommit != null
         }
         fun invalidate() {
+            activePreview?.cancel()
             revision++
             val hadPreview = proposal != null
             proposal = null
@@ -247,6 +257,16 @@ object PatchWorkbench {
                 status.text = "Repair audit unavailable; stop and review the session manually."
             }
         }
+        fun stopPreview() {
+            val pending = activePreview ?: return
+            pending.cancel()
+            failRepair(activeRepair, "cancelled")
+            invalidate()
+            review.text = "Preview cancellation requested. Active connections are closing and late results will be discarded. A provider request may already have reached the selected provider. No repository write was requested."
+            status.text = "Cancelling preview; waiting for its bounded request to close"
+            refresh()
+        }
+        cancelPreview.setOnClickListener { stopPreview() }
         fun inputChanges(changesScope: Boolean) = object : TextWatcher {
             override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
@@ -317,6 +337,7 @@ object PatchWorkbench {
         }
 
         preview.setOnClickListener {
+            if (busy) return@setOnClickListener
             val frozen = metadata()
             val key = aiKey.text.toString().trim()
             val token = githubToken.text.toString().trim()
@@ -352,6 +373,8 @@ object PatchWorkbench {
             }
             invalidate()
             val startedRevision = revision
+            val cancellation = PatchPreviewCancellation()
+            activePreview = cancellation
             busy = true
             refresh()
             review.text = "Reading only the explicit source scope at one immutable commit, then requesting a reviewable diff…"
@@ -359,7 +382,9 @@ object PatchWorkbench {
             services.worker {
                 var stage = "pinned repository inventory"
                 try {
-                    val inventory = services.inventory(token, frozen.baseBranch, frozen.target)
+                    cancellation.check()
+                    val inventory = services.inventory(token, frozen.baseBranch, frozen.target, cancellation)
+                    cancellation.check()
                     if (frozen.expectedBaseCommitSha != null &&
                         inventory.commitSha != frozen.expectedBaseCommitSha) {
                         stage = "queued source revision change"
@@ -368,23 +393,30 @@ object PatchWorkbench {
                     stage = "explicit source retrieval"
                     val indexed = inventory.files.associateBy { it.path }
                     val sources = frozen.allowedPaths.map { path ->
+                        cancellation.check()
                         val source = indexed[path]
                         if (source == null) PatchEngine.SourceFile(path, null, null)
                         else PatchEngine.SourceFile(path, source.sha,
-                            services.readSource(token, inventory, path))
+                            services.readSource(token, inventory, path, cancellation)).also { cancellation.check() }
                     }
                     val request = PatchEngine.Request(frozen.taskId, frozen.task, inventory.commitSha,
                         frozen.allowedPaths, sources, frozen.provider, frozen.model, frozen.baseBranch, frozen.target)
                     stage = "source scope validation"
                     PatchEngine.validateRequest(request)
                     stage = "selected AI provider proposal"
-                    val generated = services.propose(key, request)
+                    cancellation.check()
+                    val generated = services.propose(key, request, cancellation)
+                    cancellation.check()
                     stage = "complete diff validation"
                     PatchEngine.revalidate(generated)
                     val report = renderProposal(generated, frozen.fingerprint)
                     activity.runOnUiThread {
                         if (alive()) {
-                            if (revision != startedRevision || metadata() != frozen) {
+                            if (cancellation.isCancelled) {
+                                review.text = "Preview cancelled. Its result was discarded; generate and review a new diff before any write."
+                                status.text = "Preview cancelled; no repository write requested"
+                                failRepair(repair, "cancelled")
+                            } else if (revision != startedRevision || metadata() != frozen) {
                                 review.text = "The preview completed after its task, provider, model or source scope changed. Its result was discarded; generate a new preview."
                                 status.text = "Stale preview discarded; no repository write requested"
                                 failRepair(repair, "preview")
@@ -406,7 +438,10 @@ object PatchWorkbench {
                     val failedStage = stage
                     activity.runOnUiThread {
                         if (alive()) {
-                            if (revision != startedRevision || metadata() != frozen) {
+                            if (cancellation.isCancelled) {
+                                review.text = "Preview cancelled. Its result was discarded; generate and review a new diff before any write. A provider request already sent cannot be recalled."
+                                status.text = "Preview cancelled; no repository write requested"
+                            } else if (revision != startedRevision || metadata() != frozen) {
                                 review.text = "The task or source scope changed while previewing. Generate a fresh preview."
                                 status.text = "Stale preview discarded"
                             } else {
@@ -420,12 +455,16 @@ object PatchWorkbench {
                                 "complete diff validation" -> "preview"
                                 else -> "source"
                             }
-                            failRepair(repair, outcome)
+                            failRepair(repair, if (cancellation.isCancelled) "cancelled" else outcome)
                         }
                     }
                 } finally {
                     activity.runOnUiThread {
-                        if (alive()) { busy = false; refresh() }
+                        if (alive() && activePreview === cancellation) {
+                            activePreview = null
+                            busy = false
+                            refresh()
+                        }
                     }
                 }
             }
@@ -772,7 +811,7 @@ object PatchWorkbench {
                 PersonalRepair.validate(selected)
                 prepareInputs(selected.taskId, selected.task, selected.scope, selected.sourceSha, selected.branch, PatchEngine.Target.PERSONAL)
             } catch (_: Exception) { false }
-        })
+        }, cancelPreviewAction = ::stopPreview)
     }
 
     private data class Metadata(

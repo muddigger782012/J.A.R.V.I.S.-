@@ -7,6 +7,27 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RepairEngineTest {
+
+    @Test fun cancelledPreviewIsRecordedAccuratelyAndNeverRefundsItsAttemptOrReusesItsTicket() {
+        val prepared = RepairEngine.prepare(start(), compiler(), "Fix failure", 1_001)
+        prepared.ticket.claimPreview(1_002)
+        val next = RepairEngine.recordFailure(prepared.session, prepared.ticket, "cancelled", 1_003)
+        assertEquals("PREVIEW_CANCELLED", next.attempts.single().outcome)
+        assertEquals(1, next.attempts.size)
+        rejects { prepared.ticket.claimPreview(1_004) }
+        val second = RepairEngine.prepare(next, compiler(), "Explicit fresh attempt", 1_005)
+        assertEquals(2, second.session.attempts.size)
+    }
+
+    @Test fun cancellationCannotDisguiseAClaimedWriteAsAnUnstartedPreview() {
+        val prepared = RepairEngine.prepare(start(), compiler(), "Fix failure", 1_001)
+        prepared.ticket.claimPreview(1_002)
+        val patch = proposal(prepared.ticket)
+        prepared.ticket.claimCommit(PatchEngine.approve(patch, patch.id), 1_003)
+        val stopped = RepairEngine.recordFailure(prepared.session, prepared.ticket, "cancelled", 1_004)
+        assertEquals("WRITE_UNCERTAIN", stopped.attempts.single().outcome)
+        assertTrue(stopped.stopReason!!.contains("uncertain"))
+    }
     private val base = "feature/jarvis-developer"
     private val path = "developer/src/main/java/com/jarvis/developer/CountFixture.kt"
     private val testPath = "developer/src/test/java/com/jarvis/developer/CountFixtureTest.kt"

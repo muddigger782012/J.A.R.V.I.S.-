@@ -174,14 +174,15 @@ object RepairEngine {
     fun recordFailure(session: Session, ticket: Ticket, stage: String, nowMillis: Long): Session = synchronized(session.gate) {
         current(session)
         requireTicket(session, ticket)
-        require(stage in setOf("source", "preview", "provider", "approval", "commit")) { "Unknown repair failure stage" }
+        require(stage in setOf("source", "preview", "provider", "approval", "commit", "cancelled")) { "Unknown repair failure stage" }
         // Once write approval was claimed, a caller cannot disguise uncertain writes as a read failure.
         val uncertain = ticket.commitClaimed || stage == "commit"
         ticket.closed = true
         time(session.gate, session.deadlineAtMillis, nowMillis)
         if (uncertain) session.gate.stopped = "Repair write failed or has uncertain outcome; inspect the branch manually"
         else if (session.attempts.size >= session.maxAttempts) session.gate.stopped = "Repair attempt budget is exhausted"
-        val outcome = if (uncertain) "WRITE_UNCERTAIN" else "${stage.uppercase(java.util.Locale.ROOT)}_FAILED"
+        val outcome = if (uncertain) "WRITE_UNCERTAIN" else if (stage == "cancelled") "PREVIEW_CANCELLED"
+            else "${stage.uppercase(java.util.Locale.ROOT)}_FAILED"
         val attempt = session.attempts.last().copy(proposalId = ticket.approved?.id, outcome = outcome)
         next(session, session.attempts.dropLast(1) + attempt, session.retryFingerprint)
     }

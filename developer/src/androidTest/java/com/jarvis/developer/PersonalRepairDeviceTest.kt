@@ -178,15 +178,15 @@ class PersonalRepairDeviceTest {
                     adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, listOf("OpenAI"))
                 }
                 val services = PatchWorkbench.Services(
-                    inventory = { _, branch, target ->
+                    inventory = { _, branch, target, _ ->
                         assertEquals(PatchEngine.Target.PERSONAL, target)
                         if (branch == "main") inventory else { assertEquals(failedBranch, branch); failedInventory }
                     },
-                    readSource = { _, snapshot, selected ->
+                    readSource = { _, snapshot, selected, _ ->
                         assertEquals(file, selected)
                         if (snapshot.commitSha == sha) source else failedSource
                     },
-                    propose = { _, request ->
+                    propose = { _, request, _ ->
                         providerCalls++
                         val before = request.sources.single().content!!
                         val after = if (before.contains("false")) before.replace("false", "true")
@@ -282,6 +282,50 @@ class PersonalRepairDeviceTest {
         assertFalse(report.evidenceComplete)
         assertTrue(report.limitations.any { it.contains("No complete JUnit summary") })
         assertTrue(BuildDiagnostics.render(report).contains("Personal feedback is read-only"))
+    }
+
+    @Test fun previewCancellationStopsQueuedRequestsAndRestoresNoWriteApproval() {
+        var reads = 0
+        var providers = 0
+        var writes = 0
+        val pending = java.util.ArrayDeque<() -> Unit>()
+        ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
+            scenario.onActivity { activity ->
+                val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+                activity.setContentView(root)
+                val provider = Spinner(activity).apply {
+                    adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, listOf("OpenAI"))
+                }
+                val status = TextView(activity)
+                val services = PatchWorkbench.Services(
+                    inventory = { _, _, _, _ -> reads++; error("Cancelled read must never start") },
+                    readSource = { _, _, _, _ -> reads++; error("Cancelled source request must never start") },
+                    propose = { _, _, _ -> providers++; error("Cancelled provider request must never start") },
+                    commit = { _, _ -> writes++; error("Unapproved write must never start") },
+                    worker = { pending.add(it) }
+                )
+                PatchWorkbench.attach(activity, root, EditText(activity).apply { setText("Review the source summary") },
+                    EditText(activity).apply { setText("simulated-provider-key") }, provider,
+                    EditText(activity).apply { setText("gpt-4.1-mini") }, EditText(activity),
+                    TextView(activity), status, { true }, services)
+                views(root).filterIsInstance<EditText>().single {
+                    it.hint?.startsWith("Exact allowed source paths") == true
+                }.setText("developer/src/main/java/com/jarvis/developer/TaskFileSummary.kt")
+                button(activity, "Generate scoped multi-file diff preview").performClick()
+                assertTrue(button(activity, "Cancel source / proposal preview").isEnabled)
+                button(activity, "Cancel source / proposal preview").performClick()
+                assertEquals(1, pending.size)
+                assertFalse(button(activity, "Cancel source / proposal preview").isEnabled)
+                assertFalse(button(activity, "Generate scoped multi-file diff preview").isEnabled)
+                pending.removeFirst().invoke()
+                assertTrue(status.text.startsWith("Preview cancelled"))
+                assertTrue(button(activity, "Generate scoped multi-file diff preview").isEnabled)
+                noApproval(activity)
+            }
+            scenario.recreate()
+            scenario.onActivity { noApproval(it) }
+        }
+        assertEquals(0, reads); assertEquals(0, providers); assertEquals(0, writes)
     }
     companion object {
         private const val READ = "Read Personal diagnostic source (GET only)"

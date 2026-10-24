@@ -44,10 +44,12 @@ object RepositoryIntelligence {
         }
     }
 
-    private val http = GetTransport { url, token ->
+    private fun http(cancellation: PatchPreviewCancellation? = null) = GetTransport { url, token ->
         requireApiUrl(url, null) // Reader validates the explicit product before using this shared transport.
         val connection = URL(url).openConnection() as HttpURLConnection
+        val stop = cancellation?.registerStop { connection.disconnect() }
         try {
+            cancellation?.check()
             connection.requestMethod = "GET"
             connection.instanceFollowRedirects = false
             connection.doOutput = false
@@ -62,38 +64,48 @@ object RepositoryIntelligence {
             // Do not read server error bodies, which can reflect credentials or unrelated content.
             val stream = if (status in 200..299) connection.inputStream else ByteArrayInputStream(byteArrayOf())
             GetResponse(status, connection.contentLengthLong, connection.url.toString(), stream) {
+                stop?.close()
                 connection.disconnect()
             }
         } catch (_: Exception) {
+            stop?.close()
             connection.disconnect()
             // Network exceptions may contain request URLs; provide a stable, non-sensitive error.
             throw IllegalStateException("Repository GET failed")
         }
     }
 
-    fun inventory(token: String, branch: String = BRANCH, target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): RepositoryAnalysis.Inventory = Reader(http).inventory(token, branch, target)
+    fun inventory(token: String, branch: String = BRANCH, target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): RepositoryAnalysis.Inventory = Reader(http()).inventory(token, branch, target)
+
+    internal fun inventory(token: String, branch: String, target: PatchEngine.Target,
+        cancellation: PatchPreviewCancellation): RepositoryAnalysis.Inventory =
+        Reader(http(cancellation), cancellation).inventory(token, branch, target)
 
     /** Explicit GET-only Personal review; the caller still needs a separate complete-diff approval. */
     fun personalRepair(token: String, draft: PersonalRepair.Draft, branch: String, newTests: List<String> = emptyList()): PersonalRepair.Review {
-        val reader = Reader(http)
+        val reader = Reader(http())
         val inventory = reader.inventory(token, branch, PatchEngine.Target.PERSONAL)
         return PersonalRepair.prepare(draft, branch, inventory, reader.readSource(token, inventory, draft.path), newTests)
     }
 
     fun personalFollowUp(token: String, result: PatchPublisher.CommitResult, report: BuildDiagnostics.Report,
-        path: String): PersonalRepair.Review = Reader(http).personalFollowUp(token, result, report, path)
+        path: String): PersonalRepair.Review = Reader(http()).personalFollowUp(token, result, report, path)
 
     fun readSource(token: String, inventory: RepositoryAnalysis.Inventory, path: String): String =
-        Reader(http).readSource(token, inventory, path)
+        Reader(http()).readSource(token, inventory, path)
+
+    internal fun readSource(token: String, inventory: RepositoryAnalysis.Inventory, path: String,
+        cancellation: PatchPreviewCancellation): String = Reader(http(cancellation), cancellation).readSource(token, inventory, path)
 
     fun analyze(token: String, task: String, branch: String = BRANCH): RepositoryAnalysis.AnalysisPlan = analyzeSnapshot(token, task, branch).second
 
     fun analyzeSnapshot(token: String, task: String, branch: String = BRANCH): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> =
-        Reader(http).analyzeSnapshot(token, task, branch)
+        Reader(http()).analyzeSnapshot(token, task, branch)
 
     /** Injectable for deterministic JVM tests; it exposes neither write methods nor arbitrary hosts. */
     internal class Reader(
         private val transport: GetTransport,
+        private val cancellation: PatchPreviewCancellation? = null,
         private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 }
     ) {
         private val startedAt = nowMillis()
@@ -205,6 +217,7 @@ object RepositoryIntelligence {
         }
 
         private fun checkTimeBudget() {
+            cancellation?.check()
             stoppedReason?.let { error(it) }
             if (nowMillis() - startedAt >= MAX_SESSION_MILLIS) {
                 stop("Repository reads stopped at the 3-minute session budget; retrieved context is incomplete.")
@@ -219,28 +232,31 @@ object RepositoryIntelligence {
             }
             requestCount++
             return transport.get(url, token).use { response ->
-                requireApiUrl(response.finalUrl, selectedTarget)
-                require(response.finalUrl == url) { "Repository redirects are not permitted" }
-                if (response.status in setOf(401, 403, 429)) {
-                    stop("Repository reads stopped after HTTP ${response.status}; check read access or rate limits before retrying.")
-                }
-                require(response.status in 200..299) { "Repository read failed (HTTP ${response.status})" }
-                require(response.contentLength in -1..limit.toLong()) { "Repository response exceeds read limit" }
-                val output = ByteArrayOutputStream(minOf(8192, limit))
-                val buffer = ByteArray(8192)
-                var count = 0
-                while (true) {
-                    // An active socket retains its bounded read timeout; no subsequent read starts after expiry.
+                cancellation?.registerStop { response.body.close() }.use {
                     checkTimeBudget()
-                    // Read at most the remaining budget plus one byte, before growing the output.
-                    val read = response.body.read(buffer, 0, minOf(buffer.size, limit - count + 1))
-                    if (read == -1) break
-                    require(read > 0) { "Repository stream made no progress" }
-                    count += read
-                    require(count <= limit) { "Repository response exceeds read limit" }
-                    output.write(buffer, 0, read)
+                    requireApiUrl(response.finalUrl, selectedTarget)
+                    require(response.finalUrl == url) { "Repository redirects are not permitted" }
+                    if (response.status in setOf(401, 403, 429)) {
+                        stop("Repository reads stopped after HTTP ${response.status}; check read access or rate limits before retrying.")
+                    }
+                    require(response.status in 200..299) { "Repository read failed (HTTP ${response.status})" }
+                    require(response.contentLength in -1..limit.toLong()) { "Repository response exceeds read limit" }
+                    val output = ByteArrayOutputStream(minOf(8192, limit))
+                    val buffer = ByteArray(8192)
+                    var count = 0
+                    while (true) {
+                        // Cancellation closes active resources; the existing budgets still apply.
+                        checkTimeBudget()
+                        val read = response.body.read(buffer, 0, minOf(buffer.size, limit - count + 1))
+                        checkTimeBudget()
+                        if (read == -1) break
+                        require(read > 0) { "Repository stream made no progress" }
+                        count += read
+                        require(count <= limit) { "Repository response exceeds read limit" }
+                        output.write(buffer, 0, read)
+                    }
+                    JSONObject(strictUtf8(output.toByteArray()))
                 }
-                JSONObject(strictUtf8(output.toByteArray()))
             }
         }
     }

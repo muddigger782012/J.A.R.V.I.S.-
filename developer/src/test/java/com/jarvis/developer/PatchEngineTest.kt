@@ -81,6 +81,7 @@ class PatchEngineTest {
             "developer/src/main/res/xml/developer_file_paths.xml", "developer/src/main/java/com/jarvis/developer/CodingAgent.kt",
             "developer/src/main/java/com/jarvis/developer/MainActivity.kt", "developer/src/main/java/com/jarvis/developer/PatchEngine.kt",
             "developer/src/main/java/com/jarvis/developer/PatchWorkbench.kt", "developer/src/main/java/com/jarvis/developer/RepositoryIntelligence.kt",
+            "developer/src/main/java/com/jarvis/developer/PatchPreviewCancellation.kt",
             "developer/src/main/java/com/jarvis/developer/TaskPlanner.kt", "developer/src/main/java/com/jarvis/developer/TaskPlanStore.kt",
             "developer/src/main/java/com/jarvis/developer/TaskPlanningWorkbench.kt",
             "developer/src/main/java/com/jarvis/developer/PrivateCheckpointFile.kt",

@@ -24,6 +24,7 @@ import kotlin.concurrent.thread
  */
 class MainActivity : Activity() {
     private var applicationWorkbench: ApplicationApprovalWorkbench.Handle? = null
+    private var patchPreview: PatchWorkbench.Handle? = null
     private var activePage = 0
     private var selectPage: ((Int) -> Unit)? = null
 
@@ -255,6 +256,7 @@ class MainActivity : Activity() {
         val patchWorkbench = PatchWorkbench.attach(this, root, prompt, key, provider, model, githubToken, output, status) {
             health.getInt("confirmed_version", -1) == currentCode
         }
+        patchPreview = patchWorkbench
         TaskPlanningWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         RepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         SelfDevelopmentWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
@@ -913,6 +915,8 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         selectPage = null
+        patchPreview?.cancelPreview()
+        patchPreview = null
         applicationWorkbench?.dispose()
         applicationWorkbench = null
         super.onDestroy()

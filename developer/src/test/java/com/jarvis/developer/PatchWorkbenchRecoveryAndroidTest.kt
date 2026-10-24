@@ -45,6 +45,10 @@ class PatchWorkbenchRecoveryAndroidTest {
         val path = "app/src/main/java/com/assistant/core/services/PersonalityExample.kt"
         val source = "package com.assistant.core.services\nobject PersonalityExample { val enabled = false }\n"
         var providers = 0
+        var inventories = 0
+        var previewSourceReads = 0
+        var afterInventory: (() -> Unit)? = null
+        var afterProposal: (() -> Unit)? = null
         var writes = 0
         var inspections = 0
         var feedbacks = 0
@@ -64,25 +68,28 @@ class PatchWorkbenchRecoveryAndroidTest {
                 adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, listOf("OpenAI"))
             }
             val services = PatchWorkbench.Services(
-                inventory = { _, branch, target ->
+                inventory = { _, branch, target, _ ->
+                    inventories++
                     assertEquals(PatchEngine.Target.PERSONAL, target)
+                    afterInventory?.invoke()
                     if (branch == "main") inventory() else {
                         assertEquals(failedBranch, branch)
                         inventory(source.replace("false", "true"), created)
                     }
                 },
-                readSource = { _, inventory, selected ->
+                readSource = { _, inventory, selected, _ ->
+                    previewSourceReads++
                     assertEquals(path, selected)
                     if (inventory.commitSha == base) source else { assertEquals(created, inventory.commitSha); source.replace("false", "true") }
                 },
-                propose = { _, request ->
+                propose = { _, request, _ ->
                     providers++
                     val before = request.sources.single { it.path == path }.content!!
                     val after = if (before.contains("false")) before.replace("false", "true")
                         else before.replace("enabled = true", "enabled = true; val recovered = true")
                     PatchEngine.parse(request, JSONObject().put("summary", "Improve the scoped example")
                         .put("edits", JSONArray().put(JSONObject().put("path", path)
-                            .put("content", after))).toString())
+                            .put("content", after))).toString()).also { afterProposal?.invoke() }
                 },
                 commit = { _, approved ->
                     PatchEngine.validateApproval(approved); writes++
@@ -155,6 +162,98 @@ class PatchWorkbenchRecoveryAndroidTest {
             assertFalse(status.text.contains("private transport"))
         }
         fun close() { if (!activity.isDestroyed) controller.pause().stop().destroy() }
+    }
+
+    @Test fun cancelBeforeTheQueuedPreviewPreventsAllReadsProvidersAndWrites() {
+        val h = Harness()
+        try {
+            h.button("Generate scoped").performClick()
+            assertTrue(h.button("Cancel source").isEnabled)
+            h.button("Cancel source").performClick()
+            assertFalse(h.button("Cancel source").isEnabled)
+            assertFalse(h.button("Generate scoped").isEnabled)
+            assertEquals(1, h.pending.size)
+            h.finish()
+            assertEquals(0, h.inventories); assertEquals(0, h.providers); assertEquals(0, h.writes)
+            assertFalse(h.approval.isEnabled); assertFalse(h.approval.isChecked)
+            assertTrue(h.status.text.contains("Preview cancelled"))
+            assertTrue(h.button("Generate scoped").isEnabled)
+        } finally { h.close() }
+    }
+
+    @Test fun cancelAfterInventoryPreventsSourceAndProviderRequests() {
+        val h = Harness()
+        try {
+            h.afterInventory = { h.button("Cancel source").performClick() }
+            h.preview()
+            assertEquals(1, h.inventories); assertEquals(0, h.previewSourceReads)
+            assertEquals(0, h.providers); assertEquals(0, h.writes)
+            assertFalse(h.approval.isEnabled)
+        } finally { h.close() }
+    }
+
+    @Test fun cancelWhileTheProviderReturnsDiscardsItsDiffAndStillRequiresANewApproval() {
+        val h = Harness()
+        try {
+            h.afterProposal = { h.button("Cancel source").performClick() }
+            h.preview()
+            assertEquals(1, h.providers); assertEquals(0, h.writes)
+            assertFalse(h.approval.isEnabled); assertFalse(h.approval.isChecked)
+            assertTrue(h.status.text.contains("Preview cancelled"))
+            h.afterProposal = null
+            h.preview()
+            assertEquals(2, h.providers)
+            assertTrue(h.approval.isEnabled); assertFalse(h.approval.isChecked)
+            h.button("Create task branch").performClick(); assertTrue(h.pending.isEmpty())
+            assertEquals(0, h.writes)
+        } finally { h.close() }
+    }
+
+    @Test fun cancellationAfterTheWorkerPostsItsResultStillDiscardsTheLateMainThreadCallback() {
+        val h = Harness()
+        try {
+            h.button("Generate scoped").performClick()
+            val operation = h.pending.removeFirst()
+            val failure = java.util.concurrent.atomic.AtomicReference<Throwable>()
+            val completed = java.util.concurrent.CountDownLatch(1)
+            Thread {
+                try { operation() } catch (error: Throwable) { failure.set(error) }
+                finally { completed.countDown() }
+            }.start()
+            assertTrue(completed.await(3, java.util.concurrent.TimeUnit.SECONDS)); assertNull(failure.get())
+            h.button("Cancel source").performClick()
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(1, h.providers); assertEquals(0, h.writes)
+            assertFalse(h.approval.isEnabled); assertFalse(h.approval.isChecked)
+            assertTrue(h.status.text.contains("Preview cancelled"))
+        } finally { h.close() }
+    }
+
+    @Test fun changedInputsCancelQueuedProviderWorkAndDestroyedViewsCannotRestoreAReview() {
+        val h = Harness()
+        h.button("Generate scoped").performClick()
+        h.model.setText("gpt-4.1")
+        h.finish()
+        assertEquals(0, h.inventories); assertEquals(0, h.providers)
+        h.button("Generate scoped").performClick()
+        h.handle.cancelPreview(); h.close(); h.finish()
+        assertEquals(0, h.inventories); assertEquals(0, h.providers); assertEquals(0, h.writes)
+        assertFalse(h.approval.isChecked)
+    }
+
+    @Test fun previewCancellationIsUnavailableForAnApprovedCommitAndCannotPretendItWasUndone() {
+        val h = Harness()
+        try {
+            h.preview(); h.approval.isChecked = true
+            h.button("Create task branch").performClick()
+            assertFalse(h.button("Cancel source").isEnabled)
+            h.handle.cancelPreview()
+            h.finish()
+            assertEquals(1, h.writes)
+            assertTrue(h.button("Verify interrupted").isEnabled)
+            assertFalse(h.button("Check CI").isEnabled)
+            assertFalse(h.approval.isChecked)
+        } finally { h.close() }
     }
 
     @Test fun savedHistoryInvalidatesNewerApprovalWithoutRestoringTrustedCommitOrFollowUpScope() {

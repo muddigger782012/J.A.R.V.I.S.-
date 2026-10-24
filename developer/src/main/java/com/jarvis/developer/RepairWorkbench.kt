@@ -307,7 +307,9 @@ object RepairWorkbench {
                             session = RepairEngine.recordFailure(capturedSession, capturedTicket, stage, System.currentTimeMillis())
                             this@Controller.ticket = null
                             canRetry = session?.stopReason == null
-                            status.text = "Repair attempt stopped at $stage. Its budget remains consumed; review the session before preparing another attempt."
+                            status.text = if (stage == "cancelled")
+                                "Repair preview cancelled. Its attempt budget remains consumed; review the session before preparing another attempt."
+                            else "Repair attempt stopped at $stage. Its budget remains consumed; review the session before preparing another attempt."
                         } catch (_: Exception) { disableSession() }
                         refresh()
                     }
