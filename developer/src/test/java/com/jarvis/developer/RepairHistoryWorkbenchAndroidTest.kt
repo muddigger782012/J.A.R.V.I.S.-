@@ -44,14 +44,17 @@ class RepairHistoryWorkbenchAndroidTest {
         var finishes = 0
         var permitted = true
         var mismatch = 0
+        var afterRead: (() -> Unit)? = null
+        val dispose: () -> Unit
         init {
             activity.setContentView(root)
-            RepairHistoryWorkbench.attach(activity, root, token, { current },
+            dispose = RepairHistoryWorkbench.attach(activity, root, token, { current },
                 { if (permitted) { starts++; true } else false }, { finishes++ },
-                RepairHistoryWorkbench.Services(directory = { directory }, feedback = { authentication, selected ->
+                RepairHistoryWorkbench.Services(directory = { directory }, feedback = { authentication, selected, _ ->
                     reads++
                     assertEquals("simulated-ephemeral-token", authentication)
                     assertEquals(entry, selected)
+                    afterRead?.invoke()
                     if (mismatch == 4) error("private token and transport content must not be shown")
                     if (mismatch == 5) throw BuildFeedback.Failure(BuildFeedback.Stage.LOG_STORAGE, BuildFeedback.Problem.HTTP, 403)
                     BuildDiagnostics.parse(if (mismatch == 1) "e".repeat(40) else selected.commitSha,
@@ -180,6 +183,76 @@ class RepairHistoryWorkbenchAndroidTest {
             assertFalse(h.text().contains("Build URL:"))
             assertFalse(h.button("Recheck selected").isEnabled)
             assertEquals(1, h.reads)
+        } finally { h.close() }
+    }
+
+    @Test fun cancelBeforeWorkerStartsKeepsTheSlotUntilExitAndRequiresAnExplicitFreshRead() {
+        val directory = temporary.newFolder()
+        RepairHistoryStore(directory).save(entry)
+        val h = Harness(directory)
+        try {
+            h.loadAndSelect()
+            assertFalse(h.button("Cancel saved").isEnabled)
+            h.button("Recheck selected").performClick()
+            h.button("Cancel saved").performClick()
+            assertFalse(h.button("Cancel saved").isEnabled)
+            assertFalse(h.button("Recheck selected").isEnabled)
+            assertFalse(h.button("Load private").isEnabled)
+            h.button("Recheck selected").performClick()
+            assertEquals(1, h.pending.size)
+            h.finish()
+            assertEquals(0, h.reads)
+            assertTrue(h.text().contains("read cancelled")); assertFalse(h.text().contains("Build URL:"))
+            assertTrue(h.button("Recheck selected").isEnabled)
+            h.button("Recheck selected").performClick(); h.finish()
+            assertEquals(1, h.reads); assertTrue(h.text().contains("does not verify a prior approval"))
+            assertNull(h.current); assertEquals(h.starts, h.finishes)
+            assertEquals(listOf(entry), RepairHistoryStore(directory).load())
+        } finally { h.close() }
+    }
+
+    @Test fun cancellationDuringAReadDiscardsEvenASuccessfulLateReport() {
+        val directory = temporary.newFolder()
+        RepairHistoryStore(directory).save(entry)
+        val h = Harness(directory)
+        try {
+            h.loadAndSelect()
+            h.afterRead = { h.button("Cancel saved").performClick() }
+            h.button("Recheck selected").performClick(); h.finish()
+            assertEquals(1, h.reads); assertTrue(h.text().contains("read cancelled"))
+            assertFalse(h.text().contains("Build URL:")); assertTrue(h.pending.isEmpty())
+            assertNull(h.current); assertEquals(h.starts, h.finishes)
+        } finally { h.close() }
+    }
+
+    @Test fun changingTheCredentialCancelsTheOldReadWithoutUsingEitherCredential() {
+        val directory = temporary.newFolder()
+        RepairHistoryStore(directory).save(entry)
+        val h = Harness(directory)
+        try {
+            h.loadAndSelect(); h.button("Recheck selected").performClick()
+            h.token.setText("different-private-token")
+            assertFalse(h.button("Cancel saved").isEnabled)
+            h.finish()
+            assertEquals(0, h.reads); assertTrue(h.text().contains("read cancelled"))
+            assertFalse(h.text().contains("private-token")); assertNull(h.current)
+            assertEquals(listOf(entry), RepairHistoryStore(directory).load())
+        } finally { h.close() }
+    }
+
+    @Test fun disposalCancelsTheQueuedReadAndPermanentlyDiscardsItsCallback() {
+        val directory = temporary.newFolder()
+        RepairHistoryStore(directory).save(entry)
+        val h = Harness(directory)
+        try {
+            h.loadAndSelect(); h.button("Recheck selected").performClick()
+            h.dispose(); h.dispose()
+            val before = h.text()
+            h.finish()
+            assertEquals(0, h.reads); assertEquals(before, h.text())
+            assertEquals(1, h.finishes)
+            assertEquals(listOf(entry), RepairHistoryStore(directory).load())
+            assertNull(h.current)
         } finally { h.close() }
     }
 }

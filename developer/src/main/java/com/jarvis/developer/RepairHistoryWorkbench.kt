@@ -1,6 +1,8 @@
 package com.jarvis.developer
 
 import android.app.Activity
+import android.text.Editable
+import android.text.TextWatcher
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -14,15 +16,15 @@ import kotlin.concurrent.thread
 object RepairHistoryWorkbench {
     internal class Services(
         val directory: (Activity) -> File = { File(it.noBackupFilesDir.canonicalFile, "developer-repair-history") },
-        val feedback: (String, RepairHistoryStore.Bookmark) -> BuildDiagnostics.Report = { token, entry ->
-            BuildFeedback.read(token, entry.branch, entry.commitSha, target = entry.target)
+        val feedback: (String, RepairHistoryStore.Bookmark, PatchPreviewCancellation) -> BuildDiagnostics.Report = { token, entry, cancellation ->
+            BuildFeedback.read(token, entry.branch, entry.commitSha, entry.target, cancellation)
         },
         val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperRepairHistory") { operation() }; Unit }
     )
 
     internal fun attach(activity: Activity, root: LinearLayout, token: EditText,
         currentCommit: () -> PatchPublisher.CommitResult?, begin: () -> Boolean, end: () -> Unit,
-        services: Services = Services()) {
+        services: Services = Services()): () -> Unit {
         val context = root.context
         root.addView(TextView(context).apply { text = "Private repair history — read-only bookmarks" })
         root.addView(TextView(context).apply {
@@ -34,6 +36,7 @@ object RepairHistoryWorkbench {
         val choice = Spinner(context).apply { contentDescription = "Saved repair commit bookmark" }
         root.addView(choice)
         val read = button("Recheck selected saved build diagnostics (GET only)")
+        val cancel = button("Cancel saved build read")
         val clear = button("Clear private repair history on this device")
         val result = TextView(context).apply {
             text = "History not loaded. No saved approval can be restored."
@@ -42,16 +45,19 @@ object RepairHistoryWorkbench {
         root.addView(result)
         var entries = emptyList<RepairHistoryStore.Bookmark>()
         var busy = false
+        var disposed = false
+        var activeRead: PatchPreviewCancellation? = null
         var lastSelected: RepairHistoryStore.Bookmark? = null
         val placeholder = "Select a saved task commit"
         fun selected() = entries.getOrNull(choice.selectedItemPosition - 1)
-        fun alive() = !activity.isFinishing && !activity.isDestroyed
+        fun alive() = !disposed && !activity.isFinishing && !activity.isDestroyed
         fun refresh() {
             save.isEnabled = !busy
             load.isEnabled = !busy
             clear.isEnabled = !busy
             choice.isEnabled = !busy && entries.isNotEmpty()
             read.isEnabled = !busy && selected() != null
+            cancel.isEnabled = busy && activeRead?.isCancelled == false
         }
         fun show(values: List<RepairHistoryStore.Bookmark>) {
             entries = values
@@ -61,24 +67,46 @@ object RepairHistoryWorkbench {
             choice.setSelection(0)
             refresh()
         }
-        fun operate(isCurrent: () -> Boolean = { true }, action: () -> String) {
-            if (busy) return
+        fun cancelRead() {
+            val pending = activeRead ?: return
+            pending.cancel()
+            if (alive()) {
+                result.text = "Saved build read cancellation requested. Waiting for the bounded reader to close; its result will be discarded. No retry, source change or approval was created."
+                refresh()
+            }
+        }
+        cancel.setOnClickListener { cancelRead() }
+        val tokenChanges = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) { cancelRead() }
+        }
+        token.addTextChangedListener(tokenChanges)
+        fun operate(isCurrent: () -> Boolean = { true }, cancellation: PatchPreviewCancellation? = null, action: () -> String) {
+            if (busy || !alive()) return
             if (!begin()) {
                 result.text = "Another coding operation is active. Finish it before using repair history; no history request was started."
                 return
             }
             busy = true
+            activeRead = cancellation
             result.text = "Reading or updating private metadata. No source write or approval is requested."
             refresh()
             services.worker {
-                val message = try { action() } catch (failure: Exception) {
+                val message = try {
+                    cancellation?.check()
+                    action().also { cancellation?.check() }
+                } catch (failure: Exception) {
                     BuildFeedback.explainFailure(failure) ?: "Repair history operation could not be verified. Check access or explicitly clear damaged local history. No approval, source change or retry was created."
                 }
                 activity.runOnUiThread {
                     if (alive()) {
-                        result.text = if (isCurrent()) message else
+                        result.text = if (cancellation?.isCancelled == true)
+                            "Saved build read cancelled. Its evidence was discarded. Choose and recheck explicitly; no retry, source change or approval was created."
+                        else if (isCurrent()) message else
                             "Saved selection changed. The old build response was discarded; choose and recheck explicitly."
                         busy = false
+                        activeRead = null
                         end()
                         refresh()
                     }
@@ -126,14 +154,20 @@ object RepairHistoryWorkbench {
         read.setOnClickListener {
             val entry = selected() ?: return@setOnClickListener
             val authentication = token.text.toString().trim()
-            operate(isCurrent = { selected() == entry }) {
+            val cancellation = PatchPreviewCancellation()
+            operate(isCurrent = { selected() == entry }, cancellation = cancellation) {
                 RepairHistoryStore.validate(entry)
-                val report = services.feedback(authentication, entry)
+                val report = services.feedback(authentication, entry, cancellation)
                 BuildDiagnostics.validateReport(report)
                 require(report.target == entry.target && report.branch == entry.branch && report.commitSha == entry.commitSha)
                 BuildDiagnostics.render(report) +
                     "\n\nThis fresh build report describes only the saved commit. It does not verify a prior approval, restore source scope, start a follow-up or authorize changes."
             }
+        }
+        return {
+            disposed = true
+            activeRead?.cancel()
+            token.removeTextChangedListener(tokenChanges)
         }
     }
 }

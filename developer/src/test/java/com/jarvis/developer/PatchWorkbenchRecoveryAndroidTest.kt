@@ -127,7 +127,7 @@ class PatchWorkbenchRecoveryAndroidTest {
                     }
                 },
                 history = RepairHistoryWorkbench.Services(directory = { historyDirectory },
-                    feedback = { _, entry ->
+                    feedback = { _, entry, _ ->
                         feedbacks++
                         BuildDiagnostics.parse(entry.commitSha, entry.branch, 23, 1, "completed", "failure", "", entry.target)
                     }, worker = { pending.add(it) }),
@@ -255,6 +255,23 @@ class PatchWorkbenchRecoveryAndroidTest {
             assertTrue(h.button("Verify interrupted").isEnabled)
             assertFalse(h.button("Check CI").isEnabled)
             assertFalse(h.approval.isChecked)
+        } finally { h.close() }
+    }
+
+    @Test fun disposingTheCodingWorkbenchCancelsItsHistoryReadBeforeAnyRequest() {
+        val h = Harness()
+        try {
+            val entry = RepairHistoryStore.Bookmark(PatchEngine.Target.PERSONAL,
+                PatchEngine.taskBranch("saved", "b".repeat(64), PatchEngine.Target.PERSONAL), created)
+            RepairHistoryStore(h.historyDirectory).save(entry)
+            h.button("Load private repair history").performClick(); h.finish()
+            val choice = h.views(h.root).filterIsInstance<Spinner>().single { it.contentDescription == "Saved repair commit bookmark" }
+            choice.setSelection(1); shadowOf(Looper.getMainLooper()).idle()
+            h.button("Recheck selected saved").performClick()
+            h.handle.dispose(); h.close(); h.finish()
+            assertEquals(0, h.feedbacks); assertEquals(0, h.providers); assertEquals(0, h.writes)
+            assertFalse(h.approval.isChecked)
+            assertEquals(listOf(entry), RepairHistoryStore(h.historyDirectory).load())
         } finally { h.close() }
     }
 

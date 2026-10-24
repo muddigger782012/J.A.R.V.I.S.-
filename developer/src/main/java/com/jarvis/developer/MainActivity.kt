@@ -915,7 +915,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         selectPage = null
-        patchPreview?.cancelPreview()
+        patchPreview?.dispose()
         patchPreview = null
         applicationWorkbench?.dispose()
         applicationWorkbench = null

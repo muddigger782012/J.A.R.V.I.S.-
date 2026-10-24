@@ -17,6 +17,7 @@ import java.nio.charset.CodingErrorAction
 import java.nio.charset.CharacterCodingException
 import java.util.Timer
 import java.util.TimerTask
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** GET-only, exact-source feedback. Signing, release and workflow-dispatch APIs are absent. */
 object BuildFeedback {
@@ -49,7 +50,8 @@ object BuildFeedback {
         TIMEOUT("The network request timed out"), FORMAT("The response format could not be read"),
         LIMIT("The read reached its evidence or time limit"),
         VERIFICATION("The build metadata could not be verified against the selected source"),
-        LOCATION("The response location was not allowed"), UNKNOWN("The read could not be verified")
+        LOCATION("The response location was not allowed"), UNKNOWN("The read could not be verified"),
+        CANCELLED("The read was cancelled and its evidence was discarded")
     }
 
     /** Only app-owned enums and a bounded HTTP number cross this error boundary. */
@@ -80,6 +82,7 @@ object BuildFeedback {
             Problem.LIMIT -> "Review this build on GitHub; its evidence could not be fully read within the supported limits."
             Problem.VERIFICATION -> "Review the selected product, branch, commit and run in GitHub before a fresh source analysis."
             Problem.UNKNOWN -> "Inspect this build in GitHub, then request a fresh read when ready."
+            Problem.CANCELLED -> "Choose and explicitly read the build again when ready."
         }
         val status = failure.httpStatus?.let { " (HTTP $it)" }.orEmpty()
         return "Build feedback stopped while ${failure.stage.label}. ${failure.problem.label}$status. $next " +
@@ -89,6 +92,7 @@ object BuildFeedback {
     private class LimitFailure : IllegalStateException()
     private class LocationFailure : IllegalStateException()
     private class TransportFailure(val problem: Problem) : IllegalStateException()
+    private class CancelledFailure : IllegalStateException()
 
     /** Null authentication is mandatory for the single signed-storage redirect. */
     internal fun interface Transport {
@@ -103,20 +107,32 @@ object BuildFeedback {
         val location: String? = null,
         private val disconnect: () -> Unit = {}
     ) : Closeable {
-        override fun close() { try { body.close() } finally { disconnect() } }
+        private val closed = AtomicBoolean()
+        private var cancellationStop: Closeable? = null
+        internal fun watch(cancellation: PatchPreviewCancellation?) {
+            cancellationStop = cancellation?.registerStop { close() }
+            if (closed.get()) cancellationStop?.close()
+        }
+        override fun close() {
+            if (closed.compareAndSet(false, true)) {
+                try { body.close() } finally { cancellationStop?.close(); disconnect() }
+            }
+        }
     }
 
     private class HttpFailure(val status: Int) : IllegalStateException()
 
-    private val http = Transport { url, token, timeoutMillis ->
+    private fun http(cancellation: PatchPreviewCancellation? = null) = Transport { url, token, timeoutMillis ->
         if (token == null) requireStorageUrl(url) else requireApiUrl(url)
         require(timeoutMillis in 1..MAX_MILLIS) { "Invalid feedback transport budget" }
         val connection = URL(url).openConnection() as HttpURLConnection
+        val stop = cancellation?.registerStop { connection.disconnect() }
         val deadline = Timer("JarvisDeveloper-BuildFeedbackTimeout", true)
         deadline.schedule(object : TimerTask() {
             override fun run() { try { connection.disconnect() } catch (_: Exception) { } }
         }, timeoutMillis)
         try {
+            cancellation?.check()
             connection.requestMethod = "GET"
             connection.instanceFollowRedirects = false
             connection.doOutput = false
@@ -134,10 +150,12 @@ object BuildFeedback {
             val body = if (status in 200..299) connection.inputStream else ByteArrayInputStream(byteArrayOf())
             Response(status, connection.contentLengthLong, connection.url.toString(), body,
                 if (status == 302) connection.getHeaderField("Location") else null) {
+                stop?.close()
                 deadline.cancel()
                 connection.disconnect()
             }
         } catch (failure: Exception) {
+            stop?.close()
             deadline.cancel()
             connection.disconnect()
             throw TransportFailure(when (failure) {
@@ -150,10 +168,15 @@ object BuildFeedback {
 
     fun read(token: String, branch: String, commitSha: String, runId: Long? = null,
         target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): BuildDiagnostics.Report =
-        Client(http).read(token, branch, commitSha, runId, target)
+        Client(http()).read(token, branch, commitSha, runId, target)
+
+    internal fun read(token: String, branch: String, commitSha: String,
+        target: PatchEngine.Target, cancellation: PatchPreviewCancellation): BuildDiagnostics.Report =
+        Client(http(cancellation), cancellation).read(token, branch, commitSha, target = target)
 
     internal class Client(
         private val transport: Transport,
+        private val cancellation: PatchPreviewCancellation? = null,
         private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 }
     ) {
         private val started = nowMillis()
@@ -168,8 +191,9 @@ object BuildFeedback {
             require(runId == null || runId > 0) { "Invalid build run identity" }
             stage = if (runId == null) Stage.DISCOVERY else Stage.WORKFLOW_METADATA
             try {
+                checkCancellation()
                 val selectedId = runId ?: latestRun(token, branch, commitSha, target)
-                    ?: return BuildDiagnostics.parse(commitSha, branch, 0, 1, "missing", null, "", target)
+                    ?: return checked(BuildDiagnostics.parse(commitSha, branch, 0, 1, "missing", null, "", target))
                 stage = Stage.WORKFLOW_METADATA
                 val run = json("$API/actions/runs/$selectedId", token)
                 stage = Stage.WORKFLOW_VALIDATION
@@ -179,7 +203,7 @@ object BuildFeedback {
                 val conclusion = conclusion(run)
                 val empty = BuildDiagnostics.parse(commitSha, branch, selectedId, attempt, status, conclusion, "", target)
                 // A queued or running job is deliberately not harvested as partial evidence.
-                if (status != "completed") return empty
+                if (status != "completed") return checked(empty)
                 stage = Stage.JOB_METADATA
                 val jobsResponse = json("$API/actions/runs/$selectedId/attempts/$attempt/jobs?per_page=$MAX_JOBS", token)
                 stage = Stage.JOB_VALIDATION
@@ -202,7 +226,7 @@ object BuildFeedback {
                     if (jobStatus == "completed") require(conclusion(job) in conclusions) { "Unknown build job conclusion" }
                     else allCompleted = false
                 }
-                if (!allCompleted) return BuildDiagnostics.incomplete(empty, "Completed run contains unfinished jobs; logs were not fetched.")
+                if (!allCompleted) return checked(BuildDiagnostics.incomplete(empty, "Completed run contains unfinished jobs; logs were not fetched."))
                 val logs = StringBuilder()
                 try {
                     for (id in ids.sorted()) {
@@ -211,13 +235,14 @@ object BuildFeedback {
                         logs.append("\n=== Verified build job ").append(id).append(" ===\n").append(text).append('\n')
                     }
                 } catch (failure: Exception) {
+                    checkCancellation()
                     val detail = explainFailure(sanitized(failure))!!
                     stage = Stage.REPORT
                     val report = BuildDiagnostics.parse(commitSha, branch, selectedId, attempt, status, conclusion, logs.toString(), target)
-                    return BuildDiagnostics.incomplete(report, "Build log evidence is incomplete. $detail")
+                    return checked(BuildDiagnostics.incomplete(report, "Build log evidence is incomplete. $detail"))
                 }
                 stage = Stage.REPORT
-                return BuildDiagnostics.parse(commitSha, branch, selectedId, attempt, status, conclusion, logs.toString(), target)
+                return checked(BuildDiagnostics.parse(commitSha, branch, selectedId, attempt, status, conclusion, logs.toString(), target))
             } catch (failure: Exception) {
                 // Never retain a cause: exceptions may carry signed URLs or credentials.
                 throw sanitized(failure)
@@ -225,6 +250,8 @@ object BuildFeedback {
         }
 
         private fun sanitized(failure: Exception): Failure {
+            if (cancellation?.isCancelled == true || failure is CancelledFailure)
+                return Failure(stage, Problem.CANCELLED)
             val status = (failure as? HttpFailure)?.status?.takeIf { it in 100..599 }
             val problem = when {
                 status != null -> Problem.HTTP
@@ -241,6 +268,11 @@ object BuildFeedback {
         }
 
         private fun checkLimit(allowed: Boolean) { if (!allowed) throw LimitFailure() }
+        private fun checkCancellation() { if (cancellation?.isCancelled == true) throw CancelledFailure() }
+        private fun checked(report: BuildDiagnostics.Report): BuildDiagnostics.Report {
+            checkCancellation()
+            return report
+        }
 
         private fun latestRun(token: String, branch: String, commitSha: String, target: PatchEngine.Target): Long? {
             val encoded = URLEncoder.encode(branch, "UTF-8")
@@ -296,6 +328,7 @@ object BuildFeedback {
             checkLimit(receivedBytes <= MAX_SESSION_BYTES)
             requests++
             val response = transport.get(url, token, remaining)
+            response.watch(cancellation)
             try {
                 remaining()
                 if (response.finalUrl != url) throw LocationFailure()
@@ -325,6 +358,7 @@ object BuildFeedback {
         }
 
         private fun remaining(): Long {
+            checkCancellation()
             val elapsed = nowMillis() - started
             checkLimit(elapsed in 0 until MAX_MILLIS)
             return MAX_MILLIS - elapsed

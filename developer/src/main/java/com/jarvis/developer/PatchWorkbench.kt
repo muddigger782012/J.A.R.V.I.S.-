@@ -48,7 +48,8 @@ object PatchWorkbench {
         private val repairAction: (RepairEngine.Ticket, RepairObserver) -> Boolean,
         private val invalidateAction: () -> Boolean,
         private val personalAction: (PersonalRepair.Review) -> Boolean = { false },
-        private val cancelPreviewAction: () -> Unit = {}
+        private val cancelPreviewAction: () -> Unit = {},
+        private val disposeAction: () -> Unit = cancelPreviewAction
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
@@ -57,6 +58,7 @@ object PatchWorkbench {
         fun invalidate(): Boolean = invalidateAction()
         fun preparePersonal(review: PersonalRepair.Review): Boolean = personalAction(review)
         fun cancelPreview() = cancelPreviewAction()
+        fun dispose() = disposeAction()
     }
 
     fun attach(
@@ -780,7 +782,7 @@ object PatchWorkbench {
             refresh()
         }
         refresh()
-        RepairHistoryWorkbench.attach(activity, root, githubToken,
+        val disposeHistory = RepairHistoryWorkbench.attach(activity, root, githubToken,
             currentCommit = { if (busy) null else lastCommit },
             begin = {
                 if (busy) false else {
@@ -813,7 +815,7 @@ object PatchWorkbench {
                 PersonalRepair.validate(selected)
                 prepareInputs(selected.taskId, selected.task, selected.scope, selected.sourceSha, selected.branch, PatchEngine.Target.PERSONAL)
             } catch (_: Exception) { false }
-        }, cancelPreviewAction = ::stopPreview)
+        }, cancelPreviewAction = ::stopPreview, disposeAction = { stopPreview(); disposeHistory() })
     }
 
     private data class Metadata(

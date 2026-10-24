@@ -7,9 +7,136 @@ import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.net.URLEncoder
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /** The fixture can perform GET only and records the credential boundary on every hop. */
 class BuildFeedbackTest {
+    @Test fun preCancelledReadsForEitherProductNeverOpenTheTransport() {
+        for (target in PatchEngine.Target.values()) {
+            val cancellation = PatchPreviewCancellation { it() }.apply { cancel() }
+            val fake = if (target == PatchEngine.Target.PERSONAL) personalFixture() else fixture()
+            val failure = rejected { BuildFeedback.Client(fake, cancellation).read(token,
+                if (target == PatchEngine.Target.PERSONAL) personalBranch else branch, sha, target = target) } as BuildFeedback.Failure
+            assertEquals(BuildFeedback.Problem.CANCELLED, failure.problem)
+            assertEquals(0, fake.requests.size); assertNull(failure.cause)
+            assertFalse(BuildFeedback.explainFailure(failure)!!.contains(token))
+        }
+    }
+
+    @Test fun cancellationAsAResponseArrivesClosesItWithoutReadingOrAnotherRequest() {
+        val cancellation = PatchPreviewCancellation { it() }
+        val fake = fixture()
+        var reads = 0
+        fake.replies[runUrl()] = {
+            cancellation.cancel()
+            BuildFeedback.Response(200, -1, runUrl(), object : InputStream() {
+                override fun read(): Int { reads++; error("$token $storage") }
+            }) { fake.closed++ }
+        }
+        val failure = rejected { BuildFeedback.Client(fake, cancellation).read(token, branch, sha, 17) } as BuildFeedback.Failure
+        assertEquals(BuildFeedback.Problem.CANCELLED, failure.problem)
+        assertEquals(1, fake.requests.size); assertEquals(1, fake.closed); assertEquals(0, reads)
+        assertNull(failure.cause); assertTrue(failure.suppressed.isEmpty())
+    }
+
+    @Test fun cancellationAtEndOfStreamCannotBecomeAFormatFailureOrAnEmptyReport() {
+        val cancellation = PatchPreviewCancellation { it() }
+        val fake = fixture()
+        fake.replies[runUrl()] = {
+            BuildFeedback.Response(200, -1, runUrl(), object : InputStream() {
+                override fun read(): Int { cancellation.cancel(); return -1 }
+            }) { fake.closed++ }
+        }
+        val failure = rejected { BuildFeedback.Client(fake, cancellation).read(token, branch, sha, 17) } as BuildFeedback.Failure
+        assertEquals(BuildFeedback.Problem.CANCELLED, failure.problem)
+        assertEquals(1, fake.closed); assertEquals(1, fake.requests.size)
+    }
+
+    @Test fun cancelledMetadataStreamClosesOffCallerThreadAndPreventsJobDiscovery() {
+        blockedReadIsCancelled(runUrl(), fixture(), expectedRequests = 1)
+    }
+
+    @Test fun cancelledLogAndStorageStreamsNeverReturnPartialEvidenceOrReadAnotherJob() {
+        for (fromStorage in listOf(false, true)) {
+            val fake = personalFixture()
+            fake.json(jobsUrl(), jobs(listOf(job(), job(92))))
+            val endpoint = if (fromStorage) storage else logUrl()
+            if (fromStorage) fake.reply(logUrl(), status = 302, location = storage)
+            blockedReadIsCancelled(endpoint, fake, if (fromStorage) 4 else 3, personal = true)
+            assertFalse(fake.requests.any { it.url == logUrl(92) })
+            if (fromStorage) assertNull(fake.requests.last().token)
+        }
+    }
+
+    private fun blockedReadIsCancelled(endpoint: String, fake: Fixture, expectedRequests: Int, personal: Boolean = false) {
+        val cancellation = PatchPreviewCancellation()
+        val reading = CountDownLatch(1)
+        val closed = CountDownLatch(1)
+        val disconnected = CountDownLatch(1)
+        val caller = Thread.currentThread()
+        var cleanupThread: Thread? = null
+        fake.replies[endpoint] = {
+            BuildFeedback.Response(200, -1, endpoint, object : InputStream() {
+                override fun read(): Int = error("Buffered read expected")
+                override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                    reading.countDown()
+                    check(closed.await(3, TimeUnit.SECONDS)) { "Stream was not closed" }
+                    throw java.io.IOException("$token $storage")
+                }
+                override fun close() { cleanupThread = Thread.currentThread(); closed.countDown() }
+            }) { fake.closed++; disconnected.countDown() }
+        }
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val result = executor.submit<BuildFeedback.Failure> {
+                rejected { BuildFeedback.Client(fake, cancellation).read(token,
+                    if (personal) personalBranch else branch, sha, 17,
+                    if (personal) PatchEngine.Target.PERSONAL else PatchEngine.Target.DEVELOPER) } as BuildFeedback.Failure
+            }
+            assertTrue(reading.await(2, TimeUnit.SECONDS))
+            cancellation.cancel()
+            val failure = result.get(2, TimeUnit.SECONDS)
+            assertEquals(BuildFeedback.Problem.CANCELLED, failure.problem)
+            assertNotSame(caller, cleanupThread)
+            assertEquals(expectedRequests, fake.requests.size)
+            assertTrue(disconnected.await(2, TimeUnit.SECONDS))
+            assertEquals(expectedRequests, fake.closed)
+            assertNull(failure.cause); assertTrue(failure.suppressed.isEmpty())
+            assertFalse((failure.toString() + BuildFeedback.explainFailure(failure)).contains(token))
+        } finally { closed.countDown(); executor.shutdownNow() }
+    }
+
+    @Test fun cancellationBetweenApiAndStorageNeverForwardsCredentialsOrOpensStorage() {
+        val cancellation = PatchPreviewCancellation { it() }
+        val fake = fixture()
+        fake.replies[logUrl()] = {
+            BuildFeedback.Response(302, 0, logUrl(), ByteArrayInputStream(byteArrayOf()), storage) {
+                fake.closed++; cancellation.cancel()
+            }
+        }
+        val failure = rejected { BuildFeedback.Client(fake, cancellation).read(token, branch, sha, 17) } as BuildFeedback.Failure
+        assertEquals(BuildFeedback.Problem.CANCELLED, failure.problem)
+        assertEquals(3, fake.requests.size); assertEquals(3, fake.closed)
+        assertFalse(fake.requests.any { it.url == storage })
+    }
+
+    @Test fun anUncancelledTokenPreservesTheExistingSuccessfulReportAndReleasesAllStops() {
+        for (personal in listOf(false, true)) {
+            val fake = if (personal) personalFixture() else fixture()
+            val original = if (personal) personalFixture() else fixture()
+            val cancellation = PatchPreviewCancellation { it() }
+            val selected = if (personal) personalBranch else branch
+            val target = if (personal) PatchEngine.Target.PERSONAL else PatchEngine.Target.DEVELOPER
+            val report = BuildFeedback.Client(fake, cancellation).read(token, selected, sha, 17, target)
+            assertEquals(BuildFeedback.Client(original).read(token, selected, sha, 17, target), report)
+            assertEquals(fake.requests.size, fake.closed)
+            cancellation.cancel()
+            assertEquals(fake.requests.size, fake.closed)
+        }
+    }
+
     @Test fun httpFailuresExposeTheFixedPhaseStatusAndActionWithoutReadingErrorBodies() {
         for (status in listOf(401, 403, 404, 429, 503, 302)) {
             val fake = fixture()

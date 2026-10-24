@@ -3,6 +3,7 @@ package com.jarvis.developer
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -23,6 +24,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Disposable CI emulator: public source/CI GETs plus a modeled repair/recovery interaction. No live writer/key. */
 @RunWith(AndroidJUnit4::class)
@@ -372,6 +377,84 @@ class PersonalRepairDeviceTest {
         }
         assertEquals(1, requests); assertEquals(0, bodyReads); assertEquals(1, closed); assertEquals(0, stages)
     }
+    @Test fun cancellingASavedBuildReadClosesItsBlockedStreamAndDiscardsTheResult() {
+        val directory = File(context.noBackupFilesDir.canonicalFile, "developer-repair-history")
+        val target = PatchEngine.Target.PERSONAL
+        val entry = RepairHistoryStore.Bookmark(target,
+            PatchEngine.taskBranch("cancelled-history", "b".repeat(64), target), "d".repeat(40))
+        RepairHistoryStore(directory).save(entry)
+        val reading = CountDownLatch(1)
+        val closed = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val requests = AtomicInteger()
+        val disconnects = AtomicInteger()
+        val closedOnMain = AtomicBoolean()
+        var operation: (() -> Unit)? = null
+        val pending = java.util.ArrayDeque<() -> Unit>()
+        var worker: Thread? = null
+        var dispose: (() -> Unit)? = null
+        try {
+            ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
+                scenario.onActivity { activity ->
+                    val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+                    activity.setContentView(root)
+                    val transport = BuildFeedback.Transport { url, _, _ ->
+                        requests.incrementAndGet()
+                        BuildFeedback.Response(200, -1, url, object : java.io.InputStream() {
+                            override fun read(): Int = error("Buffered read expected")
+                            override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                                reading.countDown()
+                                check(closed.await(5, TimeUnit.SECONDS))
+                                check(release.await(5, TimeUnit.SECONDS))
+                                throw java.io.IOException("private transport detail")
+                            }
+                            override fun close() {
+                                closedOnMain.set(Looper.myLooper() == Looper.getMainLooper())
+                                closed.countDown()
+                            }
+                        }) { disconnects.incrementAndGet() }
+                    }
+                    dispose = RepairHistoryWorkbench.attach(activity, root, EditText(activity), { null }, { true }, {},
+                        RepairHistoryWorkbench.Services(directory = { directory }, feedback = { token, bookmark, cancellation ->
+                            BuildFeedback.Client(transport, cancellation).read(token, bookmark.branch, bookmark.commitSha, 17, bookmark.target)
+                        }, worker = { pending.add(it) }))
+                    button(activity, "Load private repair history (local only)").performClick()
+                    pending.removeFirst().invoke()
+                    views(root).filterIsInstance<Spinner>().single().setSelection(1)
+                }
+                instrumentation.waitForIdleSync()
+                scenario.onActivity { activity ->
+                    assertTrue(button(activity, "Recheck selected saved build diagnostics (GET only)").isEnabled)
+                    button(activity, "Recheck selected saved build diagnostics (GET only)").performClick()
+                    operation = pending.removeFirst()
+                }
+                worker = Thread { operation!!.invoke() }.apply { start() }
+                assertTrue("Reader must reach the blocked stream", reading.await(5, TimeUnit.SECONDS))
+                scenario.onActivity { activity ->
+                    assertTrue(button(activity, "Cancel saved build read").isEnabled)
+                    button(activity, "Cancel saved build read").performClick()
+                    assertFalse(button(activity, "Cancel saved build read").isEnabled)
+                    assertFalse(button(activity, "Recheck selected saved build diagnostics (GET only)").isEnabled)
+                }
+                assertTrue("Cancellation must close the stream off the UI thread", closed.await(5, TimeUnit.SECONDS))
+                assertFalse(closedOnMain.get())
+                release.countDown(); worker!!.join(5_000); assertFalse(worker!!.isAlive)
+                instrumentation.waitForIdleSync()
+                scenario.onActivity { activity ->
+                    val labels = views(activity.window.decorView).filterIsInstance<TextView>().map { it.text.toString() }
+                    assertTrue(labels.any { it.startsWith("Saved build read cancelled.") })
+                    assertFalse(labels.any { it.contains("private transport detail") || it.contains("Build URL:") })
+                    assertTrue(button(activity, "Recheck selected saved build diagnostics (GET only)").isEnabled)
+                    dispose!!.invoke()
+                }
+                scenario.recreate()
+                scenario.onActivity { noApproval(it) }
+            }
+        } finally { release.countDown(); closed.countDown(); worker?.join(5_000) }
+        assertEquals(1, requests.get()); assertEquals(1, disconnects.get())
+        assertEquals(listOf(entry), RepairHistoryStore(directory).load())
+    }
+
     companion object {
         private const val READ = "Read Personal diagnostic source (GET only)"
         private const val STAGE = "Stage Personal source for a NEW exact diff review"

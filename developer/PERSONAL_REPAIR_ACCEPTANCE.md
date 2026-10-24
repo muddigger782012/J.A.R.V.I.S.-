@@ -163,6 +163,20 @@ cause of the earlier intermittent live-metadata failure that passed an unchanged
 rerun. Repair inputs remain pinned while a read is active, and destroyed views
 discard callbacks.
 
+Saved history has an explicit **Cancel saved build read** control. It reuses the
+existing in-memory cancellation signal and bounded GET reader; only the selected
+history request receives that signal. Credential edits and Activity disposal also
+cancel it. Connection and stream cleanup run off the UI thread. Checks before
+and after transport/body/interpretation phases reject cancelled evidence,
+including partially collected logs; cancellation is never an incomplete report
+that could be mistaken for usable feedback. The busy slot remains held until
+the worker exits. A new read needs an explicit action and fresh signal.
+Local save/load/clear operations, commit/outcome verification and publisher
+operations receive no cancellation signal from this control. Bookmarks and
+attempt budgets are unchanged; no source scope, retry or approval is restored.
+Successful report fingerprints, origin/redirect/credential checks and all
+existing request, byte and deadline limits remain unchanged.
+
 An active repair session can recover after a read failure: its failed feedback is
 cleared until a fresh verified read, while its original attempt budget remains.
 This does not stage another attempt or restore approval. Storage HTTP failures
@@ -230,7 +244,15 @@ An eighth case drives the actual repair widgets and production feedback client
 through a modeled HTTP 403. It verifies phase/action visibility, an unread error
 body, closed response, no retry or staged repair, and no restored approval after
 recreation. It makes no actual network request.
-The strict harness requires all eight cases within the unchanged 180-second
+A ninth case uses the actual native history controls and production feedback
+client with an explicitly modeled blocked metadata stream. Cancel closes the
+stream off the UI thread, keeps the busy slot until exit, discards the result,
+preserves the private bookmark and restores no approval across recreation. It
+makes no actual network/provider/writer request. JVM checks also cover cancelled
+metadata, direct logs and credential-free retained storage, the redirect boundary,
+credential edits, late successful callbacks, disposal, explicit rereads and
+unchanged successful report identities for both products.
+The strict harness requires all nine cases within the unchanged 180-second
 deadline and retains instrumentation output. It never calls a live model,
 creates a live repair branch, uses a microphone or installs/publishes a production
 release. Only disposable debug app/test APKs are installed for that test.
