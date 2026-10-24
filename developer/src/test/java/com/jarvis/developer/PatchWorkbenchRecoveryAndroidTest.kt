@@ -17,6 +17,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -27,6 +29,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE)
 class PatchWorkbenchRecoveryAndroidTest {
+    @get:Rule val temporary = TemporaryFolder()
     private val base = "a".repeat(40)
     private val created = "d".repeat(40)
     private inner class Harness {
@@ -53,6 +56,7 @@ class PatchWorkbenchRecoveryAndroidTest {
         var found = true
         var wrongOutcome = false
         var healthy = true
+        val historyDirectory = java.io.File(temporary.newFolder(), "history")
         val handle: PatchWorkbench.Handle
         init {
             activity.setContentView(root)
@@ -113,6 +117,11 @@ class PatchWorkbenchRecoveryAndroidTest {
                             inventory(current, if (movedFollowUp) base else created), current)
                     }
                 },
+                history = RepairHistoryWorkbench.Services(directory = { historyDirectory },
+                    feedback = { _, entry ->
+                        feedbacks++
+                        BuildDiagnostics.parse(entry.commitSha, entry.branch, 23, 1, "completed", "failure", "", entry.target)
+                    }, worker = { pending.add(it) }),
                 worker = { pending.add(it) }
             )
             handle = PatchWorkbench.attach(activity, root, task,
@@ -146,6 +155,29 @@ class PatchWorkbenchRecoveryAndroidTest {
             assertFalse(status.text.contains("private transport"))
         }
         fun close() { if (!activity.isDestroyed) controller.pause().stop().destroy() }
+    }
+
+    @Test fun savedHistoryInvalidatesNewerApprovalWithoutRestoringTrustedCommitOrFollowUpScope() {
+        val h = Harness()
+        try {
+            RepairHistoryStore(h.historyDirectory).save(RepairHistoryStore.Bookmark(PatchEngine.Target.PERSONAL,
+                PatchEngine.taskBranch("saved", "b".repeat(64), PatchEngine.Target.PERSONAL), created))
+            h.preview(); h.approval.isChecked = true
+            h.button("Load private repair history").performClick()
+            assertFalse(h.approval.isChecked); assertFalse(h.button("Create task branch").isEnabled)
+            h.finish()
+            val choice = h.views(h.root).filterIsInstance<Spinner>().single { it.contentDescription == "Saved repair commit bookmark" }
+            choice.setSelection(1); shadowOf(Looper.getMainLooper()).idle()
+            h.button("Recheck selected saved").performClick(); h.finish()
+            assertEquals(1, h.feedbacks); assertEquals(0, h.writes); assertEquals(1, h.providers)
+            assertFalse(h.approval.isChecked); assertFalse(h.approval.isEnabled)
+            assertFalse(h.button("Check CI").isEnabled)
+            assertFalse(h.button("Read exact task build").isEnabled)
+            assertFalse(h.button("Read selected failed").isEnabled)
+            assertFalse(h.button("Stage follow-up").isEnabled)
+            h.button("Save current verified").performClick()
+            assertTrue(h.pending.isEmpty())
+        } finally { h.close() }
     }
 
     @Test fun explicitDiffApprovalIsConsumedAndRecoveryNeverRepeatsProviderOrWriter() {

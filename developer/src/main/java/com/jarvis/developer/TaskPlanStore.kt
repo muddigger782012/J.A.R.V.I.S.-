@@ -5,18 +5,14 @@ import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
-import java.io.FileOutputStream
 import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.CharBuffer
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.LinkOption
-import java.nio.file.OpenOption
 import java.nio.file.Path
+import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 
 /** Developer-private task metadata only. This store never reads or writes repository source. */
@@ -34,8 +30,7 @@ class TaskPlanStore private constructor(
     internal constructor(directory: File, atomicReplace: (Path, Path) -> Unit) :
         this(directory, atomicReplace, true)
 
-    private val directory = directory.toPath().toAbsolutePath().normalize()
-    private val checkpoint = this.directory.resolve(FILE_NAME)
+    private val checkpoint = PrivateCheckpointFile(directory, FILE_NAME, HEADER_BYTES, MAX_BYTES, atomicReplace)
 
     /** A damaged checkpoint is an error; there is no stale-backup or empty-state fallback. */
     fun loadAll(): List<TaskPlanner.Plan> = synchronized(checkpointLock) {
@@ -72,47 +67,11 @@ class TaskPlanStore private constructor(
         if (index < 0) updated.add(frozen) else updated[index] = frozen
         val payload = encodePayload(updated)
         val bytes = encodeCheckpoint(payload)
-        ensureDirectory(create = true)
-        // A link or non-regular checkpoint must never be replaced, even after a successful read.
-        checkCheckpointType()
-        val temporary = Files.createTempFile(directory, ".task-plans-", ".tmp")
-        try {
-            require(!Files.isSymbolicLink(temporary) && Files.isRegularFile(temporary, LinkOption.NOFOLLOW_LINKS)) {
-                "Task checkpoint temporary file is invalid."
-            }
-            FileOutputStream(temporary.toFile()).use { output ->
-                output.write(bytes)
-                output.flush()
-                output.fd.sync()
-            }
-            ensureDirectory(create = false)
-            checkCheckpointType()
-            // Atomic replacement is mandatory. Unsupported filesystems fail without a fallback.
-            atomicReplace(temporary, checkpoint)
-        } finally {
-            Files.deleteIfExists(temporary)
-        }
+        checkpoint.write(bytes)
     }
 
     private fun readCheckpoint(): List<TaskPlanner.Plan> {
-        if (!ensureDirectory(create = false)) return emptyList()
-        if (!checkCheckpointType()) return emptyList()
-        require(Files.size(checkpoint) in HEADER_BYTES.toLong()..MAX_BYTES.toLong()) { "Task checkpoint size is invalid." }
-        val output = ByteArrayOutputStream()
-        val options = setOf<OpenOption>(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)
-        Files.newByteChannel(checkpoint, options).use { channel ->
-            val buffer = ByteBuffer.allocate(8192)
-            while (true) {
-                val count = channel.read(buffer)
-                if (count < 0) break
-                if (count == 0) continue
-                require(output.size() + count <= MAX_BYTES) { "Task checkpoint exceeds its byte limit." }
-                output.write(buffer.array(), 0, count)
-                buffer.clear()
-            }
-        }
-        val data = output.toByteArray()
-        require(data.size >= HEADER_BYTES) { "Task checkpoint is truncated." }
+        val data = checkpoint.read() ?: return emptyList()
         return DataInputStream(ByteArrayInputStream(data)).use { input ->
             val magic = ByteArray(MAGIC.size)
             input.readFully(magic)
@@ -128,31 +87,6 @@ class TaskPlanStore private constructor(
             require(MessageDigest.isEqual(expectedHash, sha256(payload))) { "Task checkpoint checksum does not match." }
             decodePayload(payload)
         }
-    }
-
-    /** Refuse symbolic links in the selected storage path, including its existing ancestors. */
-    private fun ensureDirectory(create: Boolean): Boolean {
-        var current = directory.root
-        for (part in directory) {
-            current = current.resolve(part)
-            require(!Files.isSymbolicLink(current)) { "Task storage cannot use symbolic links." }
-            if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
-                require(Files.isDirectory(current, LinkOption.NOFOLLOW_LINKS)) { "Task storage path is not a directory." }
-            }
-        }
-        if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
-            if (!create) return false
-            Files.createDirectories(directory)
-            return ensureDirectory(create = false)
-        }
-        return true
-    }
-
-    private fun checkCheckpointType(): Boolean {
-        require(!Files.isSymbolicLink(checkpoint)) { "Task checkpoint cannot be a symbolic link." }
-        if (!Files.exists(checkpoint, LinkOption.NOFOLLOW_LINKS)) return false
-        require(Files.isRegularFile(checkpoint, LinkOption.NOFOLLOW_LINKS)) { "Task checkpoint is not a regular file." }
-        return true
     }
 
     private fun encodeCheckpoint(payload: ByteArray): ByteArray {

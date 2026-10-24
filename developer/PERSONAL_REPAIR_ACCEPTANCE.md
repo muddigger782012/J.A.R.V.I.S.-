@@ -50,6 +50,11 @@ general shell executor, automatic repair service or release authority.
    The review binds the parent proposal and CI report/run/attempt into a separate
    fingerprint. Generate a new diff and review/approve it explicitly; the prior
    approval cannot authorize this source or a new branch.
+10. Explicitly save the current verified task commit as a private history bookmark.
+    After restart, Load private repair history reads local metadata only. Choose
+    an entry and explicitly recheck its build diagnostics through the existing
+    bounded GET reader. That report never restores approved scope or enables a
+    compiler follow-up; begin fresh source analysis for any later source change.
 
 ## Boundaries
 
@@ -91,6 +96,21 @@ need a new source analysis instead of silently switching to a newer revision.
 An empty selector notification with no selected file or follow-up review leaves
 an unrelated reviewed diff and its explicit approval intact.
 
+History retains at most ten product/task-branch/commit references, newest saved
+first, in Developer's private no-backup directory. No source, diff, task prose,
+provider settings, credentials, test results, proposal or approval is persisted.
+The versioned/checksummed format detects corruption, not malicious alteration;
+saved entries remain untrusted bookmarks, never evidence of prior authorization.
+Reading history performs no network operation and the placeholder selection
+requires an explicit choice. Rechecking validates the fresh report's exact
+product/branch/commit and cannot populate the coding engine's trusted result or
+follow-up state. History operations invalidate any newer diff approval and
+serialize with active coding operations. Recreation restores no selection,
+diagnosis, pending operation or approval. Explicit Clear affects local bookmarks
+only and can recover a damaged regular metadata file. Links and non-regular files
+are refused. The bounded no-follow atomic checkpoint I/O is shared with existing
+task plans; their V1 byte format and revision contracts are unchanged.
+
 These validators are engineering safeguards, not a hostile-code sandbox or a
 comprehensive semantic security audit. Human diff review and existing CI, signing,
 backup, recovery, promotion and installation controls remain necessary.
@@ -114,6 +134,12 @@ Follow-up checks cover file choice, single-file scope, changed report identity,
 new-diff approval, moved/truncated/forged source, immutable tests, and pinned
 GET-only source retrieval. Prior static-review fingerprints retain their V1
 behavior; the follow-up domain includes its build reference.
+History checks cover bounds, duplicate retention, corruption, invalid product and
+branch identities, private metadata contents, explicit clearing, linked paths,
+atomic failures and concurrent store instances. Existing task-plan checkpoint
+regressions also exercise the shared filesystem implementation. Widget checks
+cover restart/load/selection/read, foreign reports, denied operations, destroyed
+callbacks and approval isolation from saved references.
 
 Robolectric exercises real workbench widgets/listeners, explicit read/stage
 actions, invalid inputs, stale callbacks, discard and destroyed activities.
@@ -138,7 +164,11 @@ immutable completed Personal workflow. Protected/expired logs may be unavailable
 it verifies the source and product without inventing complete test evidence.
 Its internal
 test injection is unavailable to production callers and intent extras.
-The strict harness requires all five cases within the unchanged 180-second
+A sixth case uses the actual private filesystem and native history controls to
+load an explicitly modeled saved reference, choose it, recreate the Activity and
+verify that neither coding scope nor approval nor selection is restored. It makes
+no provider, writer or build request.
+The strict harness requires all six cases within the unchanged 180-second
 deadline and retains instrumentation output. It never calls a live model,
 creates a live repair branch, uses a microphone or installs/publishes a production
 release. Only disposable debug app/test APKs are installed for that test.

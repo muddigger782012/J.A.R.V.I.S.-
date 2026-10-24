@@ -30,7 +30,7 @@ PACKAGE = "com.jarvis.developer"
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 TASK_BRANCH = re.compile(r"feature/jarvis-developer-task/[A-Za-z0-9][A-Za-z0-9_-]{0,47}-[a-f0-9]{12}\Z")
-PROTECTED = re.compile(r"agent|patch|github|repository|taskplan|buildfeedback|builddiagnostic|repairengine|repairworkbench|personalrepair|candidate|selfdevelopment|model|provider|transport|credential|secret|token|password|signing|keystore|updat|release|recovery|approval|publish|mainactivity|buildconfig|apikey|api_key|networksecurity", re.I)
+PROTECTED = re.compile(r"agent|patch|github|repository|taskplan|privatecheckpoint|repairhistory|buildfeedback|builddiagnostic|repairengine|repairworkbench|personalrepair|candidate|selfdevelopment|model|provider|transport|credential|secret|token|password|signing|keystore|updat|release|recovery|approval|publish|mainactivity|buildconfig|apikey|api_key|networksecurity", re.I)
 EXECUTION = re.compile(r"\b(?:Runtime|ProcessBuilder|DexClassLoader|URLClassLoader|ScriptEngineManager|MethodHandles|ClassLoader|javaClass|getClass|exec|execve|spawn|load|loadLibrary|getDeclaredMethod|getDeclaredField|getDeclaredConstructor|getMethod|getField|getConstructor|forName|invoke|newInstance)\b|\b(?:java\s*\.\s*lang\s*\.\s*reflect|kotlin\s*\.\s*reflect|javax\s*\.\s*script)\b|::\s*class\b|\\u[0-9a-f]{4}", re.I)
 KNOWN_CREDENTIAL = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}|AIza[A-Za-z0-9_-]{20,})\b|-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----")
 NAMED_CREDENTIAL = re.compile(r"(?:api[_-]?key|token|password|secret|authorization)[\"']?\s*(?::\s*[A-Za-z?]+)?\s*[=:]\s*[\"'][^\"'\r\n]+[\"']", re.I)

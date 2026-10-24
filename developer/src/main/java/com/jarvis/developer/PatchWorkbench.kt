@@ -33,6 +33,7 @@ object PatchWorkbench {
         },
         val followUpSource: (String, PatchPublisher.CommitResult, BuildDiagnostics.Report, String) -> PersonalRepair.Review =
             RepositoryIntelligence::personalFollowUp,
+        val history: RepairHistoryWorkbench.Services = RepairHistoryWorkbench.Services(),
         val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit }
     )
 
@@ -738,6 +739,19 @@ object PatchWorkbench {
             refresh()
         }
         refresh()
+        RepairHistoryWorkbench.attach(activity, root, githubToken,
+            currentCommit = { if (busy) null else lastCommit },
+            begin = {
+                if (busy) false else {
+                    setFeedbackContext(null)
+                    failRepair(activeRepair, "approval")
+                    invalidate()
+                    busy = true
+                    refresh()
+                    true
+                }
+            }, end = { busy = false; refresh() }, services = services.history)
+
         return Handle(prepareAction = { id, description, paths, base, branch -> prepareInputs(id, description, paths, base, branch) }, repairAction = { ticket, observer ->
             if (prepareInputs(ticket.taskId, ticket.task, ticket.scope, ticket.baseCommitSha, ticket.baseBranch)) {
                 activeRepair = ticket to observer

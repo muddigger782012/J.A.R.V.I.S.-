@@ -356,6 +356,9 @@ class CandidateAuditTest(unittest.TestCase):
                         "M\tdeveloper/src/main/java/com/jarvis/developer/PatchEngine.kt",
                         "M\tdeveloper/src/main/java/com/jarvis/developer/PersonalRepair.kt",
                         "M\tdeveloper/src/main/java/com/jarvis/developer/PersonalRepairWorkbench.kt",
+                        "M\tdeveloper/src/main/java/com/jarvis/developer/PrivateCheckpointFile.kt",
+                        "M\tdeveloper/src/main/java/com/jarvis/developer/RepairHistoryStore.kt",
+                        "M\tdeveloper/src/main/java/com/jarvis/developer/RepairHistoryWorkbench.kt",
                         "M\tdeveloper/src/test/java/com/jarvis/developer/TaskFileSummaryTest.kt"):
             def modeled_git(args, controller):
                 if args[:2] == ["rev-parse", "HEAD"]:

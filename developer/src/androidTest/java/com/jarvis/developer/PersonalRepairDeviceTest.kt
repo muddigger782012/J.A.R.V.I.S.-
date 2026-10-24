@@ -22,6 +22,7 @@ import org.junit.runner.RunWith
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
+import java.io.File
 
 /** Disposable CI emulator: public source/CI GETs plus a modeled repair/recovery interaction. No live writer/key. */
 @RunWith(AndroidJUnit4::class)
@@ -36,6 +37,7 @@ class PersonalRepairDeviceTest {
     @Before fun disposableOnly() {
         assertEquals("true", InstrumentationRegistry.getArguments().getString("jarvis_disposable_emulator"))
         context.getSharedPreferences("developer_health", Context.MODE_PRIVATE).edit().clear().commit()
+        RepairHistoryStore(File(context.noBackupFilesDir.canonicalFile, "developer-repair-history")).clear()
     }
     private fun views(view: View): List<View> = listOf(view) + if (view is ViewGroup)
         (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
@@ -100,6 +102,50 @@ class PersonalRepairDeviceTest {
                 noApproval(activity)
             }
         }
+    }
+
+    @Test fun savedHistorySurvivesRecreationWithoutRestoringSourceScopeOrApproval() {
+        val directory = File(context.noBackupFilesDir.canonicalFile, "developer-repair-history")
+        val target = PatchEngine.Target.PERSONAL
+        val entry = RepairHistoryStore.Bookmark(target,
+            PatchEngine.taskBranch("modeled-history", "b".repeat(64), target), "d".repeat(40))
+        RepairHistoryStore(directory).save(entry)
+        ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
+            scenario.onActivity { activity ->
+                openTools(activity); noApproval(activity)
+                assertFalse(button(activity, "Recheck selected saved build diagnostics (GET only)").isEnabled)
+                button(activity, "Load private repair history (local only)").performClick()
+            }
+            val deadline = SystemClock.elapsedRealtime() + 5_000
+            var loaded = false
+            while (!loaded && SystemClock.elapsedRealtime() < deadline) {
+                instrumentation.waitForIdleSync()
+                scenario.onActivity { activity -> loaded = views(activity.window.decorView).filterIsInstance<TextView>()
+                    .any { it.text.startsWith("Loaded 1 private commit bookmarks.") } }
+                if (!loaded) SystemClock.sleep(50)
+            }
+            assertTrue("Local history load must complete", loaded)
+            scenario.onActivity { activity ->
+                val choice = views(activity.window.decorView).filterIsInstance<Spinner>()
+                    .single { it.contentDescription == "Saved repair commit bookmark" }
+                assertEquals(2, choice.count); assertEquals(0, choice.selectedItemPosition)
+                choice.setSelection(1)
+                noApproval(activity)
+                assertFalse(button(activity, "Check CI for this exact task commit (read-only)").isEnabled)
+                assertFalse(button(activity, "Stage follow-up for a NEW exact diff review").isEnabled)
+            }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { assertTrue(button(it, "Recheck selected saved build diagnostics (GET only)").isEnabled) }
+            scenario.recreate()
+            scenario.onActivity { activity ->
+                noApproval(activity)
+                assertFalse(button(activity, "Recheck selected saved build diagnostics (GET only)").isEnabled)
+                button(activity, "Save current verified task commit bookmark").performClick()
+                assertTrue(views(activity.window.decorView).filterIsInstance<TextView>()
+                    .any { it.text.startsWith("No verified task commit is available") })
+            }
+        }
+        assertEquals(listOf(entry), RepairHistoryStore(directory).load())
     }
 
     @Test fun modeledInterruptedRepairRequiresApprovalAndRecoversWithoutAnotherWrite() {
