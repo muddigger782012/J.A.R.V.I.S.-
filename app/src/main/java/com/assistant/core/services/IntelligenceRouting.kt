@@ -27,7 +27,7 @@ object IntelligenceRouting {
     fun isStatus(text: String) = ScreenSemantics.clean(text).trimEnd('.', '?', '!') in setOf(
         "ai routing status", "intelligence routing status", "which ai provider is selected")
     fun modelLabel(model: String): String = model.takeIf {
-        it.matches(Regex("(?:gemini|gemma|learnlm)-[a-z0-9._-]{1,100}"))
+        AiConnectionDiagnostics.validModel(it) && it.any(Char::isLowerCase) && !it.startsWith("ya29.")
     } ?: "unverified model ID"
     fun status(primary: Provider, fallback: Boolean, gemini: Boolean, gateway: Boolean, model: String): String =
         "Supported device commands, approved routines, memory and screen tasks are processed locally and do not require an AI key. Android permissions and an offline-capable speech recognizer are still needed for their respective functions. " +

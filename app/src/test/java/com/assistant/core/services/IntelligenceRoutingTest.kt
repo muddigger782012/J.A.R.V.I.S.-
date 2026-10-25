@@ -5,11 +5,13 @@ import org.junit.Test
 
 class IntelligenceRoutingTest {
     @Test fun routingStatusNeverEchoesCredentialsAccidentallyEnteredAsAModelId() {
-        for (value in listOf("AIza-private-owner-key", "sk-private-owner-key", "github_pat_private", "PRIVATE_OWNER_TOKEN")) {
+        for (value in listOf("AIza-private-owner-key", "sk-private-owner-key", "github_pat_private", "PRIVATE_OWNER_TOKEN", "ya29.private-owner-token")) {
             val status = IntelligenceRouting.status(IntelligenceRouting.Provider.GEMINI, true, true, false, value)
             assertFalse(status.contains(value)); assertTrue(status.contains("unverified model ID"))
         }
         assertEquals("gemini-owner-choice", IntelligenceRouting.modelLabel("gemini-owner-choice"))
+        assertEquals("my-manual-model", IntelligenceRouting.modelLabel("my-manual-model"))
+        assertEquals("Owner_CustomModel", IntelligenceRouting.modelLabel("Owner_CustomModel"))
     }
     @Test fun manualProviderChoiceWinsWithoutChangingTheChosenModel() {
         val calls = mutableListOf<IntelligenceRouting.Provider>()
