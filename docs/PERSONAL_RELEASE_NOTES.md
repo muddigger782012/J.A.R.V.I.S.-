@@ -1,5 +1,16 @@
 Personal Jarvis v3.6 — Intelligent Device Assistance:
 
+- Keep current capture-start and first readiness/playback timing evidence when a
+  recognizer emits many partial results. A new capture clears the previous trace;
+  stale callbacks remain rejected and shared diagnostics stay bounded.
+- Distinguish recognition failures from speech-output failures, including unavailable
+  TTS, audio focus, queue errors and failed playback. Report measured response and
+  playback-start intervals without claiming to isolate provider internals or prove
+  audible output. A recovered attempt remains distinct from a current failure.
+- Retain the preceding voice lifecycle, installed-version/capability, independent
+  Gemini/gateway diagnostics and requested-day weather repairs. Physical Samsung
+  voice and owner-key live AI acceptance remain separate checks.
+
 - Set media volume offline with natural exact levels: "set music volume to half",
   "set the sound to twenty five percent" or "set music to three quarters".
   Read back Android's nearest supported level before reporting success.

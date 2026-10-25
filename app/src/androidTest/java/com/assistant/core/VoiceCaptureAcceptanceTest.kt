@@ -59,9 +59,28 @@ class VoiceCaptureAcceptanceTest {
                 assertTrue(heard.isEmpty()); assertEquals(2, partials.size)
                 assertTrue(capture.isActive)
                 assertEquals(VoiceInteractionState.TRANSCRIBING, phases.last())
+                repeat(100) { listener.onPartialResults(results("private-utterance long continuation")) }
                 listener.onResults(results("private-utterance first clause and a second clause"))
                 assertEquals(1, heard.size); assertFalse(capture.isActive)
                 assertFalse(VoiceSessionDiagnostics.render().contains("private-utterance"))
+                val directory = java.io.File(context.cacheDir, "voice-observation-test").apply { mkdirs() }
+                val scoped = object : android.content.ContextWrapper(context) {
+                    override fun getFilesDir(): java.io.File = directory
+                }
+                try {
+                    VoiceRuntimeObservation.write(scoped, VoiceRuntimeObservation.Owner.LOCAL,
+                        VoiceAssistantService.WakeState.STOPPED, VoiceInteractionState.IDLE)
+                    val reading = VoiceRuntimeObservation.read(scoped, VoiceRuntimeObservation.Owner.LOCAL)
+                    assertNotNull(reading)
+                    val stages = reading!!.timings.map { it.stage }
+                    assertTrue(stages.size <= 16)
+                    assertEquals(VoiceSessionDiagnostics.Stage.CAPTURE_REQUESTED, stages.first())
+                    assertTrue(stages.contains(VoiceSessionDiagnostics.Stage.CAPTURE_READY))
+                    assertTrue(stages.contains(VoiceSessionDiagnostics.Stage.PROCESSING))
+                    val stored = java.io.File(directory, "voice-runtime-local.json").readText()
+                    assertFalse(stored.contains("private-utterance"))
+                    assertTrue(stored.toByteArray().size <= 4096)
+                } finally { directory.deleteRecursively() }
             } finally { capture.stop() }
         }
     }

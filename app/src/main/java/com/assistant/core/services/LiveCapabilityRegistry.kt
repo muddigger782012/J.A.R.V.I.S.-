@@ -86,7 +86,7 @@ object LiveCapabilityRegistry {
             Topic.SCREEN -> screen
             Topic.PROVIDERS -> providers
             Topic.VOICE -> voice + "\n" + listOf(value.localVoice, value.foregroundVoice).filterNotNull()
-                .flatMap { it.timings }.joinToString("\n") { "${it.stage}: ${it.sinceStartMillis} ms since capture request; ${it.sincePreviousMillis} ms since prior callback" } +
+                .flatMap { it.timings }.joinToString("\n") { "${it.stage}: ${it.sinceStartMillis} ms since voice trace start; ${it.sincePreviousMillis} ms since prior callback" } +
                 "\nTiming evidence excludes audio and transcripts; missing callbacks leave latency unverified."
             Topic.DIAGNOSTICS -> "Self Diagnostics reviews bounded source, build and application-error reports. Source scanning runs through the read-only GitHub workflow or an authorized development machine; the app imports and reviews its findings. The independent Jarvis Developer app prepares source-verified proposals. An observation is not permission to edit, merge, sign, publish or install."
             Topic.FEATURES -> "$version " + (if (value.buildNotes.isEmpty()) "Bundled change notes could not be read. " else "Included build changes: " + value.buildNotes.joinToString(" ") + " ") +
