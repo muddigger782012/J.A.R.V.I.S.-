@@ -54,7 +54,6 @@ class VoiceAssistantService(
     private var captureScreenScope = ""
     private var onDeviceCapture = false
     private var usedSystemFallback = false
-    private var commandCaptureReady = false
     private fun resetRecognition() {
         captures.cancel(); listeningWithSpeechRecognizer = false
         runCatching { speechRecognizer?.cancel(); speechRecognizer?.destroy() }
@@ -134,7 +133,6 @@ class VoiceAssistantService(
         fallbackErrorStreak = 0
         // An explicit button press must not race the persistent wake-word microphone.
         stopDedicatedWakeWordEngine()
-        if (currentHotwordEngine == HotwordEngine.DEDICATED_OFFLINE) stopDedicatedWakeWordEngine()
         startCommandListening()
     }
 
@@ -314,7 +312,6 @@ class VoiceAssistantService(
 
     override fun onReadyForSpeech(params: Bundle?) {
         if (mode == RecognitionMode.COMMAND) {
-            commandCaptureReady = true
             onStatus("Microphone ready. Speak now.")
         }
     }
@@ -469,7 +466,6 @@ class VoiceAssistantService(
         }
         mode = RecognitionMode.COMMAND
         usedSystemFallback = false
-        commandCaptureReady = false
         startSpeechRecognizer(
             prompt = "Listening for command",
             preferOffline = config.preferOfflineCommandRecognition
