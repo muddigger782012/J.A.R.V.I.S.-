@@ -13,7 +13,8 @@ class VoiceSessionController(
     private val onError: (VoiceFailure) -> Unit
 ) {
     enum class Trigger { PUSH_TO_TALK, WAKE_WORD, ANDROID_ASSISTANT, BACKGROUND }
-    enum class Mode { STOPPED, ARMED, CAPTURING, PROCESSING, SPEAKING }
+    enum class Mode { STOPPED, ARMED, CAPTURING, TRANSCRIBING, PROCESSING, SPEAKING }
+    private var wakeListening = false
 
     data class Snapshot(
         val mode: Mode = Mode.STOPPED,
@@ -37,6 +38,14 @@ class VoiceSessionController(
     @Synchronized
     fun arm() = transition(Mode.ARMED, snapshot.trigger)
 
+    @Synchronized fun wakeState(listening: Boolean) {
+        wakeListening = listening
+        if (snapshot.mode in listOf(Mode.STOPPED, Mode.ARMED)) transition(if (listening) Mode.ARMED else Mode.STOPPED, snapshot.trigger)
+    }
+    @Synchronized fun transcribing() {
+        if (snapshot.mode == Mode.CAPTURING) transition(Mode.TRANSCRIBING, snapshot.trigger)
+    }
+
     @Synchronized
     fun beginCapture(trigger: Trigger) {
         val nextId = snapshot.sessionId + 1L
@@ -46,6 +55,7 @@ class VoiceSessionController(
 
     @Synchronized
     fun transcriptReady(text: String) {
+        if (snapshot.mode !in listOf(Mode.CAPTURING, Mode.TRANSCRIBING)) return
         val clean = text.trim()
         if (clean.isBlank()) {
             fail(VoiceFailure(VoiceFailure.Stage.TRANSCRIPTION, "I didn't hear anything."))
@@ -61,16 +71,22 @@ class VoiceSessionController(
 
     @Synchronized
     fun responseFinished(keepArmed: Boolean) {
-        transition(if (keepArmed) Mode.ARMED else Mode.STOPPED, snapshot.trigger)
+        if (snapshot.mode in listOf(Mode.CAPTURING, Mode.TRANSCRIBING, Mode.STOPPED)) return
+        transition(if (keepArmed && wakeListening) Mode.ARMED else Mode.STOPPED, snapshot.trigger)
+    }
+
+    @Synchronized fun captureFinished(keepArmed: Boolean) {
+        if (snapshot.mode !in listOf(Mode.CAPTURING, Mode.TRANSCRIBING)) return
+        transition(if (keepArmed && wakeListening) Mode.ARMED else Mode.STOPPED, snapshot.trigger)
     }
 
     @Synchronized
-    fun stop() = transition(Mode.STOPPED, null)
+    fun stop() { snapshot = snapshot.copy(sessionId = snapshot.sessionId + 1); transition(Mode.STOPPED, null) }
 
     @Synchronized
     fun fail(failure: VoiceFailure) {
         onError(failure)
-        transition(if (failure.recoverable) Mode.ARMED else Mode.STOPPED, snapshot.trigger)
+        transition(if (failure.recoverable && wakeListening) Mode.ARMED else Mode.STOPPED, snapshot.trigger)
     }
 
     private fun transition(mode: Mode, trigger: Trigger?) {
@@ -83,6 +99,7 @@ class VoiceSessionController(
             Mode.STOPPED -> VoiceInteractionState.IDLE
             Mode.ARMED -> VoiceInteractionState.WAKE_LISTENING
             Mode.CAPTURING -> VoiceInteractionState.LISTENING
+            Mode.TRANSCRIBING -> VoiceInteractionState.TRANSCRIBING
             Mode.PROCESSING -> VoiceInteractionState.PROCESSING
             Mode.SPEAKING -> VoiceInteractionState.SPEAKING
         }

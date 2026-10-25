@@ -95,7 +95,8 @@ class IntelligenceActivity : MenuActivity("Intelligence", R.id.btnCloseIntellige
         val savedExamples = examples.snapshot()
         val savedRoutines = routines.snapshot()
         val overview = IntelligenceOverview.build(savedCommands, savedExamples, savedRoutines.size,
-            direct.hasGeminiKey(), gateway.isConfigured(), prefs.getBoolean("automatic_command_learning", true))
+            direct.hasGeminiKey(), gateway.isConfigured(), prefs.getBoolean("automatic_command_learning", true),
+            if (packageName == "com.assistant.core") IntelligenceRouting.selected(prefs.getString("primary_provider", "gemini")) else null)
         val local = section("Learning on this device")
         text(local, "Saved command entries: ${overview.commandEntries}\nPaused entries: ${overview.pausedEntries}\nIntent examples: ${overview.intentExamples}\nAvailable approved routines: ${overview.approvedRoutines}")
         text(local, "Counts describe saved learning, not every action J.A.R.V.I.S. can perform. Paused phrases need a new verified lesson or removal.")
@@ -173,9 +174,11 @@ class IntelligenceActivity : MenuActivity("Intelligence", R.id.btnCloseIntellige
         val validated = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         text(connection, if (validated) "Device reports a validated internet connection." else "No validated internet connection reported. Saved local commands and routines remain available.")
         text(connection, lastTest)
-        text(connection, "Configuration is not proof of a working connection. Testing sends a short test prompt to the primary AI; it sends no conversation, learned phrases, memory or location and performs no device action.")
+        text(connection, "Configuration is not proof of a working connection. Gemini tests catalog access and generation independently. Testing sends a short test prompt; it sends no conversation, learned phrases, memory or location and performs no device action.")
         button(connection, if (checking) "Testing connection…" else "Test primary AI connection") { testConnection(overview.primaryAi) }
             .isEnabled = !checking && overview.primaryAi != "Not configured"
+        button(connection, "Test Gemini independently") { testConnection("Gemini") }.isEnabled = !checking
+        button(connection, "Test gateway independently") { testConnection("Gateway") }.isEnabled = !checking
         button(connection, "AI connection settings") { AiConnectionSettings.show(this) }
         button(connection, "Refresh dashboard") { render() }
         val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "unknown"
@@ -276,16 +279,14 @@ class IntelligenceActivity : MenuActivity("Intelligence", R.id.btnCloseIntellige
         render()
         val appContext = applicationContext
         thread(name = "jarvis-intelligence-check") {
-            val reply = runCatching {
-                if (provider == "Gemini") DirectOnlineClient(appContext).gemini(IntelligenceConnectionCheck.PROMPT)
-                else FallbackAiClient(appContext).ask(IntelligenceConnectionCheck.PROMPT, learnIntent = false, includeLocation = false)?.reply
-            }.getOrNull()
-            val accepted = IntelligenceConnectionCheck.accepted(reply)
+            val result = runCatching {
+                if (provider == "Gemini") DirectOnlineClient(appContext).connectionTest()
+                else FallbackAiClient(appContext).connectionTest()
+            }.getOrElse { AiConnectionDiagnostics.Result(false, problem = AiConnectionDiagnostics.problem(it as? Exception ?: Exception())) }
             runOnUiThread {
                 if (!isFinishing && !isDestroyed) {
                     checking = false
-                    lastTest = "Last test: $provider " + (if (accepted) "returned the expected reply" else "did not return the expected reply; check AI settings and try again") +
-                        " (${DateFormat.getTimeFormat(this).format(Date())}). This does not test device actions."
+                    lastTest = AiConnectionDiagnostics.render(result, provider)
                     render()
                 }
             }

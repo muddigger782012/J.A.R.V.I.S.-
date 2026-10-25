@@ -74,7 +74,7 @@ class HybridAssistantService(
     private val assistantConnections = AssistantConnections(systemService.context())
     private val fallbackAiClient = FallbackAiClient(systemService.context())
     private val responseTurns = AssistantResponseTurns()
-    private val intelligencePrefs by lazy { systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE) }
+    private val intelligencePrefs get() = RuntimeSettings.read(systemService.context(), "jarvis_cloud_ai")
     private val volumeConfirmations = VolumeConfirmationStore(systemService.context())
     private val deviceLearningSession = DeviceLearningSession(systemService.context())
     private val assistantMemory = AssistantMemory(systemService.context())
@@ -104,6 +104,21 @@ class HybridAssistantService(
         return HybridAssistantReply(response.text, screenContextKey = response.contextKey)
     }
 
+    private fun hostInformation(input: String): HybridAssistantReply? {
+        if (!personalAssistant) return null
+        // Preserve existing explicit diagnostic controls and their no-learning/no-memory contracts.
+        if (ScreenControls.parse(input)?.kind in setOf(ScreenControls.Kind.DIAGNOSTICS, ScreenControls.Kind.STATUS,
+                ScreenControls.Kind.HELP, ScreenControls.Kind.SETUP) || IntelligenceRouting.isStatus(input) ||
+            DeviceReport.command(input) != null) return null
+        val topic = LiveCapabilityRegistry.topic(input, conversationTurns().lastOrNull()?.first) ?: return null
+        clearPendingActionPrompts()
+        screenAccess.discard(); appDiscovery.discard()
+        val snapshot = LiveCapabilityRegistry.snapshot(systemService.context())
+        val response = LiveCapabilityRegistry.render(topic, snapshot)
+        remember(input, response)
+        return HybridAssistantReply(response)
+    }
+
     fun handleUserInput(rawInput: String): HybridAssistantReply {
         if (responseTurns.bound()) return handleUserInputWithinCurrentTurn(rawInput)
         val turn = responseTurns.begin()
@@ -112,6 +127,7 @@ class HybridAssistantService(
 
     private fun handleUserInputWithinCurrentTurn(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
+        hostInformation(userInput)?.let { return it }
         if (personalAssistant) {
             if (screenAccess.accepts(userInput)) return handleScreenInput(screenAccess.prepare(userInput))
             screenAccess.discard()
@@ -120,7 +136,7 @@ class HybridAssistantService(
                 return HybridAssistantReply(IntelligenceRouting.status(
                     IntelligenceRouting.selected(intelligencePrefs.getString("primary_provider", "gemini")),
                     intelligencePrefs.getBoolean("provider_fallback", true), directOnlineClient.hasGeminiKey(),
-                    fallbackAiClient.isConfigured(), intelligencePrefs.getString("gemini_model", "gemini-3.5-flash-lite").orEmpty()))
+                    fallbackAiClient.isConfigured(), intelligencePrefs.getString("gemini_model", GeminiModelDiscovery.DEFAULT_MODEL).orEmpty()))
             }
             ConnectionAssistance.parse(userInput)?.let { command ->
                 clearPendingActionPrompts()
@@ -441,7 +457,7 @@ class HybridAssistantService(
                     settleTrackedRoutine(pending, success = true)
                     val trialSaved = pending.requestId == null || trialEvidence.record(pending.requestId, pending.action, CapabilityTrialEvidence.Outcome.USER_CONFIRMED)
                     val contextSaved = assistantMemory.recordConfirmed(pending.action)
-                    val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
+                    val prefs = RuntimeSettings.read(systemService.context(), "jarvis_cloud_ai")
                     val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
                     val learned = pending.shouldLearn(prefs.getBoolean("automatic_command_learning", true)) &&
                         memory.recordSuccess(pending.phrase, pending.contextual?.capabilityId ?: pending.action.capabilityId, LearnableDeviceAction.capabilities + ContextualAction.capabilities, pending.contextual?.parameters ?: pending.action.parameters)
@@ -478,7 +494,7 @@ class HybridAssistantService(
                 pending.slot == "clear" -> if (assistantMemory.clear()) "Cleared saved assistant preferences and recent-action context on this device." else "Could not clear assistant memory."
                 pending.action != null -> {
                     val action = pending.action
-                    val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
+                    val prefs = RuntimeSettings.read(systemService.context(), "jarvis_cloud_ai")
                     val outcome = PreferenceLearning.commit(pending, prefs.getBoolean("automatic_command_learning", true),
                         installed = { androidAssistant.resolveLearnableApp(it.parameters.getValue("label"))?.first == it.parameters.getValue("package") },
                         save = assistantMemory::savePreference, read = assistantMemory::preferred,
@@ -1253,6 +1269,18 @@ class HybridAssistantService(
     }
 
     private fun handleUserInputWithinTurn(rawInput: String, turn: Long, callback: (HybridAssistantReply) -> Unit) {
+        hostInformation(rawInput)?.let { callback(it); return }
+        val weatherInput = ForecastDates.contextual(rawInput, conversationTurns().map { it.first })
+        if (weatherInput != null && !RoutineProposal.isCreationRequest(rawInput)) {
+            clearPendingActionPrompts()
+            if (personalAssistant) { screenAccess.discard(); appDiscovery.discard() }
+            responseThread(turn, callback) {
+                val response = directOnlineClient.weather(weatherInput)
+                remember(rawInput, response)
+                callback(HybridAssistantReply(response))
+            }.start()
+            return
+        }
         if (personalAssistant && screenAccess.accepts(rawInput)) {
             // Freeze the accepted screen route: a delayed contextual yes must never fall into another action's approval.
             val request = screenAccess.prepare(rawInput)
@@ -1371,12 +1399,11 @@ class HybridAssistantService(
         } == true
         // Report observed network capability rather than inventing provider connectivity.
         val capabilityQuestion = rawInput.trim().lowercase(Locale.ROOT).trimEnd('.', '?', '!')
-        val updateQuestion = listOf("new update", "the update", "the upgrade", "what changed", "couldn't before").any { capabilityQuestion.contains(it) }
         val connectionQuestion = capabilityQuestion in setOf(
             "are you online", "are you still offline", "do you have internet access",
             "do you have online access", "so you're telling me you don't have online access still"
         )
-        if (updateQuestion || connectionQuestion) {
+        if (connectionQuestion) {
             val network = systemService.context().getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
             val capabilities = network.getNetworkCapabilities(network.activeNetwork)
             val internetCapable = capabilities?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
@@ -1384,9 +1411,7 @@ class HybridAssistantService(
                 "Android reports an internet-capable network, but website and provider reachability have not been verified."
             else "Android does not currently report an internet-capable active network."
             val geminiStatus = if (directOnlineClient.hasGeminiKey()) "Gemini has a configured key, but its availability has not been tested." else "Gemini has no configured key."
-            val response = if (updateQuestion)
-                "This build supports local device commands, live chat, and independent web, image, and video search requests without a Gemini key. Search results depend on provider availability. I cannot verify which features were added by your latest installed update. $networkStatus $geminiStatus"
-            else "$networkStatus Jarvis supports independent web search without Gemini. $geminiStatus"
+            val response = "$networkStatus Jarvis supports independent web search without Gemini. $geminiStatus"
             remember(rawInput, response)
             callback(HybridAssistantReply(response))
             return
@@ -1454,11 +1479,13 @@ class HybridAssistantService(
                 responseThread(turn, callback) {
                     val router = SearchRouter.configured("", "", kind)
                     val retrieved = router.search(query)
-                    val response = if (retrieved.items.isNotEmpty())
+                    val response = if (retrieved.items.isNotEmpty()) {
                         ChatSearchResults.encode(rawInput, retrieved.items,
                             "Retrieved links are not AI-verified. Check the original sources.",
                             kind = kind, retrievedAt = System.currentTimeMillis())
-                    else router.failureMessage(retrieved, kind)
+                    } else {
+                        router.failureMessage(retrieved, kind)
+                    }
                     remember(rawInput, response)
                     callback(HybridAssistantReply(response))
                 }.start()
@@ -1476,14 +1503,6 @@ class HybridAssistantService(
             (local.text.contains("cannot access", ignoreCase = true) ||
                 local.text.contains("cannot retrieve", ignoreCase = true))
         val unresolved = local.needsInterpretation || unsupportedManualReply || manualConfirmation || (manualRetrieval && local.actionResult == null)
-        if (unresolved && !RoutineProposal.isCreationRequest(rawInput) && OnlineAnswers.isWeather(rawInput)) {
-            responseThread(turn, callback) {
-                val response = directOnlineClient.weather(rawInput)
-                remember(rawInput, response)
-                callback(HybridAssistantReply(response))
-            }.start()
-            return
-        }
         if (!unresolved) {
             callback(local)
             return
@@ -2001,14 +2020,14 @@ class HybridAssistantService(
 
     private fun executeConfirmedVolume(userText: String, lesson: FallbackIntentLesson, explicitTeaching: Boolean = false, requestId: String? = null): String {
         ExactVolumeLearning.fromLesson(lesson)?.let { percent ->
-            val enabled = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
+            val enabled = RuntimeSettings.read(systemService.context(), "jarvis_cloud_ai")
                 .getBoolean("automatic_command_learning", true)
             return executeExactVolume(userText, percent, learn = (explicitTeaching || enabled) && lesson.canTeachLocally(), requestId = requestId)
         }
         VerifiedVolumeLearning.capability(lesson)?.let { capability ->
             ExactVolumeLearning.relativeConflictGuidance(userText, capability)?.let { return it }
         }
-        val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
+        val prefs = RuntimeSettings.read(systemService.context(), "jarvis_cloud_ai")
         val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
         val outcome = VerifiedVolumeLearning.execute(
             userText, lesson, prefs.getBoolean("automatic_command_learning", true),

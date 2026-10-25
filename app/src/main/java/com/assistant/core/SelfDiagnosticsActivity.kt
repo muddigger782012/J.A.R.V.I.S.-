@@ -61,6 +61,18 @@ class SelfDiagnosticsActivity : MenuActivity("Self Diagnostics & Improvements") 
         note("Self Diagnostics & Improvements")
         note("Read-only review. Imported findings and claimed revisions are unverified; they cannot authorize edits.")
         if (loading) row("Cancel report import", "Keep the previous report", ::cancelImport)
+        row("Review voice, AI and capability diagnostics", "Inspect current permissions and retained callback/request observations without making network requests") {
+            val snapshot = com.assistant.core.services.LiveCapabilityRegistry.snapshot(this)
+            val review = com.assistant.core.services.OperationalDiagnostics.render(snapshot)
+            ThemedDialogBuilder(this).setTitle("Runtime diagnostics").setMessage(review)
+                .setNegativeButton("Close", null).setPositiveButton("Review in Developer") { _, _ ->
+                    runCatching {
+                        startActivity(Intent(Intent.ACTION_SEND).setComponent(ComponentName("com.jarvis.developer", "com.jarvis.developer.MainActivity"))
+                            .setType("text/plain").putExtra(Intent.EXTRA_TEXT, review))
+                        event(2)
+                    }.onFailure { message("Jarvis Developer unavailable", "Install the independent Developer app to open this read-only review. Source analysis and explicit owner approval are required before a repair can be written.") }
+                }.show()
+        }
         row("Analyze Source Code", "Open the read-only GitHub workflow; run it on an authorized revision, then import its JSON report") {
             open("https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/workflows/self-diagnostics.yml")
         }

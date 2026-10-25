@@ -26,7 +26,8 @@ class SherpaWakeWordEngine(
     private val sensitivity: Float,
     private val onDetected: () -> Unit,
     private val onStatus: (String) -> Unit,
-    private val onFailure: () -> Unit = {}
+    private val onFailure: () -> Unit = {},
+    private val onListening: () -> Unit = {}
 ) {
     companion object {
         private const val SAMPLE_RATE = 16000
@@ -144,7 +145,7 @@ class SherpaWakeWordEngine(
             worker?.start()
             true
         } catch (t: Throwable) {
-            onStatus("Sherpa wake engine failed: ${t.message ?: t.javaClass.simpleName}")
+            onStatus("Sherpa wake engine initialization failed. Check microphone permission and the installed wake model.")
             stop()
             false
         }
@@ -194,7 +195,8 @@ class SherpaWakeWordEngine(
         var sumSquaresSinceReport = 0.0
         var samplesSinceReport = 0L
         var lowSignalReports = 0
-        var lastReportAt = System.currentTimeMillis()
+        var lastReportAt = SystemClock.elapsedRealtime()
+        var emptyReads = 0
         var totalChunks = 0
         var detected = false
         try {
@@ -209,19 +211,38 @@ class SherpaWakeWordEngine(
             audio.startRecording()
             check(audio.recordingState == AudioRecord.RECORDSTATE_RECORDING) { "Microphone did not enter recording state" }
             stage("sherpa-mic-recording")
-            onStatus("Sherpa microphone active at 16 kHz; listening for '$wakePhrase'.")
+            onStatus("Sherpa microphone recording initialized; waiting for the first audio buffer.")
             while (running) {
                 if (totalChunks == 0) {
                     stage("sherpa-worker-before-read")
                     onStatus("Sherpa audio worker started; waiting for microphone samples.")
                 }
-                val n = audio.read(buffer, 0, buffer.size)
+                val timeout = Runnable {
+                    if (running) {
+                        running = false
+                        stage("sherpa-audio-read-timeout")
+                        runCatching { audio.stop() }
+                        onStatus("Wake-word audio capture stopped delivering buffers. Standby is unavailable; checking recovery.")
+                        onFailure()
+                    }
+                }
+                watchdog.postDelayed(timeout, 15_000L)
+                val n = try { audio.read(buffer, 0, buffer.size) } finally { watchdog.removeCallbacks(timeout) }
+                if (!running) return
                 if (n < 0) {
                     onStatus("Sherpa microphone read failed ($n).")
                     error("Microphone read failed ($n)")
                 }
-                if (n == 0) continue
-                if (totalChunks == 0) onStatus("Sherpa received first microphone audio buffer.")
+                if (n == 0) {
+                    check(++emptyReads <= 50) { "No microphone buffer progress" }
+                    Thread.sleep(20)
+                    continue
+                }
+                emptyReads = 0
+                if (totalChunks == 0) {
+                    onListening()
+                    onStatus("Sherpa received its first microphone audio buffer; wake detection is listening.")
+                }
                 var peak = 0
                 for (i in 0 until n) {
                     val normalized = buffer[i].toDouble() / 32768.0
@@ -235,7 +256,7 @@ class SherpaWakeWordEngine(
                 if (peak > peakSinceReport) peakSinceReport = peak
                 chunks += 1
                 totalChunks += 1
-                val now = System.currentTimeMillis()
+                val now = SystemClock.elapsedRealtime()
                 if (now - lastReportAt >= 3000L) {
                     val pct = (peakSinceReport * 100 / 32767).coerceIn(0, 100)
                     val rmsPct = if (samplesSinceReport == 0L) 0 else
@@ -282,9 +303,9 @@ class SherpaWakeWordEngine(
                 }
             }
         } catch (t: Throwable) {
-            stage("sherpa-worker-failed-" + t.javaClass.simpleName + "-" + (t.message ?: "unknown"))
+            stage("sherpa-worker-failed")
             if (running) {
-                onStatus("Wake word unavailable: ${t.message ?: t.javaClass.simpleName}")
+                onStatus("Wake-word capture or decoding failed. Standby is unavailable until recovery.")
                 onFailure()
             }
         } finally {

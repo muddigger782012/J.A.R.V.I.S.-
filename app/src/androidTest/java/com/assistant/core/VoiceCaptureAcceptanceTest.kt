@@ -28,8 +28,10 @@ class VoiceCaptureAcceptanceTest {
             var intent: Intent? = null
             var cancelled = false
             var destroyed = false
+            var finished = false
             override fun start(intent: Intent) { this.intent = intent }
             override fun cancel() { cancelled = true }
+            override fun finish() { finished = true }
             override fun destroy() { destroyed = true }
         }
     }
@@ -37,6 +39,74 @@ class VoiceCaptureAcceptanceTest {
     private fun results(vararg text: String) = Bundle().apply {
         putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf(*text))
         putFloatArray(SpeechRecognizer.CONFIDENCE_SCORES, floatArrayOf(.99f, .24f, .98f))
+    }
+
+    @Test fun partialsAndEndOfSpeechDoNotFinalizeAnIncompleteUtterance() {
+        instrumentation.runOnMainSync {
+            val engines = Engines()
+            val capture = LiveSpeechCapture(context, engines)
+            val heard = mutableListOf<String>()
+            val partials = mutableListOf<String>()
+            val phases = mutableListOf<VoiceInteractionState>()
+            try {
+                capture.listen(true, partials::add, heard::add, { fail("Unexpected error $it") }, onPhase = phases::add)
+                val listener = engines.sessions.single().listener
+                listener.onReadyForSpeech(Bundle())
+                listener.onBeginningOfSpeech()
+                listener.onPartialResults(results("private-utterance first clause"))
+                listener.onEndOfSpeech()
+                listener.onPartialResults(results("private-utterance first clause and a second clause"))
+                assertTrue(heard.isEmpty()); assertEquals(2, partials.size)
+                assertTrue(capture.isActive)
+                assertEquals(VoiceInteractionState.TRANSCRIBING, phases.last())
+                listener.onResults(results("private-utterance first clause and a second clause"))
+                assertEquals(1, heard.size); assertFalse(capture.isActive)
+                assertFalse(VoiceSessionDiagnostics.render().contains("private-utterance"))
+            } finally { capture.stop() }
+        }
+    }
+    @Test fun busyOnDeviceProviderReleasesItsCaptureBeforeOneSystemRetryAndCannotDeliverOldResults() {
+        instrumentation.runOnMainSync {
+            val engines = Engines()
+            val capture = LiveSpeechCapture(context, engines)
+            val heard = mutableListOf<String>()
+            try {
+                capture.listen(true, {}, heard::add, { fail("Unexpected terminal failure") })
+                val first = engines.sessions.single()
+                first.listener.onError(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
+                assertTrue(first.cancelled && first.destroyed)
+                assertEquals(2, engines.sessions.size)
+                assertEquals(SpeechCaptureRouting.Engine.SYSTEM, engines.sessions.last().engine)
+                first.listener.onResults(results("old private result"))
+                assertTrue(heard.isEmpty())
+                engines.sessions.last().listener.onResults(results("current result"))
+                assertEquals(listOf("current result"), heard)
+            } finally { capture.stop() }
+        }
+    }
+
+    @Test fun manualFinishWaitsForFinalResultsAndCancellationRejectsEveryOldPhaseCallback() {
+        instrumentation.runOnMainSync {
+            val engines = Engines()
+            val capture = LiveSpeechCapture(context, engines)
+            val phases = mutableListOf<VoiceInteractionState>()
+            val heard = mutableListOf<String>()
+            try {
+                capture.listen(true, {}, heard::add, { fail("Old error delivered") }, onPhase = phases::add)
+                val session = engines.sessions.single()
+                capture.finish(); assertTrue(session.finished); assertTrue(heard.isEmpty())
+                assertEquals(listOf(VoiceInteractionState.TRANSCRIBING), phases)
+                val beforeCancellation = phases.toList()
+                capture.stop()
+                session.listener.onReadyForSpeech(Bundle())
+                session.listener.onEndOfSpeech()
+                session.listener.onPartialResults(results("cancelled private speech"))
+                session.listener.onResults(results("cancelled private speech"))
+                session.listener.onError(SpeechRecognizer.ERROR_CLIENT)
+                assertEquals(beforeCancellation, phases); assertTrue(heard.isEmpty())
+                assertTrue(session.cancelled && session.destroyed)
+            } finally { capture.stop() }
+        }
     }
 
     @Test fun offlineCaptureWorksWithoutASystemProviderAndKeepsTranscriptScoresPaired() {

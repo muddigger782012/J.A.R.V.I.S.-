@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
+import androidx.test.core.app.ActivityScenario
 import androidx.core.content.ContextCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -78,32 +79,36 @@ class AndroidCompatibilityAcceptanceTest {
 
     @Test fun privateDynamicEventsAcceptTheAppButRejectTheShellUid() {
         disposable()
-        val action = "com.assistant.core.acceptance.PRIVATE_EVENT_" + UUID.randomUUID().toString().replace("-", "")
-        val received = AtomicInteger()
-        val own = CountDownLatch(1)
-        val foreign = CountDownLatch(1)
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                if (received.incrementAndGet() == 1) own.countDown() else foreign.countDown()
+        // Android may defer broadcasts for an app without a visible component. Keep the
+        // same foreground condition as the Chat receiver, without starting a voice pipeline.
+        ActivityScenario.launch(ScreenControlFixtureActivity::class.java).use {
+            val action = "com.assistant.core.acceptance.PRIVATE_EVENT_" + UUID.randomUUID().toString().replace("-", "")
+            val received = AtomicInteger()
+            val own = CountDownLatch(1)
+            val foreign = CountDownLatch(1)
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    if (received.incrementAndGet() == 1) own.countDown() else foreign.countDown()
+                }
             }
-        }
-        instrumentation.runOnMainSync {
-            ContextCompat.registerReceiver(context, receiver, IntentFilter(action), ContextCompat.RECEIVER_NOT_EXPORTED)
-        }
-        try {
-            context.sendBroadcast(Intent(action).setPackage(context.packageName))
-            assertTrue("A genuine app event must still be delivered", own.await(5, TimeUnit.SECONDS))
-            // UiAutomation runs this sender as shell, not the app's UID. Fixed action/package
-            // references contain only generated hex and the known target package; no source/log input is executed.
-            assertTrue(context.packageName.matches(Regex("com\\.assistant\\.core(?:\\.beta)?")))
-            val command = "am broadcast -a $action -p ${context.packageName}"
-            android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command)).bufferedReader().use { reader ->
-                var lines = 0
-                while (reader.readLine() != null) { check(++lines <= 20) }
+            instrumentation.runOnMainSync {
+                ContextCompat.registerReceiver(context, receiver, IntentFilter(action), ContextCompat.RECEIVER_NOT_EXPORTED)
             }
-            assertFalse("Another UID must not inject private voice events", foreign.await(500, TimeUnit.MILLISECONDS))
-            assertEquals(1, received.get())
-        } finally { instrumentation.runOnMainSync { context.unregisterReceiver(receiver) } }
+            try {
+                context.sendBroadcast(Intent(action).setPackage(context.packageName))
+                assertTrue("A genuine app event must still be delivered", own.await(5, TimeUnit.SECONDS))
+                // UiAutomation runs this sender as shell, not the app's UID. Fixed action/package
+                // references contain only generated hex and the known target package; no source/log input is executed.
+                assertTrue(context.packageName.matches(Regex("com\\.assistant\\.core(?:\\.beta)?")))
+                val command = "am broadcast -a $action -p ${context.packageName}"
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command)).bufferedReader().use { reader ->
+                    var lines = 0
+                    while (reader.readLine() != null) { check(++lines <= 20) }
+                }
+                assertFalse("Another UID must not inject private voice events", foreign.await(500, TimeUnit.MILLISECONDS))
+                assertEquals(1, received.get())
+            } finally { instrumentation.runOnMainSync { context.unregisterReceiver(receiver) } }
+        }
     }
 
     @Test fun manifestKeepsMicrophoneAndSpecialAccessWhileMakingOptionalHardwareExplicit() {

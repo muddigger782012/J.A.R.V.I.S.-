@@ -69,6 +69,9 @@
         <provider android:name=".services.ScreenAccessProvider"
             android:authorities="${applicationId}.screen-access"
             android:exported="false" android:grantUriPermissions="false" />
+        <provider android:name=".services.RuntimeSettingsProvider"
+            android:authorities="${applicationId}.runtime-settings"
+            android:exported="false" android:grantUriPermissions="false" />
         <receiver android:name=".JarvisHudWidgetProvider" android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

@@ -319,6 +319,19 @@ class ScreenControlAcceptanceTest {
                 val caching = service.isCacheEnabled
                 try {
                     assertTrue(service.setCacheEnabled(false))
+                    // Changing framework cache policy creates a new cold-read condition.
+                    // Wait for two equal fresh snapshots before the single remote assertion;
+                    // retain the production deadline and fail if the real manager never settles.
+                    var previous = ""
+                    waitUntil {
+                        val current = runCatching { AndroidScreenPlatform(context).snapshot().takeIf { screen ->
+                            screen.packageName == ConnectionAssistance.MANAGER_PACKAGE && !screen.blocked &&
+                                screen.text.any { text -> text.contains("CONNECTION MANAGER") }
+                        }?.key.orEmpty() }.getOrDefault("")
+                        val stable = current.isNotBlank() && current == previous
+                        previous = current
+                        stable
+                    }
                     val withoutCache = remote("read my screen")
                     val diagnostics = remote("screen read diagnostics")
                     assertTrue("Disabled caching must retain the supported fresh-node read: $withoutCache; $diagnostics", withoutCache.contains("CONNECTION MANAGER"))

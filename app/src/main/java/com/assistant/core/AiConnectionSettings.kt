@@ -33,7 +33,7 @@ object AiConnectionSettings {
             setSingleLine(true)
             isFocusable = false
             isClickable = true
-            setText(gatewayPrefs.getString("gemini_model", "gemini-3.5-flash-lite"))
+            setText(gatewayPrefs.getString("gemini_model", com.assistant.core.services.GeminiModelDiscovery.DEFAULT_MODEL))
             contentDescription = "Choose Gemini AI model"
             hint = "Tap to choose a model"
             fields.addView(this)
@@ -86,16 +86,17 @@ object AiConnectionSettings {
             discoverButton.isEnabled = false
             discoveryStatus.text = "Checking available Gemini models..."
             kotlin.concurrent.thread(name = "JarvisGeminiModelDiscovery") {
-                val models = try {
-                    com.assistant.core.services.GeminiModelDiscovery.list(apiKey)
-                } catch (_: Exception) { emptyList() }
+                val inventory = com.assistant.core.services.GeminiModelDiscovery.inspect(apiKey)
+                val models = inventory.models
                 activity.runOnUiThread {
                     if (!open || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                     discoverButton.isEnabled = true
-                    if (models.isEmpty()) discoveryStatus.text =
-                        "No models returned. Check your API key and network connection."
+                    if (models.isEmpty()) discoveryStatus.text = if (inventory.complete) "The catalog returned no supported text-generation models. Your selected model was preserved."
+                        else com.assistant.core.services.AiConnectionDiagnostics.describe(inventory.problem)
                     else {
-                        discoveryStatus.text = "${models.size} text-generation models available."
+                        discoveryStatus.text = "${models.size} text-generation models listed." +
+                            if (inventory.complete) " Catalog complete; generation has not been tested."
+                            else " Catalog incomplete: " + com.assistant.core.services.AiConnectionDiagnostics.describe(inventory.problem)
                         ThemedDialogBuilder(activity).setTitle("Available Gemini models")
                             .setItems(models.toTypedArray()) { _, index ->
                                 geminiModel.setText(models[index])
@@ -105,6 +106,31 @@ object AiConnectionSettings {
                 }
             }
         }
+        val testStatus = TextView(activity).apply {
+            text = "A connection test sends only a short test prompt using the entered key and model. It does not save settings, use chat or location, or perform actions."
+            textSize = 12f
+        }
+        val testButton = com.google.android.material.button.MaterialButton(activity).apply {
+            text = "Test entered Gemini connection"
+            setOnClickListener {
+                val enteredKey = geminiKey.text.toString().trim()
+                val enteredModel = geminiModel.text.toString().trim()
+                isEnabled = false
+                testStatus.text = "Testing catalog access and generation for the entered settings…"
+                val appContext = activity.applicationContext
+                kotlin.concurrent.thread(name = "JarvisGeminiConnectionCheck") {
+                    val result = com.assistant.core.services.DirectOnlineClient(appContext).connectionTest(enteredKey, enteredModel)
+                    activity.runOnUiThread {
+                        if (!open || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                        isEnabled = true
+                        testStatus.text = com.assistant.core.services.AiConnectionDiagnostics.render(result) +
+                            "\nTested the values entered when you pressed Test. Tap Save separately to apply edits."
+                    }
+                }
+            }
+        }
+        fields.addView(testButton)
+        fields.addView(testStatus)
         fields.addView(TextView(activity).apply {
             text = "Models vary by API key, region and availability. Selection changes both conversation and Google Search grounding; unsupported models will return a provider error."
             textSize = 12f
