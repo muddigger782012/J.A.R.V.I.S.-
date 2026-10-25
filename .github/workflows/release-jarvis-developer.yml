@@ -169,48 +169,38 @@ jobs:
               exit 1
             }
           fi
-      - name: Preserve previous signed Developer release
+      - name: Preserve previous signed Developer release as immutable recovery snapshot
         if: github.event_name == 'workflow_dispatch' && !inputs.defer_recovery
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view developer-latest >/dev/null 2>&1; then
             PREVIOUS_SOURCE=$(gh release view developer-latest --json targetCommitish --jq .targetCommitish)
-            test -n "$PREVIOUS_SOURCE"
-            mkdir -p "$RUNNER_TEMP/developer-previous"
-            if gh release download developer-latest -p Jarvis-Developer.apk -D "$RUNNER_TEMP/developer-previous"; then
-              if gh release view developer-previous >/dev/null 2>&1; then
-                # A pre-existing protected backup may be immutable to the Actions token.
-                # Verify its APK matches exactly instead of attempting an unnecessary edit.
-                mkdir -p "$RUNNER_TEMP/developer-existing-backup"
-                gh release download developer-previous -p Jarvis-Developer.apk -D "$RUNNER_TEMP/developer-existing-backup"
-                cmp "$RUNNER_TEMP/developer-previous/Jarvis-Developer.apk" "$RUNNER_TEMP/developer-existing-backup/Jarvis-Developer.apk" || {
-                  echo "::error::Protected previous APK differs from current release; refusing publication."
-                  exit 1
-                }
-                echo "Existing signed Developer backup matches current release; no backup mutation required."
-              else
-                gh release create developer-previous --target "$PREVIOUS_SOURCE" --prerelease --title 'Jarvis Developer previous signed APK' --notes "Previous published Developer source commit: $PREVIOUS_SOURCE"
-                gh release upload developer-previous "$RUNNER_TEMP/developer-previous/Jarvis-Developer.apk"
-              fi
+            [[ "$PREVIOUS_SOURCE" =~ ^[0-9a-fA-F]{40}$ ]] || exit 1
+            SNAPSHOT="developer-recovery-$PREVIOUS_SOURCE"
+            mkdir -p "$RUNNER_TEMP/developer-recovery"
+            gh release download developer-latest -p Jarvis-Developer.apk -D "$RUNNER_TEMP/developer-recovery"
+            ORIGINAL_HASH=$(sha256sum "$RUNNER_TEMP/developer-recovery/Jarvis-Developer.apk" | cut -d ' ' -f 1)
+            if gh release view "$SNAPSHOT" >/dev/null 2>&1; then
+              RECORDED_SOURCE=$(gh release view "$SNAPSHOT" --json targetCommitish --jq .targetCommitish)
+              test "$RECORDED_SOURCE" = "$PREVIOUS_SOURCE" || { echo "::error::Recovery snapshot source mismatch"; exit 1; }
+              mkdir -p "$RUNNER_TEMP/developer-existing-snapshot"
+              gh release download "$SNAPSHOT" -p Jarvis-Developer.apk -D "$RUNNER_TEMP/developer-existing-snapshot"
+              cmp "$RUNNER_TEMP/developer-recovery/Jarvis-Developer.apk" "$RUNNER_TEMP/developer-existing-snapshot/Jarvis-Developer.apk" || {
+                echo "::error::Recovery snapshot APK mismatch; refusing promotion"; exit 1;
+              }
             else
-              echo 'Could not preserve previous APK; refusing to replace update channel.'
-              exit 1
+              gh release create "$SNAPSHOT" --target "$PREVIOUS_SOURCE" --prerelease \
+                --title "Jarvis Developer recovery $PREVIOUS_SOURCE" \
+                --notes "Immutable recovery of developer-latest before promotion. Source $PREVIOUS_SOURCE. APK SHA-256 $ORIGINAL_HASH."
+              gh release upload "$SNAPSHOT" "$RUNNER_TEMP/developer-recovery/Jarvis-Developer.apk"
             fi
-          fi
-      - name: Verify previous backup matches prior release
-        if: github.event_name == 'workflow_dispatch' && !inputs.defer_recovery
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view developer-latest >/dev/null 2>&1; then
-            mkdir -p "$RUNNER_TEMP/developer-backup-check"
-            gh release download developer-previous -p Jarvis-Developer.apk -D "$RUNNER_TEMP/developer-backup-check"
-            cmp "$RUNNER_TEMP/developer-previous/Jarvis-Developer.apk" "$RUNNER_TEMP/developer-backup-check/Jarvis-Developer.apk" || {
-              echo "::error::Previous release backup does not match the APK being replaced."
-              exit 1
+            mkdir -p "$RUNNER_TEMP/developer-verified-snapshot"
+            gh release download "$SNAPSHOT" -p Jarvis-Developer.apk -D "$RUNNER_TEMP/developer-verified-snapshot"
+            cmp "$RUNNER_TEMP/developer-recovery/Jarvis-Developer.apk" "$RUNNER_TEMP/developer-verified-snapshot/Jarvis-Developer.apk" || {
+              echo "::error::Recovery snapshot verification failed; refusing promotion"; exit 1;
             }
-            echo "Previous signed Developer APK backup verified."
+            echo "Verified recovery snapshot $SNAPSHOT SHA-256 $ORIGINAL_HASH"
           fi
       - name: Publish isolated prerelease update
         if: github.event_name == 'workflow_dispatch'
