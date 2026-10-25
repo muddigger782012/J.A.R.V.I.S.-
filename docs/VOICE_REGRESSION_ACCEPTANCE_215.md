@@ -21,3 +21,13 @@ Measure monotonic elapsed milliseconds per stage (wake detected, mic acquired, s
 - Explicitly list any unverified physical-device cases in release notes
 
 The presence of a 'Say hey jarvis' label is not evidence the wake detector is actually listening.
+
+## Current repair candidate
+
+The owner-reported physical test target is Samsung S26 Ultra. Its Android version and recognition provider still need to be recorded from that phone. No synthetic callback test substitutes for this matrix.
+
+The candidate reuses one capture boundary for commands and live turns, waits for the previous wake worker to release its microphone, rejects stale callbacks, and bounds capture by activity and a configurable maximum. Android silence extras remain optional hints. The microphone control remains available to finish or cancel a turn; cancelling a live turn keeps the conversation active. Voice Settings exposes the pause hint, maximum capture duration and live inactivity limit without changing the Chat layout.
+
+Read-only runtime diagnostics show callback intervals and recent typed provider outcomes, with no raw audio or transcript collection. Gemini catalog access, generation and gateway connectivity are independent explicit tests; configured credentials alone are never proof of a working provider. Current keys/models and voice settings are read across the private process boundary. Runtime findings can be opened as an unapproved Developer review, without manufacturing source revision or line evidence.
+
+Before production signing or publication, retain automated build/lint/emulator evidence for the exact candidate and complete the phone matrix above. Record measured capture-ready, final-result, response and first-audio intervals, the installed package version, Android version and provider. Signing, merging, publication and installation remain separate owner decisions.
