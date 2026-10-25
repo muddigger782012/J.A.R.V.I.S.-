@@ -38,8 +38,11 @@ object DeviceReport {
     fun command(text: String): Command? {
         val value = text.trim().lowercase(Locale.ROOT).trimEnd('.', '?', '!').trim().replace(Regex("\\s+"), " ")
             .removePrefix("please ").removePrefix("can you ").removePrefix("could you ")
-        val exact = when (value) {
-            "device report", "show device report", "phone report", "show phone report", "device diagnostics", "phone diagnostics",
+        // Voice recognition often prepends the assistant name (or a close phonetic spelling).
+        // Strip only an address at the beginning, never arbitrary words in the request.
+        val addressed = value.replace(Regex("^(?:hey |okay |ok )?(?:jarvis|jorvis|jarviss|jervis)[, :]*\\s*"), "")
+        val exact = when (addressed) {
+            "device report", "show device report", "show my device status", "show device status", "my device status", "phone report", "show phone report", "device diagnostics", "phone diagnostics",
             "check my phone", "how is my phone doing", "how's my phone doing" -> Command.ALL
             "battery status", "battery level", "check my battery", "what is my battery level", "what's my battery level", "how much battery do i have" -> Command.BATTERY
             "storage status", "check my storage", "how much storage is available", "how much storage do i have" -> Command.STORAGE
@@ -53,12 +56,12 @@ object DeviceReport {
             "what are you able to do through diagnostics and development",
             "what can you do with diagnostics", "what diagnostic capabilities do you have" -> Command.ACCESS
             "installed jarvis version", "what version of jarvis is installed", "what jarvis version is installed",
-            "what version are you", "what version are you running", "what is your version" -> Command.APP
+            "what version are you", "what version are you running", "what is your version", "what version of the app are you running" -> Command.APP
             else -> null
         }
         if (exact != null) return exact
         return if (Regex("^(?:(?:show|read) )?(?:device|phone) (?:report|diagnostics|capabilities|permission status)\\b|^(?:battery|storage|memory|ram|network|thermal) status\\b|^installed jarvis version\\b")
-                .containsMatchIn(value)) Command.INVALID else null
+                .containsMatchIn(addressed)) Command.INVALID else null
     }
 
     fun <T> read(block: () -> Reading<T>): Reading<T> = try { block() }

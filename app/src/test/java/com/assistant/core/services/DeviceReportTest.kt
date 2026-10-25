@@ -5,6 +5,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DeviceReportTest {
+    @Test fun spokenAssistantAddressRoutesToLocalAndroidReport() {
+        assertEquals(DeviceReport.Command.APP, DeviceReport.command("Jorvis what version are you running"))
+        assertEquals(DeviceReport.Command.APP, DeviceReport.command("Jarvis, what version are you running?"))
+        assertEquals(DeviceReport.Command.ALL, DeviceReport.command("Jarvis show my device status"))
+        assertEquals(DeviceReport.Command.ACCESS, DeviceReport.command("Jarvis what can you do"))
+        assertNull(DeviceReport.command("Jarvis tell me a joke"))
+    }
+
     private class Platform : DeviceReport.Platform {
         val reads = mutableListOf<String>()
         var batteryValue = DeviceReport.Battery(75, 100, DeviceReport.Charging.DISCHARGING, 295)
