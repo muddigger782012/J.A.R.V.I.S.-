@@ -46,6 +46,8 @@ class VoiceSessionController(
 
     @Synchronized
     fun transcriptReady(text: String) {
+        // Ignore duplicate or late recognizer callbacks after capture has ended.
+        if (snapshot.mode != Mode.CAPTURING) return
         val clean = text.trim()
         if (clean.isBlank()) {
             fail(VoiceFailure(VoiceFailure.Stage.TRANSCRIPTION, "I didn't hear anything."))
@@ -61,6 +63,8 @@ class VoiceSessionController(
 
     @Synchronized
     fun responseFinished(keepArmed: Boolean) {
+        // A delayed TTS completion must not shut down a newer microphone capture.
+        if (snapshot.mode == Mode.CAPTURING || snapshot.mode == Mode.STOPPED) return
         transition(if (keepArmed) Mode.ARMED else Mode.STOPPED, snapshot.trigger)
     }
 

@@ -78,6 +78,11 @@ class LiveSpeechCapture(private val context: Context,
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, offlineHint)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                    // Give conversational pauses time before Android finalizes a turn.
+                    // Recognition services may ignore these optional platform hints.
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1800L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 12000L)
                     VoiceRecognitionHints.apply(context, this, useProfileHints)
                 })
             } catch (_: Exception) { if (current == generation) { stop(); onError(SpeechRecognizer.ERROR_CLIENT) } }
