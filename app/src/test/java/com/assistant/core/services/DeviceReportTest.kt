@@ -5,6 +5,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DeviceReportTest {
+    @Test fun spokenAssistantAddressRoutesToLocalAndroidReport() {
+        assertEquals(DeviceReport.Command.APP, DeviceReport.command("Jorvis what version are you running"))
+        assertEquals(DeviceReport.Command.APP, DeviceReport.command("Jarvis, what version are you running?"))
+        assertEquals(DeviceReport.Command.ALL, DeviceReport.command("Jarvis show my device status"))
+        assertEquals(DeviceReport.Command.ACCESS, DeviceReport.command("Jarvis what can you do"))
+        assertNull(DeviceReport.command("Jarvis tell me a joke"))
+    }
+
     private class Platform : DeviceReport.Platform {
         val reads = mutableListOf<String>()
         var batteryValue = DeviceReport.Battery(75, 100, DeviceReport.Charging.DISCHARGING, 295)
@@ -30,6 +38,24 @@ class DeviceReportTest {
         override fun notifications() = read("notifications", true)
         override fun accessibility() = read("accessibility", DeviceReport.Accessibility.CONFIGURED)
         override fun bridges(): PrivilegedAccess.Snapshot { reads += "bridges"; return bridgesValue }
+    }
+
+    @Test fun naturalCapabilityQuestionsUseRealAndroidStatus() {
+        val questions = listOf(
+            "What services can you provide?",
+            "What are your screen reading capabilities?",
+            "What are you able to do through diagnostics and development?",
+            "What can you do?"
+        )
+        for (question in questions) {
+            assertEquals(DeviceReport.Command.ACCESS, DeviceReport.command(question))
+            val answer = DeviceReport.render(DeviceReport.command(question)!!, Platform())
+            assertTrue(answer.contains("Installed Jarvis"))
+            assertTrue(answer.contains("Accessibility"))
+            assertTrue(answer.contains("Shizuku"))
+        }
+        assertEquals(DeviceReport.Command.APP, DeviceReport.command("What version are you running?"))
+        assertNull(DeviceReport.command("Can you explain how to develop an Android app?"))
     }
 
     @Test fun supportedQuestionsStayLocalWithoutCapturingUnrelatedConversation() {
