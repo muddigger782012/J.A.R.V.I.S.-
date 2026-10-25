@@ -102,7 +102,9 @@ class LiveSpeechCapture(private val context: Context,
                         if (current != generation) return
                         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.ERROR, currentTrace, error)
                         if (!strictDevice && provider == SpeechCaptureRouting.Engine.ON_DEVICE && !fallbackUsed && platform.systemAvailable() &&
-                            error in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE, SpeechRecognizer.ERROR_SERVER)) {
+                            error in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
+                                SpeechRecognizer.ERROR_SERVER, SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
+                                SpeechRecognizer.ERROR_CLIENT, SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
                             fallbackUsed = true
                             startAttempt(SpeechCaptureRouting.Engine.SYSTEM, false)
                         } else { release(cancelled = false); onError(error) }
@@ -148,7 +150,10 @@ class LiveSpeechCapture(private val context: Context,
                 if (current == generation) handler.postDelayed(watchdog, 1000L)
             } catch (_: Exception) { if (current == generation) {
                 VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.ERROR, currentTrace, SpeechRecognizer.ERROR_CLIENT)
-                release(cancelled = false); onError(SpeechRecognizer.ERROR_CLIENT)
+                release(cancelled = false)
+                if (!strictDevice && provider == SpeechCaptureRouting.Engine.ON_DEVICE && !fallbackUsed && platform.systemAvailable()) {
+                    fallbackUsed = true; startAttempt(SpeechCaptureRouting.Engine.SYSTEM, false)
+                } else onError(SpeechRecognizer.ERROR_CLIENT)
             } }
         }
         startAttempt(selected, preferOffline || strictDevice)

@@ -65,6 +65,25 @@ class VoiceCaptureAcceptanceTest {
             } finally { capture.stop() }
         }
     }
+    @Test fun busyOnDeviceProviderReleasesItsCaptureBeforeOneSystemRetryAndCannotDeliverOldResults() {
+        instrumentation.runOnMainSync {
+            val engines = Engines()
+            val capture = LiveSpeechCapture(context, engines)
+            val heard = mutableListOf<String>()
+            try {
+                capture.listen(true, {}, heard::add, { fail("Unexpected terminal failure") })
+                val first = engines.sessions.single()
+                first.listener.onError(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
+                assertTrue(first.cancelled && first.destroyed)
+                assertEquals(2, engines.sessions.size)
+                assertEquals(SpeechCaptureRouting.Engine.SYSTEM, engines.sessions.last().engine)
+                first.listener.onResults(results("old private result"))
+                assertTrue(heard.isEmpty())
+                engines.sessions.last().listener.onResults(results("current result"))
+                assertEquals(listOf("current result"), heard)
+            } finally { capture.stop() }
+        }
+    }
 
     @Test fun manualFinishWaitsForFinalResultsAndCancellationRejectsEveryOldPhaseCallback() {
         instrumentation.runOnMainSync {

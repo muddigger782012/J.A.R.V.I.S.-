@@ -601,7 +601,10 @@ class VoiceAssistantService(
             onHypotheses = { hypotheses = it },
             onEngine = { onDeviceCapture = it == SpeechCaptureRouting.Engine.ON_DEVICE
                 onStatus("Starting ${if (onDeviceCapture) "on-device" else "system"} command recognition; waiting for readiness.") },
-            onPhase = { phase -> observe(phase); onCapturePhase(phase) })
+            onPhase = { phase ->
+                observe(phase); onCapturePhase(phase)
+                if (phase == VoiceInteractionState.LISTENING) onStatus("Microphone ready. Speak now.")
+            })
     }
 
     private fun handleFallbackHotwordMatches(matches: List<String>) {
