@@ -13,9 +13,8 @@ object OperationalDiagnostics {
                 "Inspect initialization and microphone ownership on the affected phone; explicitly retry wake standby."))
             val events = state.timings
             val start = events.indexOfLast { it.stage == VoiceSessionDiagnostics.Stage.CAPTURE_REQUESTED }
-            if (start < 0) continue
-            val capture = events.drop(start)
-            capture.firstOrNull { it.stage == VoiceSessionDiagnostics.Stage.CAPTURE_READY && it.sinceStartMillis >= 2500 }?.let {
+            val capture = if (start < 0) events else events.drop(start)
+            capture.firstOrNull { start >= 0 && it.stage == VoiceSessionDiagnostics.Stage.CAPTURE_READY && it.sinceStartMillis >= 2500 }?.let {
                 add(Finding(2, "$owner capture startup delay", "The provider readiness callback arrived ${it.sinceStartMillis} ms after capture was requested.",
                     "Compare the selected speech provider and on-device model. This callback measurement does not isolate microphone hardware or provider internals."))
             }
@@ -24,10 +23,24 @@ object OperationalDiagnostics {
             if (ended != null && result != null && result.sinceStartMillis - ended.sinceStartMillis >= 5000)
                 add(Finding(2, "$owner final transcription delay", "Final-result processing followed the end-of-speech callback by ${result.sinceStartMillis - ended.sinceStartMillis} ms.",
                     "Compare provider behavior with natural pauses and long sentences on the physical phone. Partial results are not final transcripts."))
-            capture.lastOrNull { it.stage == VoiceSessionDiagnostics.Stage.ERROR }?.let {
+            val speechRequested = capture.firstOrNull { it.stage == VoiceSessionDiagnostics.Stage.SPEECH_REQUESTED }
+            val speaking = capture.firstOrNull { it.stage == VoiceSessionDiagnostics.Stage.SPEAKING }
+            if (result != null && speechRequested != null && speechRequested.sinceStartMillis - result.sinceStartMillis >= 5000)
+                add(Finding(2, "$owner reply delay", "The retained first speech request followed final-transcript processing by ${speechRequested.sinceStartMillis - result.sinceStartMillis} ms.",
+                    "This interval includes tool execution and response preparation; it does not isolate AI or network delay. Compare the active task and provider observation."))
+            if (speechRequested != null && speaking != null && speaking.sinceStartMillis - speechRequested.sinceStartMillis >= 2500)
+                add(Finding(2, "$owner speech startup delay", "The retained first playback-start callback arrived ${speaking.sinceStartMillis - speechRequested.sinceStartMillis} ms after speech was requested.",
+                    "Review the saved speech engine, voice pack and audio focus. A playback callback does not prove audible output on the phone."))
+            capture.lastOrNull { it.stage == VoiceSessionDiagnostics.Stage.ERROR && it.errorCode != null }?.let {
                 add(Finding(2, "$owner recognition failure observed", "The retained capture callback reported Android error ${it.errorCode ?: "unavailable"}.",
                     "Retry capture and review provider and permission status. A retained failure does not prove the current attempt failed."))
             }
+            if (capture.any { it.stage == VoiceSessionDiagnostics.Stage.ERROR && it.errorCode == null })
+                add(Finding(2, "$owner voice failure observed", "A voice operation reported a failure without an Android recognition error code.",
+                    "Review wake, microphone and speech status; this observation does not identify a recognition-provider failure."))
+            if (capture.any { it.stage == VoiceSessionDiagnostics.Stage.SPEECH_FAILED })
+                add(Finding(2, "$owner speech output failure observed", "A spoken-reply attempt reported a failure. A later attempt may have recovered.",
+                    "Review speech-engine readiness, the saved voice pack and audio focus. The text reply may remain available; no audible-output success is inferred."))
         }
         for ((provider, observation) in listOf("Gemini" to value.geminiObservation, "Gateway" to value.gatewayObservation)) {
             if (observation?.success == false) add(Finding(2, "$provider request failure observed",

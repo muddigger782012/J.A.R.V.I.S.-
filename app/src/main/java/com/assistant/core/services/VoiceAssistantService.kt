@@ -308,6 +308,7 @@ class VoiceAssistantService(
                 onAudio = { if (activeSpeechPrefix == prefix) VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEAKING) },
                 done = { if (activeSpeechPrefix == prefix) finishSpeech() }, error = { failure ->
                 if (activeSpeechPrefix == prefix) {
+                    VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_FAILED)
                     onStatus("Offline male voice failed ($failure). Trying the saved female voice for this reply.")
                     speakAndroidResponse(text, forceFemale = true)
                 }
@@ -320,6 +321,7 @@ class VoiceAssistantService(
     private fun speakAndroidResponse(text: String, forceFemale: Boolean = false) {
         if (!VoiceResponsePreferences.load(context).allowsSpeech(activeSpeechChannel)) { finishSpeech(); return }
         if (!ttsReady || text.isBlank()) {
+            if (!ttsReady && text.isNotBlank()) VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_FAILED)
             if (forceFemale) onStatus("Android speech fallback is not ready. Open Voice diagnostics to inspect the failure.")
             finishSpeech()
             return
@@ -331,6 +333,7 @@ class VoiceAssistantService(
             onStatus("Temporary female fallback: ${result.description}")
         } else applyAssistantVoiceProfile()
         if (!speechVoiceUsable) {
+            VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_FAILED)
             finishSpeech()
             return
         }
@@ -352,13 +355,14 @@ class VoiceAssistantService(
         androidSpeechFocus = focus
         if (runCatching { audioManager.requestAudioFocus(focus) }.getOrDefault(android.media.AudioManager.AUDIOFOCUS_REQUEST_FAILED) != android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             onStatus("Spoken reply could not acquire audio focus. The text reply remains available.")
-            VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.ERROR)
+            VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_FAILED)
             finishSpeech(); return
         }
         tts.setAudioAttributes(attributes)
         chunks.forEachIndexed { index, chunk ->
             val result = tts.speak(chunk, if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, prefix + index)
             if (result == TextToSpeech.ERROR) {
+                VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_FAILED)
                 activeSpeechPrefix = null
                 finalSpeechId = null
                 tts.stop()
@@ -392,6 +396,7 @@ class VoiceAssistantService(
                 override fun onError(utteranceId: String?) {
                     mainHandler.post {
                         if (activeSpeechPrefix != null && utteranceId?.startsWith(activeSpeechPrefix!!) == true) {
+                            VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_FAILED)
                             activeSpeechPrefix = null
                             finalSpeechId = null
                             tts.stop()

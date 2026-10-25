@@ -6,7 +6,7 @@
     "Wake readiness reported from the engine rather than the enabled setting.",
     "Installed version and current permission/capability reporting without an AI connection.",
     "Calendar-day forecast selection and weather follow-up corrections.",
-    "Bounded voice timing observations without recording audio or transcripts.",
+    "Capture-boundary timing survives long speech; recognition and speech-output failures are distinguished without retaining audio or transcripts.",
     "Existing screen supervision, local device commands, personal model controls and Self Diagnostics report review."
   ]
 }

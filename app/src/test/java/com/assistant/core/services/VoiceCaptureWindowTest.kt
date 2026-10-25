@@ -48,6 +48,14 @@ class VoiceCaptureWindowTest {
         assertTrue(events.all { it.stage == VoiceSessionDiagnostics.Stage.PARTIAL && it.errorCode == null })
         assertTrue(events.all { it.sinceStartMillis >= 0 && it.sincePreviousMillis >= 0 })
     }
+    @Test fun aNewCaptureDoesNotReuseFailuresFromThePreviousCaptureClock() {
+        val old = VoiceSessionDiagnostics.begin()
+        VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.ERROR, old, 5)
+        val current = VoiceSessionDiagnostics.begin()
+        VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.CAPTURE_READY, current)
+        assertEquals(listOf(VoiceSessionDiagnostics.Stage.CAPTURE_REQUESTED,
+            VoiceSessionDiagnostics.Stage.CAPTURE_READY), VoiceSessionDiagnostics.snapshot().map { it.stage })
+    }
     @Test fun controllerRejectsTranscriptsAfterCancellationAndDoesNotInventWakeReadiness() {
         val heard = mutableListOf<String>()
         val states = mutableListOf<VoiceInteractionState>()

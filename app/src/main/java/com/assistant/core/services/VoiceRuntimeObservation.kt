@@ -17,7 +17,7 @@ object VoiceRuntimeObservation {
             val store = file(context, owner)
             val bytes = JSONObject().put("wake", wake.name).put("phase", phase.name)
                 .put("elapsed", SystemClock.elapsedRealtime()).put("pid", android.os.Process.myPid())
-                .put("timings", org.json.JSONArray(VoiceSessionDiagnostics.snapshot().takeLast(16).map {
+                .put("timings", org.json.JSONArray(VoiceSessionDiagnostics.runtimeSnapshot().map {
                     JSONObject().put("stage", it.stage.name).put("since", it.sinceStartMillis).put("delta", it.sincePreviousMillis)
                         .put("error", it.errorCode ?: JSONObject.NULL)
                 })).toString().toByteArray()

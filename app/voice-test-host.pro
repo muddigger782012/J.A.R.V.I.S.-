@@ -105,6 +105,8 @@
 -keep,allowoptimization class com.assistant.core.services.SpeechRecognitionCandidates** { public *; }
 # New callback/IPC acceptance APIs and private UI state inspected by instrumentation only.
 -keep,allowoptimization class com.assistant.core.services.VoiceSessionDiagnostics** { public *; }
+-keep,allowoptimization class com.assistant.core.services.VoiceRuntimeObservation** { public *; }
+-keep,allowoptimization class com.assistant.core.services.VoiceAssistantService$WakeState { public *; }
 -keep,allowoptimization class com.assistant.core.services.VoiceInteractionState** { public *; }
 -keep,allowoptimization class com.assistant.core.services.RuntimeSettings** { public *; }
 -keepclassmembers,allowoptimization class com.assistant.core.MainActivity {

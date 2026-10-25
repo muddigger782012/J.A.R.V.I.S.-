@@ -320,16 +320,19 @@ class ScreenControlAcceptanceTest {
                 try {
                     assertTrue(service.setCacheEnabled(false))
                     // Changing framework cache policy creates a new cold-read condition.
-                    // Wait for two equal fresh snapshots before the single remote assertion;
-                    // retain the production deadline and fail if the real manager never settles.
+                    // Equal hashes alone do not establish responsiveness during cold Compose/GC work.
+                    // Require two prompt, complete fresh reads in the existing readiness window,
+                    // then keep the single remote assertion and production deadline unchanged.
                     var previous = ""
                     waitUntil {
+                        val started = android.os.SystemClock.uptimeMillis()
                         val current = runCatching { AndroidScreenPlatform(context).snapshot().takeIf { screen ->
                             screen.packageName == ConnectionAssistance.MANAGER_PACKAGE && !screen.blocked &&
                                 screen.text.any { text -> text.contains("CONNECTION MANAGER") }
                         }?.key.orEmpty() }.getOrDefault("")
-                        val stable = current.isNotBlank() && current == previous
-                        previous = current
+                        val prompt = android.os.SystemClock.uptimeMillis() - started < 750
+                        val stable = prompt && current.isNotBlank() && current == previous
+                        previous = if (prompt) current else ""
                         stable
                     }
                     val withoutCache = remote("read my screen")
