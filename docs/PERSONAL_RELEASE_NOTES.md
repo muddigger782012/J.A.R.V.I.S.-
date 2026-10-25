@@ -1,5 +1,12 @@
 Personal Jarvis v3.6 — Intelligent Device Assistance:
 
+- Retain actionable errors from each attempted AI provider when fallback fails,
+  including an empty response or connection exception. Distinguish an unconfigured
+  primary provider from a failed request without changing manual selection.
+- Report sanitized gateway authentication, access, quota, endpoint, format and
+  network failures. Failed replies cannot carry learned actions or replace local
+  action outcomes. Supported offline commands remain available.
+
 - Keep current capture-start and first readiness/playback timing evidence when a
   recognizer emits many partial results. A new capture clears the previous trace;
   stale callbacks remain rejected and shared diagnostics stay bounded.
