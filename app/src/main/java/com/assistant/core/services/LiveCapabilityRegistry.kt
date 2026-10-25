@@ -49,7 +49,7 @@ object LiveCapabilityRegistry {
             androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED,
             device.contacts().value, device.calls().value, device.notifications().value,
             DirectOnlineClient(context).hasGeminiKey(), FallbackAiClient(context).isConfigured(),
-            prefs.getString("gemini_model", GeminiModelDiscovery.DEFAULT_MODEL).orEmpty().takeIf { it.matches(Regex("(?:gemini|gemma|learnlm)-[a-z0-9._-]{1,100}")) } ?: "unverified model ID",
+            IntelligenceRouting.modelLabel(prefs.getString("gemini_model", GeminiModelDiscovery.DEFAULT_MODEL).orEmpty()),
             IntelligenceRouting.selected(prefs.getString("primary_provider", "gemini")), prefs.getBoolean("provider_fallback", true),
             VoiceRuntimeObservation.read(context, VoiceRuntimeObservation.Owner.LOCAL), VoiceRuntimeObservation.read(context, VoiceRuntimeObservation.Owner.FOREGROUND),
             runCatching {
