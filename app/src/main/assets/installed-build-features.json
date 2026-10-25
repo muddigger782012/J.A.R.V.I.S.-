@@ -7,6 +7,7 @@
     "Installed version and current permission/capability reporting without an AI connection.",
     "Calendar-day forecast selection and weather follow-up corrections.",
     "Capture-boundary timing survives long speech; recognition and speech-output failures are distinguished without retaining audio or transcripts.",
-    "Existing screen supervision, local device commands, personal model controls and Self Diagnostics report review."
+    "Existing screen supervision, local device commands, personal model controls and Self Diagnostics report review.",
+    "Actionable AI failures stay attributed to each attempted provider; gateway errors remain sanitized and cannot supply learned actions."
   ]
 }

@@ -1604,8 +1604,9 @@ class HybridAssistantService(
         responseThread(turn, callback) {
             val cloud = if (personalAssistant) onlineInterpretation(rawInput) else
                 fallbackAiClient.ask(rawInput, capabilityContext = ContextualAction.aiContext(assistantMemory), conversation = conversationTurns())
-            if (cloud == null) {
-                val response = ConversationPolicy.fallback(rawInput, ConversationPolicy.Obstacle.PROVIDER_FAILED)
+            if (cloud == null || cloud.providerFailed) {
+                val response = cloud?.reply?.takeIf(String::isNotBlank)
+                    ?: ConversationPolicy.fallback(rawInput, ConversationPolicy.Obstacle.PROVIDER_FAILED)
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response, local.actionResult))
                 return@responseThread

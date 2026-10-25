@@ -9,7 +9,7 @@ object IntelligenceRouting {
             request: (Provider) -> FallbackAiResult?): Routed {
         val order = if (fallback) listOf(primary) + Provider.values().filter { it != primary } else listOf(primary)
         val attempted = mutableListOf<Provider>()
-        var failure: FallbackAiResult? = null
+        val failures = mutableListOf<Pair<Provider, String>>()
         for (provider in order) {
             if (!current()) return Routed(FallbackAiResult("Request cancelled.", null, providerFailed = true), null, attempted)
             if (provider !in configured) continue
@@ -17,12 +17,16 @@ object IntelligenceRouting {
             val answer = runCatching { request(provider) }.getOrNull()
             if (!current()) return Routed(FallbackAiResult("Request cancelled.", null, providerFailed = true), null, attempted)
             if (answer != null && !answer.providerFailed && answer.reply.isNotBlank()) {
-                val reply = if (provider != primary) "${primary.label.replaceFirstChar(Char::uppercaseChar)} was unavailable; ${provider.label} answered. ${answer.reply}" else answer.reply
+                val primaryState = if (primary in configured) "was unavailable" else "is not configured"
+                val reply = if (provider != primary) "${primary.label.replaceFirstChar(Char::uppercaseChar)} $primaryState; ${provider.label} answered. ${answer.reply}" else answer.reply
                 return Routed(answer.copy(reply = reply), provider, attempted)
             }
-            failure = answer?.copy(lessonJson = null, providerFailed = true)
+            failures.add(provider to (answer?.reply?.trim()?.takeIf(String::isNotBlank) ?: "No usable response was received."))
         }
-        return Routed(failure ?: FallbackAiResult("The selected AI connection is unavailable. Supported local commands remain available; review Weather and AI settings or try another configured provider.", null, providerFailed = true), null, attempted)
+        val explanation = if (failures.isEmpty()) "The selected AI connection is unavailable. Supported local commands remain available; review Weather and AI settings or try another configured provider."
+            else (if (primary !in configured) "${primary.label.replaceFirstChar(Char::uppercaseChar)} is not configured.\n" else "") +
+                failures.joinToString("\n") { (provider, reply) -> "${provider.label.replaceFirstChar(Char::uppercaseChar)}: $reply" }
+        return Routed(FallbackAiResult(explanation, null, providerFailed = true), null, attempted)
     }
     fun isStatus(text: String) = ScreenSemantics.clean(text).trimEnd('.', '?', '!') in setOf(
         "ai routing status", "intelligence routing status", "which ai provider is selected")
