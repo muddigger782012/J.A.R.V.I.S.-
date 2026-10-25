@@ -24,6 +24,28 @@ class VoiceSessionControllerTest {
         assertEquals(VoiceSessionController.Mode.PROCESSING, controller.snapshot().mode)
     }
 
+    @Test fun delayedResponseCompletionCannotEndNewCapture() {
+        val controller = VoiceSessionController({}, {}, {})
+        controller.beginCapture(VoiceSessionController.Trigger.WAKE_WORD)
+        controller.transcriptReady("first")
+        controller.speaking()
+        controller.beginCapture(VoiceSessionController.Trigger.PUSH_TO_TALK)
+        val newSession = controller.snapshot().sessionId
+        controller.responseFinished(false)
+        assertEquals(VoiceSessionController.Mode.CAPTURING, controller.snapshot().mode)
+        assertEquals(newSession, controller.snapshot().sessionId)
+    }
+
+    @Test fun delayedResponseCompletionCannotRearmStoppedSession() {
+        val controller = VoiceSessionController({}, {}, {})
+        controller.beginCapture(VoiceSessionController.Trigger.WAKE_WORD)
+        controller.transcriptReady("first")
+        controller.speaking()
+        controller.stop()
+        controller.responseFinished(true)
+        assertEquals(VoiceSessionController.Mode.STOPPED, controller.snapshot().mode)
+    }
+
     @Test fun nextCaptureAcceptsNewTranscript() {
         val transcripts = mutableListOf<String>()
         val controller = VoiceSessionController({}, { transcripts.add(it) }, {})
