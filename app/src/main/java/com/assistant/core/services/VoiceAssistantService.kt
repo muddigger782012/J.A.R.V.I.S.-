@@ -54,6 +54,7 @@ class VoiceAssistantService(
     private var captureScreenScope = ""
     private var onDeviceCapture = false
     private var usedSystemFallback = false
+    private var commandCaptureReady = false
     private fun resetRecognition() {
         captures.cancel(); listeningWithSpeechRecognizer = false
         runCatching { speechRecognizer?.cancel(); speechRecognizer?.destroy() }
@@ -131,6 +132,8 @@ class VoiceAssistantService(
         commandFromWake = false
         voiceActive = true
         fallbackErrorStreak = 0
+        // An explicit button press must not race the persistent wake-word microphone.
+        stopDedicatedWakeWordEngine()
         if (currentHotwordEngine == HotwordEngine.DEDICATED_OFFLINE) stopDedicatedWakeWordEngine()
         startCommandListening()
     }
@@ -309,7 +312,12 @@ class VoiceAssistantService(
         }
     }
 
-    override fun onReadyForSpeech(params: Bundle?) = Unit
+    override fun onReadyForSpeech(params: Bundle?) {
+        if (mode == RecognitionMode.COMMAND) {
+            commandCaptureReady = true
+            onStatus("Microphone ready. Speak now.")
+        }
+    }
 
     override fun onBeginningOfSpeech() = Unit
 
@@ -325,9 +333,11 @@ class VoiceAssistantService(
         listeningWithSpeechRecognizer = false
         if (!voiceActive) return
         if (mode == RecognitionMode.COMMAND && onDeviceCapture && !usedSystemFallback &&
-            error in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE, SpeechRecognizer.ERROR_SERVER)) {
+            error in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
+                SpeechRecognizer.ERROR_SERVER, SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
+                SpeechRecognizer.ERROR_CLIENT, SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
             usedSystemFallback = true
-            onStatus("The on-device speech model is unavailable. Trying the system recognizer once; it may require a network connection.")
+            onStatus("On-device recognition failed ($error). Trying the system recognizer once; it may require a network connection.")
             startSpeechRecognizer("Listening for command", preferOffline = false)
             return
         }
@@ -459,6 +469,7 @@ class VoiceAssistantService(
         }
         mode = RecognitionMode.COMMAND
         usedSystemFallback = false
+        commandCaptureReady = false
         startSpeechRecognizer(
             prompt = "Listening for command",
             preferOffline = config.preferOfflineCommandRecognition
@@ -580,6 +591,7 @@ class VoiceAssistantService(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
         }
         listeningWithSpeechRecognizer = true
+        if (mode == RecognitionMode.COMMAND) onStatus("Starting microphone capture...")
         try { recognizer.startListening(intent) } catch (_: Exception) {
             resetRecognition(); onError(SpeechRecognizer.ERROR_CLIENT); return
         }
