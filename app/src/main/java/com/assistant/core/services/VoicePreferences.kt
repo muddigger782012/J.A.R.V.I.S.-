@@ -21,11 +21,12 @@ data class VoiceConfig(
     val customStopVoicePhrases: String
 )
 
-class VoicePreferences(context: Context) {
+class VoicePreferences(private val context: Context) {
 
     private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun load(): VoiceConfig {
+        val preferences = RuntimeSettings.read(context, PREFS_NAME)
         return VoiceConfig(
             enableDedicatedWakeWord = preferences.getBoolean(KEY_DEDICATED_WAKE_WORD, true),
             wakeWord = preferences.getString(KEY_WAKE_WORD, "hey jarvis").orEmpty().trim().ifBlank { "hey jarvis" },
@@ -74,11 +75,11 @@ class VoicePreferences(context: Context) {
     }
 
     fun setForegroundServiceRunning(running: Boolean) {
-        preferences.edit().putBoolean(KEY_FOREGROUND_SERVICE_RUNNING, running).apply()
+        RuntimeSettings.boolean(context, PREFS_NAME, KEY_FOREGROUND_SERVICE_RUNNING, running)
     }
 
     fun isForegroundServiceRunning(): Boolean {
-        return preferences.getBoolean(KEY_FOREGROUND_SERVICE_RUNNING, false)
+        return RuntimeSettings.read(context, PREFS_NAME).getBoolean(KEY_FOREGROUND_SERVICE_RUNNING, false)
     }
 
     companion object {

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "notes": [
+    "Activity-aware speech-capture watchdogs and manual finish/cancel controls.",
+    "Live-conversation recovery after recoverable recognition failures and reply timeouts.",
+    "Wake readiness reported from the engine rather than the enabled setting.",
+    "Installed version and current permission/capability reporting without an AI connection.",
+    "Calendar-day forecast selection and weather follow-up corrections.",
+    "Bounded voice timing observations without recording audio or transcripts.",
+    "Existing screen supervision, local device commands, personal model controls and Self Diagnostics report review."
+  ]
+}

@@ -41,16 +41,46 @@ object FallbackAiRequest {
 }
 
 class FallbackAiClient(private val context: Context) {
-    private val prefs = context.getSharedPreferences("jarvis_cloud_ai", Context.MODE_PRIVATE)
+    private val prefs get() = RuntimeSettings.read(context, "jarvis_cloud_ai")
 
     fun isConfigured(): Boolean =
-        prefs.getString("endpoint", "").orEmpty().startsWith("https://") &&
+        validEndpoint(prefs.getString("endpoint", "").orEmpty()) &&
             prefs.getString("gateway_token", "").orEmpty().isNotBlank()
+
+    private fun validEndpoint(endpoint: String): Boolean = runCatching {
+        val url = java.net.URI(endpoint)
+        url.scheme == "https" && !url.host.isNullOrBlank() && url.userInfo == null && url.fragment == null
+    }.getOrDefault(false)
+    private fun store() = AiConnectionDiagnostics.Store(context, IntelligenceRouting.Provider.GATEWAY)
+    private fun identity(endpoint: String, token: String) = endpoint + "\u0000" + token
+    fun connectionObservation(): AiConnectionDiagnostics.Result? = store().current(
+        identity(prefs.getString("endpoint", "").orEmpty(), prefs.getString("gateway_token", "").orEmpty()), "server-selected")
+
+    fun connectionTest(): AiConnectionDiagnostics.Result {
+        val endpoint = prefs.getString("endpoint", "").orEmpty()
+        val token = prefs.getString("gateway_token", "").orEmpty()
+        val start = System.nanoTime()
+        val result = if (!validEndpoint(endpoint) || token.isBlank()) {
+            AiConnectionDiagnostics.Result(false, problem = AiConnectionDiagnostics.Problem.NOT_CONFIGURED)
+        } else try {
+            // No saved context, location, history, command learning or generated actions in a probe.
+            val body = FallbackAiRequest.build(IntelligenceConnectionCheck.PROMPT, false, "{}", null, null, false)
+            val (code, json) = request(endpoint, token, body.toString())
+            val problem = if (code !in 200..299) AiConnectionDiagnostics.http(code, json)
+                else if (!IntelligenceConnectionCheck.accepted(json?.optString("reply"))) AiConnectionDiagnostics.Problem.UNEXPECTED_REPLY else null
+            AiConnectionDiagnostics.Result(problem == null, problem = problem, http = code)
+        } catch (error: Exception) {
+            AiConnectionDiagnostics.Result(false, problem = AiConnectionDiagnostics.problem(error))
+        }
+        val timed = result.copy(elapsedMillis = (System.nanoTime() - start).coerceAtLeast(0) / 1_000_000)
+        store().record(identity(endpoint, token), "server-selected", timed)
+        return timed
+    }
 
     fun ask(userText: String, learnIntent: Boolean = true, capabilityContext: String = "{}", includeLocation: Boolean = true, conversation: List<Pair<String, String>> = emptyList()): FallbackAiResult? {
         val endpoint = prefs.getString("endpoint", "").orEmpty()
         val token = prefs.getString("gateway_token", "").orEmpty()
-        if (!endpoint.startsWith("https://") || token.isBlank()) return null
+        if (!validEndpoint(endpoint) || token.isBlank()) return null
 
         val request = FallbackAiRequest.build(userText, learnIntent, capabilityContext,
             prefs.getString("weather_latitude", "").orEmpty().toDoubleOrNull(),
@@ -65,9 +95,32 @@ class FallbackAiClient(private val context: Context) {
         request.put("messages", messages)
         val body = request.toString()
 
-        var connection: HttpURLConnection? = null
+        val started = System.nanoTime()
+        fun observe(problem: AiConnectionDiagnostics.Problem?, code: Int? = null) {
+            store().record(identity(endpoint, token), "server-selected", AiConnectionDiagnostics.Result(problem == null,
+                problem = problem, http = code, elapsedMillis = (System.nanoTime() - started).coerceAtLeast(0) / 1_000_000,
+                purpose = AiConnectionDiagnostics.Purpose.CONVERSATION))
+        }
         return try {
-            connection = URL(endpoint).openConnection() as HttpURLConnection
+            val (code, json) = request(endpoint, token, body)
+            if (code !in 200..299) {
+                observe(AiConnectionDiagnostics.http(code, json), code)
+                return null
+            }
+            val reply = (json?.opt("reply") as? String)?.trim().orEmpty()
+            if (reply.isBlank()) { observe(AiConnectionDiagnostics.Problem.FORMAT, code); return null }
+            val lesson = if (learnIntent) json?.optJSONObject("lesson")?.toString() else null
+            observe(null, code)
+            FallbackAiResult(reply, lesson)
+        } catch (error: Exception) {
+            observe(AiConnectionDiagnostics.problem(error))
+            null
+        }
+    }
+
+    private fun request(endpoint: String, token: String, body: String): Pair<Int, JSONObject?> {
+        val connection = URL(endpoint).openConnection() as HttpURLConnection
+        return ProviderDeadline.run(connection, 37_000) {
             connection.requestMethod = "POST"
             connection.connectTimeout = 12_000
             connection.readTimeout = 25_000
@@ -76,17 +129,10 @@ class FallbackAiClient(private val context: Context) {
             connection.setRequestProperty("Content-Type", "application/json")
             connection.setRequestProperty("Authorization", "Bearer $token")
             connection.outputStream.bufferedWriter().use { it.write(body) }
-            if (connection.responseCode !in 200..299) return null
-            val response = connection.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(response)
-            val reply = json.optString("reply").trim()
-            if (reply.isBlank()) return null
-            val lesson = if (learnIntent) json.optJSONObject("lesson")?.toString() else null
-            FallbackAiResult(reply, lesson)
-        } catch (_: Exception) {
-            null
-        } finally {
-            connection?.disconnect()
+            val code = connection.responseCode
+            val json = if (code in 200..299) connection.inputStream.use { JSONObject(ProviderResponseText.read(it)) }
+                else runCatching { connection.errorStream?.use { JSONObject(ProviderResponseText.read(it)) } }.getOrNull()
+            code to json
         }
     }
 }

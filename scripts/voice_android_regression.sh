@@ -27,7 +27,7 @@ trap 'kill "$voice_log_pid" 2>/dev/null || true' EXIT
 preflight_classes=com.assistant.core.SettingsNavigationUiTest#selfDiagnosticsReviewsOnlyValidatedReferencesAndRestoresScrollWithoutGrantingApproval,com.assistant.core.ScreenControlAcceptanceTest,com.assistant.core.VoiceCaptureAcceptanceTest,com.assistant.core.PersonalFoundationAcceptanceTest#screenReadDiagnosticsStayLocalWithoutLearningOrDeviceExecution,com.assistant.core.PersonalFoundationAcceptanceTest#naturalMediaCommandsExecuteOfflineAndVerifyActualAndroidVolumeChanges,com.assistant.core.PersonalFoundationAcceptanceTest#conflictingVolumeTeachingAndAnOlderPendingApprovalCannotChangeAndroidVolume,com.assistant.core.PersonalFoundationAcceptanceTest#cancellingResearchThroughTheActualServiceRejectsLateSyntheticResults,com.assistant.core.PersonalFoundationAcceptanceTest#conversationalGoalAppEditsStayLocalAndExpiredReviewLabelsCannotBecomeNetworkOffers
 timeout 120s adb shell am instrument -w -r -e jarvis_disposable_emulator true -e class "$preflight_classes" com.assistant.core.test/androidx.test.runner.AndroidJUnitRunner > voice-screen-preflight.txt 2>&1
 cat voice-screen-preflight.txt
-grep -Eq 'OK \(15 tests\)' voice-screen-preflight.txt
+grep -Eq 'OK \(17 tests\)' voice-screen-preflight.txt
 set +e
 timeout 360s adb shell am instrument -w -r -e jarvis_disposable_emulator true com.assistant.core.test/androidx.test.runner.AndroidJUnitRunner > voice-regression-results.txt 2>&1 &
 voice_test_pid=$!
@@ -45,4 +45,4 @@ cat voice-regression-results.txt
 grep -E 'VoiceRegression|TestRunner|AndroidRuntime|sherpa|com.assistant.core' voice-regression-logcat.txt | tail -n 180 || true
 if [ "$voice_test_status" -ne 0 ]; then exit "$voice_test_status"; fi
 # am instrument can return exit zero even when a test failed.
-grep -Eq 'OK \(65 tests\)' voice-regression-results.txt
+grep -Eq 'OK \(71 tests\)' voice-regression-results.txt

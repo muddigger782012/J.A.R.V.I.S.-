@@ -59,6 +59,35 @@ class PersonalFoundationAcceptanceTest {
         assertTrue(service.getConversationSnapshot().isEmpty())
     }
 
+    @Test fun installedVersionAndCapabilityAnswersUseAndroidEvidenceWithoutCloudOrDeviceDispatch() {
+        val service = assistant()
+        val installed = context.packageManager.getPackageInfo(context.packageName, 0)
+        val version = service.handleUserInput("What version are you currently on?")
+        assertFalse(version.needsInterpretation)
+        assertTrue(version.text.contains(installed.versionName.orEmpty()))
+        val features = service.handleUserInput("What new features are available?")
+        assertTrue(features.text.contains("Included build changes"))
+        val screen = service.handleUserInput("Can you read my screen?")
+        assertFalse(screen.needsInterpretation)
+        assertTrue(screen.text.contains("includes Accessibility screen reading"))
+        assertTrue(screen.text.contains("No screen content was read"))
+        assertEquals(0, executions); assertEquals(0, context.activityRequests)
+    }
+
+    @Test fun asynchronousSelfKnowledgeAndItsFollowUpRemainLocalAndReturnInstalledMetadata() {
+        val service = assistant()
+        val result = AtomicReference<HybridAssistantReply>()
+        service.handleUserInputAsync("Which build am I running?") { result.set(it) }
+        assertNotNull(result.get()) // A local measured answer does not wait for an AI worker.
+        assertFalse(result.get().needsInterpretation)
+        val installed = context.packageManager.getPackageInfo(context.packageName, 0)
+        assertTrue(result.get().text.contains(installed.versionName.orEmpty()))
+        result.set(null)
+        service.handleUserInputAsync("what about now?") { result.set(it) }
+        assertNotNull(result.get()); assertTrue(result.get().text.contains("installed-package metadata"))
+        assertEquals(0, executions); assertEquals(0, context.activityRequests)
+    }
+
     @Test fun actualAndroidStorageRestoresDialogueAndClearDoesNotRepopulateIt() {
         val service = assistant()
         service.handleUserInput("hello")

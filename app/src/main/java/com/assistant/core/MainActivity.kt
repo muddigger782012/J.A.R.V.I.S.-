@@ -280,6 +280,9 @@ class MainActivity : ThemedActivity() {
             }
             voiceEnabled = voicePreferences.isForegroundServiceRunning()
             refreshVoiceButtonLabel()
+            intent.getStringExtra(VoiceForegroundService.EXTRA_PHASE)?.let { value ->
+                runCatching { VoiceInteractionState.valueOf(value) }.getOrNull()?.let(::updateVoiceInteractionState)
+            }
         }
     }
 
@@ -512,6 +515,8 @@ class MainActivity : ThemedActivity() {
         )
         voiceService = VoiceAssistantService(
             context = this,
+            onWakeState = { state -> voiceSession.wakeState(state == VoiceAssistantService.WakeState.LISTENING) },
+            onCapturePhase = { phase -> if (phase == VoiceInteractionState.TRANSCRIBING) voiceSession.transcribing() },
             onStatus = { status ->
                 runOnUiThread {
                     appendOutput("[WAKE] $status")
@@ -530,7 +535,7 @@ class MainActivity : ThemedActivity() {
             onCommandDetected = { recognition ->
                 voiceSession.transcriptReady(recognition.transcript)
             },
-            onCaptureFinished = { voiceSession.responseFinished(keepArmed = voiceEnabled) },
+            onCaptureFinished = { voiceSession.captureFinished(keepArmed = voiceEnabled) },
             onSpeechStarted = { voiceSession.speaking() },
             onSpeechFinished = { voiceSession.responseFinished(keepArmed = voiceEnabled); voiceService.rearmAfterResponse() }
         )
@@ -958,6 +963,7 @@ class MainActivity : ThemedActivity() {
             if (attachmentBusy) { attachmentNotice("Wait for the attachment request to finish."); return@setOnClickListener }
             clearAttachmentDraft()
             if (liveChatStarted) endLiveChat("Live chat ended for the new conversation.")
+            cancelConversationResponse()
             archiveConversation()
             conversationSessionId = "session_" + System.currentTimeMillis()
             outputLines.clear()
@@ -1048,10 +1054,17 @@ class MainActivity : ThemedActivity() {
         }
 
         voiceButton.setOnClickListener {
-            // Keep the primary Talk control isolated from the background wake
-            // service. This restores the previously working push-to-talk path
-            // while the persistent Sherpa service is diagnosed separately.
             ensureMicPermissionAndPushToTalk()
+        }
+        voiceButton.setOnLongClickListener {
+            hybridAssistantService.cancelActiveResponse()
+            if (currentVoiceConfig.useForegroundServiceMode || liveChatStarted)
+                VoiceForegroundService.cancelCapture(this)
+            else {
+                voiceService.stopListening(); voiceService.stopSpeaking(); voiceSession.stop()
+                if (voiceEnabled) voiceService.startHotwordLoop()
+            }
+            true
         }
 
         findViewById<Button>(R.id.btnLiveChatControls).setOnClickListener {
@@ -1105,14 +1118,18 @@ class MainActivity : ThemedActivity() {
         btnRebootFromDhizuku.setOnClickListener { rebootDevice() }
     }
 
+    private var displayedVoiceState = VoiceInteractionState.IDLE
     private fun updateVoiceInteractionState(state: VoiceInteractionState) {
+        displayedVoiceState = state
         findViewById<TextView>(R.id.tvAssistantState).text = when (state) {
             VoiceInteractionState.IDLE -> getString(R.string.ui_ready)
             VoiceInteractionState.WAKE_LISTENING -> "Say “${currentVoiceConfig.wakeWord}”"
             else -> state.userLabel()
         }
-        voiceButton.contentDescription = state.userLabel()
-        voiceButton.isEnabled = !liveChatStarted && state != VoiceInteractionState.PROCESSING
+        voiceButton.contentDescription = if (state in listOf(VoiceInteractionState.LISTENING, VoiceInteractionState.TRANSCRIBING))
+            "Finish speech; hold to cancel" else state.userLabel()
+        // The same control must remain reachable to finish speech or cancel a busy/live turn.
+        voiceButton.isEnabled = true
         findViewById<Button>(R.id.btnLiveChat).isEnabled = liveChatStarted || state in listOf(VoiceInteractionState.IDLE, VoiceInteractionState.WAKE_LISTENING)
         findViewById<ArcReactorView>(R.id.arcReactorHeader).setConversationState(state)
         findViewById<ArcReactorView>(R.id.arcReactorConversation).setConversationState(state)
@@ -1829,6 +1846,8 @@ class MainActivity : ThemedActivity() {
         ThemedDialogBuilder(this)
             .setTitle("Conversation history")
             .setItems(labels.toTypedArray()) { _, which ->
+                if (liveChatStarted) endLiveChat("Live chat ended to open another conversation.")
+                cancelConversationResponse()
                 conversationSessionId = ids[which]
                 conversationPrefs.edit().putString("active_session", conversationSessionId).apply()
                 loadOrCreateConversation()
@@ -2333,7 +2352,7 @@ class MainActivity : ThemedActivity() {
         }
         commandInput.isEnabled = false
         findViewById<Button>(R.id.btnRunAssistantCommand).isEnabled = false
-        voiceButton.isEnabled = false
+        voiceButton.isEnabled = true
         try {
             VoiceForegroundService.startLiveChat(this, conversationSessionId, resumeWake)
         } catch (_: Exception) {
@@ -2413,6 +2432,13 @@ class MainActivity : ThemedActivity() {
 
     private fun ensureMicPermissionAndPushToTalk() {
         if (hasMicrophonePermission()) {
+            val foregroundOwnsWake = currentVoiceConfig.useForegroundServiceMode || liveChatStarted
+            if (displayedVoiceState in listOf(VoiceInteractionState.LISTENING, VoiceInteractionState.TRANSCRIBING)) {
+                if (foregroundOwnsWake) VoiceForegroundService.finishCapture(this)
+                else voiceService.finishCapture()
+                return
+            }
+            if (liveChatStarted) { VoiceForegroundService.cancelCapture(this); return }
             hybridAssistantService.interruptActiveResponse()
             if (attachmentAnalysisPending) {
                 attachmentAnalysisGeneration++
@@ -2420,10 +2446,26 @@ class MainActivity : ThemedActivity() {
                 findViewById<TextView>(R.id.tvAssistantState).text = getString(R.string.ui_ready)
             }
             voiceSession.beginCapture(VoiceSessionController.Trigger.PUSH_TO_TALK)
-            voiceService.startPushToTalk()
+            if (foregroundOwnsWake) {
+                // The process that owns Sherpa must release it before capturing a command.
+                voiceService.stopListening()
+                VoiceForegroundService.captureCommand(this, resumeWake = voiceEnabled || voicePreferences.isForegroundServiceRunning())
+            } else voiceService.startPushToTalk(returnToWake = voiceEnabled)
         } else {
             shouldStartVoiceAfterPermission = true
             audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun cancelConversationResponse() {
+        hybridAssistantService.cancelActiveResponse()
+        pendingClarification = null
+        voiceService.stopSpeaking()
+        voiceSession.stop()
+        if (currentVoiceConfig.useForegroundServiceMode) VoiceForegroundService.cancelCapture(this)
+        else {
+            voiceService.stopListening()
+            if (voiceEnabled) voiceService.startHotwordLoop()
         }
     }
 
@@ -2524,7 +2566,7 @@ class MainActivity : ThemedActivity() {
             try {
                 VoiceForegroundService.start(this, announce = true)
                 voiceEnabled = true
-                updateVoiceInteractionState(VoiceInteractionState.WAKE_LISTENING)
+                updateVoiceInteractionState(VoiceInteractionState.IDLE)
                 appendOutput("[VOICE] Foreground wake service start requested.")
             } catch (t: Throwable) {
                 voiceEnabled = false
@@ -2533,7 +2575,7 @@ class MainActivity : ThemedActivity() {
             }
         } else {
             voiceEnabled = true
-            updateVoiceInteractionState(VoiceInteractionState.WAKE_LISTENING)
+            updateVoiceInteractionState(VoiceInteractionState.IDLE)
             voiceService.startWithIntroduction()
         }
         refreshVoiceButtonLabel()
@@ -2672,7 +2714,8 @@ class MainActivity : ThemedActivity() {
         } else {
             voiceEnabled = false
         }
-        if (showStatus) updateVoiceInteractionState(if (voiceEnabled) VoiceInteractionState.WAKE_LISTENING else VoiceInteractionState.IDLE)
+        if (showStatus) updateVoiceInteractionState(if (voiceService.wakeState == VoiceAssistantService.WakeState.LISTENING)
+            VoiceInteractionState.WAKE_LISTENING else VoiceInteractionState.IDLE)
         refreshVoiceButtonLabel()
         if (BetaIntroductionActivity.shouldShow(this)) {
             refreshPrivilegeCenter()

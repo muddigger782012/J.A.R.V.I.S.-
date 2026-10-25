@@ -11,7 +11,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /** User-owned key, encrypted with a non-exportable Android Keystore key. */
-class ApiKeyStore(context: Context, private val name: String = "gemini") {
+class ApiKeyStore(private val context: Context, private val name: String = "gemini") {
     private val prefs = context.getSharedPreferences("jarvis_api_keys", Context.MODE_PRIVATE)
     private val alias = "jarvis_${name}_key"
     private fun key(): SecretKey {
@@ -27,7 +27,7 @@ class ApiKeyStore(context: Context, private val name: String = "gemini") {
     }
 
     private fun readStored(): String = runCatching {
-        val encoded = prefs.getString(name, null) ?: return ""
+        val encoded = RuntimeSettings.read(context, "jarvis_api_keys").getString(name, null) ?: return ""
         val parts = encoded.split(":")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)))

@@ -26,7 +26,8 @@ class SherpaWakeWordEngine(
     private val sensitivity: Float,
     private val onDetected: () -> Unit,
     private val onStatus: (String) -> Unit,
-    private val onFailure: () -> Unit = {}
+    private val onFailure: () -> Unit = {},
+    private val onListening: () -> Unit = {}
 ) {
     companion object {
         private const val SAMPLE_RATE = 16000
@@ -144,7 +145,7 @@ class SherpaWakeWordEngine(
             worker?.start()
             true
         } catch (t: Throwable) {
-            onStatus("Sherpa wake engine failed: ${t.message ?: t.javaClass.simpleName}")
+            onStatus("Sherpa wake engine initialization failed. Check microphone permission and the installed wake model.")
             stop()
             false
         }
@@ -209,6 +210,7 @@ class SherpaWakeWordEngine(
             audio.startRecording()
             check(audio.recordingState == AudioRecord.RECORDSTATE_RECORDING) { "Microphone did not enter recording state" }
             stage("sherpa-mic-recording")
+            onListening()
             onStatus("Sherpa microphone active at 16 kHz; listening for '$wakePhrase'.")
             while (running) {
                 if (totalChunks == 0) {
@@ -282,9 +284,9 @@ class SherpaWakeWordEngine(
                 }
             }
         } catch (t: Throwable) {
-            stage("sherpa-worker-failed-" + t.javaClass.simpleName + "-" + (t.message ?: "unknown"))
+            stage("sherpa-worker-failed")
             if (running) {
-                onStatus("Wake word unavailable: ${t.message ?: t.javaClass.simpleName}")
+                onStatus("Wake-word capture or decoding failed. Standby is unavailable until recovery.")
                 onFailure()
             }
         } finally {

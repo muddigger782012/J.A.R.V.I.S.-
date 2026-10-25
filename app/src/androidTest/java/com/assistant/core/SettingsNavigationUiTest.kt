@@ -280,6 +280,20 @@ class SettingsNavigationUiTest {
                 instrumentation.runOnMainSync {
                     originalInput = originalMain.findViewById(R.id.etCommandInput)
                     originalInput.setText("Keep this unsent draft")
+                    val live = MainActivity::class.java.getDeclaredField("liveChatStarted").apply { isAccessible = true }
+                    val update = MainActivity::class.java.getDeclaredMethod("updateVoiceInteractionState",
+                        com.assistant.core.services.VoiceInteractionState::class.java).apply { isAccessible = true }
+                    for (active in listOf(false, true)) {
+                        live.setBoolean(originalMain, active)
+                        for (state in listOf(com.assistant.core.services.VoiceInteractionState.PROCESSING,
+                            com.assistant.core.services.VoiceInteractionState.LISTENING,
+                            com.assistant.core.services.VoiceInteractionState.TRANSCRIBING)) {
+                            update.invoke(originalMain, state)
+                            assertTrue("Finish/cancel must remain reachable", originalMain.findViewById<android.view.View>(R.id.btnToggleVoice).isEnabled)
+                        }
+                    }
+                    live.setBoolean(originalMain, false)
+                    update.invoke(originalMain, com.assistant.core.services.VoiceInteractionState.IDLE)
                     originalMain.startActivity(android.content.Intent(originalMain, SettingsActivity::class.java))
                 }
                 settings = instrumentation.waitForMonitorWithTimeout(settingsMonitor, 5000)

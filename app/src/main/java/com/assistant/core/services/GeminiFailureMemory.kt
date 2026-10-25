@@ -56,7 +56,7 @@ class GeminiFailureMemory internal constructor(private val read: () -> String?, 
     companion object {
         private val lock = Any()
         private const val NO_RECORD = "No Gemini failure details are recorded on this device yet. This update records future failures; I can't reconstruct an earlier error from the chat."
-        private fun token(value: String) = value.takeIf { Regex("[A-Z_]{1,80}").matches(it) }.orEmpty()
+        private fun token(value: String) = GeminiErrorTokens.allowed(value)
         private fun questionKey(text: String) = text.trim().lowercase(Locale.ROOT).trimEnd('.', '?', '!').replace(Regex("\\s+"), " ")
             .removePrefix("hey jarvis ").removePrefix("hey jarvis, ")
         private fun isFollowup(text: String) = questionKey(text) in setOf("what can i do to fix it", "what can i do to fix this", "how do i fix it",
@@ -70,4 +70,14 @@ class GeminiFailureMemory internal constructor(private val read: () -> String?, 
                 "how do i fix the error", "how can i fix this error")
         }
     }
+}
+
+/** Provider error strings are untrusted; retain only known protocol categories. */
+internal object GeminiErrorTokens {
+    private val known = setOf("INVALID_ARGUMENT", "UNAUTHENTICATED", "PERMISSION_DENIED", "NOT_FOUND",
+        "RESOURCE_EXHAUSTED", "INTERNAL", "UNAVAILABLE", "DEADLINE_EXCEEDED", "FAILED_PRECONDITION",
+        "API_KEY_INVALID", "API_KEY_EXPIRED", "API_KEY_SERVICE_BLOCKED", "API_KEY_HTTP_REFERRER_BLOCKED",
+        "API_KEY_IP_ADDRESS_BLOCKED", "SERVICE_DISABLED", "BILLING_DISABLED", "RATE_LIMIT_EXCEEDED",
+        "QUOTA_EXCEEDED", "OVERLOADED", "MODEL_NOT_FOUND")
+    fun allowed(value: String) = value.takeIf { it in known }.orEmpty()
 }

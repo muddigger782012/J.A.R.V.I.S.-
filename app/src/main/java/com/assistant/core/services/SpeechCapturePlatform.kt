@@ -14,6 +14,7 @@ interface SpeechCapturePlatform {
 
     interface Session {
         fun start(intent: Intent)
+        fun finish() = Unit
         fun cancel()
         fun destroy()
     }
@@ -28,6 +29,7 @@ class AndroidSpeechCapturePlatform(private val context: Context) : SpeechCapture
         recognizer.setRecognitionListener(listener)
         return object : SpeechCapturePlatform.Session {
             override fun start(intent: Intent) = recognizer.startListening(intent)
+            override fun finish() = recognizer.stopListening()
             override fun cancel() = recognizer.cancel()
             override fun destroy() = recognizer.destroy()
         }
