@@ -5,6 +5,7 @@ class LiveChatSession(private val maxSilentTurns: Int = Int.MAX_VALUE,
     private var idleTimeoutMillis: Long = 300_000,
     private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
     enum class Phase { OFF, WAITING, LISTENING, THINKING, SPEAKING }
+    enum class ReplyRecovery { STALE, RETRY, EXPIRED }
     var phase = Phase.OFF
         private set
     var token = 0L
@@ -54,6 +55,10 @@ class LiveChatSession(private val maxSilentTurns: Int = Int.MAX_VALUE,
         token++ // Reject an assistant response from the failed/timed-out turn.
         phase = Phase.WAITING
         return true
+    }
+    fun responseTimedOut(turn: Long): ReplyRecovery {
+        if (turn != token || phase != Phase.THINKING) return ReplyRecovery.STALE
+        return if (recover(turn)) ReplyRecovery.RETRY else ReplyRecovery.EXPIRED
     }
     fun expired() = now() - lastActivity >= idleTimeoutMillis
 }

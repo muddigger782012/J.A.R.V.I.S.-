@@ -99,6 +99,7 @@ class AiConnectionDiagnosticsTest {
             requests++; 200 to JSONObject("""{"models":[],"nextPageToken":"repeat"}""")
         })
         assertFalse(repeated.complete); assertEquals(2, requests)
+        assertEquals(AiConnectionDiagnostics.Problem.FORMAT, repeated.problem)
         val dns = GeminiModelDiscovery.inspect("test-key", GeminiModelDiscovery.Transport { _, _, _ -> throw java.net.UnknownHostException("private") })
         assertEquals(AiConnectionDiagnostics.Problem.DNS, dns.problem)
     }

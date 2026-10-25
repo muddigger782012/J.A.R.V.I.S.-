@@ -76,4 +76,19 @@ class LiveChatSessionTest {
         time = 220_000; assertFalse(session.recover(session.token)); assertFalse(session.active)
         assertFalse(session.interrupt())
     }
+    @Test fun replyTimeoutDistinguishesIdleExpiryRetryAndAStaleTimerWithoutLeavingAnActiveStoppedSession() {
+        var time = 0L
+        val session = LiveChatSession(now = { time })
+        session.configureIdleTimeout(60_000)
+        session.start(); val expired = session.listen()!!; session.transcript(expired)
+        time = 60_000
+        assertEquals(LiveChatSession.ReplyRecovery.EXPIRED, session.responseTimedOut(expired))
+        assertFalse(session.active); assertFalse(session.response(expired))
+        session.start(); val current = session.listen()!!; session.transcript(current)
+        assertEquals(LiveChatSession.ReplyRecovery.STALE, session.responseTimedOut(expired))
+        assertEquals(LiveChatSession.Phase.THINKING, session.phase)
+        time += 30_000
+        assertEquals(LiveChatSession.ReplyRecovery.RETRY, session.responseTimedOut(current))
+        assertTrue(session.active); assertFalse(session.response(current)); assertNotNull(session.listen())
+    }
 }

@@ -359,12 +359,15 @@ class VoiceForegroundService : Service() {
                                 }
                             }
                             liveHandler.postDelayed({
-                                if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.THINKING)
-                                    if (liveSession.recover(turn)) {
+                                if (liveChatActive) when (liveSession.responseTimedOut(turn)) {
+                                    LiveChatSession.ReplyRecovery.RETRY -> {
                                         hybridAssistantService.cancelActiveResponse()
                                         liveStatus(VoiceInteractionState.IDLE, "The reply timed out. Live chat is still active; ask again.")
                                         nextLiveTurn(1000L)
                                     }
+                                    LiveChatSession.ReplyRecovery.EXPIRED -> finishLiveChat("Live chat reached your configured inactivity limit.")
+                                    LiveChatSession.ReplyRecovery.STALE -> Unit
+                                }
                             }, 60000L)
                         }
                     }

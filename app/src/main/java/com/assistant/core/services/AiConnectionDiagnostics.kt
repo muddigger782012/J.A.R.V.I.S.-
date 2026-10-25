@@ -93,14 +93,8 @@ object AiConnectionDiagnostics {
     class Store(private val read: () -> String?, private val write: (String) -> Boolean,
         private val now: () -> Long = System::currentTimeMillis) {
         constructor(context: Context, provider: IntelligenceRouting.Provider = IntelligenceRouting.Provider.GEMINI) : this(
-            { android.util.AtomicFile(java.io.File(context.filesDir, "ai-observation-${provider.key}.json")).openRead()
-                .use { ProviderResponseText.read(it, 4096) } },
-            { raw ->
-                val file = android.util.AtomicFile(java.io.File(context.filesDir, "ai-observation-${provider.key}.json"))
-                val output = file.startWrite()
-                try { output.write(raw.toByteArray(Charsets.UTF_8)); file.finishWrite(output); true }
-                catch (failure: Exception) { file.failWrite(output); throw failure }
-            })
+            { PersonalStateFile(context.filesDir, "ai-observation-${provider.key}.json").access { read() } },
+            { raw -> PersonalStateFile(context.filesDir, "ai-observation-${provider.key}.json").access { write(raw) } })
         fun record(key: String, model: String, result: Result): Boolean = runCatching {
             require(result.elapsedMillis in 0..300_000 && (result.http == null || result.http in 100..599))
             write(JSONObject().put("identity", identity(key, model)).put("created", now()).put("success", result.success)

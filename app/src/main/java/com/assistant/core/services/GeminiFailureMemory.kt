@@ -9,8 +9,9 @@ import java.util.Locale
 class GeminiFailureMemory internal constructor(private val read: () -> String?, private val write: (String) -> Boolean,
     private val now: () -> Long = System::currentTimeMillis) {
     constructor(context: Context) : this(
-        { context.applicationContext.getSharedPreferences("jarvis_gemini_failure", Context.MODE_PRIVATE).getString("last", null) },
-        { context.applicationContext.getSharedPreferences("jarvis_gemini_failure", Context.MODE_PRIVATE).edit().putString("last", it).commit() })
+        { PersonalStateFile(context.filesDir, "gemini-last-failure.json").access { read() }
+            ?: context.getSharedPreferences("jarvis_gemini_failure", Context.MODE_PRIVATE).getString("last", null) },
+        { raw -> PersonalStateFile(context.filesDir, "gemini-last-failure.json").access { write(raw) } })
 
     fun shouldAnswer(text: String): Boolean = isQuestion(text) && (!isFollowup(text) || synchronized(lock) {
         runCatching {

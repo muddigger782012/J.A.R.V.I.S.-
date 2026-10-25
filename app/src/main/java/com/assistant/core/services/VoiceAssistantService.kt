@@ -486,14 +486,18 @@ class VoiceAssistantService(
         return config.enableDedicatedWakeWord
     }
 
-    private fun startDedicatedWakeWordEngine() {
+    private fun startDedicatedWakeWordEngine(releaseAttempts: Int = 0) {
         stopDedicatedWakeWordEngine()
         if (sherpaWakeWordEngine?.hasLiveWorker() == true) {
-            if (sherpaWakeWordEngine?.hasStalled() == true) {
+            if (sherpaWakeWordEngine?.hasStalled() == true || releaseAttempts >= 30) {
                 wakeState(WakeState.FAILED)
-                onStatus("Wake-word native decoder is stalled. Restart the app before retrying.")
+                onStatus("The previous wake worker has not stopped. Restart the app before retrying; a second worker will not be opened.")
             } else {
-                mainHandler.postDelayed({ if (voiceActive) startDedicatedWakeWordEngine() }, 100L)
+                val generation = wakeGeneration
+                mainHandler.postDelayed({
+                    if (voiceActive && wakeEnabled && generation == wakeGeneration && !commandFromWake && !commandCapture.isActive)
+                        startDedicatedWakeWordEngine(releaseAttempts + 1)
+                }, 100L)
             }
             return
         }

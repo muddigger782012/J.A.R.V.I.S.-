@@ -47,7 +47,7 @@ object GeminiModelDiscovery {
                     AiConnectionDiagnostics.http(code, response), code.takeIf { it in 100..599 })
                 if (now() - started !in 0..75_000) throw ProviderReadLimit()
                 val models = response?.optJSONArray("models") ?: throw org.json.JSONException("Missing model inventory")
-                require(models.length() <= 500)
+                if (models.length() > 500) throw ProviderReadLimit()
                 for (index in 0 until models.length()) {
                     val model = models.getJSONObject(index)
                     val methods = model.optJSONArray("supportedGenerationMethods") ?: JSONArray()
@@ -59,7 +59,7 @@ object GeminiModelDiscovery {
                 if (available.size > 500) throw ProviderReadLimit()
                 page = response.optString("nextPageToken")
                 if (page.isBlank()) return AiConnectionDiagnostics.Catalogue(available.toList(), true)
-                require(page.length <= 1024 && seen.add(page))
+                if (page.length > 1024 || !seen.add(page)) throw org.json.JSONException("Invalid catalog pagination")
             }
             AiConnectionDiagnostics.Catalogue(available.toList(), false, AiConnectionDiagnostics.Problem.LIMIT)
         } catch (failure: Exception) {
