@@ -16,3 +16,8 @@ dependencyResolutionManagement {
 
 rootProject.name = "assistant-platform"
 include(":app")
+// Personal release tasks stay scoped to Assistant. Developer remains an independent APK.
+if (gradle.startParameter.taskNames.any { it.startsWith(':developer:') || it.startsWith('developer:') } ||
+        providers.gradleProperty('jarvisDeveloper').orElse('false').get() == 'true') {
+    include(':developer')
+}

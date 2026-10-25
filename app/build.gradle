@@ -94,6 +94,7 @@ android {
 
     // Harmless real-window/IPC acceptance fixtures never enter personal release or Beta APKs.
     sourceSets {
+        main.java.srcDir(rootProject.file('integration/src/main/kotlin'))
         debug {
             java.srcDir 'src/acceptance/java'
             manifest.srcFile 'src/acceptance/AndroidManifest.xml'

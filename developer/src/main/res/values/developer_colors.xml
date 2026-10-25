@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Developer-local implementation of the original Jarvis Default palette.
+         No impact on the personal Jarvis or commercial Beta applications. -->
+    <color name="developer_background">#08151D</color>
+    <color name="developer_panel">#10232D</color>
+    <color name="developer_primary">#7EE8F7</color>
+    <color name="developer_secondary">#B8C7D3</color>
+    <color name="developer_text">#E9F3FA</color>
+    <color name="developer_hint">#9DAFBE</color>
+</resources>
