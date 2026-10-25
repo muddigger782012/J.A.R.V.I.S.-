@@ -10,6 +10,17 @@ import org.xml.sax.helpers.DefaultHandler
 
 /** Pure proposal validation. This object has no repository, filesystem, process, or network access. */
 object PatchEngine {
+    enum class Target { DEVELOPER, PERSONAL }
+
+    fun validSourceBranch(branch: String, target: Target): Boolean = when (target) {
+        Target.DEVELOPER -> BuildDiagnostics.validBranch(branch)
+        Target.PERSONAL -> branch == "main" || branch == "feature/self-diagnostics-phase5-readonly" ||
+            branch.matches(Regex("feature/jarvis-personal-repair/[A-Za-z0-9][A-Za-z0-9_-]{0,47}-[a-f0-9]{12}"))
+    }
+
+    fun taskBranch(taskId: String, proposalId: String, target: Target): String =
+        "feature/${if (target == Target.PERSONAL) "jarvis-personal-repair" else "jarvis-developer-task"}/$taskId-${proposalId.take(12)}"
+
     const val MAX_FILES = 8
     const val MAX_FILE_BYTES = 200_000
     const val MAX_TOTAL_BYTES = 400_000
@@ -26,7 +37,8 @@ object PatchEngine {
         val sources: List<SourceFile>,
         val provider: String,
         val model: String,
-        val baseBranch: String = "feature/jarvis-developer"
+        val baseBranch: String = "feature/jarvis-developer",
+        val target: Target = Target.DEVELOPER
     )
     data class Edit(val path: String, val content: String)
 
@@ -57,7 +69,7 @@ object PatchEngine {
     private val identifier = Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,47}")
     private val safePath = Regex("[A-Za-z0-9_./-]+")
     private val protectedName = Regex(
-        "(?i)(?:agent|patch|github|repository|taskplan|buildfeedback|builddiagnostic|repairengine|repairworkbench|candidateevaluation|candidatefeedback|selfdevelopment|model|provider|transport|credential|secret|token|password|signing|keystore|updat|release|recovery|approval|publish|mainactivity|buildconfig|apikey|api_key|networksecurity)"
+        "(?i)(?:agent|patch|github|repository|taskplan|privatecheckpoint|repairhistory|buildfeedback|builddiagnostic|repairengine|repairworkbench|personalrepair|candidateevaluation|candidatefeedback|selfdevelopment|model|provider|transport|credential|secret|token|password|signing|keystore|updat|release|recovery|approval|publish|mainactivity|buildconfig|apikey|api_key|networksecurity)"
     )
     private val knownSecret = Regex("\\b(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}|AIza[A-Za-z0-9_-]{20,})\\b|-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----")
     private val namedSecret = Regex("(?i)(?<![A-Za-z0-9_])(?:[A-Za-z0-9_]{0,120}(?:api[_-]?key|token|password|secret|authorization))[\"']?\\s*+(?::\\s*+[A-Za-z?]++)?\\s*+[=:]\\s*+[\"'][^\"'\\r\\n]++[\"']")
@@ -69,12 +81,20 @@ object PatchEngine {
     private val packageLine = Regex("(?m)^[ \\t]*+package[ \\t]++([A-Za-z_][A-Za-z0-9_.]*+)[ \\t]*+;?[ \\t]*+\\r?$")
     private val dependencyLine = Regex("[ \\t]*(?:implementation|api|compileOnly|runtimeOnly|testImplementation|androidTestImplementation|debugImplementation|releaseImplementation)(?:[ \\t]+([\"'])[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.+,-]+\\1|[ \\t]*\\([ \\t]*([\"'])[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.+,-]+\\2[ \\t]*\\))[ \\t]*\\r?")
 
-    fun allowedPath(path: String): Boolean {
+    fun allowedPath(path: String): Boolean = allowedPath(path, Target.DEVELOPER)
+
+    fun allowedPath(path: String, target: Target): Boolean {
         if (path.length !in 1..240 || !safePath.matches(path)) return false
         val parts = path.split('/')
         if (parts.any { it.isEmpty() || it == "." || it == ".." || it.startsWith('.') }) return false
-        if (path == "developer/build.gradle" || path == "developer/build.gradle.kts") return true
+        if (target == Target.DEVELOPER && (path == "developer/build.gradle" || path == "developer/build.gradle.kts")) return true
         if (parts.any { protectedName.containsMatchIn(it) }) return false
+        if (target == Target.PERSONAL) {
+            // Start with existing ordinary logic and NEW tests. Android/security, UI resources,
+            // build, release, permission and approval controllers stay outside runtime repair scope.
+            if (parts.any { Regex("(?i)permission|accessibility|screen|admin|shizuku|dhizuku|consent|confirm|capability|intent|command|selfdiagnostic|personalrepair|hybrid|billing|subscription|commercial|cost|beta|routing|budget|configuration").containsMatchIn(it) }) return false
+            return Regex("app/src/(?:main|test|androidTest)/(?:java|kotlin)/com/assistant/core/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.(?:kt|java)").matches(path)
+        }
         val code = Regex("developer/src/(?:main|test|androidTest)/(?:java|kotlin)/com/jarvis/developer/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.(?:kt|java)")
         val resource = Regex("developer/src/main/res/(?:layout|drawable|values|menu)(?:-[A-Za-z0-9_-]+)?/[A-Za-z0-9_]+\\.xml")
         return code.matches(path) || resource.matches(path)
@@ -83,7 +103,7 @@ object PatchEngine {
     fun validateRequest(request: Request) {
         require(identifier.matches(request.taskId)) { "Invalid task ID" }
         require(gitSha.matches(request.baseCommitSha)) { "Full immutable base commit SHA is required" }
-        require(BuildDiagnostics.validBranch(request.baseBranch)) { "Source branch is outside the isolated Developer scope" }
+        require(validSourceBranch(request.baseBranch, request.target)) { "Source branch is outside the selected product scope" }
         require(request.task.isNotBlank() && request.task.length <= 12_000) { "Task is empty or too large" }
         require(request.provider.matches(Regex("[A-Za-z][A-Za-z0-9 ._-]{0,63}"))) { "Invalid provider" }
         require(request.model.matches(Regex("[A-Za-z0-9][A-Za-z0-9._/-]{0,119}"))) { "Invalid model" }
@@ -94,12 +114,16 @@ object PatchEngine {
         safeText(request.baseBranch)
         require(request.allowedPaths.size in 1..MAX_FILES) { "Scope must contain 1..$MAX_FILES files" }
         require(request.allowedPaths.distinct().size == request.allowedPaths.size) { "Duplicate allowed path" }
-        require(request.allowedPaths.all(::allowedPath)) { "Path is outside Developer patch allowlist" }
+        require(request.allowedPaths.all { allowedPath(it, request.target) }) { "Path is outside the selected product patch allowlist" }
         request.allowedPaths.forEach(::safeText)
         require(request.sources.size == request.allowedPaths.size && request.sources.map { it.path }.toSet() == request.allowedPaths.toSet()) { "Complete exact source scope is required" }
         require(request.sources.map { it.path }.distinct().size == request.sources.size) { "Duplicate source path" }
         var total = 0
         for (source in request.sources) {
+            if (request.target == Target.PERSONAL) {
+                val production = source.path.startsWith("app/src/main/")
+                require(production == (source.content != null)) { "Personal repairs require existing production source and preserve all existing tests" }
+            }
             require((source.sha == null) == (source.content == null)) { "Source needs both Git blob SHA and content, or neither for a new file" }
             if (source.content != null) {
                 validateText(source.content)
@@ -137,7 +161,7 @@ object PatchEngine {
     fun branchName(proposal: Proposal): String {
         revalidate(proposal)
         // A sibling namespace avoids Git's file/directory ref conflict with feature/jarvis-developer.
-        return "feature/jarvis-developer-task/${proposal.request.taskId}-${proposal.id.take(12)}"
+        return taskBranch(proposal.request.taskId, proposal.id, proposal.request.target)
     }
 
     private fun safeText(text: String) {
@@ -164,7 +188,7 @@ object PatchEngine {
         require(edits.map { it.path }.distinct().size == edits.size) { "Duplicate edit path" }
         var total = 0
         for (edit in edits) {
-            require(allowedPath(edit.path) && edit.path in request.allowedPaths) { "Edit outside explicit task scope" }
+            require(allowedPath(edit.path, request.target) && edit.path in request.allowedPaths) { "Edit outside explicit task scope" }
             val original = request.sources.single { it.path == edit.path }.content
             require(edit.content.isNotBlank()) { "Empty files and deletion are forbidden" }
             require(edit.content != original) { "No-op edit is forbidden" }
@@ -178,8 +202,9 @@ object PatchEngine {
                 edit.path.endsWith(".gradle") || edit.path.endsWith(".gradle.kts") -> validateGradle(requireNotNull(original), edit.content)
                 else -> {
                     require(!execution.containsMatchIn(edit.content)) { "Shell, reflection, or dynamic execution hooks are forbidden" }
-                    val expected = edit.path.substringAfter("/com/jarvis/developer/").substringBeforeLast('/', "")
-                        .replace('/', '.').let { if (it.isEmpty()) "com.jarvis.developer" else "com.jarvis.developer.$it" }
+                    val namespace = if (request.target == Target.PERSONAL) "com.assistant.core" else "com.jarvis.developer"
+                    val expected = edit.path.substringAfter("/${namespace.replace('.', '/')}/").substringBeforeLast('/', "")
+                        .replace('/', '.').let { if (it.isEmpty()) namespace else "$namespace.$it" }
                     val packages = packageLine.findAll(edit.content).map { it.groupValues[1] }.toList()
                     require(packages == listOf(expected)) { "Developer source package must match its path" }
                     if (original != null) require(packageLine.findAll(original).map { it.groupValues[1] }.toList() == packages) { "Package identity must be preserved" }
@@ -286,6 +311,7 @@ object PatchEngine {
         if (request.baseBranch != "feature/jarvis-developer") {
             field("source-branch"); field(request.baseBranch)
         }
+        if (request.target != Target.DEVELOPER) { field("product"); field(request.target.name) }
         return hex(digest.digest())
     }
 

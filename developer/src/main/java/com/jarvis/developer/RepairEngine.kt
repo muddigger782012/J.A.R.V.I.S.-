@@ -110,6 +110,7 @@ object RepairEngine {
         require(maxAttempts in 1..2) { "Repair budget must be one or two attempts" }
         require(nowMillis >= 0 && nowMillis <= Long.MAX_VALUE - MAX_DURATION) { "Invalid repair start time" }
         BuildDiagnostics.validateReport(baseline)
+        require(baseline.target == PatchEngine.Target.DEVELOPER) { "Personal feedback cannot authorize a Developer repair session" }
         require(success(baseline)) { "A completed passing baseline with complete nonempty test evidence is required" }
         safeMetadata(baseline.branch)
         val gate = Gate(nowMillis)
@@ -129,6 +130,7 @@ object RepairEngine {
         require(session.attempts.lastOrNull()?.outcome !in setOf("PREPARING", "AWAITING_CI")) { "Finish the current repair before preparing another" }
         check(session.attempts.size < session.maxAttempts) { "Repair attempt budget is exhausted" }
         BuildDiagnostics.validateReport(failedReport)
+        require(failedReport.target == PatchEngine.Target.DEVELOPER) { "Personal feedback cannot prepare a Developer repair attempt" }
         safeMetadata(failedReport.branch)
         if (session.retryFingerprint != null && session.retryFingerprint != failedReport.fingerprint) {
             stop(session, "Repair feedback changed; start a new explicitly reviewed session")
@@ -172,14 +174,15 @@ object RepairEngine {
     fun recordFailure(session: Session, ticket: Ticket, stage: String, nowMillis: Long): Session = synchronized(session.gate) {
         current(session)
         requireTicket(session, ticket)
-        require(stage in setOf("source", "preview", "provider", "approval", "commit")) { "Unknown repair failure stage" }
+        require(stage in setOf("source", "preview", "provider", "approval", "commit", "cancelled")) { "Unknown repair failure stage" }
         // Once write approval was claimed, a caller cannot disguise uncertain writes as a read failure.
         val uncertain = ticket.commitClaimed || stage == "commit"
         ticket.closed = true
         time(session.gate, session.deadlineAtMillis, nowMillis)
         if (uncertain) session.gate.stopped = "Repair write failed or has uncertain outcome; inspect the branch manually"
         else if (session.attempts.size >= session.maxAttempts) session.gate.stopped = "Repair attempt budget is exhausted"
-        val outcome = if (uncertain) "WRITE_UNCERTAIN" else "${stage.uppercase(java.util.Locale.ROOT)}_FAILED"
+        val outcome = if (uncertain) "WRITE_UNCERTAIN" else if (stage == "cancelled") "PREVIEW_CANCELLED"
+            else "${stage.uppercase(java.util.Locale.ROOT)}_FAILED"
         val attempt = session.attempts.last().copy(proposalId = ticket.approved?.id, outcome = outcome)
         next(session, session.attempts.dropLast(1) + attempt, session.retryFingerprint)
     }
@@ -191,7 +194,7 @@ object RepairEngine {
         val attempt = requireNotNull(session.attempts.lastOrNull()) { "There is no committed repair awaiting CI" }
         require(attempt.outcome == "AWAITING_CI") { "There is no committed repair awaiting CI" }
         BuildDiagnostics.validateReport(report)
-        if (report.commitSha != attempt.commitSha || report.branch != attempt.branch) {
+        if (report.target != PatchEngine.Target.DEVELOPER || report.commitSha != attempt.commitSha || report.branch != attempt.branch) {
             session.gate.stopped = "CI evidence does not match the exact repair commit and branch"
             return@synchronized Assessment(session, false, false, session.stopReason!!)
         }

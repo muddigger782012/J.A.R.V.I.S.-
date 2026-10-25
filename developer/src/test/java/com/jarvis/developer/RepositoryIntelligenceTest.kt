@@ -11,6 +11,123 @@ import java.util.Base64
 
 /** Network-free contract tests: the fixture has no write operation and keeps every requested URL. */
 class RepositoryIntelligenceTest {
+
+    @Test fun cancelledPreviewReadsNeverStartAGitHubRequest() {
+        val cancellation = PatchPreviewCancellation { it() }.apply { cancel() }
+        val fake = fixture()
+        fails { RepositoryIntelligence.Reader(fake, cancellation).inventory("") }
+        assertTrue(fake.requests.isEmpty())
+    }
+
+    @Test fun cancellationWhileARepositoryResponseArrivesStopsBeforeTheNextRequest() {
+        val cancellation = PatchPreviewCancellation { it() }
+        var gets = 0
+        var closes = 0
+        val transport = RepositoryIntelligence.GetTransport { url, _ ->
+            gets++
+            cancellation.cancel()
+            RepositoryIntelligence.GetResponse(200, 2, url, ByteArrayInputStream("{}".toByteArray())) { closes++ }
+        }
+        fails { RepositoryIntelligence.Reader(transport, cancellation).inventory("") }
+        assertEquals(1, gets); assertEquals(1, closes)
+    }
+
+    private fun followUpResult(personalPath: String): PatchPublisher.CommitResult {
+        val id = "c".repeat(64)
+        return PatchPublisher.CommitResult("failed-review", "Fixture", "review-only", id, listOf(personalPath),
+            "d".repeat(40), commit, PatchEngine.taskBranch("failed-review", id, PatchEngine.Target.PERSONAL),
+            "Reviewed diff", "main", PatchEngine.Target.PERSONAL)
+    }
+
+    @Test fun cancelledFailedSourceInspectionCannotStartAnyRepositoryRead() {
+        val path = "app/src/main/java/com/assistant/core/services/AssistantPersonality.kt"
+        val result = followUpResult(path)
+        val report = BuildDiagnostics.parse(commit, result.branch, 23, 1, "completed", "failure",
+            "e: $path:2:1 Unresolved reference", PatchEngine.Target.PERSONAL)
+        val fake = fixture()
+        val cancellation = PatchPreviewCancellation { it() }.apply { cancel() }
+        fails { RepositoryIntelligence.Reader(fake, cancellation).personalFollowUp("", result, report, path) }
+        assertTrue(fake.requests.isEmpty())
+    }
+
+    @Test fun cancellationAfterTheLastSourceResponseCannotReturnAFollowUpReview() {
+        val path = "app/src/main/java/com/assistant/core/services/AssistantPersonality.kt"
+        val bytes = "package com.assistant.core.services\nobject AssistantPersonality\n".toByteArray()
+        val result = followUpResult(path)
+        val report = BuildDiagnostics.parse(commit, result.branch, 23, 1, "completed", "failure",
+            "e: $path:2:1 Unresolved reference", PatchEngine.Target.PERSONAL)
+        val fake = fixture(listOf(node(path, bytes)))
+        val ref = "$api/git/ref/heads/${java.net.URLEncoder.encode(result.branch, "UTF-8")}"
+        fake.json(ref, JSONObject().put("ref", "refs/heads/${result.branch}")
+            .put("object", JSONObject().put("type", "commit").put("sha", commit)))
+        val cancellation = PatchPreviewCancellation { it() }
+        val encoded = blob(path, bytes).toString().toByteArray()
+        fake.replies[sourceUrl(path)] = {
+            RepositoryIntelligence.GetResponse(200, encoded.size.toLong(), sourceUrl(path), ByteArrayInputStream(encoded)) {
+                fake.closed++; cancellation.cancel()
+            }
+        }
+        fails { RepositoryIntelligence.Reader(fake, cancellation).personalFollowUp("", result, report, path) }
+        assertEquals(listOf(ref, commitUrl(), treeUrl(), sourceUrl(path)), fake.requests)
+        assertEquals(4, fake.closed); assertTrue(cancellation.isCancelled)
+    }
+
+    @Test fun failedPersonalFollowUpUsesOnlyVerifiedGetReadsAtItsExactTaskBranch() {
+        val personalPath = "app/src/main/java/com/assistant/core/services/AssistantPersonality.kt"
+        val bytes = "package com.assistant.core.services\nobject AssistantPersonality\n".toByteArray()
+        val result = followUpResult(personalPath)
+        val report = BuildDiagnostics.parse(commit, result.branch, 23, 1, "completed", "failure",
+            "e: $personalPath:2:1 Unresolved reference", PatchEngine.Target.PERSONAL)
+        val fake = fixture(listOf(node(personalPath, bytes)))
+        val ref = "$api/git/ref/heads/${java.net.URLEncoder.encode(result.branch, "UTF-8")}"
+        fake.json(ref, JSONObject().put("ref", "refs/heads/${result.branch}")
+            .put("object", JSONObject().put("type", "commit").put("sha", commit)))
+        fake.json(sourceUrl(personalPath), blob(personalPath, bytes))
+        val review = RepositoryIntelligence.Reader(fake).personalFollowUp("", result, report, personalPath)
+        assertEquals(listOf(ref, commitUrl(), treeUrl(), sourceUrl(personalPath)), fake.requests)
+        assertEquals(fake.requests.size, fake.closed)
+        assertEquals(commit, review.sourceSha); assertEquals(listOf(personalPath), review.scope)
+        assertEquals(report.fingerprint, review.buildReference!!.reportFingerprint)
+        assertTrue(review.task.contains("not a retry authorization"))
+    }
+
+    @Test fun movedPersonalFollowUpAndForeignFileCannotFetchSourceBytes() {
+        val personalPath = "app/src/main/java/com/assistant/core/services/AssistantPersonality.kt"
+        val bytes = "package com.assistant.core.services\nobject AssistantPersonality\n".toByteArray()
+        val result = followUpResult(personalPath)
+        val report = BuildDiagnostics.parse(commit, result.branch, 23, 1, "completed", "failure",
+            "e: $personalPath:2:1 Broken", PatchEngine.Target.PERSONAL)
+        val fake = fixture(listOf(node(personalPath, bytes)))
+        fails { RepositoryIntelligence.Reader(fake).personalFollowUp("", result, report, "app/src/main/java/com/assistant/core/Other.kt") }
+        assertTrue(fake.requests.isEmpty())
+        val moved = "e".repeat(40)
+        val ref = "$api/git/ref/heads/${java.net.URLEncoder.encode(result.branch, "UTF-8")}"
+        fake.json(ref, JSONObject().put("ref", "refs/heads/${result.branch}")
+            .put("object", JSONObject().put("type", "commit").put("sha", moved)))
+        fake.json("$api/git/commits/$moved", JSONObject().put("sha", moved).put("tree", JSONObject().put("sha", treeSha)))
+        fails("moved") { RepositoryIntelligence.Reader(fake).personalFollowUp("", result, report, personalPath) }
+        assertFalse(fake.requests.any { it.contains("/contents/") })
+        assertEquals(3, fake.requests.size)
+    }
+
+    @Test fun personalMainRequiresAnExplicitProductSelectionAndStillPinsVerifiedBlobBytes() {
+        val personalPath = "app/src/main/java/com/assistant/core/services/AssistantPersonality.kt"
+        val bytes = "package com.assistant.core.services\nobject AssistantPersonality\n".toByteArray()
+        val fake = fixture(listOf(node(personalPath, bytes)))
+        fake.json("$api/git/ref/heads/main", JSONObject().put("ref", "refs/heads/main")
+            .put("object", JSONObject().put("type", "commit").put("sha", commit)))
+        fake.json(sourceUrl(personalPath), blob(personalPath, bytes))
+        fails { RepositoryIntelligence.Reader(fake).inventory("", "main") }
+        assertTrue(fake.requests.isEmpty())
+        val reader = RepositoryIntelligence.Reader(fake)
+        RepositoryIntelligence.requireApiUrl("$api/git/ref/heads/main", PatchEngine.Target.PERSONAL)
+        fails { RepositoryIntelligence.requireApiUrl(refUrl(), PatchEngine.Target.PERSONAL) }
+        val inventory = reader.inventory("", "main", PatchEngine.Target.PERSONAL)
+        assertEquals(commit, inventory.commitSha)
+        assertEquals(String(bytes), reader.readSource("", inventory, personalPath))
+        assertEquals(4, fake.requests.size)
+        assertTrue(fake.requests.all { it.startsWith(api + "/") })
+    }
     private val api = "https://api.github.com/repos/muddigger782012/J.A.R.V.I.S.-"
     private val commit = "a".repeat(40)
     private val treeSha = "b".repeat(40)

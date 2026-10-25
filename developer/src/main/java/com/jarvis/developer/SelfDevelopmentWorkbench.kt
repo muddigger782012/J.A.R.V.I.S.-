@@ -272,13 +272,21 @@ object SelfDevelopmentWorkbench {
                     } else result.fold(onSuccess = {
                         try {
                             BuildDiagnostics.validateReport(it)
+                            require(it.target == PatchEngine.Target.DEVELOPER)
                             require(it.branch == frozen.branch && it.commitSha == frozen.sha &&
                                 (frozen.runId == null || frozen.runId == it.runId))
                             if (baselineRead) baseline = it else candidate = it
                             output.text = BuildDiagnostics.render(it)
                             status.text = "Exact-source feedback retained for an explicit baseline comparison; no passing candidate is assumed."
-                        } catch (_: Exception) { status.text = "Feedback identity could not be verified; candidate review remains blocked." }
-                    }, onFailure = { status.text = "Could not verify debug feedback; check source identity and read access." })
+                        } catch (_: Exception) {
+                            status.text = "Feedback identity could not be verified; candidate review remains blocked."
+                            output.text = status.text
+                        }
+                    }, onFailure = { failure ->
+                        val detail = BuildFeedback.explainFailure(failure) ?: "Could not verify debug feedback; check source identity and read access."
+                        status.text = detail
+                        output.text = detail
+                    })
                     refresh()
                 }
             }

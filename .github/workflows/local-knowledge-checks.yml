@@ -43,7 +43,9 @@ jobs:
         run: |
           python3 -m pip install --quiet sherpa-onnx==1.13.8 numpy
           timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke
-      - run: bash gradlew --no-daemon testDebugUnitTest assembleDebug
+      # Root task selectors also build the independent Developer module, whose
+      # generated artwork belongs to its own pipeline. Keep these checks on Personal.
+      - run: bash gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: layout-smoke-apk
@@ -62,9 +64,7 @@ jobs:
         run: python -m py_compile scripts/ui_layout_smoke.py
 
   ui-layout:
-    # Temporarily bypass emulator testing to unblock APK delivery.
-    # Restore this job before treating UI behavior as verified.
-    if: ${{ false }}
+    # UI behavior must be verified on the emulator before review or delivery.
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 12

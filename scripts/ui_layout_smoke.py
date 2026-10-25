@@ -15,8 +15,18 @@ def adb(*args):
 
 
 def hierarchy():
-    adb('shell', 'uiautomator', 'dump', '/sdcard/window.xml')
-    return ET.fromstring(adb('shell', 'cat', '/sdcard/window.xml'))
+    # Retry observations only; a stale dump must never stand in for the current screen.
+    for attempt in range(3):
+        try:
+            adb('shell', 'rm', '-f', '/sdcard/window.xml')
+            adb('shell', 'uiautomator', 'dump', '/sdcard/window.xml')
+            root = ET.fromstring(adb('shell', 'cat', '/sdcard/window.xml'))
+            assert next(root.iter('node'), None) is not None, 'Empty Accessibility hierarchy'
+            return root
+        except (subprocess.CalledProcessError, ET.ParseError, AssertionError):
+            if attempt == 2:
+                raise
+            time.sleep(0.5)
 
 
 def tap(identifier):
@@ -36,14 +46,60 @@ def tap_scrolling(identifier, attempts=6):
         nodes = list(hierarchy().iter('node'))
         target = next((n for n in nodes if n.get('resource-id') == 'com.assistant.core:id/' + identifier), None)
         if target is not None:
-            bounds = list(map(int, re.findall(r'\\d+', target.get('bounds', ''))))
+            bounds = list(map(int, re.findall(r'\d+', target.get('bounds', ''))))
             if len(bounds) == 4 and bounds[2] > bounds[0] and bounds[3] > bounds[1]:
                 adb('shell', 'input', 'tap', str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
                 time.sleep(1)
                 return
-        adb('shell', 'input', 'swipe', '500', '1350', '500', '420', '300')
+        # The theme picker is inside Appearance's viewport above its fixed controls.
+        if attempt % 2 == 0:
+            adb('shell', 'input', 'swipe', '800', '1050', '800', '350', '400')
+        else:
+            adb('shell', 'input', 'swipe', '500', '1450', '500', '450', '400')
         time.sleep(1)
     raise AssertionError(f'{identifier} missing after scrolling')
+
+
+def text_node(label, attempts=6):
+    for attempt in range(attempts):
+        matches = [node for node in hierarchy().iter('node')
+                   if node.get('text', '').strip().casefold() == label.casefold()]
+        for node in matches:
+            bounds = list(map(int, re.findall(r'\d+', node.get('bounds', ''))))
+            if len(bounds) == 4 and bounds[2] > bounds[0] and bounds[3] > bounds[1]:
+                return node
+        adb('shell', 'input', 'swipe', '500', '1450', '500', '450', '300')
+        time.sleep(0.5)
+    raise AssertionError(f'{label} missing after bounded scrolling')
+
+
+def tap_text(label):
+    node = text_node(label)
+    x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.get('bounds')))
+    adb('shell', 'input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
+    time.sleep(1)
+
+
+def open_settings():
+    # The Chat gear opens the top-level menu, not the Settings activity itself.
+    tap('btnVoiceSettings')
+    tap_text('Settings')
+    assert any(node.get('text') == 'Back to chat' for node in hierarchy().iter('node')), 'Settings page did not open'
+
+
+def open_settings_destination(label):
+    open_settings()
+    tap_text(label)
+
+
+def assert_chat():
+    assert any(node.get('resource-id') == 'com.assistant.core:id/etCommandInput'
+               for node in hierarchy().iter('node')), 'Android Back did not restore Chat'
+
+
+def assert_theme(name):
+    assert any(node.get('text') in (name + ' • Active', 'Current theme: ' + name)
+               for node in hierarchy().iter('node')), 'Theme not applied or persisted'
 
 def capture(name):
     print('Screenshot: ' + name, flush=True)
@@ -83,52 +139,48 @@ try:
     time.sleep(1)
     assert any(n.get('text') == '4' for n in hierarchy().iter('node')), 'Chat response card not rendered'
     capture('conversation')
-    tap('btnVoiceSettings')
+    open_settings()
     capture('settings')
-    assert any(n.get('text', '').casefold() == 'weather and ai' for n in hierarchy().iter('node')), 'Weather and AI is not visible in settings'
-    # Confirm the new learning control opens its diagnostics without deleting data.
-    learning_button = None
-    for attempt in range(4):
-        learning_button = next((n for n in hierarchy().iter('node')
-            if n.get('text') == 'Intelligence • Local Learning'), None)
-        if learning_button is not None:
-            break
-        adb('shell', 'input', 'swipe', '500', '1450', '500', '550', '300')
-        time.sleep(1)
-    assert learning_button is not None, 'Local Learning settings button not found'
-    x1, y1, x2, y2 = map(int, re.findall(r'\d+', learning_button.get('bounds')))
-    adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
-    time.sleep(1)
-    assert any('Learned intent examples:' in n.get('text', '') for n in hierarchy().iter('node')), 'Learning diagnostics dialog did not open'
+    text_node('AI and weather')
+    adb('shell', 'input', 'keyevent', '4')
+    assert_chat()
+    # Exercise the current dashboard and its read-only review without deleting data.
+    open_settings_destination('Learning and memory')
+    assert any('Learning on this device' in n.get('text', '') for n in hierarchy().iter('node')), 'Intelligence dashboard did not open'
+    tap_text('Review learned commands')
+    assert any(n.get('text', '').startswith('Saved learning • Page ')
+               for n in hierarchy().iter('node')), 'Learning diagnostics dialog did not open'
+    assert any('intent examples' in n.get('text', '').casefold()
+               for n in hierarchy().iter('node')), 'Saved learning evidence is missing'
     capture('learning-diagnostics')
     adb('shell', 'input', 'keyevent', '4')
     time.sleep(1)
-    tap('btnCloseVoiceSettings')
+    tap('btnCloseIntelligence')
+    adb('shell', 'input', 'keyevent', '4')
+    assert_chat()
     # Exercise each palette through the native settings flow, then verify persistence.
     for name in ('Stark', 'Cybertron', 'Default'):
         # Navigate through the public app UI; theme activities are intentionally not exported.
-        tap('btnVoiceSettings')
-        tap('btnThemes')
+        open_settings_destination('Appearance')
         assert any(n.get('resource-id') == 'com.assistant.core:id/appearanceTabs' for n in hierarchy().iter('node')), 'Appearances screen did not open'
-        if name == 'Cybertron':
-            adb('shell', 'input', 'swipe', '500', '1500', '500', '500', '350')
-            time.sleep(1)
         # Theme choices may be nested in a scroll view below the appearance controls.
         tap_scrolling('btnTheme' + name)
-        assert any(n.get('text') in (name + ' • Active', 'Current theme: ' + name) for n in hierarchy().iter('node')), 'Theme not applied'
+        assert_theme(name)
         capture('theme-picker-' + name.lower())
-        adb('shell', 'input', 'keyevent', '4')
-        time.sleep(1)
         tap('btnCloseAppearances')
-        tap('btnCloseVoiceSettings')
+        adb('shell', 'input', 'keyevent', '4')
+        assert_chat()
         capture('theme-' + name.lower())
         if name == 'Cybertron':
             adb('shell', 'am', 'force-stop', 'com.assistant.core')
             adb('shell', 'am', 'start', '-n', 'com.assistant.core/.MainActivity')
             time.sleep(2)
-            tap('btnVoiceSettings')
-            assert any('Cybertron' in n.get('text', '') and 'Appearances' in n.get('text', '') for n in hierarchy().iter('node')), 'Theme did not survive restart'
-            tap('btnCloseVoiceSettings')
+            open_settings_destination('Appearance')
+            assert_theme('Cybertron')
+            capture('theme-restart-cybertron')
+            tap('btnCloseAppearances')
+            adb('shell', 'input', 'keyevent', '4')
+            assert_chat()
     adb('shell', 'wm', 'size', '720x1280')
     adb('shell', 'wm', 'density', '360')  # 320dp width
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1.3')
