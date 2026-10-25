@@ -95,13 +95,15 @@ class VoiceCaptureAcceptanceTest {
                 capture.listen(true, {}, heard::add, { fail("Old error delivered") }, onPhase = phases::add)
                 val session = engines.sessions.single()
                 capture.finish(); assertTrue(session.finished); assertTrue(heard.isEmpty())
+                assertEquals(listOf(VoiceInteractionState.TRANSCRIBING), phases)
+                val beforeCancellation = phases.toList()
                 capture.stop()
                 session.listener.onReadyForSpeech(Bundle())
                 session.listener.onEndOfSpeech()
                 session.listener.onPartialResults(results("cancelled private speech"))
                 session.listener.onResults(results("cancelled private speech"))
                 session.listener.onError(SpeechRecognizer.ERROR_CLIENT)
-                assertTrue(phases.isEmpty()); assertTrue(heard.isEmpty())
+                assertEquals(beforeCancellation, phases); assertTrue(heard.isEmpty())
                 assertTrue(session.cancelled && session.destroyed)
             } finally { capture.stop() }
         }
