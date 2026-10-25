@@ -46,6 +46,8 @@ class VoiceSessionController(
 
     @Synchronized
     fun transcriptReady(text: String) {
+        // Ignore duplicate or late recognizer callbacks after capture has ended.
+        if (snapshot.mode != Mode.CAPTURING) return
         val clean = text.trim()
         if (clean.isBlank()) {
             fail(VoiceFailure(VoiceFailure.Stage.TRANSCRIPTION, "I didn't hear anything."))
