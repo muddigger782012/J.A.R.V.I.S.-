@@ -32,6 +32,24 @@ class DeviceReportTest {
         override fun bridges(): PrivilegedAccess.Snapshot { reads += "bridges"; return bridgesValue }
     }
 
+    @Test fun naturalCapabilityQuestionsUseRealAndroidStatus() {
+        val questions = listOf(
+            "What services can you provide?",
+            "What are your screen reading capabilities?",
+            "What are you able to do through diagnostics and development?",
+            "What can you do?"
+        )
+        for (question in questions) {
+            assertEquals(DeviceReport.Command.ACCESS, DeviceReport.command(question))
+            val answer = DeviceReport.render(DeviceReport.command(question)!!, Platform())
+            assertTrue(answer.contains("Installed Jarvis"))
+            assertTrue(answer.contains("Accessibility"))
+            assertTrue(answer.contains("Shizuku"))
+        }
+        assertEquals(DeviceReport.Command.APP, DeviceReport.command("What version are you running?"))
+        assertNull(DeviceReport.command("Can you explain how to develop an Android app?"))
+    }
+
     @Test fun supportedQuestionsStayLocalWithoutCapturingUnrelatedConversation() {
         for ((text, command) in mapOf("How's my phone doing?" to DeviceReport.Command.ALL,
             "Can you check my battery?" to DeviceReport.Command.BATTERY, "How much RAM is available?" to DeviceReport.Command.MEMORY,

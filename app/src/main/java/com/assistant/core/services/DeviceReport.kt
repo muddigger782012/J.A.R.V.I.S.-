@@ -46,8 +46,14 @@ object DeviceReport {
             "memory status", "ram status", "check my ram", "how much ram is available" -> Command.MEMORY
             "network status", "show network status", "device network status" -> Command.NETWORK
             "thermal status", "phone thermal status", "is my phone overheating" -> Command.THERMAL
-            "device capabilities", "show device capabilities", "device permission status", "show device permission status" -> Command.ACCESS
-            "installed jarvis version", "what version of jarvis is installed", "what jarvis version is installed" -> Command.APP
+            "device capabilities", "show device capabilities", "device permission status", "show device permission status",
+            "what services can you provide", "what services do you provide", "what can you do",
+            "what are your capabilities", "what are your screen reading capabilities",
+            "what are your screen-reading capabilities", "can you read my screen",
+            "what are you able to do through diagnostics and development",
+            "what can you do with diagnostics", "what diagnostic capabilities do you have" -> Command.ACCESS
+            "installed jarvis version", "what version of jarvis is installed", "what jarvis version is installed",
+            "what version are you", "what version are you running", "what is your version" -> Command.APP
             else -> null
         }
         if (exact != null) return exact
