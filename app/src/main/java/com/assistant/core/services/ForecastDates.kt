@@ -12,9 +12,9 @@ object ForecastDates {
     fun selector(text: String): String? {
         val clean = text.lowercase(Locale.ROOT)
         // A correction names its final requested date, not the superseded date earlier in the sentence.
-        val matches = dayPattern.findAll(clean).toList()
-        if (matches.isNotEmpty()) return matches.last().value
-        return Regex("\\b(day after tomorrow|tomorrow|today|tonight)\\b").findAll(clean).lastOrNull()?.value
+        val matches = dayPattern.findAll(clean).toList() +
+            Regex("\\b(day after tomorrow|tomorrow|today|tonight)\\b").findAll(clean).toList()
+        return matches.maxByOrNull { it.range.first }?.value
     }
     fun target(text: String, today: LocalDate): LocalDate? = when (val day = selector(text)) {
         "today", "tonight" -> today

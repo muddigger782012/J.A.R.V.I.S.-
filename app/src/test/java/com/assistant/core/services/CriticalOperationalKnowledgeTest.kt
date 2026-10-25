@@ -66,5 +66,7 @@ class CriticalOperationalKnowledgeTest {
         assertNull(ForecastDates.contextual("Remind me about the weather Sunday", history))
         assertNull(ForecastDates.contextual("Sunday; send a message", history))
         assertEquals(LocalDate.parse("2026-10-25"), ForecastDates.target("Friday, no I meant Sunday", LocalDate.parse("2026-10-23")))
+        assertEquals(LocalDate.parse("2026-10-24"), ForecastDates.target("Sunday, actually tomorrow", LocalDate.parse("2026-10-23")))
+        assertEquals(LocalDate.parse("2026-10-25"), ForecastDates.target("Tomorrow, actually Sunday", LocalDate.parse("2026-10-23")))
     }
 }
