@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
+import androidx.test.core.app.ActivityScenario
 import androidx.core.content.ContextCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -78,6 +79,9 @@ class AndroidCompatibilityAcceptanceTest {
 
     @Test fun privateDynamicEventsAcceptTheAppButRejectTheShellUid() {
         disposable()
+        // Android may defer broadcasts for an app without a visible component. Keep the
+        // same foreground condition as the Chat receiver, without starting a voice pipeline.
+        ActivityScenario.launch(ScreenControlFixtureActivity::class.java).use {
         val action = "com.assistant.core.acceptance.PRIVATE_EVENT_" + UUID.randomUUID().toString().replace("-", "")
         val received = AtomicInteger()
         val own = CountDownLatch(1)
@@ -104,6 +108,7 @@ class AndroidCompatibilityAcceptanceTest {
             assertFalse("Another UID must not inject private voice events", foreign.await(500, TimeUnit.MILLISECONDS))
             assertEquals(1, received.get())
         } finally { instrumentation.runOnMainSync { context.unregisterReceiver(receiver) } }
+        }
     }
 
     @Test fun manifestKeepsMicrophoneAndSpecialAccessWhileMakingOptionalHardwareExplicit() {
