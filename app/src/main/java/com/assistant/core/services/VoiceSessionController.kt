@@ -63,6 +63,8 @@ class VoiceSessionController(
 
     @Synchronized
     fun responseFinished(keepArmed: Boolean) {
+        // A delayed TTS completion must not shut down a newer microphone capture.
+        if (snapshot.mode == Mode.CAPTURING || snapshot.mode == Mode.STOPPED) return
         transition(if (keepArmed) Mode.ARMED else Mode.STOPPED, snapshot.trigger)
     }
 
