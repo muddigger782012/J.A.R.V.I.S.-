@@ -24,6 +24,7 @@ internal object DevelopmentEngineeringCredentials {
         values[job] = token
     }
     fun token(job: String) = values[job].orEmpty()
+    @Synchronized
     fun forget(job: String) { values.remove(job) }
 }
 
