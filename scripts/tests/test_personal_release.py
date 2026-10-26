@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import subprocess
+import os
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -12,6 +14,34 @@ import personal_release as release
 
 
 class PersonalReleaseTests(unittest.TestCase):
+    def test_shared_integration_changes_invalidate_real_git_source_equivalence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            env = dict(os.environ, GIT_AUTHOR_NAME='Release Test', GIT_AUTHOR_EMAIL='test@example.invalid',
+                       GIT_COMMITTER_NAME='Release Test', GIT_COMMITTER_EMAIL='test@example.invalid')
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), *args], env=env, text=True).strip()
+            git('init', '-q')
+            source = root / 'integration/src/main/kotlin/Bridge.kt'
+            source.parent.mkdir(parents=True)
+            source.write_text('const val VERSION = 1\n')
+            git('add', '.'); git('commit', '-qm', 'Initial shared source')
+            first = git('rev-parse', 'HEAD')
+            (root / 'artifacts').mkdir()
+            (root / 'artifacts/latest.txt').write_text('Metadata only\n')
+            git('add', '.'); git('commit', '-qm', 'Publication metadata')
+            metadata = git('rev-parse', 'HEAD')
+            source.write_text('const val VERSION = 2\n')
+            git('add', '.'); git('commit', '-qm', 'Changed bridge implementation')
+            changed = git('rev-parse', 'HEAD')
+            previous = Path.cwd()
+            try:
+                os.chdir(root)
+                self.assertTrue(release.same_inputs(first, metadata, release.APP_INPUTS))
+                self.assertFalse(release.same_inputs(first, changed, release.APP_INPUTS))
+            finally:
+                os.chdir(previous)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

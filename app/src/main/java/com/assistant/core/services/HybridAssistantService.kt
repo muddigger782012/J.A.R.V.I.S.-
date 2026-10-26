@@ -1269,6 +1269,29 @@ class HybridAssistantService(
     }
 
     private fun handleUserInputWithinTurn(rawInput: String, turn: Long, callback: (HybridAssistantReply) -> Unit) {
+        DevelopmentCommands.parse(rawInput)?.let { command ->
+            clearPendingActionPrompts()
+            responseThread(turn, callback) {
+                val operations = DeveloperBridgeOperations(systemService.context())
+                val response = runCatching {
+                    when (command) {
+                        DevelopmentCommands.Kind.CAPABILITIES -> operations.capabilities()
+                        DevelopmentCommands.Kind.STATUS -> operations.status()
+                        DevelopmentCommands.Kind.LIST -> operations.list()
+                        DevelopmentCommands.Kind.REVIEW_RUNTIME -> operations.submit(OperationalDiagnostics.render(LiveCapabilityRegistry.snapshot(systemService.context())))
+                        DevelopmentCommands.Kind.CANCEL -> operations.control("task.cancel.request")
+                        DevelopmentCommands.Kind.PAUSE -> operations.control("task.pause.request")
+                        DevelopmentCommands.Kind.RESUME -> operations.control("task.resume.request")
+                        DevelopmentCommands.Kind.RETRY -> operations.control("task.retry.request")
+                        DevelopmentCommands.Kind.RETRY_PENDING -> operations.retryPending()
+                        DevelopmentCommands.Kind.ANALYZE_PERSONAL -> operations.analyzeSource(true)
+                        DevelopmentCommands.Kind.ANALYZE_DEVELOPER -> operations.analyzeSource(false)
+                    }
+                }.getOrElse(DeveloperBridgeOperations::failure)
+                callback(HybridAssistantReply(response))
+            }.start()
+            return
+        }
         hostInformation(rawInput)?.let { callback(it); return }
         val weatherInput = ForecastDates.contextual(rawInput, conversationTurns().map { it.first })
         if (weatherInput != null && !RoutineProposal.isCreationRequest(rawInput)) {
@@ -1604,8 +1627,9 @@ class HybridAssistantService(
         responseThread(turn, callback) {
             val cloud = if (personalAssistant) onlineInterpretation(rawInput) else
                 fallbackAiClient.ask(rawInput, capabilityContext = ContextualAction.aiContext(assistantMemory), conversation = conversationTurns())
-            if (cloud == null) {
-                val response = ConversationPolicy.fallback(rawInput, ConversationPolicy.Obstacle.PROVIDER_FAILED)
+            if (cloud == null || cloud.providerFailed) {
+                val response = cloud?.reply?.takeIf(String::isNotBlank)
+                    ?: ConversationPolicy.fallback(rawInput, ConversationPolicy.Obstacle.PROVIDER_FAILED)
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response, local.actionResult))
                 return@responseThread

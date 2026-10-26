@@ -35,6 +35,45 @@ class IntelligenceRoutingTest {
         }
         assertEquals(0, calls); assertTrue(result.answer.providerFailed); assertNull(result.answer.lessonJson)
     }
+    private fun keepsPrimaryFailure(alternative: () -> FallbackAiResult?) {
+        val result = IntelligenceRouting.ask(IntelligenceRouting.Provider.GEMINI, true, IntelligenceRouting.Provider.values().toSet()) {
+            if (it == IntelligenceRouting.Provider.GEMINI) FallbackAiResult("Authentication failed; review the saved key.", "untrusted lesson", providerFailed = true)
+            else alternative()
+        }
+        assertTrue(result.answer.providerFailed)
+        assertTrue(result.answer.reply, result.answer.reply.contains("Authentication failed"))
+        assertTrue(result.answer.reply.contains("Gemini"))
+        assertFalse(result.answer.reply.contains("private endpoint and token"))
+        assertEquals(IntelligenceRouting.Provider.values().toList(), result.attempted)
+        assertNull(result.answer.lessonJson); assertNull(result.provider)
+    }
+    @Test fun aNullFallbackCannotEraseAnActionablePrimaryFailure() = keepsPrimaryFailure { null }
+    @Test fun aThrowingFallbackCannotEraseAnActionablePrimaryFailureOrExposeItsException() = keepsPrimaryFailure {
+        throw java.io.IOException("private endpoint and token")
+    }
+    @Test fun aBlankFallbackCannotEraseAnActionablePrimaryFailure() = keepsPrimaryFailure {
+        FallbackAiResult(" ", "untrusted fallback lesson", providerFailed = true)
+    }
+    @Test fun anUnconfiguredPrimaryIsNotReportedAsATestedConnectionFailure() {
+        val result = IntelligenceRouting.ask(IntelligenceRouting.Provider.GEMINI, true, setOf(IntelligenceRouting.Provider.GATEWAY)) {
+            FallbackAiResult("Answer", null)
+        }
+        assertTrue(result.answer.reply, result.answer.reply.contains("not configured"))
+        assertEquals(listOf(IntelligenceRouting.Provider.GATEWAY), result.attempted)
+        assertEquals(IntelligenceRouting.Provider.GATEWAY, result.provider)
+    }
+    @Test fun bothProviderFailuresRemainAttributedInEitherManualOrderWithoutAnyLesson() {
+        for (primary in IntelligenceRouting.Provider.values()) {
+            val result = IntelligenceRouting.ask(primary, true, IntelligenceRouting.Provider.values().toSet()) {
+                if (it == IntelligenceRouting.Provider.GEMINI) FallbackAiResult("Primary credential diagnostic", "unsafe lesson", providerFailed = true)
+                else FallbackAiResult("Gateway quota diagnostic", "another unsafe lesson", providerFailed = true)
+            }
+            assertTrue(result.answer.reply.contains("Gemini: Primary credential diagnostic"))
+            assertTrue(result.answer.reply.contains("gateway: Gateway quota diagnostic"))
+            assertEquals(primary, result.attempted.first())
+            assertTrue(result.answer.providerFailed); assertNull(result.answer.lessonJson); assertNull(result.provider)
+        }
+    }
     @Test fun failedOrEmptyProviderRepliesCannotSupplyALessonOrVerifiedAnswer() {
         val result = IntelligenceRouting.ask(IntelligenceRouting.Provider.GEMINI, true, IntelligenceRouting.Provider.values().toSet()) {
             FallbackAiResult("Failed", "untrusted lesson", providerFailed = true)

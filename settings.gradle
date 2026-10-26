@@ -5,6 +5,12 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+if (providers.gradleProperty('jarvisDevelopmentIntegration').orElse('false').get() == 'true') {
+    include(':bridge-test-peer')
+    project(':bridge-test-peer').projectDir = file('integration/test-peer')
+    include(':bridge-commercial-test-peer')
+    project(':bridge-commercial-test-peer').projectDir = file('integration/commercial-test-peer')
+}
 
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
@@ -16,3 +22,8 @@ dependencyResolutionManagement {
 
 rootProject.name = "assistant-platform"
 include(":app")
+// Personal release tasks stay scoped to Assistant. Developer remains an independent APK.
+if (gradle.startParameter.taskNames.any { it.startsWith(':developer:') || it.startsWith('developer:') } ||
+        providers.gradleProperty('jarvisDeveloper').orElse('false').get() == 'true') {
+    include(':developer')
+}

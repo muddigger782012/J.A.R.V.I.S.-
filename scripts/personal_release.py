@@ -19,7 +19,7 @@ import zipfile
 ABIS = ('arm64-v8a', 'armeabi-v7a', 'x86_64')
 APP_INPUTS = ('app/src', 'app/build.gradle', 'app/proguard-rules.pro',
               'app/voice-test-host.pro', 'build.gradle', 'settings.gradle',
-              'gradle.properties', 'gradle', 'gradlew', 'gradlew.bat')
+              'gradle.properties', 'gradle', 'gradlew', 'gradlew.bat', 'integration')
 CHECK_INPUTS = (*APP_INPUTS, 'cloud-backend', 'scripts',
                 '.github/workflows/local-knowledge-checks.yml',
                 '.github/workflows/ui-theme-check.yml')

@@ -1,0 +1,206 @@
+package com.jarvis.developer
+
+import android.util.Base64
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.concurrent.thread
+
+/**
+ * Minimal real coding-agent loop: fetch source, ask model for a bounded edit, commit, observe CI.
+ * Writes only Developer-owned source paths on the isolated feature branch.
+ * API credentials stay in memory. Never silently merges, releases or installs.
+ */
+object CodingAgent {
+    private const val REPO = "muddigger782012/J.A.R.V.I.S.-"
+    private const val BRANCH = "feature/jarvis-developer"
+    private const val ICON = "developer/src/main/res/drawable/developer_icon.xml"
+    private const val BUILD = "release-jarvis-developer.yml"
+    private fun api(method: String, url: String, token: String? = null, payload: JSONObject? = null): JSONObject {
+        val c = URL(url).openConnection() as HttpURLConnection
+        c.requestMethod = method
+        c.connectTimeout = 15000
+        c.readTimeout = 90000
+        c.setRequestProperty("Accept", "application/vnd.github+json")
+        c.setRequestProperty("User-Agent", "JarvisDeveloper-Agent")
+        if (!token.isNullOrBlank()) c.setRequestProperty("Authorization", "Bearer $token")
+        if (payload != null) {
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/json")
+        }
+        try {
+            if (payload != null) c.outputStream.use { it.write(payload.toString().toByteArray()) }
+            val code = c.responseCode
+            val raw = (if (code in 200..299) c.inputStream else c.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) error("HTTP $code: ${raw.take(250)}")
+            return JSONObject(raw)
+        } finally { c.disconnect() }
+    }
+    private fun failureLog(runId: Long, token: String): String {
+        val endpoint = "https://api.github.com/repos/$REPO/actions/runs/$runId/logs"
+        val connection = URL(endpoint).openConnection() as HttpURLConnection
+        connection.connectTimeout = 15000
+        connection.readTimeout = 30000
+        connection.setRequestProperty("Authorization", "Bearer $token")
+        connection.setRequestProperty("Accept", "application/vnd.github+json")
+        connection.setRequestProperty("User-Agent", "JarvisDeveloper-Agent")
+        try {
+            if (connection.responseCode !in 200..299) return "Build log download unavailable"
+            val matches = ArrayList<String>()
+            var total = 0
+            java.util.zip.ZipInputStream(connection.inputStream).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    if (entry.isDirectory) continue
+                    val bytes = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(4096)
+                    while (true) {
+                        val n = zip.read(buffer)
+                        if (n < 0) break
+                        total += n
+                        if (total > 3_000_000) break
+                        bytes.write(buffer, 0, n)
+                    }
+                    val lines = bytes.toString("UTF-8").lines()
+                    for (line in lines) {
+                        if (Regex("(?i)(^|\\s)(error:|failure:|failed|unresolved reference|e: file:|exception:)").containsMatchIn(line)) {
+                            matches.add(line.take(350))
+                            if (matches.size >= 15) break
+                        }
+                    }
+                    if (total > 3_000_000 || matches.size >= 15) break
+                }
+            }
+            return matches.joinToString("\\n").ifBlank { "No concise compiler error lines found; inspect workflow logs." }
+        } catch (e: Exception) {
+            return "Build logs unavailable: " + (e.message ?: "unknown error").take(100)
+        } finally { connection.disconnect() }
+    }
+    private fun read(token: String, path: String): Pair<String, String> {
+        val j = api("GET", "https://api.github.com/repos/$REPO/contents/$path?ref=$BRANCH", token)
+        val bytes = Base64.decode(j.getString("content").replace("\n", ""), Base64.DEFAULT)
+        return j.getString("sha") to String(bytes, Charsets.UTF_8)
+    }
+    private fun generate(provider: String, key: String, model: String, task: String, original: String, context: String): String {
+        val instructions = """You are a bounded Android code-editing agent. Return ONLY the complete valid Android vector drawable XML to replace developer_icon.xml. Preserve its vector root and xmlns. No markdown or commentary. Task: $task
+Existing drawable:
+$original
+Relevant source context:
+${context.take(12000)}
+"""
+        val raw: String = if (provider == "Gemini") {
+            val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/${model.ifBlank { "gemini-2.5-flash" }}:generateContent"
+            val req = JSONObject().put("contents", JSONArray().put(JSONObject()
+                .put("parts", JSONArray().put(JSONObject().put("text", instructions)))))
+            val c = URL(endpoint).openConnection() as HttpURLConnection
+            c.requestMethod = "POST"; c.connectTimeout = 15000; c.readTimeout = 90000; c.doOutput = true
+            c.setRequestProperty("x-goog-api-key", key); c.setRequestProperty("Content-Type", "application/json")
+            try {
+                c.outputStream.use { it.write(req.toString().toByteArray()) }
+                val code = c.responseCode
+                val response = (if (code in 200..299) c.inputStream else c.errorStream)
+                    ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (code !in 200..299) error("Gemini HTTP $code: ${response.take(250)}")
+                val parts = JSONObject(response).getJSONArray("candidates").getJSONObject(0)
+                    .getJSONObject("content").getJSONArray("parts")
+                (0 until parts.length()).joinToString("\n") { parts.getJSONObject(it).optString("text") }
+            } finally { c.disconnect() }
+        } else {
+            val req = JSONObject().put("model", model.ifBlank { "gpt-4.1-mini" })
+                .put("input", instructions)
+            val c = URL("https://api.openai.com/v1/responses").openConnection() as HttpURLConnection
+            c.requestMethod = "POST"; c.connectTimeout = 15000; c.readTimeout = 90000; c.doOutput = true
+            c.setRequestProperty("Authorization", "Bearer $key"); c.setRequestProperty("Content-Type", "application/json")
+            try {
+                c.outputStream.use { it.write(req.toString().toByteArray()) }
+                val code = c.responseCode
+                val response = (if (code in 200..299) c.inputStream else c.errorStream)
+                    ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (code !in 200..299) error("OpenAI HTTP $code: ${response.take(250)}")
+                val items = JSONObject(response).getJSONArray("output")
+                buildString {
+                    for (i in 0 until items.length()) {
+                        val parts = items.getJSONObject(i).optJSONArray("content") ?: continue
+                        for (j in 0 until parts.length()) append(parts.getJSONObject(j).optString("text"))
+                    }
+                }
+            } finally { c.disconnect() }
+        }
+        val cleaned = raw.trim().removePrefix("```xml").removePrefix("```").removeSuffix("```").trim()
+        require(cleaned.startsWith("<?xml") || cleaned.startsWith("<vector")) { "Model did not return vector XML" }
+        require(cleaned.contains("<vector") && cleaned.contains("</vector>")) { "Invalid vector XML response" }
+        require(!cleaned.contains("<!DOCTYPE", ignoreCase = true) && !cleaned.contains("<!ENTITY", ignoreCase = true)) { "Unsafe XML" }
+        require(cleaned.length <= 32000) { "Generated XML too large" }
+        val parser = android.util.Xml.newPullParser()
+        parser.setInput(cleaned.reader())
+        var event = parser.next()
+        while (event != org.xmlpull.v1.XmlPullParser.START_TAG && event != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) event = parser.next()
+        require(event == org.xmlpull.v1.XmlPullParser.START_TAG && parser.name == "vector") { "Expected vector drawable XML" }
+        return cleaned
+    }
+    fun run(provider: String, aiKey: String, model: String, githubToken: String, task: String, update: (String) -> Unit) {
+        thread {
+            try {
+                require(aiKey.isNotBlank() && githubToken.isNotBlank() && task.isNotBlank()) { "Provide AI key, GitHub token and task." }
+                require(task.contains("icon", true) || task.contains("reactor", true)) { "Initial coding scope: launcher icon only." }
+                val (_, source) = read(githubToken, "app/src/main/java/com/assistant/core/ArcReactorView.kt")
+                val url = "https://api.github.com/repos/$REPO/actions/workflows/$BUILD/runs?branch=$BRANCH&per_page=15"
+                var feedback = ""
+                for (attempt in 1..3) {
+                    update("Attempt $attempt/3: reading current Developer icon...")
+                    val (sha, existing) = read(githubToken, ICON)
+                    val instructions = if (feedback.isBlank()) task else "$task\nRepair the prior failed build. Compiler diagnostics:\n$feedback"
+                    val edited = generate(provider, aiKey, model, instructions, existing, source)
+                    require(edited != existing) { "AI returned unchanged source" }
+                    val body = JSONObject().put("message", "fix(developer): agent icon attempt $attempt/3")
+                        .put("branch", BRANCH).put("sha", sha)
+                        .put("content", Base64.encodeToString(edited.toByteArray(), Base64.NO_WRAP))
+                    val commit = api("PUT", "https://api.github.com/repos/$REPO/contents/$ICON", githubToken, body)
+                        .getJSONObject("commit").getString("sha")
+                    update("Attempt $attempt committed ${commit.take(8)}. Waiting for signed CI...")
+                    var completed = false
+                    for (poll in 0 until 30) {
+                        Thread.sleep(10000)
+                        val runs = api("GET", url, githubToken).optJSONArray("workflow_runs") ?: JSONArray()
+                        val run = (0 until runs.length()).map { runs.getJSONObject(it) }
+                            .firstOrNull { it.optString("head_sha") == commit } ?: continue
+                        val state = run.optString("status")
+                        if (state != "completed") continue
+                        completed = true
+                        val runId = run.getLong("id")
+                        val conclusion = run.optString("conclusion")
+                        if (conclusion == "success") {
+                            update("Signed build succeeded on attempt $attempt. Commit: $commit\n" +
+                                run.optString("html_url") + "\nCheck Developer updates after release publishing completes.")
+                            return@thread
+                        }
+                        val jobs = api("GET", "https://api.github.com/repos/$REPO/actions/runs/$runId/jobs?per_page=100", githubToken)
+                            .optJSONArray("jobs") ?: JSONArray()
+                        val failures = mutableListOf<String>()
+                        for (i in 0 until jobs.length()) {
+                            val steps = jobs.getJSONObject(i).optJSONArray("steps") ?: JSONArray()
+                            for (j in 0 until steps.length()) {
+                                val step = steps.getJSONObject(j)
+                                if (step.optString("conclusion") == "failure") failures.add(step.optString("name"))
+                            }
+                        }
+                        feedback = ("Failed steps: " + failures.joinToString("; ") + "\n" + failureLog(runId, githubToken)).take(4000)
+                        update("Attempt $attempt failed.\n$feedback")
+                        break
+                    }
+                    if (!completed) {
+                        update("Build status timed out; stopping to avoid duplicate edits. Commit: $commit")
+                        return@thread
+                    }
+                    if (feedback.contains("unavailable", ignoreCase = true) && attempt < 3) {
+                        update("Insufficient compiler diagnostics; stopping automatic retries.")
+                        return@thread
+                    }
+                }
+                update("Three attempts exhausted. Review CI logs before proceeding.")
+            } catch (e: Exception) { update("Coding task failed: ${e.message}") }
+        }
+    }
+}
