@@ -20,12 +20,18 @@ class DevelopmentAnalysisWorker(context: Context, parameters: WorkerParameters) 
         val inbox = DevelopmentJobInbox(File(applicationContext.noBackupFilesDir.canonicalFile, "development-inbox"))
         val lease = runCatching { inbox.claimAnalysis(jobId, Wire.personalPackage(applicationContext.packageName)) }
             .getOrNull() ?: return Result.failure()
+        val started = android.os.SystemClock.elapsedRealtime()
+        fun progress(phase: String) {
+            if (!inbox.progressAnalysis(lease, phase, android.os.SystemClock.elapsedRealtime() - started)) cancellation.cancel()
+            cancellation.check()
+        }
         return try {
             cancellation.check()
             val target = if (lease.request.kind == "source.personal.analysis.request") PatchEngine.Target.PERSONAL else PatchEngine.Target.DEVELOPER
-            val (inventory, plan) = RepositoryIntelligence.analyzeAuthorizedSource(lease.request.body, target, cancellation)
+            val (inventory, plan) = RepositoryIntelligence.analyzeAuthorizedSource(lease.request.body, target, cancellation, ::progress)
             cancellation.check()
             require(inventory.commitSha == plan.commitSha && plan.files.all { file -> file.source in inventory.files })
+            progress("REPORT")
             if (inbox.finishAnalysis(lease, plan)) Result.success() else Result.failure()
         } catch (_: Exception) {
             runCatching { if (isStopped) inbox.interruptAnalysis(lease) else inbox.failAnalysis(lease) }

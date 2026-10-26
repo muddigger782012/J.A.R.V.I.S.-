@@ -45,6 +45,7 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         .put("mode", Wire.decode(job.getString("request")).mode).put("revision", job.getLong("revision"))
         .put("attempts", job.getInt("attempts")).put("verification", JSONObject(job.getJSONObject("verification").toString()))
         .put("sourceVerified", false).put("deviceVerified", false).also { result ->
+            if (job.has("phase")) result.put("phase", job.getString("phase")).put("phaseElapsedMillis", job.optLong("phaseElapsedMillis"))
             job.optJSONObject("analysis")?.let { result.put("analysis", JSONObject(it.toString())) }
             job.optString("problem").takeIf { it.isNotEmpty() }?.let { result.put("problem", it) }
         }
@@ -125,7 +126,8 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         if (!Wire.permitsMode(request.mode, receiverPersonal, Wire.personalPackage(job.getString("caller")))) reject("POLICY_REQUIRED")
         val token = java.util.UUID.randomUUID().toString()
         analysisTransition(job, "RUNNING", "analysis.claim")
-        job.put("lease", token); job.remove("analysis"); job.remove("report"); job.remove("problem")
+        job.put("lease", token).put("phase", "DISCOVERY").put("phaseElapsedMillis", 0L)
+        job.remove("analysis"); job.remove("report"); job.remove("problem")
         save(jobs)
         AnalysisLease(jobId, token, request)
     }
@@ -136,6 +138,17 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         job.put("state", next).put("revision", job.getLong("revision") + 1L)
         receipts.put(JSONObject().put("kind", event).put("from", old).put("to", next)
             .put("revision", job.getLong("revision")).put("at", now()))
+    }
+    internal fun progressAnalysis(lease: AnalysisLease, phase: String, elapsedMillis: Long): Boolean = checkpoint.transaction {
+        require(phase in setOf("SOURCE_READ", "PLANNING", "REPORT") && elapsedMillis in 0..600_000)
+        val jobs = load(); val job = jobs.singleOrNull { it.getString("id") == lease.jobId } ?: return@transaction false
+        if (job.getString("state") != "RUNNING" || job.optString("lease") != lease.token) return@transaction false
+        require(elapsedMillis >= job.optLong("phaseElapsedMillis"))
+        if (job.optString("phase") == phase) return@transaction true
+        analysisTransition(job, "RUNNING", "analysis.phase")
+        job.put("phase", phase).put("phaseElapsedMillis", elapsedMillis)
+        job.getJSONArray("receipts").getJSONObject(job.getJSONArray("receipts").length() - 1).put("phase", phase).put("elapsedMillis", elapsedMillis)
+        save(jobs); true
     }
     internal fun finishAnalysis(lease: AnalysisLease, plan: RepositoryAnalysis.AnalysisPlan): Boolean = checkpoint.transaction {
         require(plan.commitSha.matches(Regex("[a-f0-9]{40}")) && plan.task == lease.request.body)

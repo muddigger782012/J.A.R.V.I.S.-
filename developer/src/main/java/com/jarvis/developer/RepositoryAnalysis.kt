@@ -99,7 +99,12 @@ object RepositoryAnalysis {
         "progress" to setOf("status", "completion", "evidence")
     )
 
-    fun analyze(task: String, inventory: Inventory, readSource: (String) -> String): AnalysisPlan {
+    fun analyze(task: String, inventory: Inventory, readSource: (String) -> String): AnalysisPlan =
+        analyzeControlled(task, inventory, {}, {}, readSource)
+
+    internal fun analyzeControlled(task: String, inventory: Inventory, checkpoint: () -> Unit,
+        onPlanning: () -> Unit, readSource: (String) -> String): AnalysisPlan {
+        checkpoint()
         require(revision.matches(inventory.commitSha)) { "Analysis requires a full immutable commit SHA" }
         require(task.isNotBlank() && task.length <= 4_000) { "Task must contain 1–4,000 characters" }
         require(inventory.files.size <= 20_000) { "Inventory exceeds analysis entry limit" }
@@ -125,12 +130,14 @@ object RepositoryAnalysis {
                 .thenBy { sourcePriority(it.path) }.thenBy { it.path }
         )
         for (source in candidates) {
+            checkpoint()
             if (source.size > MAX_FILE_BYTES) { oversized++; continue }
             if (inspected.size >= MAX_INSPECTED_FILES || bytesRead + source.size > MAX_TOTAL_BYTES) { budgetSkipped++; continue }
             inspected += source.path
             // Reserve the advertised size even if reading fails. Bad metadata cannot enlarge budgets.
             bytesRead += source.size
             val text = try { readSource(source.path) } catch (_: Exception) { failed++; continue }
+            checkpoint()
             val sourceBytes = text.toByteArray(Charsets.UTF_8)
             val actualSize = sourceBytes.size.toLong()
             if (actualSize > MAX_FILE_BYTES || actualSize != source.size) {
@@ -150,16 +157,18 @@ object RepositoryAnalysis {
         if (oversized > 0) notes += "$oversized files exceed the $MAX_FILE_BYTES-byte per-file limit and were not read."
         if (budgetSkipped > 0) notes += "$budgetSkipped files were not read because analysis is limited to $MAX_INSPECTED_FILES reads and $MAX_TOTAL_BYTES bytes."
         if (failed > 0) notes += "$failed source reads failed; no plan relies on their contents."
-        val ranked = documents.map { it to contentScore(it, query) }
+        onPlanning(); checkpoint()
+        val ranked = documents.map { checkpoint(); it to contentScore(it, query) }
             .filter { (_, score) -> score > 0.0 }
             .sortedWith(compareByDescending<Pair<Document, Double>> { it.second }.thenBy { it.first.source.path })
         if (ranked.isEmpty()) notes += "No relevant source evidence found. Refine the task or expand the explicit read scope; no file changes are proposed."
         if (ranked.size > MAX_PLANNED_FILES) notes += "Showing the $MAX_PLANNED_FILES strongest matches out of ${ranked.size}; this is a scoped plan, not a complete change list."
         val files = ranked.take(MAX_PLANNED_FILES).map { (doc, _) ->
+            checkpoint()
             val matched = doc.terms.intersect(query.primary).sorted()
             val semantic = doc.terms.intersect(query.expanded).sorted()
             val matchedSymbols = doc.symbols.sortedByDescending { symbol -> terms(symbol.name).count { it in query.primary || it in query.expanded } }.take(12)
-            val dependencies = dependencies(doc, documents, inventory.files, query)
+            val dependencies = dependencies(doc, documents, inventory.files, query, checkpoint)
             val reasons = mutableListOf<String>()
             if (matched.isNotEmpty()) reasons += "Source contains task terms: ${matched.take(10).joinToString()}."
             if (semantic.isNotEmpty()) reasons += "Related source concepts: ${semantic.take(8).joinToString()}."
@@ -171,6 +180,7 @@ object RepositoryAnalysis {
             notes += "Some local references are unresolved or ambiguous; verify them before changing a dependent file."
         }
         notes += "No repository writes, build, model call, publication or installation were performed by this analysis."
+        checkpoint()
         return AnalysisPlan(task, inventory.commitSha, files, notes.toList(), inspected.toList(), inventory.files.size)
     }
 
@@ -285,7 +295,8 @@ object RepositoryAnalysis {
         return raw * multiplier
     }
 
-    private fun dependencies(doc: Document, documents: List<Document>, inventory: List<SourceFile>, query: Query): List<Dependency> {
+    private fun dependencies(doc: Document, documents: List<Document>, inventory: List<SourceFile>, query: Query,
+        checkpoint: () -> Unit): List<Dependency> {
         val result = mutableListOf<Dependency>()
         fun add(reference: String, kind: String, paths: List<String>, external: Boolean = false) {
             val unique = paths.distinct().sorted()
@@ -297,21 +308,26 @@ object RepositoryAnalysis {
                 documents.filter { other -> other.symbols.any { symbol -> "${other.packageName}.${symbol.name}" == reference } }.map { it.source.path }
         }
         val imports = importPattern.findAll(doc.codeText).map { it.groupValues[1] }.toList()
+        val localPrefixes = documents.map { it.packageName.substringBeforeLast('.', it.packageName) }.filter { it.isNotBlank() }.distinct()
         imports.forEach { reference ->
+            checkpoint()
             val matches = if (reference.endsWith(".*")) documents.filter { it.packageName == reference.removeSuffix(".*") }.map { it.source.path } else resolveQualified(reference)
-            val localPrefix = documents.map { it.packageName.substringBeforeLast('.', it.packageName) }.filter { it.isNotBlank() }.any { reference.startsWith("$it.") }
+            val localPrefix = localPrefixes.any { reference.startsWith("$it.") }
             add(reference, "import", matches, !localPrefix && !reference.startsWith("com.jarvis.") && !reference.startsWith("com.assistant."))
         }
         // Calls may use a fully qualified class without an import. Resolve actual code against
         // the pinned inventory; comments, strings and a filename coincidence cannot create edges.
         qualifiedSymbol.findAll(doc.codeText).map { it.value }.distinct().filter { it !in imports }.forEach { reference ->
+            checkpoint()
             val matches = resolveQualified(reference)
             if (matches.isNotEmpty()) add(reference, "qualified symbol", matches)
         }
         // Resolve same-package declarations used by name. A filename coincidence never proves an edge.
+        val identifiers = Regex("[A-Za-z_]\\w*").findAll(doc.codeText).map { it.value }.toSet()
         documents.filter { it.source.path != doc.source.path && it.packageName.isNotEmpty() && it.packageName == doc.packageName }.forEach { other ->
+            checkpoint()
             other.symbols.filter { it.kind in setOf("class", "object", "interface", "typealias", "record", "enum") }.forEach { symbol ->
-                if (Regex("\\b${Regex.escape(symbol.name)}\\b").containsMatchIn(doc.codeText)) add("${other.packageName}.${symbol.name}", "same-package symbol", listOf(other.source.path))
+                if (symbol.name in identifiers) add("${other.packageName}.${symbol.name}", "same-package symbol", listOf(other.source.path))
             }
         }
         val resources = resourceCode.findAll(doc.codeText).map { Triple(it.groupValues[1], it.groupValues[2], it.groupValues[3]) } +
@@ -324,13 +340,17 @@ object RepositoryAnalysis {
                 namespacePattern.find(other.text)?.groupValues?.get(1) == namespace
         }?.source?.path?.substringBeforeLast('/')
         resources.distinct().forEach { (namespace, type, name) ->
+            checkpoint()
             val resourceNamespace = namespace.ifBlank { importedR?.removeSuffix(".R").orEmpty() }
             val resourceModule = if (resourceNamespace.isBlank()) currentModule else namespaceModule(resourceNamespace)
             fun sameResourceModule(path: String): Boolean = !resourceModule.isNullOrBlank() && path.startsWith("$resourceModule/src/")
-            val paths = inventory.filter { sameResourceModule(it.path) && Regex("/res/${Regex.escape(type)}(?:-[^/]+)?/${Regex.escape(name)}\\.xml$").containsMatchIn(it.path) }.map { it.path } +
+            // Compile per reference, not once per candidate path in the inventory.
+            val resourcePath = Regex("/res/${Regex.escape(type)}(?:-[^/]+)?/${Regex.escape(name)}\\.xml$")
+            val idDeclaration = if (type == "id") Regex("@\\+id/${Regex.escape(name)}(?:[\"'\\s])") else null
+            val paths = inventory.filter { sameResourceModule(it.path) && resourcePath.containsMatchIn(it.path) }.map { it.path } +
                 documents.filter { other -> sameResourceModule(other.source.path) && other.source.path.endsWith(".xml") && (
                     other.symbols.any { it.kind == "resource:$type" && it.name == name } ||
-                    (type == "id" && Regex("@\\+id/${Regex.escape(name)}(?:[\"'\\s])").containsMatchIn(other.codeText))
+                    (idDeclaration?.containsMatchIn(other.codeText) == true)
                     ) }.map { it.source.path }
             add("${if (namespace.isBlank()) "" else "$namespace."}R.$type.$name", "resource", paths, resourceNamespace == "android")
         }

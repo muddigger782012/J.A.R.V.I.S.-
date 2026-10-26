@@ -75,7 +75,13 @@ class DeveloperBridgeOperations(private val context: Context) {
             jobId = jobId, expectedRevision = state.getLong("revision"))))
     }
     private fun render(value: JSONObject): String = "Task state: ${value.getString("state")}. " +
-        "Attempt ${value.getInt("attempts")}.\n" + Wire.Stage.values().joinToString("\n") {
+        "Attempt ${value.getInt("attempts")}." + when (value.optString("phase")) {
+            "DISCOVERY" -> " Repository discovery started."
+            "SOURCE_READ" -> " Source retrieval started."
+            "PLANNING" -> " Source analysis started."
+            "REPORT" -> " Source report preparation started."
+            else -> ""
+        } + "\n" + Wire.Stage.values().joinToString("\n") {
             "${it.name.replace('_', ' ')}: ${value.getJSONObject("verification").getString(it.name)}"
         } + (value.optJSONObject("analysis")?.let { "\nRead-only source context: ${it.getInt("inspected")} files inspected, ${it.getInt("planned")} references planned. Coverage is partial; inspect the report in Developer." } ?: "") +
         (if (value.optString("problem") == "SOURCE_READ_UNVERIFIED") "\nThe public source read could not be verified. Check Developer's internet connection and repository access, then retry the task explicitly." else "") +

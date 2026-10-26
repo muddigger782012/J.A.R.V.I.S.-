@@ -108,9 +108,9 @@ object RepositoryIntelligence {
 
     /** Public, GET-only analysis uses fixed authorized repository branches and bounded requests. */
     internal fun analyzeAuthorizedSource(task: String, target: PatchEngine.Target,
-        cancellation: PatchPreviewCancellation): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> =
+        cancellation: PatchPreviewCancellation, progress: (String) -> Unit = {}): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> =
         Reader(http(cancellation), cancellation, requestLimit = 24).analyzeSnapshot("", task,
-            if (target == PatchEngine.Target.PERSONAL) "main" else BRANCH, target)
+            if (target == PatchEngine.Target.PERSONAL) "main" else BRANCH, target, progress)
 
     /** Injectable for deterministic JVM tests; it exposes neither write methods nor arbitrary hosts. */
     internal class Reader(
@@ -219,10 +219,15 @@ object RepositoryIntelligence {
         }
 
         fun analyzeSnapshot(token: String, task: String, branch: String = BRANCH,
-            target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> {
+            target: PatchEngine.Target = PatchEngine.Target.DEVELOPER,
+            progress: (String) -> Unit = {}): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> {
             require(task.isNotBlank() && task.length <= 4_000) { "Task must contain 1–4,000 characters" }
             val inventory = inventory(token, branch, target)
-            val plan = RepositoryAnalysis.analyze(task, inventory) { path -> readSource(token, inventory, path) }
+            progress("SOURCE_READ")
+            val plan = RepositoryAnalysis.analyzeControlled(task, inventory, checkpoint = {
+                cancellation?.check()
+                check(nowMillis() - startedAt < MAX_SESSION_MILLIS) { "Repository analysis reached its session budget" }
+            }, onPlanning = { progress("PLANNING") }, readSource = { path -> readSource(token, inventory, path) })
             val reason = stoppedReason
             return inventory to if (reason == null) plan else plan.copy(limitations = plan.limitations + reason)
         }

@@ -7,6 +7,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RepositoryAnalysisTest {
+    @Test fun cancellationAfterReadingStopsBeforePlanningOrAnotherSourceRead() {
+        var reads = 0
+        var planning = false
+        assertThrows(java.util.concurrent.CancellationException::class.java) {
+            RepositoryAnalysis.analyzeControlled("menu", inventory(fixtures), checkpoint = {
+                if (reads > 0) throw java.util.concurrent.CancellationException()
+            }, onPlanning = { planning = true }, readSource = { path -> reads++; fixtures.getValue(path) })
+        }
+        assertEquals(1, reads); assertFalse(planning)
+    }
     @Test fun relevantQualifiedDependenciesSurviveTheBoundedListOfEarlierImports() {
         val sources = linkedMapOf<String, String>()
         val controller = "app/src/main/java/example/Controller.kt"

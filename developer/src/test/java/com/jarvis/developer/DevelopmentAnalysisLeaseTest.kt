@@ -8,6 +8,17 @@ import org.junit.rules.TemporaryFolder
 import java.security.MessageDigest
 
 class DevelopmentAnalysisLeaseTest {
+    @Test fun progressIsMeasuredPerCurrentLeaseAndLateCallbacksCannotRewriteIt() {
+        val job = admit(); val first = inbox().claimAnalysis(job, true)!!
+        assertTrue(inbox().progressAnalysis(first, "SOURCE_READ", 25))
+        val next = inbox().claimAnalysis(job, true)!!
+        assertFalse(inbox().progressAnalysis(first, "PLANNING", 50))
+        assertTrue(inbox().progressAnalysis(next, "SOURCE_READ", 10))
+        assertThrows(IllegalArgumentException::class.java) { inbox().progressAnalysis(next, "PLANNING", 5) }
+        val state = inbox().handle(caller, true, Wire.Request("progress", "task.status.request", jobId = job))
+        assertEquals("SOURCE_READ", state.getString("phase")); assertEquals(10, state.getInt("phaseElapsedMillis"))
+        assertFalse(state.getBoolean("sourceVerified"))
+    }
     @get:Rule val directory = TemporaryFolder()
     private fun inbox() = DevelopmentJobInbox(directory.root)
     private val caller = "com.assistant.core"

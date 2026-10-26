@@ -25,7 +25,7 @@ class DevelopmentSourceWorkerAndroidTest {
             val response = client.request(Wire.Request(UUID.randomUUID().toString(), "task.status.request", jobId = job))
             assertEquals("OK", response.getString("code")); result = response.getJSONObject("data")
         }
-        assertEquals("A verified public source read is required; a failed or queued request is not success.", "REVIEW_READY", result.getString("state"))
+        assertEquals("Verified source is required. Last phase: ${result.optString("phase", "unknown")}; measured transition: ${result.optLong("phaseElapsedMillis")} ms.", "REVIEW_READY", result.getString("state"))
         val analysis = result.getJSONObject("analysis")
         assertTrue(analysis.getString("commit").matches(Regex("[a-f0-9]{40}")))
         assertTrue(analysis.getInt("inspected") > 0); assertTrue(analysis.getInt("planned") > 0)
