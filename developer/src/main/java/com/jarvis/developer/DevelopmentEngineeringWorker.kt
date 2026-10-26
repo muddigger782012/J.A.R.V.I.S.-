@@ -10,9 +10,11 @@ import java.util.concurrent.ConcurrentHashMap
 /** Optional process-memory credentials. Never part of a checkpoint, WorkRequest or IPC payload. */
 internal object DevelopmentEngineeringCredentials {
     private val values = ConcurrentHashMap<String, String>()
+    @Synchronized
     fun remember(job: String, token: String) {
         require(job.isNotBlank() && job.length <= 128 && job.none { it.isISOControl() })
         require(token.length <= 4096 && token.none { it.isISOControl() })
+        // Make capacity check and insertion atomic across concurrent job admissions.
         // Clearing a credential must work even when the bounded cache is full.
         if (token.isBlank()) {
             values.remove(job)
