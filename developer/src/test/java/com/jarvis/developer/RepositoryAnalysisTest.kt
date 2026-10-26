@@ -17,7 +17,7 @@ class RepositoryAnalysisTest {
         """.trimIndent())
         val plan = analyze("HTTP2 request reply conversation", sources)
         val file = plan.files.single { it.path == path }
-        assertTrue(file.reasons.any { it.contains("http2") && it.contains("reply") && it.contains("request") })
+        assertTrue(file.reasons.any { it.contains("http2") && it.contains("reply") && it.contains("conversation") })
         assertTrue(file.symbols.any { it.name == "receive_chat2Reply" })
         assertTrue(file.citations.isNotEmpty())
     }
