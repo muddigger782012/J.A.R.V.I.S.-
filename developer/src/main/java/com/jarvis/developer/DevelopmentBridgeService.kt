@@ -12,7 +12,9 @@ import org.json.JSONObject
 
 /** Local metadata RPC only. It exposes no shell, source-write, approval-grant or installer operation. */
 class DevelopmentBridgeService : Service() {
-    private val inbox by lazy { DevelopmentJobInbox(java.io.File(noBackupFilesDir, "development-inbox")) }
+    // Android may expose its framework storage root through an alias. Resolve that trusted
+    // anchor only; PrivateCheckpointFile still rejects links within the inbox and its files.
+    private val inbox by lazy { DevelopmentJobInbox(java.io.File(noBackupFilesDir.canonicalFile, "development-inbox")) }
     private val endpoint = object : Binder() {
         override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
             if (code == IBinder.INTERFACE_TRANSACTION) { reply?.writeString(Wire.DESCRIPTOR); return true }
@@ -45,7 +47,14 @@ class DevelopmentBridgeService : Service() {
                 Wire.response(requestId, "OK", result)
             } catch (failure: Wire.Rejected) {
                 Wire.response(requestId, failure.code, JSONObject().put("supportedVersion", Wire.VERSION))
-            } catch (_: Exception) {
+            } catch (failure: Exception) {
+                val category = when (failure) {
+                    is UnsupportedOperationException -> "PLATFORM_OPERATION"
+                    is java.io.IOException -> "IO"
+                    is IllegalArgumentException -> "VALIDATION"
+                    else -> "UNCLASSIFIED"
+                }
+                android.util.Log.w("DevelopmentBridge", "queue.failure $category")
                 Wire.response(requestId, if (admitted) "STORAGE_UNAVAILABLE" else "INVALID_REQUEST")
             }
             reply.writeNoException(); reply.writeString(response)

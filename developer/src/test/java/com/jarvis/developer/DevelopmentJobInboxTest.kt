@@ -10,6 +10,18 @@ class DevelopmentJobInboxTest {
     @get:Rule val directory = TemporaryFolder()
     private val caller = "com.assistant.core"
     private fun request(id: String = "review") = Wire.Request(id, "diagnostics.review.request", "Unverified microphone observation")
+    @Test fun resolvingTheFrameworkAliasDoesNotAllowLinksInsideTheInbox() {
+        val data = directory.newFolder("data")
+        val alias = directory.root.resolve("framework-storage")
+        java.nio.file.Files.createSymbolicLink(alias.toPath(), data.toPath())
+        val anchored = java.io.File(alias.canonicalFile, "development-inbox")
+        DevelopmentJobInbox(anchored).handle(caller, true, request())
+        assertEquals(1, DevelopmentJobInbox(anchored).pendingReviews().size)
+        val untrusted = directory.root.resolve("linked-inbox")
+        java.nio.file.Files.createSymbolicLink(untrusted.toPath(), anchored.toPath())
+        assertThrows(Exception::class.java) { DevelopmentJobInbox(untrusted).handle(caller, true, request("blocked")) }
+        assertEquals(1, DevelopmentJobInbox(anchored).pendingReviews().size)
+    }
     @Test fun replayAndProcessReconstructionCreateExactlyOneReviewWithoutInventingVerification() {
         val first = DevelopmentJobInbox(directory.root).handle(caller, true, request())
         val second = DevelopmentJobInbox(directory.root).handle(caller, true, request())

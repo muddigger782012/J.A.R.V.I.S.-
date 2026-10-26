@@ -21,6 +21,7 @@ class DevelopmentBridgeAndroidTest {
         .use { descriptor -> android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { it.readText().trim() } }
 
     @Test fun actualCompanionNegotiatesReadOnlyCapabilitiesAndAllFiveGatesRemainUnverified() {
+        repeat(10) { ok(request("capabilities.request")) }
         val capabilities = ok(request("capabilities.request"))
         assertEquals(1, capabilities.getInt("protocol")); assertFalse(capabilities.getBoolean("sourceExecution"))
         assertFalse(capabilities.getBoolean("installation"))
