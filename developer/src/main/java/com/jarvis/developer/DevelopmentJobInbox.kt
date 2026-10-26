@@ -164,11 +164,12 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
             .put("reportTruncated", shortened))
         job.remove("lease"); save(jobs); true
     }
-    internal fun failAnalysis(lease: AnalysisLease): Boolean = checkpoint.transaction {
+    internal fun failAnalysis(lease: AnalysisLease, problem: String = "SOURCE_READ_UNVERIFIED"): Boolean = checkpoint.transaction {
+        require(problem in setOf("SOURCE_READ_UNVERIFIED", "SOURCE_ANALYSIS_INTERNAL"))
         val jobs = load(); val job = jobs.singleOrNull { it.getString("id") == lease.jobId } ?: return@transaction false
         if (job.getString("state") != "RUNNING" || job.optString("lease") != lease.token) return@transaction false
         analysisTransition(job, "FAILED", "analysis.failed")
-        job.remove("lease"); job.put("problem", "SOURCE_READ_UNVERIFIED")
+        job.remove("lease"); job.put("problem", problem)
         save(jobs); true
     }
     internal fun interruptAnalysis(lease: AnalysisLease): Boolean = checkpoint.transaction {

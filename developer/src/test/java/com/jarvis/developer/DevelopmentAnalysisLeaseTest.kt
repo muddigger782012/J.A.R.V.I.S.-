@@ -8,6 +8,16 @@ import org.junit.rules.TemporaryFolder
 import java.security.MessageDigest
 
 class DevelopmentAnalysisLeaseTest {
+    @Test fun anEngineErrorCannotLeaveAJobRunningOrInventSuccessfulSourceEvidence() {
+        val job = admit()
+        var category = ""
+        val completed = DevelopmentAnalysisExecution.run(inbox(), job, true, PatchPreviewCancellation(), { false }, { 0L },
+            { _, _, _, _ -> throw StackOverflowError("Fixture engine failure") }, { category = it })
+        assertFalse(completed); assertEquals("STACK_LIMIT", category)
+        val state = inbox().handle(caller, true, Wire.Request("failed-status", "task.status.request", jobId = job))
+        assertEquals("FAILED", state.getString("state")); assertEquals("SOURCE_ANALYSIS_INTERNAL", state.getString("problem"))
+        assertFalse(state.getBoolean("sourceVerified")); assertNull(inbox().localAnalysisReport(job))
+    }
     @Test fun progressIsMeasuredPerCurrentLeaseAndLateCallbacksCannotRewriteIt() {
         val job = admit(); val first = inbox().claimAnalysis(job, true)!!
         assertTrue(inbox().progressAnalysis(first, "SOURCE_READ", 25))

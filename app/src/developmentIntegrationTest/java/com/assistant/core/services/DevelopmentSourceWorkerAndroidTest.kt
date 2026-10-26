@@ -20,10 +20,16 @@ class DevelopmentSourceWorkerAndroidTest {
         val job = admitted.getJSONObject("data").getString("id")
         val deadline = SystemClock.elapsedRealtime() + 210_000
         var result = admitted.getJSONObject("data")
+        var lastPhase = ""
         while (result.getString("state") in setOf("QUEUED", "RUNNING") && SystemClock.elapsedRealtime() < deadline) {
             SystemClock.sleep(500)
             val response = client.request(Wire.Request(UUID.randomUUID().toString(), "task.status.request", jobId = job))
             assertEquals("OK", response.getString("code")); result = response.getJSONObject("data")
+            val phase = result.optString("phase")
+            if (phase != lastPhase && phase in setOf("DISCOVERY", "INDEXING", "SOURCE_READ", "PLANNING", "REPORT")) {
+                println("Source checkpoint: $phase at ${result.optLong("phaseElapsedMillis")} ms")
+                lastPhase = phase
+            }
         }
         if (result.getString("state") == "RUNNING") {
             // Disposable debug emulator only: collect the actual blocked thread location.

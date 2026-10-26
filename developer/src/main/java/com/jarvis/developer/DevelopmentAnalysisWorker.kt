@@ -18,27 +18,51 @@ class DevelopmentAnalysisWorker(context: Context, parameters: WorkerParameters) 
     override fun doWork(): Result {
         val jobId = inputData.getString("job") ?: return Result.failure()
         val inbox = DevelopmentJobInbox(File(applicationContext.noBackupFilesDir.canonicalFile, "development-inbox"))
-        val lease = runCatching { inbox.claimAnalysis(jobId, Wire.personalPackage(applicationContext.packageName)) }
-            .getOrNull() ?: return Result.failure()
-        val started = android.os.SystemClock.elapsedRealtime()
+        val completed = DevelopmentAnalysisExecution.run(inbox, jobId, Wire.personalPackage(applicationContext.packageName),
+            cancellation, { isStopped }, { android.os.SystemClock.elapsedRealtime() },
+            RepositoryIntelligence::analyzeAuthorizedSource) { category ->
+                android.util.Log.w("DevelopmentBridge", "analysis.failure $category")
+            }
+        return if (completed) Result.success() else Result.failure()
+    }
+    override fun onStopped() { cancellation.cancel(); super.onStopped() }
+}
+
+/** The worker and deterministic regressions use this same execution boundary. */
+internal object DevelopmentAnalysisExecution {
+    fun run(inbox: DevelopmentJobInbox, jobId: String, personal: Boolean,
+        cancellation: PatchPreviewCancellation, stopped: () -> Boolean, elapsed: () -> Long,
+        read: (String, PatchEngine.Target, PatchPreviewCancellation, (String) -> Unit) -> Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan>,
+        log: (String) -> Unit = {}): Boolean {
+        val lease = runCatching { inbox.claimAnalysis(jobId, personal) }.getOrNull() ?: return false
+        val started = elapsed()
         fun progress(phase: String) {
-            if (!inbox.progressAnalysis(lease, phase, android.os.SystemClock.elapsedRealtime() - started)) cancellation.cancel()
+            if (!inbox.progressAnalysis(lease, phase, elapsed() - started)) cancellation.cancel()
             cancellation.check()
         }
         return try {
             cancellation.check()
             val target = if (lease.request.kind == "source.personal.analysis.request") PatchEngine.Target.PERSONAL else PatchEngine.Target.DEVELOPER
-            val (inventory, plan) = RepositoryIntelligence.analyzeAuthorizedSource(lease.request.body, target, cancellation, ::progress)
+            val (inventory, plan) = read(lease.request.body, target, cancellation, ::progress)
             cancellation.check()
             require(inventory.commitSha == plan.commitSha && plan.files.all { file -> file.source in inventory.files })
             progress("REPORT")
-            if (inbox.finishAnalysis(lease, plan)) Result.success() else Result.failure()
-        } catch (_: Exception) {
-            runCatching { if (isStopped) inbox.interruptAnalysis(lease) else inbox.failAnalysis(lease) }
-            Result.failure()
+            inbox.finishAnalysis(lease, plan)
+        } catch (failure: Throwable) {
+            val category = when (failure) {
+                is StackOverflowError -> "STACK_LIMIT"
+                is OutOfMemoryError -> "MEMORY_LIMIT"
+                is LinkageError -> "PLATFORM_LINKAGE"
+                is Error -> "INTERNAL_ERROR"
+                else -> "SOURCE_READ_UNVERIFIED"
+            }
+            runCatching { log(category) }
+            runCatching { if (stopped()) inbox.interruptAnalysis(lease)
+                else inbox.failAnalysis(lease, if (failure is Error) "SOURCE_ANALYSIS_INTERNAL" else "SOURCE_READ_UNVERIFIED") }
+            if (failure is VirtualMachineError && failure !is StackOverflowError || failure is ThreadDeath) throw failure
+            false
         }
     }
-    override fun onStopped() { cancellation.cancel(); super.onStopped() }
 }
 
 internal object DevelopmentAnalysisScheduler {
