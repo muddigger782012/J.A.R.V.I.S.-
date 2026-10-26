@@ -1,0 +1,51 @@
+name: Install approved Developer artwork
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  extract-artwork:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/jarvis-developer
+          persist-credentials: true
+      - name: Extract approved PNG resources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          from PIL import Image
+          import io
+          root = Path('developer/src/main/res/drawable-nodpi')
+          archive = root / 'jarvis_approved_artwork.zip'
+          assert archive.is_file(), 'Approved artwork ZIP missing'
+          with ZipFile(archive) as z:
+              items = []
+              for entry in z.infolist():
+                  if not entry.filename.lower().endswith('.png') or entry.is_dir():
+                      continue
+                  data = z.read(entry)
+                  with Image.open(io.BytesIO(data)) as im:
+                      items.append((entry.filename, im.size, im.mode, data))
+              print('Artwork candidates:', [(name, size, mode) for name,size,mode,_ in items])
+              header = next((item for item in items if item[1][0] / item[1][1] > 2), None)
+              icon = next((item for item in items if item[1][0] == item[1][1] and 'icon' in item[0].lower()), None)
+              if icon is None:
+                  icon = next((item for item in items if item[1][0] == item[1][1] and 'reactor' in item[0].lower()), None)
+              if header is None or icon is None:
+                  raise RuntimeError('Expected a wide approved header and square reactor icon; refusing to guess')
+              for name, target in [(header, 'developer_approved_header.png'), (icon, 'developer_arc_reactor_icon.png')]:
+                  (root / target).write_bytes(name[3])
+                  print('Installed', target, 'from', name[0])
+          PY
+      - name: Commit exact artwork files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add developer/src/main/res/drawable-nodpi/developer_approved_header.png developer/src/main/res/drawable-nodpi/developer_arc_reactor_icon.png
+          if ! git diff --cached --quiet; then
+            git commit -m "Install approved Developer header and reactor PNG resources"
+            git push origin HEAD:feature/jarvis-developer
+          fi

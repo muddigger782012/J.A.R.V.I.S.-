@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="com.jarvis.developer.permission.DEVELOPMENT_BRIDGE_V1" />
+    <queries><package android:name="com.jarvis.developer" /></queries>
+    <application android:label="Commercial identity bridge test peer" android:allowBackup="false" />
+</manifest>

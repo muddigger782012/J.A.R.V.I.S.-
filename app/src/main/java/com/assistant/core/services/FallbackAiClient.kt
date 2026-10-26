@@ -7,12 +7,34 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 data class FallbackAiResult(val reply: String, val lessonJson: String?, val providerFailed: Boolean = false) {
+    data class GatewayReply(val answer: FallbackAiResult, val problem: AiConnectionDiagnostics.Problem?)
     companion object {
         fun fromAssistantJson(raw: String): FallbackAiResult? = runCatching {
             val json = JSONObject(raw)
             val reply = (json.opt("reply") as? String)?.trim()?.takeIf { it.isNotBlank() } ?: return null
             FallbackAiResult(reply, json.optJSONObject("lesson")?.toString())
         }.getOrNull()
+        fun gatewayFailure(problem: AiConnectionDiagnostics.Problem, http: Int? = null): FallbackAiResult {
+            val detail = when (problem) {
+                AiConnectionDiagnostics.Problem.AUTHENTICATION -> "The gateway reported an authentication failure; review its saved token and server authentication configuration."
+                AiConnectionDiagnostics.Problem.ACCESS -> "The gateway reported access denial; review token permissions and server access policy."
+                AiConnectionDiagnostics.Problem.MODEL -> "The gateway reported a missing resource; review its HTTPS endpoint, server route and server-selected model."
+                AiConnectionDiagnostics.Problem.INVALID_REQUEST -> "The gateway rejected the request; check server/API compatibility."
+                else -> AiConnectionDiagnostics.describe(problem)
+            }
+            val status = http?.takeIf { it in 100..599 }?.let { " (HTTP $it)" }.orEmpty()
+            return FallbackAiResult("Gateway$status: $detail Supported local commands remain available.", null, providerFailed = true)
+        }
+        /** Response metadata is untrusted; error bodies cannot become replies or learned actions. */
+        fun gatewayResponse(code: Int, response: JSONObject?, learnIntent: Boolean): GatewayReply {
+            if (code !in 200..299) {
+                val problem = AiConnectionDiagnostics.http(code, response)
+                return GatewayReply(gatewayFailure(problem, code), problem)
+            }
+            val reply = (response?.opt("reply") as? String)?.trim().orEmpty()
+            if (reply.isBlank()) return GatewayReply(gatewayFailure(AiConnectionDiagnostics.Problem.FORMAT, code), AiConnectionDiagnostics.Problem.FORMAT)
+            return GatewayReply(FallbackAiResult(reply, if (learnIntent) response?.optJSONObject("lesson")?.toString() else null), null)
+        }
     }
 }
 
@@ -103,18 +125,13 @@ class FallbackAiClient(private val context: Context) {
         }
         return try {
             val (code, json) = request(endpoint, token, body)
-            if (code !in 200..299) {
-                observe(AiConnectionDiagnostics.http(code, json), code)
-                return null
-            }
-            val reply = (json?.opt("reply") as? String)?.trim().orEmpty()
-            if (reply.isBlank()) { observe(AiConnectionDiagnostics.Problem.FORMAT, code); return null }
-            val lesson = if (learnIntent) json?.optJSONObject("lesson")?.toString() else null
-            observe(null, code)
-            FallbackAiResult(reply, lesson)
+            val decoded = FallbackAiResult.gatewayResponse(code, json, learnIntent)
+            observe(decoded.problem, code.takeIf { it in 100..599 })
+            decoded.answer
         } catch (error: Exception) {
-            observe(AiConnectionDiagnostics.problem(error))
-            null
+            val problem = AiConnectionDiagnostics.problem(error)
+            observe(problem)
+            FallbackAiResult.gatewayFailure(problem)
         }
     }
 
