@@ -51,12 +51,17 @@ object DevelopmentInboxWorkbench {
             panel.removeAllViews(); panel.addView(label("Assistant development reviews — checking private queue"))
             thread(name = "developer-inbox-read", isDaemon = true) {
                 val inbox = DevelopmentJobInbox(java.io.File(activity.noBackupFilesDir, "development-inbox"))
-                val result = runCatching { inbox.localSnapshot() to inbox.pendingReviews().toMap() }
+                val result = runCatching {
+                    val jobs = inbox.localSnapshot()
+                    Triple(jobs, inbox.pendingReviews().toMap(), jobs.takeLast(8).mapNotNull { job ->
+                        inbox.localAnalysisReport(job.getString("id"))?.let { job.getString("id") to it }
+                    }.toMap())
+                }
                 activity.runOnUiThread {
                     if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                     panel.removeAllViews()
                     result.onFailure { panel.addView(label("Review history could not be read. No records were reset or completion inferred.")) }
-                        .onSuccess { (jobs, drafts) ->
+                        .onSuccess { (jobs, drafts, reports) ->
                             panel.addView(label("${jobs.size} stored reviews. These are unverified admission records, not completed repairs."))
                             jobs.takeLast(8).forEachIndexed { index, job ->
                                 val stages = job.getJSONObject("verification")
@@ -64,6 +69,9 @@ object DevelopmentInboxWorkbench {
                                     Wire.Stage.values().joinToString("\n") { "${it.name.replace('_', ' ')}: ${stages.getString(it.name)}" }))
                                 drafts[job.getString("id")]?.let { draft -> panel.addView(button("Open this unapproved review") {
                                     openReview(draft.lines().joinToString("\n", transform = RepositoryRedaction::line))
+                                }) }
+                                reports[job.getString("id")]?.let { report -> panel.addView(button("Open verified-source analysis (partial context)") {
+                                    openReview(report)
                                 }) }
                             }
                         }

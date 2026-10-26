@@ -24,7 +24,9 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         for (job in jobs) {
             require(job.getString("caller") in Wire.assistantPackages)
             Wire.decode(job.getString("request"))
-            require(job.getString("state") in setOf("QUEUED", "PAUSED", "CANCELLED"))
+            val state = job.getString("state")
+            require(state in setOf("QUEUED", "PAUSED", "CANCELLED", "RUNNING", "REVIEW_READY", "FAILED"))
+            if (state in setOf("RUNNING", "REVIEW_READY", "FAILED")) require(Wire.decode(job.getString("request")).kind in Wire.sourceAnalysisKinds)
             require(job.getLong("revision") in 0..1_000_000 && job.getInt("attempts") in 1..3)
             require(job.getJSONArray("receipts").length() <= 100)
             require(job.getJSONObject("verification").keys().asSequence().toSet() == Wire.Stage.values().map { it.name }.toSet())
@@ -42,7 +44,10 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
     private fun view(job: JSONObject) = JSONObject().put("id", job.getString("id")).put("state", job.getString("state"))
         .put("mode", Wire.decode(job.getString("request")).mode).put("revision", job.getLong("revision"))
         .put("attempts", job.getInt("attempts")).put("verification", JSONObject(job.getJSONObject("verification").toString()))
-        .put("sourceVerified", false).put("deviceVerified", false)
+        .put("sourceVerified", false).put("deviceVerified", false).also { result ->
+            job.optJSONObject("analysis")?.let { result.put("analysis", JSONObject(it.toString())) }
+            job.optString("problem").takeIf { it.isNotEmpty() }?.let { result.put("problem", it) }
+        }
 
     fun handle(caller: String, receiverPersonal: Boolean, request: Wire.Request): JSONObject = checkpoint.transaction {
         Wire.validate(request)
@@ -58,14 +63,14 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
             val receipts = job.getJSONArray("receipts")
             for (index in 0 until receipts.length()) {
                 val receipt = receipts.getJSONObject(index)
-                if (receipt.getString("id") == request.requestId) {
+                if (receipt.optString("id") == request.requestId) {
                     if (!Wire.permitsMode(Wire.decode(job.getString("request")).mode, receiverPersonal, Wire.personalPackage(caller))) reject("POLICY_REQUIRED")
                     if (receipt.getString("fingerprint") != fingerprint) reject("CONFLICT")
                     return@transaction view(job).put("duplicate", true)
                 }
             }
         }
-        if (request.kind == "diagnostics.review.request") {
+        if (request.kind == "diagnostics.review.request" || request.kind in Wire.sourceAnalysisKinds) {
             if (jobs.size >= 64) reject("QUEUE_FULL")
             val verification = JSONObject()
             Wire.Stage.values().forEach { verification.put(it.name, Wire.Verification.PENDING.name) }
@@ -87,10 +92,10 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         val state = job.getString("state")
         val next = when (request.kind) {
             "task.cancel.request" -> "CANCELLED"
-            "task.pause.request" -> if (state == "QUEUED") "PAUSED" else reject("CONFLICT")
+            "task.pause.request" -> if (state in setOf("QUEUED", "RUNNING")) "PAUSED" else reject("CONFLICT")
             "task.resume.request" -> if (state == "PAUSED") "QUEUED" else reject("CONFLICT")
             "task.retry.request" -> {
-                if (state != "CANCELLED" || job.getInt("attempts") >= 3) reject("RETRY_BLOCKED")
+                if (state !in setOf("CANCELLED", "FAILED") || job.getInt("attempts") >= 3) reject("RETRY_BLOCKED")
                 job.put("attempts", job.getInt("attempts") + 1); "QUEUED"
             }
             else -> reject("INVALID_REQUEST")
@@ -98,6 +103,7 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         val receipts = job.getJSONArray("receipts")
         if (receipts.length() >= 100) reject("AUDIT_FULL")
         job.put("state", next).put("revision", job.getLong("revision") + 1L)
+        job.remove("lease"); job.remove("problem")
         for (stage in Wire.Stage.values()) job.getJSONObject("verification").put(stage.name,
             if (next == "CANCELLED") Wire.Verification.BLOCKED.name else Wire.Verification.PENDING.name)
         receipts.put(JSONObject().put("id", request.requestId).put("fingerprint", fingerprint).put("kind", request.kind)
@@ -110,6 +116,60 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         load().filter { it.getString("state") == "QUEUED" }.map {
             it.getString("id") to Wire.decode(it.getString("request")).body
         }
+    }
+    internal data class AnalysisLease(val jobId: String, val token: String, val request: Wire.Request)
+    internal fun claimAnalysis(jobId: String, receiverPersonal: Boolean): AnalysisLease? = checkpoint.transaction {
+        val jobs = load(); val job = jobs.singleOrNull { it.getString("id") == jobId } ?: return@transaction null
+        val request = Wire.decode(job.getString("request"))
+        if (request.kind !in Wire.sourceAnalysisKinds || job.getString("state") !in setOf("QUEUED", "RUNNING")) return@transaction null
+        if (!Wire.permitsMode(request.mode, receiverPersonal, Wire.personalPackage(job.getString("caller")))) reject("POLICY_REQUIRED")
+        val token = java.util.UUID.randomUUID().toString()
+        analysisTransition(job, "RUNNING", "analysis.claim")
+        job.put("lease", token); job.remove("analysis"); job.remove("report"); job.remove("problem")
+        save(jobs)
+        AnalysisLease(jobId, token, request)
+    }
+    private fun analysisTransition(job: JSONObject, next: String, event: String) {
+        val receipts = job.getJSONArray("receipts")
+        if (receipts.length() >= 100) reject("AUDIT_FULL")
+        val old = job.getString("state")
+        job.put("state", next).put("revision", job.getLong("revision") + 1L)
+        receipts.put(JSONObject().put("kind", event).put("from", old).put("to", next)
+            .put("revision", job.getLong("revision")).put("at", now()))
+    }
+    internal fun finishAnalysis(lease: AnalysisLease, plan: RepositoryAnalysis.AnalysisPlan): Boolean = checkpoint.transaction {
+        require(plan.commitSha.matches(Regex("[a-f0-9]{40}")) && plan.task == lease.request.body)
+        val jobs = load(); val job = jobs.singleOrNull { it.getString("id") == lease.jobId } ?: return@transaction false
+        if (job.getString("state") != "RUNNING" || job.optString("lease") != lease.token) return@transaction false
+        require(plan.files.isNotEmpty()) { "No verified source evidence was retrieved" }
+        analysisTransition(job, "REVIEW_READY", "analysis.ready")
+        val rendered = RepositoryAnalysis.render(plan).lines().joinToString("\n", transform = RepositoryRedaction::line).toByteArray(Charsets.UTF_8)
+        val shortened = rendered.size > 8000
+        val report = if (shortened) String(rendered.copyOf(8000), Charsets.UTF_8) + "\nReport display truncated; context remains incomplete." else String(rendered, Charsets.UTF_8)
+        job.put("report", report).put("analysis", JSONObject().put("commit", plan.commitSha)
+            .put("inspected", plan.inspectedPaths.size).put("planned", plan.files.size).put("partial", true)
+            .put("reportTruncated", shortened))
+        job.remove("lease"); save(jobs); true
+    }
+    internal fun failAnalysis(lease: AnalysisLease): Boolean = checkpoint.transaction {
+        val jobs = load(); val job = jobs.singleOrNull { it.getString("id") == lease.jobId } ?: return@transaction false
+        if (job.getString("state") != "RUNNING" || job.optString("lease") != lease.token) return@transaction false
+        analysisTransition(job, "FAILED", "analysis.failed")
+        job.remove("lease"); job.put("problem", "SOURCE_READ_UNVERIFIED")
+        save(jobs); true
+    }
+    internal fun interruptAnalysis(lease: AnalysisLease): Boolean = checkpoint.transaction {
+        val jobs = load(); val job = jobs.singleOrNull { it.getString("id") == lease.jobId } ?: return@transaction false
+        if (job.getString("state") != "RUNNING" || job.optString("lease") != lease.token) return@transaction false
+        analysisTransition(job, "QUEUED", "analysis.interrupted")
+        job.remove("lease"); save(jobs); true
+    }
+    internal fun recoverableAnalysisJobs(): List<String> = checkpoint.transaction {
+        load().filter { it.getString("state") in setOf("QUEUED", "RUNNING") &&
+            Wire.decode(it.getString("request")).kind in Wire.sourceAnalysisKinds }.map { it.getString("id") }
+    }
+    fun localAnalysisReport(jobId: String): String? = checkpoint.transaction {
+        load().singleOrNull { it.getString("id") == jobId && it.getString("state") == "REVIEW_READY" }?.getString("report")
     }
     fun localSnapshot(): List<JSONObject> = checkpoint.transaction {
         load().map { view(it).put("caller", it.getString("caller")) }

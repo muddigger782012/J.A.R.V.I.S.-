@@ -4,7 +4,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <permission android:name="com.jarvis.developer.permission.DEVELOPMENT_BRIDGE_V1" android:protectionLevel="signature" />
     <queries><package android:name="com.assistant.core"/><package android:name="com.assistant.core.beta"/></queries>
-    <application android:icon="@drawable/developer_icon" android:roundIcon="@drawable/developer_icon" android:label="Jarvis Developer" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false">
+    <application android:name=".DeveloperApplication" android:icon="@drawable/developer_icon" android:roundIcon="@drawable/developer_icon" android:label="Jarvis Developer" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false">
         <service android:name=".DevelopmentBridgeService" android:exported="true"
             android:permission="com.jarvis.developer.permission.DEVELOPMENT_BRIDGE_V1" />
         <provider android:name="androidx.core.content.FileProvider"

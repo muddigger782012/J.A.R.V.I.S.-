@@ -16,7 +16,8 @@ object DevelopmentBridgeContract {
     val assistantPackages: Set<String> = java.util.Collections.unmodifiableSet(setOf("com.assistant.core", "com.assistant.core.beta"))
     val modes: List<String> = java.util.Collections.unmodifiableList(listOf("supervised", "authorized_autonomous", "owner_development"))
     val operations: Set<String> = java.util.Collections.unmodifiableSet(setOf("capabilities.request", "diagnostics.review.request", "task.status.request",
-        "task.list.request", "task.cancel.request", "task.pause.request", "task.resume.request", "task.retry.request"))
+        "source.personal.analysis.request", "source.developer.analysis.request", "task.list.request", "task.cancel.request", "task.pause.request", "task.resume.request", "task.retry.request"))
+    val sourceAnalysisKinds: Set<String> = java.util.Collections.unmodifiableSet(setOf("source.personal.analysis.request", "source.developer.analysis.request"))
     private val id = Regex("[A-Za-z0-9_-]{1,80}")
     private val fields = setOf("v", "id", "kind", "body", "mode", "job", "revision")
     enum class Verification { PENDING, RUNNING, PASSED, FAILED, BLOCKED }
@@ -48,7 +49,8 @@ object DevelopmentBridgeContract {
         expect(if (jobControl) id.matches(request.jobId) else request.jobId.isEmpty())
         expect(if (changesJob) request.expectedRevision != null && request.expectedRevision in 0..1_000_000
             else request.expectedRevision == null)
-        expect(if (request.kind == "diagnostics.review.request") request.body.isNotBlank() else request.body.isEmpty())
+        expect(if (request.kind == "diagnostics.review.request" || request.kind in sourceAnalysisKinds) request.body.isNotBlank() else request.body.isEmpty())
+        if (request.kind in sourceAnalysisKinds) expect(request.body.length <= 4000)
     }
     fun encode(request: Request): String {
         validate(request)

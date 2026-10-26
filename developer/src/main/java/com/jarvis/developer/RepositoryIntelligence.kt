@@ -106,12 +106,20 @@ object RepositoryIntelligence {
     fun analyzeSnapshot(token: String, task: String, branch: String = BRANCH): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> =
         Reader(http()).analyzeSnapshot(token, task, branch)
 
+    /** Public, GET-only analysis uses fixed authorized repository branches and bounded requests. */
+    internal fun analyzeAuthorizedSource(task: String, target: PatchEngine.Target,
+        cancellation: PatchPreviewCancellation): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> =
+        Reader(http(cancellation), cancellation, requestLimit = 24).analyzeSnapshot("", task,
+            if (target == PatchEngine.Target.PERSONAL) "main" else BRANCH, target)
+
     /** Injectable for deterministic JVM tests; it exposes neither write methods nor arbitrary hosts. */
     internal class Reader(
         private val transport: GetTransport,
         private val cancellation: PatchPreviewCancellation? = null,
-        private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 }
+        private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
+        private val requestLimit: Int = MAX_SESSION_REQUESTS
     ) {
+        init { require(requestLimit in 4..MAX_SESSION_REQUESTS) }
         private val startedAt = nowMillis()
         private var requestCount = 0
         private var stoppedReason: String? = null
@@ -210,9 +218,10 @@ object RepositoryIntelligence {
             return analyzeSnapshot(token, task, branch).second
         }
 
-        fun analyzeSnapshot(token: String, task: String, branch: String = BRANCH): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> {
+        fun analyzeSnapshot(token: String, task: String, branch: String = BRANCH,
+            target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> {
             require(task.isNotBlank() && task.length <= 4_000) { "Task must contain 1–4,000 characters" }
-            val inventory = inventory(token, branch)
+            val inventory = inventory(token, branch, target)
             val plan = RepositoryAnalysis.analyze(task, inventory) { path -> readSource(token, inventory, path) }
             val reason = stoppedReason
             return inventory to if (reason == null) plan else plan.copy(limitations = plan.limitations + reason)
@@ -234,8 +243,8 @@ object RepositoryIntelligence {
         private fun getJson(url: String, token: String, limit: Int): JSONObject {
             requireApiUrl(url, selectedTarget)
             checkTimeBudget()
-            if (requestCount >= MAX_SESSION_REQUESTS) {
-                stop("Repository reads stopped at the 64-request session limit; retrieved context is incomplete.")
+            if (requestCount >= requestLimit) {
+                stop("Repository reads stopped at the $requestLimit-request session limit; retrieved context is incomplete.")
             }
             requestCount++
             return transport.get(url, token).use { response ->

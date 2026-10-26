@@ -37,7 +37,11 @@ class DevelopmentBridgeService : Service() {
                     .put("protocol", Wire.VERSION).put("operations", JSONArray(Wire.operations.toList()))
                     .put("modes", JSONArray(Wire.availableModes(personal && Wire.personalPackage(peer))))
                     .put("sourceExecution", false).put("installation", false).put("sourceWritesRequireApproval", true)
-                else inbox.handle(peer, personal, request)
+                    .put("publicSourceAnalysis", true)
+                else inbox.handle(peer, personal, request).also { result ->
+                    if (request.kind !in setOf("task.status.request", "task.list.request"))
+                        DevelopmentAnalysisScheduler.accepted(this@DevelopmentBridgeService, result)
+                }
                 Wire.response(requestId, "OK", result)
             } catch (failure: Wire.Rejected) {
                 Wire.response(requestId, failure.code, JSONObject().put("supportedVersion", Wire.VERSION))

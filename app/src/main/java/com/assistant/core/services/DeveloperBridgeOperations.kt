@@ -39,13 +39,17 @@ class DeveloperBridgeOperations(private val context: Context) {
     fun submit(body: String): String {
         return submitRetained(outbox.prepare(body, selectedMode().wireValue))
     }
+    fun analyzeSource(personal: Boolean): String = submitRetained(outbox.prepare(
+        if (personal) "Inspect Personal Jarvis voice recognition, microphone lifecycle and AI connection reliability. Identify source dependencies and evidence; do not modify source."
+        else "Inspect Jarvis Developer task execution, approval enforcement and build reliability. Identify source dependencies and evidence; do not modify source.",
+        selectedMode().wireValue, if (personal) "source.personal.analysis.request" else "source.developer.analysis.request"))
     private fun submitRetained(request: Wire.Request): String {
         if (request.mode != selectedMode().wireValue) throw Wire.Rejected("POLICY_REQUIRED")
         val response = try { DevelopmentBridgeClient(context).request(request) }
             catch (failure: Exception) { outbox.record(request, null); throw failure }
         outbox.record(request, response)
         if (response.getString("code") != "OK") throw Wire.Rejected(response.getString("code"))
-        return "Developer acknowledged the read-only review. " + render(response.getJSONObject("data"))
+        return "Developer acknowledged the queued read-only request. " + render(response.getJSONObject("data"))
     }
     fun retryPending(): String {
         val queued = outbox.pending(selectedMode().wireValue)
@@ -69,10 +73,11 @@ class DeveloperBridgeOperations(private val context: Context) {
         return render(call(Wire.Request(UUID.randomUUID().toString(), kind, mode = selectedMode().wireValue,
             jobId = jobId, expectedRevision = state.getLong("revision"))))
     }
-    private fun render(value: JSONObject): String = "Review state: ${value.getString("state")}. " +
+    private fun render(value: JSONObject): String = "Task state: ${value.getString("state")}. " +
         "Attempt ${value.getInt("attempts")}.\n" + Wire.Stage.values().joinToString("\n") {
             "${it.name.replace('_', ' ')}: ${value.getJSONObject("verification").getString(it.name)}"
-        } + "\nQueued review is not verified source, a successful build, publication or installation."
+        } + (value.optJSONObject("analysis")?.let { "\nRead-only source context: ${it.getInt("inspected")} files inspected, ${it.getInt("planned")} references planned. Coverage is partial; inspect the report in Developer." } ?: "") +
+        "\nA queued request or source analysis is not a verified source change, successful build, publication or installation."
 
     companion object {
         fun failure(failure: Throwable): String = when ((failure as? Wire.Rejected)?.code) {
