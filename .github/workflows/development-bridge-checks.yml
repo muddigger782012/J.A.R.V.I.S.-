@@ -37,6 +37,7 @@ jobs:
           :app:testDebugUnitTest :app:lintDebug :developer:testDebugUnitTest :developer:lintDebug
           :app:assembleDebug :app:assembleDebugAndroidTest :developer:assembleDebug
           :bridge-test-peer:assembleDebug :bridge-test-peer:assembleDebugAndroidTest
+          :bridge-commercial-test-peer:assembleDebug :bridge-commercial-test-peer:assembleDebugAndroidTest
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -56,6 +57,8 @@ jobs:
             developer/build/outputs/apk/debug/developer-debug.apk
             integration/test-peer/build/outputs/apk/debug/bridge-test-peer-debug.apk
             integration/test-peer/build/outputs/apk/androidTest/debug/bridge-test-peer-debug-androidTest.apk
+            integration/commercial-test-peer/build/outputs/apk/debug/bridge-commercial-test-peer-debug.apk
+            integration/commercial-test-peer/build/outputs/apk/androidTest/debug/bridge-commercial-test-peer-debug-androidTest.apk
   installed-apps:
     needs: build
     runs-on: ubuntu-latest

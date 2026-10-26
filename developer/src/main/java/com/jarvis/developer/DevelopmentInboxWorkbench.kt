@@ -70,8 +70,12 @@ object DevelopmentInboxWorkbench {
                 }
             }
         }
-        parent.addView(label("Assistant development inbox"))
-        parent.addView(button("Refresh development reviews", ::refresh)); parent.addView(panel)
-        refresh()
+        val inboxSection = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        inboxSection.addView(label("Assistant development inbox"))
+        inboxSection.addView(button("Refresh development reviews", ::refresh))
+        panel.addView(label("Refresh to read persisted review states and verification gates."))
+        inboxSection.addView(panel)
+        // Retain the existing final action and scroll-to-bottom behavior on short screens.
+        parent.addView(inboxSection, minOf(2, parent.childCount))
     }
 }
