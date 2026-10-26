@@ -1,5 +1,28 @@
 Personal Jarvis v3.6 — Intelligent Device Assistance:
 
+- Stage analyzed source jobs in the existing Developer exact-diff workbench. A
+  reviewed approval is consumed before the isolated commit. Save only hashes and
+  task identities for interrupted-write verification; never restore approval or
+  repeat a write automatically. Track real commit, build and complete test evidence
+  independently, with signing and device installation still separate.
+- Connect Assistant directly to the independently installed Developer through a
+  versioned bridge authenticated by Android caller identity, package and signing
+  records. Retain uncertain review requests across restarts without duplicate jobs.
+- Inspect actual job history and revision-checked pause, resume, cancellation and
+  retry states. Audited policy profiles never grant Android privileges or source
+  approval; commercial participants cannot use Owner Development.
+- Queue public source inspection of the authorized Personal and Developer branches
+  through the existing Developer analysis engine. Recover interrupted reads and
+  report pinned, partial source context and measured progress. Code writing,
+  building, signing, publication and installation remain separate workflows and
+  approvals; inspection does not pass any of their verification gates.
+- Keep existing diagnostic draft handoff available for trusted older Developer
+  versions after explicit confirmation. Direct queuing and source inspection
+  require a compatible Developer build.
+- Handle revoked weather location permission and completed unavailable providers
+  promptly, preserving precise/fresh location checks and cancelling outstanding
+  requests. Source-analysis and permission repairs have separate test evidence.
+
 - Retain actionable errors from each attempted AI provider when fallback fails,
   including an empty response or connection exception. Distinguish an unconfigured
   primary provider from a failed request without changing manual selection.

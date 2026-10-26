@@ -71,8 +71,6 @@ object RepositoryAnalysis {
     )
     private data class Query(val primary: Set<String>, val expanded: Set<String>)
     private val revision = Regex("[0-9a-fA-F]{40}")
-    private val word = Regex("[A-Za-z][A-Za-z0-9_]*")
-    private val camelBoundary = Regex("([a-z0-9])([A-Z])")
     private val packagePattern = Regex("(?m)^[ \\t]*package[ \\t]+([\\w.]+)")
     private val importPattern = Regex("(?m)^[ \\t]*import[ \\t]+(?:static[ \\t]+)?([\\w.*]+)")
     private val qualifiedSymbol = Regex("\\b(?:[a-z_]\\w*\\.)+[A-Z]\\w*(?:\\.[A-Z]\\w*)*\\b")
@@ -84,6 +82,15 @@ object RepositoryAnalysis {
     private val xmlClass = Regex("(?:android:name|class)=[\"']([A-Za-z_][\\w.]+)[\"']")
     private val projectReference = Regex("\\bproject\\s*\\(\\s*[\"'](:[\\w:-]+)[\"']\\s*\\)")
     private val artifactReference = Regex("\\b(?:implementation|api|compileOnly|runtimeOnly|testImplementation|androidTestImplementation)\\s*\\(?\\s*[\"']([^\"'\\r\\n]{1,512})[\"']")
+    private val identifier = Regex("[A-Za-z_]\\w*")
+
+    // Kotlin's successive MatchResults create successive Matchers. On older Android ICU each
+    // matcher can retain a native copy of the entire input until finalization, even when the
+    // Java heap is small. Reuse one matcher per scan and copy only the groups we actually need.
+    private inline fun eachMatch(pattern: Regex, text: String, consume: (java.util.regex.Matcher) -> Unit) {
+        val matcher = pattern.toPattern().matcher(text)
+        while (matcher.find()) consume(matcher)
+    }
     private val stop = setOf("a", "an", "the", "to", "of", "for", "and", "or", "in", "on", "with", "that", "this", "it", "is", "be", "as", "from", "by", "new", "add", "change", "fix", "please", "implement", "make", "update", "want", "need", "task", "requested", "request", "can", "should", "would", "without", "into")
     // General vocabulary expansion changes retrieval weights, never selects a file or a canned plan.
     private val related = mapOf(
@@ -99,7 +106,12 @@ object RepositoryAnalysis {
         "progress" to setOf("status", "completion", "evidence")
     )
 
-    fun analyze(task: String, inventory: Inventory, readSource: (String) -> String): AnalysisPlan {
+    fun analyze(task: String, inventory: Inventory, readSource: (String) -> String): AnalysisPlan =
+        analyzeControlled(task, inventory, {}, {}, readSource)
+
+    internal fun analyzeControlled(task: String, inventory: Inventory, checkpoint: () -> Unit,
+        onPlanning: () -> Unit, readSource: (String) -> String, beforeReading: () -> Unit = {}): AnalysisPlan {
+        checkpoint()
         require(revision.matches(inventory.commitSha)) { "Analysis requires a full immutable commit SHA" }
         require(task.isNotBlank() && task.length <= 4_000) { "Task must contain 1–4,000 characters" }
         require(inventory.files.size <= 20_000) { "Inventory exceeds analysis entry limit" }
@@ -120,17 +132,22 @@ object RepositoryAnalysis {
         var failed = 0
         val inspected = mutableListOf<String>()
         val documents = mutableListOf<Document>()
-        val candidates = inventory.files.sortedWith(
-            compareByDescending<SourceFile> { discoveryScore(it.path, query) }
-                .thenBy { sourcePriority(it.path) }.thenBy { it.path }
-        )
+        // Rank each path once. Comparator-driven tokenization repeats ICU regex work O(n log n)
+        // and can dominate the whole session on older Android runtimes.
+        val candidates = inventory.files.map { source ->
+            checkpoint(); Triple(source, discoveryScore(source.path, query), sourcePriority(source.path))
+        }.sortedWith(compareByDescending<Triple<SourceFile, Double, Int>> { it.second }
+            .thenBy { it.third }.thenBy { it.first.path }).map { it.first }
+        beforeReading()
         for (source in candidates) {
+            checkpoint()
             if (source.size > MAX_FILE_BYTES) { oversized++; continue }
             if (inspected.size >= MAX_INSPECTED_FILES || bytesRead + source.size > MAX_TOTAL_BYTES) { budgetSkipped++; continue }
             inspected += source.path
             // Reserve the advertised size even if reading fails. Bad metadata cannot enlarge budgets.
             bytesRead += source.size
             val text = try { readSource(source.path) } catch (_: Exception) { failed++; continue }
+            checkpoint()
             val sourceBytes = text.toByteArray(Charsets.UTF_8)
             val actualSize = sourceBytes.size.toLong()
             if (actualSize > MAX_FILE_BYTES || actualSize != source.size) {
@@ -150,16 +167,20 @@ object RepositoryAnalysis {
         if (oversized > 0) notes += "$oversized files exceed the $MAX_FILE_BYTES-byte per-file limit and were not read."
         if (budgetSkipped > 0) notes += "$budgetSkipped files were not read because analysis is limited to $MAX_INSPECTED_FILES reads and $MAX_TOTAL_BYTES bytes."
         if (failed > 0) notes += "$failed source reads failed; no plan relies on their contents."
-        val ranked = documents.map { it to contentScore(it, query) }
+        onPlanning(); checkpoint()
+        val ranked = documents.map { checkpoint(); it to contentScore(it, query) }
             .filter { (_, score) -> score > 0.0 }
             .sortedWith(compareByDescending<Pair<Document, Double>> { it.second }.thenBy { it.first.source.path })
         if (ranked.isEmpty()) notes += "No relevant source evidence found. Refine the task or expand the explicit read scope; no file changes are proposed."
         if (ranked.size > MAX_PLANNED_FILES) notes += "Showing the $MAX_PLANNED_FILES strongest matches out of ${ranked.size}; this is a scoped plan, not a complete change list."
         val files = ranked.take(MAX_PLANNED_FILES).map { (doc, _) ->
+            checkpoint()
             val matched = doc.terms.intersect(query.primary).sorted()
             val semantic = doc.terms.intersect(query.expanded).sorted()
-            val matchedSymbols = doc.symbols.sortedByDescending { symbol -> terms(symbol.name).count { it in query.primary || it in query.expanded } }.take(12)
-            val dependencies = dependencies(doc, documents, inventory.files, query)
+            val matchedSymbols = doc.symbols.map { symbol ->
+                symbol to terms(symbol.name).count { it in query.primary || it in query.expanded }
+            }.sortedByDescending { it.second }.take(12).map { it.first }
+            val dependencies = dependencies(doc, documents, inventory.files, query, checkpoint)
             val reasons = mutableListOf<String>()
             if (matched.isNotEmpty()) reasons += "Source contains task terms: ${matched.take(10).joinToString()}."
             if (semantic.isNotEmpty()) reasons += "Related source concepts: ${semantic.take(8).joinToString()}."
@@ -171,6 +192,7 @@ object RepositoryAnalysis {
             notes += "Some local references are unresolved or ambiguous; verify them before changing a dependent file."
         }
         notes += "No repository writes, build, model call, publication or installation were performed by this analysis."
+        checkpoint()
         return AnalysisPlan(task, inventory.commitSha, files, notes.toList(), inspected.toList(), inventory.files.size)
     }
 
@@ -220,8 +242,30 @@ object RepositoryAnalysis {
         value.endsWith("s") && value.length > 4 -> value.dropLast(1)
         else -> value
     }
-    private fun terms(value: String): Set<String> = word.findAll(value.replace(camelBoundary, "$1 $2").replace('_', ' '))
-        .map { normalize(it.value.lowercase(Locale.ROOT)) }.filter { it.length > 1 && it !in stop }.toSet()
+    /** Same ASCII word/camel/underscore boundaries, without thousands of ICU matcher calls. */
+    private fun terms(value: String): Set<String> {
+        val result = linkedSetOf<String>()
+        var start = -1
+        fun finish(end: Int) {
+            if (start < 0) return
+            val term = normalize(value.substring(start, end).lowercase(Locale.ROOT))
+            if (term.length > 1 && term !in stop) result.add(term)
+            start = -1
+        }
+        for (index in value.indices) {
+            val char = value[index]
+            val letter = char in 'a'..'z' || char in 'A'..'Z'
+            val digit = char in '0'..'9'
+            val previous = if (index > 0) value[index - 1] else ' '
+            if (!letter && !digit) finish(index)
+            else {
+                if (char in 'A'..'Z' && (previous in 'a'..'z' || previous in '0'..'9')) finish(index)
+                if (letter && start < 0) start = index
+            }
+        }
+        finish(value.length)
+        return result
+    }
     private fun query(task: String): Query {
         val primary = terms(task)
         return Query(primary, primary.flatMap { related[it].orEmpty() }.map(::normalize).toSet() - primary)
@@ -265,10 +309,10 @@ object RepositoryAnalysis {
         }
         val symbols = mutableListOf<Symbol>()
         codeText.lines().forEachIndexed { index, line ->
-            declaration.findAll(line).forEach { match -> symbols += Symbol(match.groupValues[2], match.groupValues[1], index + 1) }
-            if (source.path.endsWith(".java")) javaMethod.findAll(line).forEach { match -> symbols += Symbol(match.groupValues[1], "method", index + 1) }
+            eachMatch(declaration, line) { match -> symbols += Symbol(match.group(2)!!, match.group(1)!!, index + 1) }
+            if (source.path.endsWith(".java")) eachMatch(javaMethod, line) { match -> symbols += Symbol(match.group(1)!!, "method", index + 1) }
             if (source.path.endsWith(".md") && line.startsWith('#')) symbols += Symbol(line.trimStart('#', ' '), "heading", index + 1)
-            if (source.path.endsWith(".xml")) xmlResourceName.findAll(line).forEach { match -> symbols += Symbol(match.groupValues[2], "resource:${match.groupValues[1]}", index + 1) }
+            if (source.path.endsWith(".xml")) eachMatch(xmlResourceName, line) { match -> symbols += Symbol(match.group(2)!!, "resource:${match.group(1)}", index + 1) }
         }
         return Document(source, text, codeText, lines, packagePattern.find(codeText)?.groupValues?.get(1).orEmpty(), symbols.distinct().take(2_000), terms(text), terms(source.path))
     }
@@ -285,7 +329,8 @@ object RepositoryAnalysis {
         return raw * multiplier
     }
 
-    private fun dependencies(doc: Document, documents: List<Document>, inventory: List<SourceFile>, query: Query): List<Dependency> {
+    private fun dependencies(doc: Document, documents: List<Document>, inventory: List<SourceFile>, query: Query,
+        checkpoint: () -> Unit): List<Dependency> {
         val result = mutableListOf<Dependency>()
         fun add(reference: String, kind: String, paths: List<String>, external: Boolean = false) {
             val unique = paths.distinct().sorted()
@@ -296,26 +341,37 @@ object RepositoryAnalysis {
             return inventory.filter { it.path.endsWith("/$exact.kt") || it.path.endsWith("/$exact.java") }.map { it.path } +
                 documents.filter { other -> other.symbols.any { symbol -> "${other.packageName}.${symbol.name}" == reference } }.map { it.source.path }
         }
-        val imports = importPattern.findAll(doc.codeText).map { it.groupValues[1] }.toList()
+        val imports = mutableListOf<String>()
+        eachMatch(importPattern, doc.codeText) { match -> checkpoint(); imports += match.group(1)!! }
+        val localPrefixes = documents.map { it.packageName.substringBeforeLast('.', it.packageName) }.filter { it.isNotBlank() }.distinct()
         imports.forEach { reference ->
+            checkpoint()
             val matches = if (reference.endsWith(".*")) documents.filter { it.packageName == reference.removeSuffix(".*") }.map { it.source.path } else resolveQualified(reference)
-            val localPrefix = documents.map { it.packageName.substringBeforeLast('.', it.packageName) }.filter { it.isNotBlank() }.any { reference.startsWith("$it.") }
+            val localPrefix = localPrefixes.any { reference.startsWith("$it.") }
             add(reference, "import", matches, !localPrefix && !reference.startsWith("com.jarvis.") && !reference.startsWith("com.assistant."))
         }
         // Calls may use a fully qualified class without an import. Resolve actual code against
         // the pinned inventory; comments, strings and a filename coincidence cannot create edges.
-        qualifiedSymbol.findAll(doc.codeText).map { it.value }.distinct().filter { it !in imports }.forEach { reference ->
+        val qualified = linkedSetOf<String>()
+        eachMatch(qualifiedSymbol, doc.codeText) { match -> checkpoint(); qualified += match.group() }
+        qualified.filter { it !in imports }.forEach { reference ->
+            checkpoint()
             val matches = resolveQualified(reference)
             if (matches.isNotEmpty()) add(reference, "qualified symbol", matches)
         }
         // Resolve same-package declarations used by name. A filename coincidence never proves an edge.
+        val identifiers = hashSetOf<String>()
+        eachMatch(identifier, doc.codeText) { match -> checkpoint(); identifiers += match.group() }
         documents.filter { it.source.path != doc.source.path && it.packageName.isNotEmpty() && it.packageName == doc.packageName }.forEach { other ->
+            checkpoint()
             other.symbols.filter { it.kind in setOf("class", "object", "interface", "typealias", "record", "enum") }.forEach { symbol ->
-                if (Regex("\\b${Regex.escape(symbol.name)}\\b").containsMatchIn(doc.codeText)) add("${other.packageName}.${symbol.name}", "same-package symbol", listOf(other.source.path))
+                if (symbol.name in identifiers) add("${other.packageName}.${symbol.name}", "same-package symbol", listOf(other.source.path))
             }
         }
-        val resources = resourceCode.findAll(doc.codeText).map { Triple(it.groupValues[1], it.groupValues[2], it.groupValues[3]) } +
-            resourceXml.findAll(doc.codeText).map { Triple(it.groupValues[1], it.groupValues[2], it.groupValues[3]) }
+        val resources = linkedSetOf<Triple<String, String, String>>()
+        for (pattern in listOf(resourceCode, resourceXml)) eachMatch(pattern, doc.codeText) { match ->
+            checkpoint(); resources += Triple(match.group(1).orEmpty(), match.group(2)!!, match.group(3)!!)
+        }
         val currentModule = doc.source.path.substringBefore("/src/", "")
         val importedR = imports.firstOrNull { it.endsWith(".R") }
         val namespacePattern = Regex("\\bnamespace\\s*(?:=\\s*)?[\"']([^\"']+)[\"']")
@@ -323,40 +379,48 @@ object RepositoryAnalysis {
             (other.source.path.endsWith("/build.gradle") || other.source.path.endsWith("/build.gradle.kts")) &&
                 namespacePattern.find(other.text)?.groupValues?.get(1) == namespace
         }?.source?.path?.substringBeforeLast('/')
-        resources.distinct().forEach { (namespace, type, name) ->
+        resources.forEach { (namespace, type, name) ->
+            checkpoint()
             val resourceNamespace = namespace.ifBlank { importedR?.removeSuffix(".R").orEmpty() }
             val resourceModule = if (resourceNamespace.isBlank()) currentModule else namespaceModule(resourceNamespace)
             fun sameResourceModule(path: String): Boolean = !resourceModule.isNullOrBlank() && path.startsWith("$resourceModule/src/")
-            val paths = inventory.filter { sameResourceModule(it.path) && Regex("/res/${Regex.escape(type)}(?:-[^/]+)?/${Regex.escape(name)}\\.xml$").containsMatchIn(it.path) }.map { it.path } +
+            // Compile per reference, not once per candidate path in the inventory.
+            val resourcePath = Regex("/res/${Regex.escape(type)}(?:-[^/]+)?/${Regex.escape(name)}\\.xml$")
+            val idDeclaration = if (type == "id") Regex("@\\+id/${Regex.escape(name)}(?:[\"'\\s])") else null
+            val paths = inventory.filter { sameResourceModule(it.path) && resourcePath.containsMatchIn(it.path) }.map { it.path } +
                 documents.filter { other -> sameResourceModule(other.source.path) && other.source.path.endsWith(".xml") && (
                     other.symbols.any { it.kind == "resource:$type" && it.name == name } ||
-                    (type == "id" && Regex("@\\+id/${Regex.escape(name)}(?:[\"'\\s])").containsMatchIn(other.codeText))
+                    (idDeclaration?.containsMatchIn(other.codeText) == true)
                     ) }.map { it.source.path }
             add("${if (namespace.isBlank()) "" else "$namespace."}R.$type.$name", "resource", paths, resourceNamespace == "android")
         }
-        if (doc.source.path.endsWith(".xml")) xmlClass.findAll(doc.codeText).forEach { match ->
-            val reference = match.groupValues[1]
+        if (doc.source.path.endsWith(".xml")) eachMatch(xmlClass, doc.codeText) { match ->
+            checkpoint()
+            val reference = match.group(1)!!
             if ('.' in reference) add(reference, "xml class", resolveQualified(reference), reference.startsWith("android.") || reference.startsWith("androidx."))
         }
         if (doc.source.path.endsWith(".gradle") || doc.source.path.endsWith(".gradle.kts")) {
-            projectReference.findAll(doc.codeText).forEach { match ->
-                val module = match.groupValues[1].removePrefix(":").replace(':', '/')
-                add(match.groupValues[1], "gradle module", inventory.filter { it.path == "$module/build.gradle" || it.path == "$module/build.gradle.kts" }.map { it.path })
+            eachMatch(projectReference, doc.codeText) { match ->
+                checkpoint()
+                val reference = match.group(1)!!
+                val module = reference.removePrefix(":").replace(':', '/')
+                add(reference, "gradle module", inventory.filter { it.path == "$module/build.gradle" || it.path == "$module/build.gradle.kts" }.map { it.path })
             }
-            artifactReference.findAll(doc.codeText).forEach { match ->
-                val coordinate = match.groupValues[1]
+            eachMatch(artifactReference, doc.codeText) { match ->
+                checkpoint()
+                val coordinate = match.group(1)!!
                 val parts = coordinate.split(':')
                 if (parts.size in 3..4 && parts.all { it.isNotBlank() && it.none(Char::isWhitespace) })
                     add(coordinate, "gradle artifact", emptyList(), true)
             }
         }
         // Android imports must not consume the whole budget before local source/resource edges.
-        return result.distinct().sortedWith(compareBy<Dependency> {
-            if (it.resolvedPaths.isNotEmpty()) 0 else if (it.status == "unresolved") 1 else 2
-        }.thenByDescending {
-            val concepts = terms(it.reference)
-            concepts.intersect(query.primary).size * 4 + concepts.intersect(query.expanded).size
-        }).take(40)
+        return result.distinct().map { dependency ->
+            val rank = if (dependency.resolvedPaths.isNotEmpty()) 0 else if (dependency.status == "unresolved") 1 else 2
+            val concepts = terms(dependency.reference)
+            Triple(dependency, rank, concepts.intersect(query.primary).size * 4 + concepts.intersect(query.expanded).size)
+        }.sortedWith(compareBy<Triple<Dependency, Int, Int>> { it.second }.thenByDescending { it.third })
+            .take(40).map { it.first }
     }
 
     private fun citations(doc: Document, query: Query, commit: String): List<Citation> {

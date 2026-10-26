@@ -85,6 +85,12 @@ class SelfDiagnosticsActivity : MenuActivity("Self Diagnostics & Improvements") 
                 }.setNegativeButton("Close", null).show()
         }
         row("Developer task history", "Read actual review states and all five verification stages") { bridge("Developer tasks", action = developer::list) }
+        row("Inspect Personal source in Developer", "Queue public read-only analysis of authorized main; no edit, model request or release is approved") {
+            bridge("Source inspection", action = { developer.analyzeSource(true) })
+        }
+        row("Inspect Developer source", "Queue public read-only analysis of the authorized Developer branch") {
+            bridge("Source inspection", action = { developer.analyzeSource(false) })
+        }
         row("Latest Developer task", "Read the most recently acknowledged job") { bridge("Latest Developer task", action = developer::status) }
         row("Retry retained Developer reviews", "Reuse pending request IDs after a missing companion or interrupted acknowledgement") {
             bridge("Retained Developer reviews", action = developer::retryPending)

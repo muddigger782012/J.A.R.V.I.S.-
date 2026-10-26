@@ -61,6 +61,20 @@ class BuildDiagnosticsTest {
         rejected { BuildDiagnostics.validateReport(developer.copy(target = PatchEngine.Target.PERSONAL)) }
         rejected { BuildDiagnostics.parse(commit, branch, 42, 1, "completed", "success", marker(), PatchEngine.Target.PERSONAL) }
     }
+    @Test fun privatePersonalCaseHashesCanProveActualCountsWithoutRetainingAnyRawTestNames() {
+        val record = summary().apply {
+            getJSONArray("suites").getJSONObject(0).put("name", "PersonalJUnitEvidence")
+            getJSONArray("cases").getJSONObject(0).put("suite", "PersonalJUnitEvidence").put("name", "b".repeat(64))
+        }
+        val parsed = BuildDiagnostics.parse(commit, "main", 42, 1, "completed", "success", marker(record), PatchEngine.Target.PERSONAL)
+        assertTrue(parsed.evidenceComplete); assertEquals(1, parsed.totals!!.tests)
+        assertTrue(parsed.tests.keys.single().matches(Regex("PersonalJUnitEvidence#[a-f0-9]{64}")))
+        assertFalse(BuildDiagnostics.render(parsed).contains("case0"))
+        assertFalse(BuildDiagnostics.parse(commit, "main", 42, 1, "completed", "success",
+            marker(record) + "\n" + marker(record), PatchEngine.Target.PERSONAL).evidenceComplete)
+        record.put("sourceCommit", "d".repeat(40))
+        assertFalse(BuildDiagnostics.parse(commit, "main", 42, 1, "completed", "success", marker(record), PatchEngine.Target.PERSONAL).evidenceComplete)
+    }
 
     @Test fun personalMessagesAndTestReferencesDoNotRetainFreeformLogOrContactData() {
         val privateText = "contact@example.test +1-202-555-0101 private-contact-payload"

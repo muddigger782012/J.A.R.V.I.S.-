@@ -7,6 +7,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RepositoryAnalysisTest {
+    @Test fun camelAcronymsUnderscoresAndDigitBoundariesKeepConversationRetrievalUseful() {
+        val path = "developer/src/Dispatch.kt"
+        val sources = mapOf(path to """
+            package example
+            class HTTP2Request {
+                fun receive_chat2Reply() = "caféConversation"
+            }
+        """.trimIndent())
+        val plan = analyze("HTTP2 request reply conversation", sources)
+        val file = plan.files.single { it.path == path }
+        assertTrue(file.reasons.any { it.contains("http2") && it.contains("reply") && it.contains("conversation") })
+        assertTrue(file.symbols.any { it.name == "receive_chat2Reply" })
+        assertTrue(file.citations.isNotEmpty())
+    }
+    @Test fun cancellationAfterReadingStopsBeforePlanningOrAnotherSourceRead() {
+        var reads = 0
+        var planning = false
+        assertThrows(java.util.concurrent.CancellationException::class.java) {
+            RepositoryAnalysis.analyzeControlled("menu", inventory(fixtures), checkpoint = {
+                if (reads > 0) throw java.util.concurrent.CancellationException()
+            }, onPlanning = { planning = true }, readSource = { path -> reads++; fixtures.getValue(path) })
+        }
+        assertEquals(1, reads); assertFalse(planning)
+    }
     @Test fun relevantQualifiedDependenciesSurviveTheBoundedListOfEarlierImports() {
         val sources = linkedMapOf<String, String>()
         val controller = "app/src/main/java/example/Controller.kt"

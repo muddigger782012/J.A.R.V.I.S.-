@@ -34,18 +34,25 @@ class DeveloperBridgeOperations(private val context: Context) {
         Wire.negotiate(reply, Wire.Request("capability-check", "diagnostics.review.request", "Read-only review", selectedMode().wireValue))
         return "Developer's identity and connection are verified. Review queuing, task status, pause, resume and cancellation are available. " +
             "Current approval mode: ${Wire.modeLabel(selectedMode().wireValue)}. " +
-            "This bridge currently handles read-only reviews; code execution and installation require later verified integrations and their approvals. Android privileges are unchanged."
+            (if (reply.optBoolean("publicSourceAnalysis")) "Queued public source inspection is available with bounded, partial context. " else "") +
+            (if (reply.optBoolean("approvedEngineeringJobs")) "In Developer, you can stage a source review, approve its complete diff and track the verified commit, build and test evidence. Interrupted writes are checked without automatically repeating them. "
+            else "This Developer version handles read-only reviews. ") +
+            "This connection cannot grant source approval or install an application. Android privileges are unchanged."
     }
     fun submit(body: String): String {
         return submitRetained(outbox.prepare(body, selectedMode().wireValue))
     }
+    fun analyzeSource(personal: Boolean): String = submitRetained(outbox.prepare(
+        if (personal) "Inspect Personal Jarvis voice recognition, microphone lifecycle and AI connection reliability. Identify source dependencies and evidence; do not modify source."
+        else "Inspect Jarvis Developer task execution, approval enforcement and build reliability. Identify source dependencies and evidence; do not modify source.",
+        selectedMode().wireValue, if (personal) "source.personal.analysis.request" else "source.developer.analysis.request"))
     private fun submitRetained(request: Wire.Request): String {
         if (request.mode != selectedMode().wireValue) throw Wire.Rejected("POLICY_REQUIRED")
         val response = try { DevelopmentBridgeClient(context).request(request) }
             catch (failure: Exception) { outbox.record(request, null); throw failure }
         outbox.record(request, response)
         if (response.getString("code") != "OK") throw Wire.Rejected(response.getString("code"))
-        return "Developer acknowledged the read-only review. " + render(response.getJSONObject("data"))
+        return "Developer acknowledged the queued read-only request. " + render(response.getJSONObject("data"))
     }
     fun retryPending(): String {
         val queued = outbox.pending(selectedMode().wireValue)
@@ -69,10 +76,24 @@ class DeveloperBridgeOperations(private val context: Context) {
         return render(call(Wire.Request(UUID.randomUUID().toString(), kind, mode = selectedMode().wireValue,
             jobId = jobId, expectedRevision = state.getLong("revision"))))
     }
-    private fun render(value: JSONObject): String = "Review state: ${value.getString("state")}. " +
-        "Attempt ${value.getInt("attempts")}.\n" + Wire.Stage.values().joinToString("\n") {
+    private fun render(value: JSONObject): String = "Task state: ${value.getString("state")}. " +
+        "Attempt ${value.getInt("attempts")}." + when (value.optString("phase")) {
+            "DISCOVERY" -> " Repository discovery started."
+            "INDEXING" -> " Source indexing started."
+            "SOURCE_READ" -> " Source retrieval started."
+            "PLANNING" -> " Source analysis started."
+            "REPORT" -> " Source report preparation started."
+            else -> ""
+        } + "\n" + Wire.Stage.values().joinToString("\n") {
             "${it.name.replace('_', ' ')}: ${value.getJSONObject("verification").getString(it.name)}"
-        } + "\nQueued review is not verified source, a successful build, publication or installation."
+        } + (value.optJSONObject("analysis")?.let { "\nRead-only source context: ${it.getInt("inspected")} files inspected, ${it.getInt("planned")} references planned. Coverage is partial; inspect the report in Developer." } ?: "") +
+        (if (value.optString("problem") == "SOURCE_READ_UNVERIFIED") "\nThe public source read could not be verified. Check Developer's internet connection and repository access, then retry the task explicitly." else "") +
+        (if (value.optString("problem") == "SOURCE_OUTCOME_UNKNOWN") "\nThe approved write outcome is unverified. Developer can check the expected branch using read-only requests; the old approval cannot repeat the write." else "") +
+        (if (value.getString("state") == "CANCELLED" && value.optJSONObject("engineering")?.optBoolean("approvalConsumed") == true)
+            "\nCancellation stops later steps. An approved commit request may already have reached GitHub; cancellation does not undo it." else "") +
+        (if (value.optString("problem") == "ENGINEERING_EVIDENCE_UNAVAILABLE") "\nBuild or test evidence remains unverified. Check repository access and the read budget in Developer. No additional source write was authorized." else "") +
+        (if (value.optString("problem") == "SOURCE_ANALYSIS_INTERNAL") "\nDeveloper's source inspection encountered an internal failure. Review its diagnostic category before an explicit retry; no repair or build was completed." else "") +
+        "\nA queued request or source analysis is not a verified source change, successful build, publication or installation."
 
     companion object {
         fun failure(failure: Throwable): String = when ((failure as? Wire.Rejected)?.code) {

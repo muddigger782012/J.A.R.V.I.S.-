@@ -8,16 +8,17 @@ import java.util.UUID
 /** Reuses the existing atomic Personal state store. A timeout never allocates a replacement ID. */
 class DevelopmentReviewOutbox(private val storage: PersonalStateFile) {
     private fun rows(raw: String?) = if (raw == null) JSONArray() else JSONArray(raw).also { require(it.length() <= 16) }
-    fun prepare(body: String, mode: String): Wire.Request = storage.access {
+    fun prepare(body: String, mode: String, kind: String = "diagnostics.review.request"): Wire.Request = storage.access {
+        require(kind == "diagnostics.review.request" || kind in Wire.sourceAnalysisKinds)
         val records = rows(read())
         for (index in 0 until records.length()) {
             val item = records.getJSONObject(index)
             val request = Wire.decode(item.getString("request"))
-            if (request.body == body && request.mode == mode && item.getString("transport") in setOf("PENDING", "UNCONFIRMED"))
+            if (request.body == body && request.mode == mode && request.kind == kind && item.getString("transport") in setOf("PENDING", "UNCONFIRMED"))
                 return@access request
         }
         if (records.length() >= 16) throw Wire.Rejected("QUEUE_FULL")
-        val request = Wire.Request(UUID.randomUUID().toString(), "diagnostics.review.request", body, mode)
+        val request = Wire.Request(UUID.randomUUID().toString(), kind, body, mode)
         records.put(JSONObject().put("request", Wire.encode(request)).put("transport", "PENDING"))
         if (!write(records.toString())) throw Wire.Rejected("STORAGE_UNAVAILABLE")
         request

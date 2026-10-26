@@ -1,6 +1,10 @@
 {
   "schemaVersion": 1,
   "notes": [
+    "With a compatible Developer app, analyzed source tasks can enter exact diff review and track approved commits, builds and test evidence across restarts. Signing and installation remain separate.",
+    "Authenticated Assistant-Developer review jobs with persistent retries, task status, queue controls and audited policy profiles; a compatible independent Developer app is required.",
+    "Queued public source inspection with recovery, partial reports and measured stages. Inspection does not approve or perform source changes, builds or installation.",
+    "Weather location recovers promptly when permission is revoked or providers return no fix.",
     "Activity-aware speech-capture watchdogs and manual finish/cancel controls.",
     "Live-conversation recovery after recoverable recognition failures and reply timeouts.",
     "Wake readiness reported from the engine rather than the enabled setting.",

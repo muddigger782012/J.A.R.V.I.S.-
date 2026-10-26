@@ -43,6 +43,38 @@ object PatchPublisher {
     enum class CiState { MISSING, QUEUED, RUNNING, PASSED, FAILED }
     data class CiStatus(val state: CiState, val runUrl: String? = null, val conclusion: String? = null)
 
+    /** Read-back identity only. No source, diff, credentials or reusable approval is retained. */
+    data class BlobReceipt(val path: String, val before: String?, val after: String)
+    data class OutcomeReceipt(val taskId: String, val provider: String, val model: String,
+        val proposalId: String, val base: String, val baseBranch: String, val target: PatchEngine.Target,
+        val edits: List<BlobReceipt>) {
+        val branch get() = PatchEngine.taskBranch(taskId, proposalId, target)
+    }
+    fun outcomeReceipt(approved: PatchEngine.ApprovedProposal): OutcomeReceipt {
+        PatchEngine.validateApproval(approved)
+        val p = approved.proposal
+        return OutcomeReceipt(p.request.taskId, p.request.provider, p.request.model, p.id,
+            p.request.baseCommitSha, p.request.baseBranch, p.request.target, p.edits.map { edit ->
+                BlobReceipt(edit.path, p.request.sources.single { it.path == edit.path }.sha,
+                    blobSha(edit.content.toByteArray(Charsets.UTF_8)))
+            }).also(::validateReceipt)
+    }
+    internal fun validateReceipt(r: OutcomeReceipt) {
+        require(r.taskId.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,47}")) &&
+            r.proposalId.matches(Regex("[a-f0-9]{64}")) && shaPattern.matches(r.base) &&
+            PatchEngine.validSourceBranch(r.baseBranch, r.target))
+        auditLabel(r.provider); auditLabel(r.model)
+        require(r.edits.size in 1..PatchEngine.MAX_FILES && r.edits.map { it.path }.distinct().size == r.edits.size)
+        require(r.edits.all { PatchEngine.allowedPath(it.path, r.target) &&
+            (it.before == null || shaPattern.matches(it.before)) && shaPattern.matches(it.after) && it.before != it.after })
+    }
+    internal fun validateReceiptOutcome(r: OutcomeReceipt, result: CommitResult) {
+        validateReceipt(r); validateResult(result)
+        require(result.taskId == r.taskId && result.provider == r.provider && result.model == r.model &&
+            result.proposalId == r.proposalId && result.baseCommitSha == r.base && result.baseBranch == r.baseBranch &&
+            result.target == r.target && result.branch == r.branch && result.paths == r.edits.map { it.path }.sorted())
+    }
+
     /** Error bodies and transport exceptions are deliberately not retained. */
     internal class ApiFailure(val status: Int) : IllegalStateException("GitHub request failed (HTTP $status)")
 
@@ -51,15 +83,16 @@ object PatchPublisher {
         fun request(method: String, path: String, token: String, payload: JSONObject?): JSONObject
     }
 
-    private val http = GithubApi { method, path, token, payload ->
+    private fun http(cancellation: PatchPreviewCancellation? = null) = GithubApi { method, path, token, payload ->
         validateEndpoint(method, path)
-        require(token.isNotBlank() && token.length <= 4096 && token.none { it.isISOControl() }) {
+        require((method == "GET" || token.isNotBlank()) && token.length <= 4096 && token.none { it.isISOControl() }) {
             "A valid in-memory GitHub token is required"
         }
         val body = payload?.toString()?.toByteArray(Charsets.UTF_8)
         require((method == "POST") == (body != null)) { "Unexpected GitHub request body" }
         require(body == null || body.size <= MAX_REQUEST_BYTES) { "GitHub request exceeds safety limit" }
         val connection = URL(API + path).openConnection() as HttpURLConnection
+        val stop = cancellation?.registerStop { connection.disconnect() }
         val transportStarted = System.nanoTime()
         // Socket read/connect timeouts do not cover a blocked request-body upload.
         val deadline = Timer("JarvisDeveloper-GitHubTimeout", true)
@@ -67,6 +100,7 @@ object PatchPublisher {
             override fun run() { try { connection.disconnect() } catch (_: Exception) { /* no background error logging */ } }
         }, MAX_MILLIS)
         try {
+            cancellation?.check()
             connection.requestMethod = method
             connection.instanceFollowRedirects = false
             connection.useCaches = false
@@ -75,13 +109,14 @@ object PatchPublisher {
             connection.setRequestProperty("Accept", "application/vnd.github+json")
             connection.setRequestProperty("User-Agent", "JarvisDeveloper-ScopedPatch")
             connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-            connection.setRequestProperty("Authorization", "Bearer $token")
+            if (token.isNotBlank()) connection.setRequestProperty("Authorization", "Bearer $token")
             if (body != null) {
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 connection.setFixedLengthStreamingMode(body.size)
                 connection.outputStream.use { it.write(body) }
             }
+            cancellation?.check()
             val status = connection.responseCode
             if (status !in 200..299) throw ApiFailure(status)
             require(connection.url.toString() == API + path) { "GitHub redirects are not permitted" }
@@ -91,6 +126,7 @@ object PatchPublisher {
                 val buffer = ByteArray(8192)
                 var count = 0
                 while (true) {
+                    cancellation?.check()
                     require((System.nanoTime() - transportStarted) / 1_000_000 < MAX_MILLIS) { "GitHub response exceeded time budget" }
                     val read = stream.read(buffer, 0, minOf(buffer.size, MAX_RESPONSE_BYTES - count + 1))
                     if (read == -1) break
@@ -107,17 +143,23 @@ object PatchPublisher {
             // Exceptions can include URLs, request contents or credentials; never expose them.
             throw IllegalStateException("GitHub transport or response validation failed")
         } finally {
+            stop?.close()
             deadline.cancel()
             connection.disconnect()
         }
     }
 
-    fun commit(token: String, approved: PatchEngine.ApprovedProposal): CommitResult = Publisher(http).commit(token, approved)
-    fun ci(token: String, result: CommitResult): CiStatus = Publisher(http).ci(token, result)
+    fun commit(token: String, approved: PatchEngine.ApprovedProposal): CommitResult = Publisher(http()).commit(token, approved)
+    fun ci(token: String, result: CommitResult): CiStatus = Publisher(http()).ci(token, result)
 
     /** Observes an interrupted attempt; this operation cannot create objects or restore approval. */
     fun inspectOutcome(token: String, proposal: PatchEngine.Proposal): CommitResult? =
-        Publisher(http).inspectOutcome(token, proposal)
+        Publisher(http()).inspectOutcome(token, proposal)
+
+    /** Recovery can observe the approved hashes, but this receipt can never be passed to commit. */
+    fun inspectReceipt(token: String, receipt: OutcomeReceipt): CommitResult? = Publisher(http()).inspectReceipt(token, receipt)
+    internal fun inspectReceipt(token: String, receipt: OutcomeReceipt, cancellation: PatchPreviewCancellation): CommitResult? =
+        Publisher(http(cancellation)).inspectReceipt(token, receipt)
 
     internal fun validateOutcome(proposal: PatchEngine.Proposal, result: CommitResult) {
         PatchEngine.revalidate(proposal)
@@ -270,6 +312,45 @@ object PatchPublisher {
                     CiStatus(if (conclusion == "success") CiState.PASSED else CiState.FAILED, url, conclusion)
                 }
                 else -> error("Unknown CI state")
+            }
+        }
+
+        fun inspectReceipt(token: String, receipt: OutcomeReceipt): CommitResult? {
+            try {
+                validateReceipt(receipt)
+                val observed = try { head(token, receipt.branch) } catch (failure: ApiFailure) {
+                    if (failure.status == 404) return null else throw failure
+                }
+                val base = call("GET", "/git/commits/${receipt.base}", token)
+                require(identity(base) == receipt.base)
+                val before = tree(token, sha(base.getJSONObject("tree").getString("sha")))
+                val expected = before.toMutableMap()
+                for (edit in receipt.edits) {
+                    val old = before[edit.path]
+                    require(if (edit.before == null) old == null && before.keys.none { it.startsWith(edit.path + "/") }
+                        else old?.type == "blob" && old.mode in setOf("100644", "100755") && old.sha == edit.before)
+                    var parent = edit.path.substringBeforeLast('/', "")
+                    while (parent.isNotEmpty()) {
+                        require(before[parent] == null || before[parent]?.type == "tree")
+                        expected.putIfAbsent(parent, Node(parent, "tree", "040000", receipt.base))
+                        parent = parent.substringBeforeLast('/', "")
+                    }
+                    expected[edit.path] = Node(edit.path, "blob", old?.mode ?: "100644", edit.after)
+                }
+                val candidate = call("GET", "/git/commits/$observed", token)
+                val candidateTree = sha(candidate.getJSONObject("tree").getString("sha"))
+                validateCommit(candidate, observed, candidateTree, receipt.base)
+                val message = "Jarvis Developer: scoped task ${receipt.taskId}\n\n" +
+                    "Proposal: ${receipt.proposalId}\nBase: ${receipt.base}\nSource branch: ${receipt.baseBranch}\nProduct: ${receipt.target.name}\n" +
+                    "Provider: ${auditLabel(receipt.provider)}\nModel: ${auditLabel(receipt.model)}"
+                require(candidate.getString("message").removeSuffix("\n") == message)
+                validateTree(tree(token, candidateTree), expected)
+                require(head(token, receipt.branch) == observed)
+                return CommitResult(receipt.taskId, receipt.provider, receipt.model, receipt.proposalId,
+                    receipt.edits.map { it.path }.sorted(), receipt.base, observed, receipt.branch, "",
+                    receipt.baseBranch, receipt.target).also { validateReceiptOutcome(receipt, it) }
+            } catch (_: Exception) {
+                throw IllegalStateException("Recorded commit outcome could not be verified. No write or retry was attempted.")
             }
         }
 
