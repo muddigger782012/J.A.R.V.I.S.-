@@ -82,6 +82,7 @@ object DevelopmentInboxWorkbench {
                                     openReview(report)
                                 }) }
                                 val (paths, savedGoal) = scopes[job.getString("id")] ?: (emptyList<String>() to "")
+                                DevelopmentArtifactWorkbench.attach(activity, panel, inbox, job, githubToken)
                                 if (job.getBoolean("sourceVerified")) panel.addView(button("Review this verified commit on GitHub") {
                                     runCatching {
                                         val url = inbox.engineeringReviewUrl(job.getString("id")) ?: error("No verified commit")

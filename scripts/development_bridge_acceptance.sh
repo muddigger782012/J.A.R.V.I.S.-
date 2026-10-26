@@ -16,7 +16,7 @@ run_suite() {
   local package="$1" class="$2" expected="$3" destination="$4"
   local started=$SECONDS
   local limit="${5:-120}"
-  timeout "${limit}s" adb shell am instrument -w -r -e class "$class" "$package/androidx.test.runner.AndroidJUnitRunner" > "$destination" 2>&1
+  timeout "${limit}s" adb shell am instrument -w -r -e jarvisDisposable true -e class "$class" "$package/androidx.test.runner.AndroidJUnitRunner" > "$destination" 2>&1
   cat "$destination"
   local word=tests
   if [ "$expected" = 1 ]; then word=test; fi
@@ -30,4 +30,5 @@ run_suite com.assistant.core.beta.test com.jarvis.integration.commercialfixture.
 run_suite com.jarvis.developer.test com.jarvis.developer.RepositoryAnalysisRuntimeTest 1 development-bridge-results/source-memory.txt
 run_suite com.jarvis.developer.test com.jarvis.developer.EngineeringJobAndroidTest 4 development-bridge-results/engineering-jobs.txt
 run_suite com.assistant.core.test com.assistant.core.services.DevelopmentSourceWorkerAndroidTest 1 development-bridge-results/source-worker.txt 240
+run_suite com.jarvis.developer.test com.jarvis.developer.ArtifactInstallationAndroidTest 2 development-bridge-results/artifact-installation.txt 180
 adb logcat -d -s AndroidRuntime:E > development-bridge-results/crashes.txt

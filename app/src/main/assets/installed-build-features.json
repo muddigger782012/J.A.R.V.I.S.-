@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "notes": [
+    "Compatible Developer jobs can inspect APK source provenance, signatures and device compatibility, then separately request Android installation. Installed package observations remain distinct from device acceptance tests.",
     "With a compatible Developer app, analyzed source tasks can enter exact diff review and track approved commits, builds and test evidence across restarts. Signing and installation remain separate.",
     "Authenticated Assistant-Developer review jobs with persistent retries, task status, queue controls and audited policy profiles; a compatible independent Developer app is required.",
     "Queued public source inspection with recovery, partial reports and measured stages. Inspection does not approve or perform source changes, builds or installation.",

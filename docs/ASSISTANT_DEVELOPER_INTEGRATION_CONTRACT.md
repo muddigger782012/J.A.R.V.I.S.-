@@ -1,5 +1,28 @@
 # J.A.R.V.I.S. Assistant ↔ Developer integration contract
 
+## APK evidence and local installation increment
+
+The authenticated status response optionally includes `verifiedArtifactReview` and
+an artifact summary. There is no IPC installation or approval-grant operation.
+Developer's existing inbox can inspect a retained workflow artifact from the exact
+verified job source. The archive digest, bounded source/run/attempt manifest, APK
+digest, cryptographic signature, installed family signing identity, package,
+version, Android level and ABI must all verify before `SIGNED_APK` can pass.
+Debug and production artifact labels remain distinct. Older artifacts without
+the current provenance record are rejected rather than inferred compatible.
+
+An explicit local owner action is still required to create an Android installer
+session. Android's unknown-source permission and confirmation are independent.
+Session IDs and fresh nonces bind a non-exported result callback to the current
+job. Cancellation invalidates later evidence and attempts to abandon the owned
+session; it is not rollback of an operation Android already completed. Recovery
+only observes sessions and matching installed package bytes; it never commits or
+replays an installation. Interrupted confirmation may require cancelling the
+old tracking and a new explicit request. `PACKAGE_PRESENT` records an installed
+package observation; `DEVICE_INSTALLED` remains blocked until separate acceptance
+evidence is implemented. No source scope, mode, APK receipt or installer callback
+grants merge, signing, publication, root or accessibility authority.
+
 ## Phase A implementation under verification
 
 The isolated integration branch implements a shared primitive Binder protocol in `integration/src/main/kotlin`. Both apps compile the same source. Developer's exported service requires its signature permission **and** verifies the actual calling UID against exactly one known Assistant package and Android's signing records. The client checks the installed Developer identity before and after explicit binding, then negotiates the protocol, requested operation and mode on the authenticated connection. No caller identity, approval or completion evidence can be supplied in a request.

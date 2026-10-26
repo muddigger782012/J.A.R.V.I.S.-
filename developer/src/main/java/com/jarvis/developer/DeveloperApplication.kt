@@ -10,6 +10,8 @@ class DeveloperApplication : Application() {
         thread(name = "developer-source-queue-recovery", isDaemon = true) {
             runCatching { DevelopmentAnalysisScheduler.recover(this) }
             runCatching { DevelopmentEngineeringScheduler.recover(this) }
+            // Read installed state only. Recovery never repeats an installation or approval.
+            runCatching { JarvisPackageInstaller.recover(this) }
         }
     }
 }

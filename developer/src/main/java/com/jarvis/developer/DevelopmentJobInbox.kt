@@ -42,11 +42,30 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
                 if (engineering.has("commit")) require(engineering.getString("commit").matches(Regex("[a-f0-9]{40}")))
             }
             engineering?.optJSONObject("receipt")?.let(DevelopmentEngineering::decode)
+            engineering?.optJSONObject("artifact")?.let { artifact ->
+                artifact.optJSONObject("record")?.let { raw ->
+                    val record = DevelopmentArtifact.record(raw)
+                    require(record.commit == engineering.getString("commit") &&
+                        record.packageName == DevelopmentArtifact.packageName(DevelopmentEngineering.decode(engineering.getJSONObject("receipt")).target))
+                    require(artifact.getString("buildFingerprint") == engineering.getJSONObject("build").getString("fingerprint"))
+                }
+                artifact.optJSONObject("installation")?.let { install ->
+                    require(artifact.has("record") && install.getString("status") in DevelopmentArtifact.installStates)
+                    require(install.getString("nonce").matches(Regex("[a-f0-9-]{36}")) && install.getInt("session") >= -1)
+                }
+            }
             for (stage in Wire.Stage.values()) {
                 val value = job.getJSONObject("verification").getString(stage.name)
                 require(value in Wire.Verification.values().map { it.name })
-                if (engineering == null || stage in setOf(Wire.Stage.SIGNED_APK, Wire.Stage.DEVICE_INSTALLED))
+                if (engineering == null || stage == Wire.Stage.DEVICE_INSTALLED && value == "PASSED")
                     require(value in setOf("PENDING", "BLOCKED"))
+                if (stage == Wire.Stage.SIGNED_APK && value == "PASSED") require(engineering?.optJSONObject("artifact")?.has("record") == true)
+                if (stage == Wire.Stage.SIGNED_APK && value == "PASSED") require(listOf("SOURCE_COMMITTED", "BUILD_SUCCESSFUL", "TESTS_PASSED").all {
+                    job.getJSONObject("verification").getString(it) == "PASSED"
+                })
+                if (stage == Wire.Stage.SIGNED_APK && value == "RUNNING") require(engineering?.optJSONObject("artifact")?.has("readLease") == true)
+                if (stage == Wire.Stage.DEVICE_INSTALLED && value in setOf("RUNNING", "FAILED"))
+                    require(engineering?.optJSONObject("artifact")?.has("installation") == true)
                 if (value == "PASSED") require(engineering?.has("receipt") == true &&
                     engineering.optString("commit").matches(Regex("[a-f0-9]{40}")))
             }
@@ -70,6 +89,15 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
                 result.put("engineering", JSONObject().put("approvalConsumed", e.has("receipt"))
                     .put("commit", e.optString("commit")).put("polls", e.optInt("polls"))
                     .put("build", e.optJSONObject("build") ?: JSONObject()))
+                e.optJSONObject("artifact")?.let { a ->
+                    result.put("artifact", JSONObject().put("checking", a.has("readLease"))
+                        .put("problem", a.optString("problem")).put("installation", a.optJSONObject("installation")?.optString("status").orEmpty()).also { summary ->
+                            a.optJSONObject("installation")?.takeIf { it.has("androidStatus") }?.let { summary.put("androidStatus", it.getInt("androidStatus")) }
+                            a.optJSONObject("record")?.let { record ->
+                                for (key in listOf("packageName", "versionCode", "versionName", "signing", "run", "artifact")) summary.put(key, record.get(key))
+                            }
+                        })
+                }
             }
             job.optString("problem").takeIf { it.isNotEmpty() }?.let { result.put("problem", it) }
         }
@@ -137,6 +165,14 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         job.put("state", next).put("revision", job.getLong("revision") + 1L)
         job.remove("lease"); job.remove("problem")
         engineering?.remove("readLease")
+        engineering?.optJSONObject("artifact")?.let { artifact ->
+            artifact.remove("readLease")
+            artifact.optJSONObject("installation")?.takeIf { it.optString("status") in DevelopmentArtifact.activeInstalls }
+                ?.put("status", "CANCELLED")
+            if (job.getJSONObject("verification").getString("SIGNED_APK") == "RUNNING")
+                job.getJSONObject("verification").put("SIGNED_APK", "BLOCKED")
+            job.getJSONObject("verification").put("DEVICE_INSTALLED", "BLOCKED")
+        }
         if (engineering != null && !engineering.has("receipt")) engineering.remove("nonce")
         for (stage in Wire.Stage.values()) {
             val stages = job.getJSONObject("verification")
@@ -391,10 +427,121 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         val e = job.getJSONObject("engineering")
         require(job.getLong("revision") == revision && e.has("receipt") &&
             job.getString("state") in setOf("READY_FOR_REVIEW", "REVIEW_REQUIRED", "OUTCOME_UNKNOWN"))
+        require(e.optJSONObject("artifact")?.optJSONObject("installation")?.optString("status") !in DevelopmentArtifact.activeInstalls)
+        e.remove("artifact")
+        job.getJSONObject("verification").put("SIGNED_APK", "PENDING").put("DEVICE_INSTALLED", "PENDING")
         e.put("polls", 0); e.remove("readLease"); job.remove("problem")
         analysisTransition(job, if (e.has("commit")) "VERIFYING" else "OUTCOME_UNKNOWN", "engineering.read.requested")
         for (stage in listOf("BUILD_SUCCESSFUL", "TESTS_PASSED")) job.getJSONObject("verification").put(stage, "PENDING")
         save(jobs)
+    }
+    private fun artifactReady(job: JSONObject) {
+        require(job.getString("state") == "READY_FOR_REVIEW")
+        require(listOf("SOURCE_COMMITTED", "BUILD_SUCCESSFUL", "TESTS_PASSED").all {
+            job.getJSONObject("verification").getString(it) == "PASSED"
+        })
+    }
+    internal fun beginArtifact(jobId: String, revision: Long, personal: Boolean): DevelopmentArtifact.Source = checkpoint.transaction {
+        val jobs = load(); val job = jobs.single { it.getString("id") == jobId }
+        engineeringPolicy(job, personal); artifactReady(job); require(job.getLong("revision") == revision)
+        val e = job.getJSONObject("engineering"); val build = e.getJSONObject("build")
+        val artifact = e.optJSONObject("artifact") ?: JSONObject().also { e.put("artifact", it) }
+        require(artifact.optJSONObject("installation")?.optString("status") !in DevelopmentArtifact.activeInstalls)
+        val nonce = java.util.UUID.randomUUID().toString(); artifact.put("readLease", nonce); artifact.remove("problem")
+        val receipt = DevelopmentEngineering.decode(e.getJSONObject("receipt"))
+        val source = DevelopmentArtifact.Source(jobId, nonce, e.getString("commit"), receipt.branch, receipt.target,
+            build.getLong("run"), build.getInt("attempt"), build.getString("fingerprint"))
+        DevelopmentArtifact.validateSource(source)
+        job.getJSONObject("verification").put("SIGNED_APK", "RUNNING").put("DEVICE_INSTALLED", "PENDING")
+        analysisTransition(job, job.getString("state"), "artifact.read.started"); save(jobs); source
+    }
+    private fun currentArtifact(job: JSONObject, source: DevelopmentArtifact.Source): Boolean {
+        val e = job.getJSONObject("engineering")
+        return job.getString("state") == "READY_FOR_REVIEW" && e.optJSONObject("artifact")?.optString("readLease") == source.lease &&
+            e.getString("commit") == source.commit && e.getJSONObject("build").getString("fingerprint") == source.buildFingerprint
+    }
+    internal fun recordArtifact(source: DevelopmentArtifact.Source, record: DevelopmentArtifact.Record): Boolean = checkpoint.transaction {
+        DevelopmentArtifact.validateSource(source); DevelopmentArtifact.validate(record)
+        require(record.commit == source.commit && record.packageName == DevelopmentArtifact.packageName(source.target))
+        val jobs = load(); val job = jobs.single { it.getString("id") == source.job }
+        if (!currentArtifact(job, source)) return@transaction false
+        artifactReady(job)
+        job.getJSONObject("engineering").put("artifact", JSONObject().put("record", record.json())
+            .put("buildFingerprint", source.buildFingerprint))
+        job.getJSONObject("verification").put("SIGNED_APK", "PASSED").put("DEVICE_INSTALLED", "PENDING")
+        analysisTransition(job, job.getString("state"), "artifact.apk.verified"); save(jobs); true
+    }
+    internal fun failArtifact(source: DevelopmentArtifact.Source, problem: DevelopmentArtifact.Problem) = checkpoint.transaction {
+        val jobs = load(); val job = jobs.single { it.getString("id") == source.job }
+        if (!currentArtifact(job, source)) return@transaction false
+        job.getJSONObject("engineering").getJSONObject("artifact").apply { remove("readLease"); put("problem", problem.name) }
+        job.getJSONObject("verification").put("SIGNED_APK", if (problem == DevelopmentArtifact.Problem.CANCELLED) "BLOCKED" else "FAILED")
+        analysisTransition(job, job.getString("state"), "artifact.read.failed"); save(jobs); true
+    }
+    internal fun artifactRecord(jobId: String): DevelopmentArtifact.Record? = checkpoint.transaction {
+        val job = load().single { it.getString("id") == jobId }
+        job.optJSONObject("engineering")?.optJSONObject("artifact")?.optJSONObject("record")?.let(DevelopmentArtifact::record)
+    }
+    internal fun beginInstallation(jobId: String, revision: Long, apkSha256: String, personal: Boolean): DevelopmentArtifact.Installation = checkpoint.transaction {
+        val jobs = load(); val job = jobs.single { it.getString("id") == jobId }
+        engineeringPolicy(job, personal); artifactReady(job)
+        require(job.getLong("revision") == revision && job.getJSONObject("verification").getString("SIGNED_APK") == "PASSED")
+        require(jobs.none { it.optJSONObject("engineering")?.optJSONObject("artifact")?.optJSONObject("installation")?.optString("status") in DevelopmentArtifact.activeInstalls })
+        val artifact = job.getJSONObject("engineering").getJSONObject("artifact")
+        val record = DevelopmentArtifact.record(artifact.getJSONObject("record")); require(record.apkSha256 == apkSha256)
+        val nonce = java.util.UUID.randomUUID().toString()
+        artifact.put("installation", JSONObject().put("nonce", nonce).put("session", -1).put("status", "PREPARING"))
+        job.getJSONObject("verification").put("DEVICE_INSTALLED", "RUNNING")
+        analysisTransition(job, job.getString("state"), "installation.owner.requested"); save(jobs)
+        DevelopmentArtifact.Installation(jobId, nonce, record)
+    }
+    private fun currentInstallation(job: JSONObject, request: DevelopmentArtifact.Installation): JSONObject? {
+        if (job.getString("state") != "READY_FOR_REVIEW") return null
+        val artifact = job.getJSONObject("engineering").optJSONObject("artifact") ?: return null
+        val install = artifact.optJSONObject("installation") ?: return null
+        return install.takeIf { it.getString("nonce") == request.nonce && it.getInt("session") == request.session &&
+            it.getString("status") in DevelopmentArtifact.activeInstalls && DevelopmentArtifact.record(artifact.getJSONObject("record")) == request.record }
+    }
+    internal fun bindInstallation(request: DevelopmentArtifact.Installation, session: Int): DevelopmentArtifact.Installation = checkpoint.transaction {
+        require(session >= 0 && request.session == -1)
+        val jobs = load(); val job = jobs.single { it.getString("id") == request.job }
+        val install = requireNotNull(currentInstallation(job, request)); require(install.getString("status") == "PREPARING")
+        install.put("session", session)
+        analysisTransition(job, job.getString("state"), "installation.session.recorded"); save(jobs); request.copy(session = session)
+    }
+    internal fun submitInstallation(request: DevelopmentArtifact.Installation): Boolean = checkpoint.transaction {
+        val jobs = load(); val job = jobs.single { it.getString("id") == request.job }
+        val install = currentInstallation(job, request) ?: return@transaction false
+        require(request.session >= 0 && install.getString("status") == "PREPARING")
+        install.put("status", "SUBMITTED")
+        analysisTransition(job, job.getString("state"), "installation.commit.requested"); save(jobs); true
+    }
+    internal fun installationStatus(request: DevelopmentArtifact.Installation, status: String, androidStatus: Int? = null): Boolean = checkpoint.transaction {
+        require(status in DevelopmentArtifact.installStates && status !in setOf("PREPARING", "SUBMITTED"))
+        require(androidStatus == null || androidStatus in -1..7)
+        val jobs = load(); val job = jobs.single { it.getString("id") == request.job }
+        val install = currentInstallation(job, request) ?: return@transaction false
+        if (install.getString("status") == status) return@transaction false
+        install.put("status", status)
+        if (androidStatus != null) install.put("androidStatus", androidStatus)
+        // Android success or matching installed bytes is still not an acceptance-test result.
+        job.getJSONObject("verification").put("DEVICE_INSTALLED", if (status == "FAILED") "FAILED" else if (status in setOf("PACKAGE_PRESENT", "CANCELLED", "OUTCOME_UNKNOWN")) "BLOCKED" else "RUNNING")
+        analysisTransition(job, job.getString("state"), "installation.${status.lowercase()}"); save(jobs); true
+    }
+    internal fun pendingInstallations(): List<DevelopmentArtifact.Installation> = checkpoint.transaction {
+        load().mapNotNull { job ->
+            val artifact = job.optJSONObject("engineering")?.optJSONObject("artifact") ?: return@mapNotNull null
+            val install = artifact.optJSONObject("installation") ?: return@mapNotNull null
+            if (install.getString("status") !in DevelopmentArtifact.activeInstalls || job.getString("state") != "READY_FOR_REVIEW") return@mapNotNull null
+            DevelopmentArtifact.Installation(job.getString("id"), install.getString("nonce"),
+                DevelopmentArtifact.record(artifact.getJSONObject("record")), install.getInt("session"))
+        }
+    }
+    internal fun installationRecord(jobId: String): DevelopmentArtifact.Installation? = checkpoint.transaction {
+        val job = load().single { it.getString("id") == jobId }
+        val artifact = job.optJSONObject("engineering")?.optJSONObject("artifact") ?: return@transaction null
+        val install = artifact.optJSONObject("installation") ?: return@transaction null
+        DevelopmentArtifact.Installation(jobId, install.getString("nonce"), DevelopmentArtifact.record(artifact.getJSONObject("record")), install.getInt("session"))
     }
     fun localSnapshot(): List<JSONObject> = checkpoint.transaction {
         load().map { view(it).put("caller", it.getString("caller")) }

@@ -127,11 +127,18 @@ jobs:
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify "$APK"
           "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" | head -1 | grep -q "name='com.jarvis.developer'"
           cp "$APK" "$RUNNER_TEMP/Jarvis-Developer.apk"
+          mkdir -p "$RUNNER_TEMP/developer-job-artifact"
+          cp "$APK" "$RUNNER_TEMP/developer-job-artifact/Jarvis-Developer.apk"
+      - name: Bind signed candidate source provenance
+        # Provenance is metadata for an already authorized build, not a signing or publication grant.
+        env:
+          JARVIS_ARTIFACT_SOURCE: ${{ steps.recovery.outputs.sha || github.sha }}
+        run: python3 scripts/job_apk_evidence.py --directory "$RUNNER_TEMP/developer-job-artifact" --target DEVELOPER --signing production
       - name: Upload signed release candidate artifact
         uses: actions/upload-artifact@v4
         with:
           name: Jarvis-Developer-signed-release-candidate
-          path: ${{ runner.temp }}/Jarvis-Developer.apk
+          path: ${{ runner.temp }}/developer-job-artifact/
           if-no-files-found: error
       - name: Verify release write access
         if: github.event_name == 'workflow_dispatch'
