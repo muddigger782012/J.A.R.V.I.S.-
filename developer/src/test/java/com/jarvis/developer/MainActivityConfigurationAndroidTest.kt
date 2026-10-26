@@ -182,7 +182,7 @@ class MainActivityConfigurationAndroidTest {
         // Expanding it exercises the layout most likely to overflow at large font sizes.
         assertTrue(button(activity, "Tools").performClick())
         idleMain()
-        assertTrue(button(activity, "Show developer controls").performClick())
+        assertTrue(button(activity, "Assistant diagnostics").performClick())
         idleMain()
         val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
         val root = scroll.getChildAt(0) as LinearLayout
@@ -240,7 +240,7 @@ class MainActivityConfigurationAndroidTest {
     private fun openTools(activity: Activity) {
         assertTrue(button(activity, "Tools").performClick())
         idleMain()
-        assertTrue(button(activity, "Show developer controls").performClick())
+        assertTrue(button(activity, "Assistant diagnostics").performClick())
         idleMain()
     }
 
