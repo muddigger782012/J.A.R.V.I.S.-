@@ -42,7 +42,7 @@ def tap(identifier):
 
 
 
-def tap_scrolling(identifier, attempts=10):
+def tap_scrolling(identifier, attempts=16):
     # Re-locate the control after every gesture; theme selection may reset
     # the nested Appearance scroll position.
     expected = 'com.assistant.core:id/' + identifier
@@ -75,7 +75,7 @@ def tap_scrolling(identifier, attempts=10):
         x = (x1 + x2) // 2
         top = y1 + (y2-y1) // 4
         bottom = y1 + 3*(y2-y1) // 4
-        direction = -1 if attempt < attempts // 2 else 1
+        direction = -1 if (attempt // 2) % 2 == 0 else 1
         signature = (ET.tostring(root, encoding='unicode'), tuple(bounds), direction)
         if signature in visited:
             print(f'{identifier}: repeated hierarchy during scroll', flush=True)
