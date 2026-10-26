@@ -11,8 +11,15 @@ import java.util.concurrent.ConcurrentHashMap
 internal object DevelopmentEngineeringCredentials {
     private val values = ConcurrentHashMap<String, String>()
     fun remember(job: String, token: String) {
-        require(token.length <= 4096 && token.none { it.isISOControl() } && (values.containsKey(job) || values.size < 64))
-        if (token.isBlank()) values.remove(job) else values[job] = token
+        require(job.isNotBlank() && job.length <= 128 && job.none { it.isISOControl() })
+        require(token.length <= 4096 && token.none { it.isISOControl() })
+        // Clearing a credential must work even when the bounded cache is full.
+        if (token.isBlank()) {
+            values.remove(job)
+            return
+        }
+        require(values.containsKey(job) || values.size < 64)
+        values[job] = token
     }
     fun token(job: String) = values[job].orEmpty()
     fun forget(job: String) { values.remove(job) }
