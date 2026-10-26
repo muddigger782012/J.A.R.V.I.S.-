@@ -282,7 +282,10 @@ class MainActivityConfigurationAndroidTest {
     private fun application(): Application = RuntimeEnvironment.getApplication()
     private fun idleMain() = shadowOf(Looper.getMainLooper()).idle()
     private fun button(activity: Activity, text: String): Button =
-        views<Button>(activity).single { it.text.toString() == text }
+        views<Button>(activity).single {
+            val label = it.text.toString()
+            label == text || label == "$text  ▼" || label == "$text  ▲"
+        }
     private fun field(activity: Activity, hint: String): EditText =
         views<EditText>(activity).single { it.hint?.toString() == hint }
     private inline fun <reified T : View> views(activity: Activity): List<T> =
