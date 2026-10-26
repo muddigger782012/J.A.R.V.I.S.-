@@ -742,27 +742,81 @@ class MainActivity : Activity() {
             button.setTextColor(getColor(R.color.developer_primary))
             button.background = roundedSurface(0xFF112A35.toInt())
         }
-        // Keep complex repository, recovery, and approval controls accessible but collapsed by default.
+        // Organize the existing engineering controls into small, task-oriented sections.
+        // The original views and listeners are retained; only their presentation changes.
         val advancedChildren = (2 until advanced.childCount).map { advanced.getChildAt(it) }
         advancedChildren.forEach { advanced.removeView(it) }
-        val advancedToggle = Button(this).apply {
-            text = "Show developer controls"
-            isAllCaps = false
+        val toolsTitle = TextView(this).apply {
+            text = "What would you like to do?"
+            textSize = 22f
+            typeface = Typeface.DEFAULT_BOLD
             setTextColor(getColor(R.color.developer_primary))
-            backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_panel))
+            setPadding(0, dp(16), 0, dp(12))
         }
-        advanced.addView(advancedToggle)
-        val advancedContent = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
+        advanced.addView(toolsTitle)
+        val toolsHint = TextView(this).apply {
+            text = "Choose a task below. Advanced engineering controls are kept available without crowding the screen."
+            setTextColor(getColor(R.color.developer_secondary))
+            setPadding(0, 0, 0, dp(16))
         }
-        advancedChildren.forEach { advancedContent.addView(it) }
-        advanced.addView(advancedContent)
-        advancedToggle.setOnClickListener {
-            val expanding = advancedContent.visibility != View.VISIBLE
-            advancedContent.visibility = if (expanding) View.VISIBLE else View.GONE
-            advancedToggle.text = if (expanding) "Hide developer controls" else "Show developer controls"
+        advanced.addView(toolsHint)
+        val sectionNames = listOf(
+            "Connections and source browsing",
+            "Code changes and review",
+            "Planning",
+            "Testing and repair",
+            "Self-development",
+            "Release verification",
+            "Assistant diagnostics"
+        )
+        val sectionMarkers = listOf(
+            "Scoped coding engine" to 1,
+            "Task planning" to 2,
+            "Testing and debugging" to 3,
+            "Controlled self-development" to 4,
+            "Trusted evaluation" to 5,
+            "Personal Jarvis diagnostic" to 6
+        )
+        val sectionGroups = sectionNames.map {
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = View.GONE
+            }
         }
+        var sectionIndex = 0
+        advancedChildren.forEach { child ->
+            val heading = (child as? TextView)?.text?.toString().orEmpty()
+            sectionMarkers.firstOrNull { heading.startsWith(it.first, ignoreCase = true) }?.let {
+                sectionIndex = it.second
+            }
+            sectionGroups[sectionIndex].addView(child)
+        }
+        var openSection = -1
+        val sectionButtons = mutableListOf<Button>()
+        sectionNames.forEachIndexed { index, name ->
+            val button = Button(this).apply {
+                isAllCaps = false
+                text = name
+                textSize = 16f
+                setTextColor(getColor(R.color.developer_primary))
+                background = roundedSurface(0xFF142F3B.toInt())
+                contentDescription = "Open $name tools"
+            }
+            advanced.addView(button)
+            advanced.addView(sectionGroups[index])
+            sectionButtons.add(button)
+            button.setOnClickListener {
+                openSection = if (openSection == index) -1 else index
+                sectionGroups.forEachIndexed { i, group ->
+                    group.visibility = if (i == openSection) View.VISIBLE else View.GONE
+                    sectionButtons[i].text = sectionNames[i] +
+                        if (i == openSection) "  ▲" else "  ▼"
+                    sectionButtons[i].contentDescription =
+                        (if (i == openSection) "Close " else "Open ") + sectionNames[i] + " tools"
+                }
+            }
+        }
+        sectionButtons.forEachIndexed { i, button -> button.text = sectionNames[i] + "  ▼" }
         val shell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(getColor(R.color.developer_background))
