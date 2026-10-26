@@ -8,6 +8,13 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class DevelopmentReviewOutboxTest {
+    @Test fun reviewAndSourceAnalysisCannotReuseAnIdEvenWhenTheirTextMatches() {
+        val text = "Inspect source"
+        val review = outbox().prepare(text, "supervised")
+        val source = outbox().prepare(text, "supervised", "source.personal.analysis.request")
+        assertNotEquals(review.requestId, source.requestId)
+        assertEquals(source, outbox().prepare(text, "supervised", "source.personal.analysis.request"))
+    }
     @get:Rule val directory = TemporaryFolder()
     private fun outbox() = DevelopmentReviewOutbox(PersonalStateFile(directory.root, "developer-outbox.json"))
     @Test fun uncertainDeliverySurvivesReconstructionWithoutAllocatingAnotherRequestId() {

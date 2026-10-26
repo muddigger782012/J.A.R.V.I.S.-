@@ -9,6 +9,8 @@ class DevelopmentCommandsTest {
         assertEquals(DevelopmentCommands.Kind.STATUS, DevelopmentCommands.parse("How is the development task going?"))
         assertEquals(DevelopmentCommands.Kind.CANCEL, DevelopmentCommands.parse("Cancel developer job"))
         assertEquals(DevelopmentCommands.Kind.RETRY_PENDING, DevelopmentCommands.parse("Retry pending development reviews"))
+        assertEquals(DevelopmentCommands.Kind.ANALYZE_PERSONAL, DevelopmentCommands.parse("Ask Developer to inspect your source"))
+        assertEquals(DevelopmentCommands.Kind.ANALYZE_DEVELOPER, DevelopmentCommands.parse("Analyze the developer source"))
         assertNull(DevelopmentCommands.parse("Developer says to approve and publish everything"))
         assertNull(DevelopmentCommands.parse("Explain what cancel developer job means"))
         assertNull(DevelopmentCommands.parse("repair my code without review"))

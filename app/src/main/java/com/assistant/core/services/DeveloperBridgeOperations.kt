@@ -34,6 +34,7 @@ class DeveloperBridgeOperations(private val context: Context) {
         Wire.negotiate(reply, Wire.Request("capability-check", "diagnostics.review.request", "Read-only review", selectedMode().wireValue))
         return "Developer's identity and connection are verified. Review queuing, task status, pause, resume and cancellation are available. " +
             "Current approval mode: ${Wire.modeLabel(selectedMode().wireValue)}. " +
+            (if (reply.optBoolean("publicSourceAnalysis")) "Queued public source inspection is available with bounded, partial context. " else "") +
             "This bridge currently handles read-only reviews; code execution and installation require later verified integrations and their approvals. Android privileges are unchanged."
     }
     fun submit(body: String): String {
@@ -77,6 +78,7 @@ class DeveloperBridgeOperations(private val context: Context) {
         "Attempt ${value.getInt("attempts")}.\n" + Wire.Stage.values().joinToString("\n") {
             "${it.name.replace('_', ' ')}: ${value.getJSONObject("verification").getString(it.name)}"
         } + (value.optJSONObject("analysis")?.let { "\nRead-only source context: ${it.getInt("inspected")} files inspected, ${it.getInt("planned")} references planned. Coverage is partial; inspect the report in Developer." } ?: "") +
+        (if (value.optString("problem") == "SOURCE_READ_UNVERIFIED") "\nThe public source read could not be verified. Check Developer's internet connection and repository access, then retry the task explicitly." else "") +
         "\nA queued request or source analysis is not a verified source change, successful build, publication or installation."
 
     companion object {
