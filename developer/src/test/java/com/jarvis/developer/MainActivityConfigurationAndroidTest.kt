@@ -203,7 +203,7 @@ class MainActivityConfigurationAndroidTest {
             assertWithinHorizontalContent(root, root.getChildAt(index))
         }
         val controls = descendants(root).filter {
-            it.visibility == View.VISIBLE && (it is Button || it is EditText || it is Spinner)
+            isEffectivelyVisible(it, root) && (it is Button || it is EditText || it is Spinner)
         }.toList()
         assertTrue("Interactive controls exist", controls.isNotEmpty())
         controls.forEach { control ->
@@ -226,6 +226,18 @@ class MainActivityConfigurationAndroidTest {
         assertTrue("Last action top is reachable", actionBounds.top >= viewportTop)
         assertTrue("Last action bottom is reachable", actionBounds.bottom <= viewportBottom)
         assertApprovalsUnavailable(activity)
+    }
+
+    // A child can report VISIBLE while an ancestor section is GONE.
+    // Only assert geometry for controls actually displayed in the selected section.
+    private fun isEffectivelyVisible(view: View, root: View): Boolean {
+        var current: View? = view
+        while (current != null) {
+            if (current.visibility != View.VISIBLE) return false
+            if (current === root) return true
+            current = current.parent as? View
+        }
+        return false
     }
 
     private fun assertWithinHorizontalContent(root: LinearLayout, view: View) {
