@@ -42,24 +42,48 @@ def tap(identifier):
 
 
 
-def tap_scrolling(identifier, attempts=6):
+def tap_scrolling(identifier, attempts=10):
+    # Re-locate the control after every gesture; theme selection may reset
+    # the nested Appearance scroll position.
+    expected = 'com.assistant.core:id/' + identifier
+    visited = set()
     for attempt in range(attempts):
-        nodes = list(hierarchy().iter('node'))
-        target = next((n for n in nodes if n.get('resource-id') == 'com.assistant.core:id/' + identifier), None)
+        root = hierarchy()
+        nodes = list(root.iter('node'))
+        target = next((n for n in nodes if n.get('resource-id') == expected), None)
         if target is not None:
-            bounds = list(map(int, re.findall(r'\d+', target.get('bounds', ''))))
+            bounds = list(map(int, re.findall(r'\\d+', target.get('bounds', ''))))
             if len(bounds) == 4 and bounds[2] > bounds[0] and bounds[3] > bounds[1]:
                 adb('shell', 'input', 'tap', str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
                 time.sleep(1)
                 return
-        # Appearance embeds the theme picker inside a second ScrollView.
-        # Alternate gestures to move the outer and inner scrolling regions.
-        if attempt % 2 == 0:
-            adb('shell', 'input', 'swipe', '800', '1050', '800', '350', '400')
-        else:
-            adb('shell', 'input', 'swipe', '500', '1450', '500', '450', '400')
-        time.sleep(1)
-    raise AssertionError(f'{identifier} missing after scrolling')
+        # Scroll inside a visible scrollable node, rather than hard-coded
+        # screen coordinates that can miss on different emulator sizes.
+        scrolls = []
+        for node in nodes:
+            if node.get('scrollable') != 'true':
+                continue
+            bounds = list(map(int, re.findall(r'\\d+', node.get('bounds', ''))))
+            if len(bounds) == 4 and bounds[2] - bounds[0] > 80 and bounds[3] - bounds[1] > 160:
+                scrolls.append(bounds)
+        if not scrolls:
+            raise AssertionError(f'{identifier} missing: no scrollable Appearance container')
+        # Try nested and outer regions; reverse direction when reaching the end.
+        scrolls.sort(key=lambda b: (b[2]-b[0]) * (b[3]-b[1]))
+        bounds = scrolls[attempt % len(scrolls)]
+        x1, y1, x2, y2 = bounds
+        x = (x1 + x2) // 2
+        top = y1 + (y2-y1) // 4
+        bottom = y1 + 3*(y2-y1) // 4
+        direction = -1 if attempt < attempts // 2 else 1
+        signature = (ET.tostring(root, encoding='unicode'), tuple(bounds), direction)
+        if signature in visited:
+            print(f'{identifier}: repeated hierarchy during scroll', flush=True)
+        visited.add(signature)
+        adb('shell', 'input', 'swipe', str(x), str(bottom if direction == -1 else top),
+            str(x), str(top if direction == -1 else bottom), '350')
+        time.sleep(0.8)
+    raise AssertionError(f'{identifier} missing after {attempts} bounded scroll attempts')
 
 def capture(name):
     print('Screenshot: ' + name, flush=True)
