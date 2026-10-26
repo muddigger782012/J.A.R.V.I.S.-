@@ -811,6 +811,15 @@ class MainActivity : Activity() {
             }
             sectionGroups[section].addView(child)
         }
+        // Promote the everyday build and recovery actions into their own section.
+        // Keep the original button objects and click listeners.
+        listOf(plans, builds, recoveryStatus, confirmHealthy, recovery, iconTest).forEach { view ->
+            (view.parent as? android.view.ViewGroup)?.removeView(view)
+            sectionGroups[5].addView(view)
+        }
+        // Source feedback must be adjacent to its source buttons.
+        // Display a concise initial message instead of an empty results pane.
+        repositoryFeedback.text = "Source browsing results and errors will appear here."
         var openSection = -1
         val sectionButtons = mutableListOf<Button>()
         sectionNames.forEachIndexed { index, name ->
