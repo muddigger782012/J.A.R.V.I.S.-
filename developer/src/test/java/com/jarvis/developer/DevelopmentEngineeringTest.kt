@@ -44,10 +44,11 @@ class DevelopmentEngineeringTest {
         r.provider, r.model, r.proposalId, r.edits.map { it.path }.sorted(), r.base, committed, r.branch, "", r.baseBranch, r.target) }
     private fun report(write: DevelopmentEngineering.Write, summary: Boolean = true, state: String = "passed", attempt: Int = 1): BuildDiagnostics.Report {
         val counts = JSONObject().put("tests", 1).put("failures", if (state == "failure") 1 else 0).put("errors", 0).put("skipped", if (state == "skipped") 1 else 0)
-        val suite = "com.jarvis.developer.ConversationToneTest"
+        val privateTests = write.receipt.target == PatchEngine.Target.PERSONAL
+        val suite = if (privateTests) "PersonalJUnitEvidence" else "com.jarvis.developer.ConversationToneTest"
         val record = JSONObject().put("sourceCommit", committed).put("totals", counts)
             .put("suites", JSONArray().put(JSONObject(counts.toString()).put("name", suite).put("sha256", "c".repeat(64))))
-            .put("cases", JSONArray().put(JSONObject().put("suite", suite).put("name", "conversation").put("result", state)))
+            .put("cases", JSONArray().put(JSONObject().put("suite", suite).put("name", if (privateTests) "b".repeat(64) else "conversation").put("result", state)))
         return BuildDiagnostics.parse(committed, write.receipt.branch, 42, attempt, "completed", if (state == "failure") "failure" else "success",
             if (summary) "JARVIS_JUNIT_SUMMARY=$record" else "BUILD SUCCESSFUL", write.receipt.target)
     }
@@ -70,6 +71,8 @@ class DevelopmentEngineeringTest {
         val job = analyzed()
         val draft = inbox().stageEngineering(job, status(job).getLong("revision"), listOf(path), true, "Improve tone for brief conversations")
         assertEquals("Improve tone for brief conversations", draft.task)
+        assertEquals(draft.task, inbox().engineeringGoal(job))
+        assertEquals(draft.paths, inbox().engineeringPaths(job))
         assertNotNull(inbox().claimEngineering(draft, approved(draft), true))
     }
     @Test fun aCommitAndCompleteTestsAdvanceOnlyTheirOwnVerificationStagesAcrossRestart() {
@@ -86,6 +89,30 @@ class DevelopmentEngineeringTest {
         assertTrue(inbox().finishEngineering(write, result(write)))
         assertEquals("READY_FOR_REVIEW", status(job).getString("state"))
         assertTrue(inbox().recoverableEngineeringJobs().isEmpty())
+    }
+    @Test fun personalJobsCanPassPrivateTestEvidenceWithoutPassingSigningOrInstallation() {
+        val personalPath = "app/src/main/java/com/assistant/core/services/ConversationTone.kt"
+        val source = "package com.assistant.core.services\nobject ConversationTone { val enabled = false }\n"
+        val bytes = source.toByteArray()
+        val sha = MessageDigest.getInstance("SHA-1").digest("blob ${bytes.size}\u0000".toByteArray() + bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 255) }
+        val request = Wire.Request(UUID.randomUUID().toString(), "source.personal.analysis.request", "Improve conversation tone")
+        val job = inbox().handle(caller, true, request).getString("id")
+        val inventory = RepositoryAnalysis.Inventory(listOf(RepositoryAnalysis.SourceFile(personalPath, sha, bytes.size.toLong())), false, base)
+        inbox().finishAnalysis(inbox().claimAnalysis(job, true)!!, RepositoryAnalysis.analyze(request.body, inventory) { source })
+        val draft = inbox().stageEngineering(job, 2, listOf(personalPath), true)
+        val patch = PatchEngine.parse(PatchEngine.Request(draft.taskId, draft.task, draft.base, draft.paths,
+            listOf(PatchEngine.SourceFile(personalPath, sha, source)), "OpenAI", "gpt-4.1-mini", "main", PatchEngine.Target.PERSONAL),
+            JSONObject().put("summary", "Improve conversation tone").put("edits", JSONArray().put(JSONObject()
+                .put("path", personalPath).put("content", source.replace("false", "true")))).toString())
+        val write = inbox().claimEngineering(draft, PatchEngine.approve(patch, patch.id), true)
+        inbox().finishEngineering(write, result(write))
+        inbox().recordEngineeringBuild(inbox().claimEngineeringRead(job, true)!!, report(write))
+        val state = status(job)
+        assertEquals("READY_FOR_REVIEW", state.getString("state"))
+        assertEquals("PASSED", state.getJSONObject("verification").getString("TESTS_PASSED"))
+        assertEquals("PENDING", state.getJSONObject("verification").getString("SIGNED_APK"))
+        assertFalse(state.getBoolean("deviceVerified"))
     }
     @Test fun greenBuildWithoutCompleteTestsOrWithSkippedTestsCannotCompleteTheTestGate() {
         for ((summary, testState) in listOf(false to "passed", true to "skipped", true to "failure")) {

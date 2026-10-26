@@ -231,9 +231,13 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         val job = load().single { it.getString("id") == jobId }
         val target = if (Wire.decode(job.getString("request")).kind == "source.personal.analysis.request")
             PatchEngine.Target.PERSONAL else PatchEngine.Target.DEVELOPER
-        val paths = job.getJSONObject("analysis").optJSONArray("paths") ?: return@transaction emptyList()
+        val paths = job.optJSONObject("engineering")?.optJSONArray("paths")
+            ?: job.getJSONObject("analysis").optJSONArray("paths") ?: return@transaction emptyList()
         require(paths.length() <= 8)
         (0 until paths.length()).map { paths.getString(it) }.filter { PatchEngine.allowedPath(it, target) }
+    }
+    internal fun engineeringGoal(jobId: String): String = checkpoint.transaction {
+        load().single { it.getString("id") == jobId }.optJSONObject("engineering")?.optString("task").orEmpty()
     }
     internal fun stageEngineering(jobId: String, revision: Long, paths: List<String>, personal: Boolean,
         goal: String? = null): DevelopmentEngineering.Draft = checkpoint.transaction {

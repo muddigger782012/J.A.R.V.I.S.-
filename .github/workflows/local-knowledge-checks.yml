@@ -48,6 +48,9 @@ jobs:
       - name: Verify release automation and APK archive checks
         run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - run: bash gradlew --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug
+      - name: Record private Personal JUnit evidence
+        if: always()
+        run: python3 scripts/personal_test_evidence.py --source "$GITHUB_SHA"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

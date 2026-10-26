@@ -59,7 +59,8 @@ object DevelopmentInboxWorkbench {
                         inbox.localAnalysisReport(job.getString("id"))?.let { job.getString("id") to it }
                     }.toMap()) to jobs.takeLast(8).associate { job -> job.getString("id") to
                         if (job.getString("state") in setOf("REVIEW_READY", "AWAITING_APPROVAL"))
-                            runCatching { inbox.engineeringPaths(job.getString("id")) }.getOrDefault(emptyList()) else emptyList() }
+                            runCatching { inbox.engineeringPaths(job.getString("id")) to inbox.engineeringGoal(job.getString("id")) }
+                                .getOrDefault(emptyList<String>() to "") else emptyList<String>() to "" }
                 }
                 activity.runOnUiThread {
                     if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
@@ -78,7 +79,7 @@ object DevelopmentInboxWorkbench {
                                 reports[job.getString("id")]?.let { report -> panel.addView(button("Open verified-source analysis (partial context)") {
                                     openReview(report)
                                 }) }
-                                val paths = scopes[job.getString("id")].orEmpty()
+                                val (paths, savedGoal) = scopes[job.getString("id")] ?: (emptyList<String>() to "")
                                 if (job.optJSONObject("engineering")?.optBoolean("approvalConsumed") == true &&
                                     job.getString("state") in setOf("READY_FOR_REVIEW", "REVIEW_REQUIRED", "OUTCOME_UNKNOWN")) {
                                     val resultLabel = label("Build checks use your current in-memory GitHub connection when available; approvals are never restored.")
@@ -97,6 +98,7 @@ object DevelopmentInboxWorkbench {
                                     val goal = EditText(activity).apply {
                                         hint = "Describe the change you want Developer to make"
                                         contentDescription = "Requested engineering change"
+                                        setText(savedGoal)
                                         minLines = 2
                                     }
                                     val scope = EditText(activity).apply {
@@ -114,7 +116,7 @@ object DevelopmentInboxWorkbench {
                                             check(patch.prepareEngineering(draft))
                                         }
                                         outcome.text = if (result.isSuccess) "Task staged in the coding engine. Generate a diff, review it, then approve the isolated commit explicitly."
-                                            else "The job changed or the coding engine is busy. Refresh and prepare again. No write was approved."
+                                            else "Describe the requested change, choose analyzed paths, and refresh if the job changed or the coding engine is busy. No write was approved."
                                     })
                                     panel.addView(outcome)
                                 }
