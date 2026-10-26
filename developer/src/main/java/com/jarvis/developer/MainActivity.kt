@@ -194,10 +194,19 @@ class MainActivity : Activity() {
         val sourceButton = Button(this).apply { text = "Read source lines (read-only)" }
         val analyzeButton = Button(this).apply { text = "Analyze task and preview file plan (read-only)" }
         listOf(inventoryButton, sourceButton, analyzeButton).forEach { root.addView(it) }
+        val repositoryFeedback = TextView(this).apply {
+            text = "Choose Browse source inventory to list available repository files."
+            textSize = 14f
+            setTextColor(getColor(R.color.developer_text))
+            setTextIsSelectable(true)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+        }
+        root.addView(repositoryFeedback, root.indexOfChild(analyzeButton) + 1)
         var repositorySnapshot: RepositoryAnalysis.Inventory? = null
         fun repositoryRead(label: String, operation: () -> Pair<RepositoryAnalysis.Inventory, String>) {
             listOf(inventoryButton, sourceButton, analyzeButton).forEach { it.isEnabled = false }
             status.text = label
+            repositoryFeedback.text = label
             thread(name = "DeveloperRepositoryRead") {
                 try {
                     val (snapshot, report) = operation()
@@ -205,6 +214,7 @@ class MainActivity : Activity() {
                         if (!isFinishing && !isDestroyed) {
                             repositorySnapshot = snapshot
                             output.text = report
+                            repositoryFeedback.text = report
                             status.text = "Read-only preview complete at ${snapshot.commitSha.take(12)}"
                         }
                     }
@@ -213,6 +223,7 @@ class MainActivity : Activity() {
                         if (!isFinishing && !isDestroyed) {
                             status.text = "Repository preview failed"
                             output.text = e.message?.take(500) ?: "Repository read unavailable."
+                            repositoryFeedback.text = "Repository preview failed: " + output.text
                         }
                     }
                 } finally {
@@ -744,7 +755,7 @@ class MainActivity : Activity() {
         }
         // Organize the existing engineering controls into small, task-oriented sections.
         // The original views and listeners are retained; only their presentation changes.
-        val advancedChildren = (2 until advanced.childCount).map { advanced.getChildAt(it) }
+        val advancedChildren = (0 until advanced.childCount).map { advanced.getChildAt(it) }
         advancedChildren.forEach { advanced.removeView(it) }
         val toolsTitle = TextView(this).apply {
             text = "What would you like to do?"
