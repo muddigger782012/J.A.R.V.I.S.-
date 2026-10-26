@@ -820,6 +820,19 @@ class MainActivity : Activity() {
         // Source feedback must be adjacent to its source buttons.
         // Display a concise initial message instead of an empty results pane.
         repositoryFeedback.text = "Source browsing results and errors will appear here."
+        // Keep frequently used actions discoverable in their task section.
+        // Moving a view preserves its original listener, enabled state and approval gate.
+        listOf(inventoryButton, sourceButton, analyzeButton, repositoryFeedback).forEach { view ->
+            (view.parent as? android.view.ViewGroup)?.removeView(view)
+            sectionGroups[0].addView(view)
+        }
+        // Always give a clear route back to the six-category overview.
+        val sectionIntro = TextView(this).apply {
+            text = "Tap a category to open its tools. Tap it again to close."
+            setTextColor(getColor(R.color.developer_secondary))
+            setPadding(0, dp(4), 0, dp(10))
+        }
+        advanced.addView(sectionIntro)
         var openSection = -1
         val sectionButtons = mutableListOf<Button>()
         sectionNames.forEachIndexed { index, name ->
