@@ -928,13 +928,11 @@ class MainActivity : Activity() {
         root.addView(quickRow(
             quickAction("⌁  Improve Jarvis", 2) {
                 selectPage?.invoke(2)
-                advancedContent.visibility = View.VISIBLE
-                advancedToggle.text = "Hide developer controls"
+                sectionButtons[4].performClick()
             },
             quickAction("▤  Build status", 2) {
                 selectPage?.invoke(2)
-                advancedContent.visibility = View.VISIBLE
-                advancedToggle.text = "Hide developer controls"
+                sectionButtons[5].performClick()
                 builds.performClick()
             }
         ))
