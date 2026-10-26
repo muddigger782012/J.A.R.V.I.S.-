@@ -49,12 +49,12 @@ class EngineeringJobAndroidTest {
                 DevelopmentEngineeringCredentials.remember("", "invalid-job")
             }
             assertThrows(IllegalArgumentException::class.java) {
-                DevelopmentEngineeringCredentials.remember("bad\\njob", "invalid-job")
+                DevelopmentEngineeringCredentials.remember("bad\njob", "invalid-job")
             }
             DevelopmentEngineeringCredentials.remember(job, "temporary-github-token")
             assertEquals("temporary-github-token", DevelopmentEngineeringCredentials.token(job))
             assertThrows(IllegalArgumentException::class.java) {
-                DevelopmentEngineeringCredentials.remember(job, "unsafe\\ncredential")
+                DevelopmentEngineeringCredentials.remember(job, "unsafe\ncredential")
             }
             assertEquals("temporary-github-token", DevelopmentEngineeringCredentials.token(job))
             assertThrows(IllegalArgumentException::class.java) {
