@@ -1,7 +1,7 @@
 package com.assistant.core.services
 
 object DevelopmentCommands {
-    enum class Kind { CAPABILITIES, STATUS, LIST, REVIEW_RUNTIME, CANCEL, PAUSE, RESUME, RETRY }
+    enum class Kind { CAPABILITIES, STATUS, LIST, REVIEW_RUNTIME, RETRY_PENDING, CANCEL, PAUSE, RESUME, RETRY }
     fun parse(input: String): Kind? {
         val text = input.lowercase(java.util.Locale.ROOT).replace('’', '\'').trim().trimEnd('.', '?', '!')
         return when (text) {
@@ -13,6 +13,7 @@ object DevelopmentCommands {
             "pause development task", "pause developer job" -> Kind.PAUSE
             "resume development task", "resume developer job" -> Kind.RESUME
             "retry development task", "retry developer job" -> Kind.RETRY
+            "retry pending development reviews", "retry retained developer reviews" -> Kind.RETRY_PENDING
             else -> null
         }
     }

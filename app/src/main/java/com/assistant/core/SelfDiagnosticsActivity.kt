@@ -86,6 +86,9 @@ class SelfDiagnosticsActivity : MenuActivity("Self Diagnostics & Improvements") 
         }
         row("Developer task history", "Read actual review states and all five verification stages") { bridge("Developer tasks", action = developer::list) }
         row("Latest Developer task", "Read the most recently acknowledged job") { bridge("Latest Developer task", action = developer::status) }
+        row("Retry retained Developer reviews", "Reuse pending request IDs after a missing companion or interrupted acknowledgement") {
+            bridge("Retained Developer reviews", action = developer::retryPending)
+        }
         listOf("Pause" to "pause", "Resume" to "resume", "Cancel" to "cancel", "Retry" to "retry").forEach { (label, control) ->
             row("$label latest Developer review", "Updates review queue state only; no code or release is executed") {
                 bridge("Developer review", action = { developer.control("task.$control.request") })

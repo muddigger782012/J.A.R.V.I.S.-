@@ -1,8 +1,12 @@
 name: Evaluate Jarvis Developer candidate (build only)
-
-# Register the manual form on the default branch. The complete controller stays
-# on feature/jarvis-developer; select that branch in the Run workflow form.
 on:
+  push:
+    branches: [feature/jarvis-developer]
+    paths:
+      - 'developer/**'
+      - '.github/workflows/evaluate-jarvis-developer.yml'
+      - 'settings.gradle'
+      - 'build.gradle'
   workflow_dispatch:
     inputs:
       candidate_sha:
@@ -13,15 +17,193 @@ on:
         description: 'Isolated source branch; task candidates require feature/jarvis-developer-task/<task>-<digest>'
         required: false
         type: string
-
-permissions: {}
-
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: developer-candidate-evaluation-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  select-developer-branch:
+  resolve:
+    name: Resolve immutable candidate
+    if: github.ref == 'refs/heads/feature/jarvis-developer'
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 15
+    outputs:
+      candidate_sha: ${{ steps.resolve.outputs.candidate_sha }}
+      candidate_branch: ${{ steps.resolve.outputs.candidate_branch }}
+      recovery_sha: ${{ steps.resolve.outputs.recovery_sha }}
+      baseline_apk_sha256: ${{ steps.resolve.outputs.baseline_apk_sha256 }}
+      candidate_version: ${{ steps.resolve.outputs.candidate_version }}
+      recovery_version: ${{ steps.resolve.outputs.recovery_version }}
     steps:
-      - name: Require the isolated Developer controller
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check fixed controller helper contracts
+        run: python3 -m unittest discover -s controller/developer/tools -p 'candidate_*_test.py' -v
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Install fixed Android verification tools
+        run: sdkmanager 'build-tools;34.0.0'
+      - name: Pin source, published APK bytes and higher version codes
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CANDIDATE_BRANCH: ${{ inputs.candidate_branch }}
+        run: python3 controller/developer/tools/candidate_audit.py resolve --controller controller --directory "$RUNNER_TEMP/resolved"
+  candidate-build:
+    name: Build unsigned candidate
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.candidate_sha }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Test and lint candidate, then compile unsigned release
+        working-directory: candidate
+        env:
+          GITHUB_SHA: ${{ needs.resolve.outputs.candidate_sha }}
+          DEVELOPER_VERSION_CODE: ${{ needs.resolve.outputs.candidate_version }}
+          DEVELOPER_VERSION_NAME: candidate.${{ needs.resolve.outputs.candidate_version }}
+          GRADLE_USER_HOME: ${{ runner.temp }}/candidate-gradle
         run: |
-          echo '::error::Select feature/jarvis-developer in the Run workflow branch menu. This registration stub cannot evaluate, sign, publish or install.'
-          exit 1
+          python3 scripts/check_ui_theme.py
+          bash ./gradlew --no-daemon --init-script ../controller/developer/tools/unsigned.init.gradle :developer:testDebugUnitTest :developer:lintDebug :developer:assembleRelease
+      - name: Check unchanged source and collect bounded fixed inputs
+        env:
+          CANDIDATE_SHA: ${{ needs.resolve.outputs.candidate_sha }}
+        run: python3 controller/developer/tools/candidate_audit.py collect-candidate --checkout candidate --directory "$RUNNER_TEMP/unsigned-candidate"
+      - uses: actions/upload-artifact@v4
+        id: upload
+        with:
+          name: Jarvis-Developer-unsigned-candidate-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/unsigned-candidate/candidate-unsigned.apk
+            ${{ runner.temp }}/unsigned-candidate/tests.json
+          if-no-files-found: error
+          retention-days: 14
+  recovery-build:
+    name: Build unsigned recovery
+    needs: resolve
+    # A fresh hosted runner, workspace and Gradle home are mandatory: candidate
+    # build code must never access the known-good recovery compilation or input.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.recovery_sha }}
+          path: recovery
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Compile pinned known-good source as a higher-version unsigned recovery
+        working-directory: recovery
+        env:
+          GITHUB_SHA: ${{ needs.resolve.outputs.recovery_sha }}
+          DEVELOPER_VERSION_CODE: ${{ needs.resolve.outputs.recovery_version }}
+          DEVELOPER_VERSION_NAME: recovery.${{ needs.resolve.outputs.recovery_version }}
+          GRADLE_USER_HOME: ${{ runner.temp }}/recovery-gradle
+        run: bash ./gradlew --no-daemon --init-script ../controller/developer/tools/unsigned.init.gradle :developer:assembleRelease
+      - name: Collect independently built recovery input
+        env:
+          RECOVERY_SHA: ${{ needs.resolve.outputs.recovery_sha }}
+        run: python3 controller/developer/tools/candidate_audit.py collect-recovery --checkout recovery --directory "$RUNNER_TEMP/unsigned-recovery"
+      - uses: actions/upload-artifact@v4
+        id: upload
+        with:
+          name: Jarvis-Developer-unsigned-recovery-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/unsigned-recovery/recovery-unsigned.apk
+          if-no-files-found: error
+          retention-days: 14
+  candidate-evaluation:
+    name: Record candidate evaluation
+    needs: [resolve, candidate-build, recovery-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # No candidate checkout, Gradle task, candidate script, cache, or executable
+      # artifact is allowed in this job. Only the trusted controller runs here.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Install fixed Android signing tools
+        run: sdkmanager 'build-tools;34.0.0'
+      - name: Independently verify bytes and sign build-only candidates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ needs.resolve.outputs.candidate_sha }}
+          CANDIDATE_BRANCH: ${{ needs.resolve.outputs.candidate_branch }}
+          RECOVERY_SHA: ${{ needs.resolve.outputs.recovery_sha }}
+          BASELINE_APK_SHA256: ${{ needs.resolve.outputs.baseline_apk_sha256 }}
+          CANDIDATE_VERSION: ${{ needs.resolve.outputs.candidate_version }}
+          RECOVERY_VERSION: ${{ needs.resolve.outputs.recovery_version }}
+          CANDIDATE_ARTIFACT_ID: ${{ needs.candidate-build.outputs.artifact_id }}
+          CANDIDATE_ARTIFACT_DIGEST: ${{ needs.candidate-build.outputs.artifact_digest }}
+          RECOVERY_ARTIFACT_ID: ${{ needs.recovery-build.outputs.artifact_id }}
+          RECOVERY_ARTIFACT_DIGEST: ${{ needs.recovery-build.outputs.artifact_digest }}
+          KEY_B64: ${{ secrets.JARVIS_SIGNING_KEY_B64 }}
+          STORE_PASS: ${{ secrets.JARVIS_SIGNING_STORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.JARVIS_SIGNING_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.JARVIS_SIGNING_KEY_ALIAS }}
+        run: python3 controller/developer/tools/candidate_audit.py sign --controller controller --directory "$RUNNER_TEMP/evaluation"
+      - name: Delete permanent key even after interrupted audit
+        if: always()
+        run: rm -f "$RUNNER_TEMP/evaluation/permanent-signing-key.jks"
+      - name: Retain signed candidate and higher-version recovery (no publication)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-build-only-evaluation-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/evaluation/candidate.apk
+            ${{ runner.temp }}/evaluation/recovery.apk
+            ${{ runner.temp }}/evaluation/candidate-evidence.json
+          if-no-files-found: error
+          retention-days: 14

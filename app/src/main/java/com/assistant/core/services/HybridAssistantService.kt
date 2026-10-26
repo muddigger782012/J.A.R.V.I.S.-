@@ -1283,6 +1283,7 @@ class HybridAssistantService(
                         DevelopmentCommands.Kind.PAUSE -> operations.control("task.pause.request")
                         DevelopmentCommands.Kind.RESUME -> operations.control("task.resume.request")
                         DevelopmentCommands.Kind.RETRY -> operations.control("task.retry.request")
+                        DevelopmentCommands.Kind.RETRY_PENDING -> operations.retryPending()
                     }
                 }.getOrElse(DeveloperBridgeOperations::failure)
                 callback(HybridAssistantReply(response))
