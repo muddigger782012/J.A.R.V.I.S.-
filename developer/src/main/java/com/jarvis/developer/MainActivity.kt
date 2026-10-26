@@ -787,9 +787,12 @@ class MainActivity : Activity() {
         )
         // Boundaries captured at attachment time are reliable even if section labels change.
         // Each existing view retains its original click listener and local state.
+        // The engineering modules were attached sequentially before moving the views.
+        // Their original child indices remain a stable partition after Projects views
+        // (which follow these modules) are removed.
         val groupBoundaries = listOf(
             codingStart, planningStart, repairStart, selfDevelopmentStart,
-            personalDiagnosticsStart, projectStartIndex
+            personalDiagnosticsStart
         ).map { it - advancedStart }
         val sectionGroups = sectionNames.map {
             LinearLayout(this).apply {
@@ -804,8 +807,7 @@ class MainActivity : Activity() {
                 index < groupBoundaries[2] -> 2
                 index < groupBoundaries[3] -> 3
                 index < groupBoundaries[4] -> 4
-                index < groupBoundaries[5] -> 6
-                else -> 5
+                else -> 6
             }
             sectionGroups[section].addView(child)
         }
