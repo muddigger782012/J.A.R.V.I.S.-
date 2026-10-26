@@ -140,7 +140,7 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
             .put("revision", job.getLong("revision")).put("at", now()))
     }
     internal fun progressAnalysis(lease: AnalysisLease, phase: String, elapsedMillis: Long): Boolean = checkpoint.transaction {
-        require(phase in setOf("SOURCE_READ", "PLANNING", "REPORT") && elapsedMillis in 0..600_000)
+        require(phase in setOf("INDEXING", "SOURCE_READ", "PLANNING", "REPORT") && elapsedMillis in 0..600_000)
         val jobs = load(); val job = jobs.singleOrNull { it.getString("id") == lease.jobId } ?: return@transaction false
         if (job.getString("state") != "RUNNING" || job.optString("lease") != lease.token) return@transaction false
         require(elapsedMillis >= job.optLong("phaseElapsedMillis"))

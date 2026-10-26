@@ -223,11 +223,12 @@ object RepositoryIntelligence {
             progress: (String) -> Unit = {}): Pair<RepositoryAnalysis.Inventory, RepositoryAnalysis.AnalysisPlan> {
             require(task.isNotBlank() && task.length <= 4_000) { "Task must contain 1–4,000 characters" }
             val inventory = inventory(token, branch, target)
-            progress("SOURCE_READ")
+            progress("INDEXING")
             val plan = RepositoryAnalysis.analyzeControlled(task, inventory, checkpoint = {
                 cancellation?.check()
                 check(nowMillis() - startedAt < MAX_SESSION_MILLIS) { "Repository analysis reached its session budget" }
-            }, onPlanning = { progress("PLANNING") }, readSource = { path -> readSource(token, inventory, path) })
+            }, onPlanning = { progress("PLANNING") }, readSource = { path -> readSource(token, inventory, path) },
+                beforeReading = { progress("SOURCE_READ") })
             val reason = stoppedReason
             return inventory to if (reason == null) plan else plan.copy(limitations = plan.limitations + reason)
         }

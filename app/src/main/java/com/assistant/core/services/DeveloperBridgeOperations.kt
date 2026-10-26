@@ -77,6 +77,7 @@ class DeveloperBridgeOperations(private val context: Context) {
     private fun render(value: JSONObject): String = "Task state: ${value.getString("state")}. " +
         "Attempt ${value.getInt("attempts")}." + when (value.optString("phase")) {
             "DISCOVERY" -> " Repository discovery started."
+            "INDEXING" -> " Source indexing started."
             "SOURCE_READ" -> " Source retrieval started."
             "PLANNING" -> " Source analysis started."
             "REPORT" -> " Source report preparation started."

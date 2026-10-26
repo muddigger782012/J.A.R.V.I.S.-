@@ -103,7 +103,7 @@ object RepositoryAnalysis {
         analyzeControlled(task, inventory, {}, {}, readSource)
 
     internal fun analyzeControlled(task: String, inventory: Inventory, checkpoint: () -> Unit,
-        onPlanning: () -> Unit, readSource: (String) -> String): AnalysisPlan {
+        onPlanning: () -> Unit, readSource: (String) -> String, beforeReading: () -> Unit = {}): AnalysisPlan {
         checkpoint()
         require(revision.matches(inventory.commitSha)) { "Analysis requires a full immutable commit SHA" }
         require(task.isNotBlank() && task.length <= 4_000) { "Task must contain 1–4,000 characters" }
@@ -125,10 +125,13 @@ object RepositoryAnalysis {
         var failed = 0
         val inspected = mutableListOf<String>()
         val documents = mutableListOf<Document>()
-        val candidates = inventory.files.sortedWith(
-            compareByDescending<SourceFile> { discoveryScore(it.path, query) }
-                .thenBy { sourcePriority(it.path) }.thenBy { it.path }
-        )
+        // Rank each path once. Comparator-driven tokenization repeats ICU regex work O(n log n)
+        // and can dominate the whole session on older Android runtimes.
+        val candidates = inventory.files.map { source ->
+            checkpoint(); Triple(source, discoveryScore(source.path, query), sourcePriority(source.path))
+        }.sortedWith(compareByDescending<Triple<SourceFile, Double, Int>> { it.second }
+            .thenBy { it.third }.thenBy { it.first.path }).map { it.first }
+        beforeReading()
         for (source in candidates) {
             checkpoint()
             if (source.size > MAX_FILE_BYTES) { oversized++; continue }
@@ -167,7 +170,9 @@ object RepositoryAnalysis {
             checkpoint()
             val matched = doc.terms.intersect(query.primary).sorted()
             val semantic = doc.terms.intersect(query.expanded).sorted()
-            val matchedSymbols = doc.symbols.sortedByDescending { symbol -> terms(symbol.name).count { it in query.primary || it in query.expanded } }.take(12)
+            val matchedSymbols = doc.symbols.map { symbol ->
+                symbol to terms(symbol.name).count { it in query.primary || it in query.expanded }
+            }.sortedByDescending { it.second }.take(12).map { it.first }
             val dependencies = dependencies(doc, documents, inventory.files, query, checkpoint)
             val reasons = mutableListOf<String>()
             if (matched.isNotEmpty()) reasons += "Source contains task terms: ${matched.take(10).joinToString()}."
@@ -371,12 +376,12 @@ object RepositoryAnalysis {
             }
         }
         // Android imports must not consume the whole budget before local source/resource edges.
-        return result.distinct().sortedWith(compareBy<Dependency> {
-            if (it.resolvedPaths.isNotEmpty()) 0 else if (it.status == "unresolved") 1 else 2
-        }.thenByDescending {
-            val concepts = terms(it.reference)
-            concepts.intersect(query.primary).size * 4 + concepts.intersect(query.expanded).size
-        }).take(40)
+        return result.distinct().map { dependency ->
+            val rank = if (dependency.resolvedPaths.isNotEmpty()) 0 else if (dependency.status == "unresolved") 1 else 2
+            val concepts = terms(dependency.reference)
+            Triple(dependency, rank, concepts.intersect(query.primary).size * 4 + concepts.intersect(query.expanded).size)
+        }.sortedWith(compareBy<Triple<Dependency, Int, Int>> { it.second }.thenByDescending { it.third })
+            .take(40).map { it.first }
     }
 
     private fun citations(doc: Document, query: Query, commit: String): List<Citation> {
