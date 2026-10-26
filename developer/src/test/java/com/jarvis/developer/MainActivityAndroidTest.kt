@@ -149,9 +149,13 @@ class MainActivityAndroidTest {
     private fun openTools(activity: Activity) {
         assertTrue(button(activity, "Tools").performClick())
         idleMain()
-        val expand = button(activity, "Show developer controls")
-        assertTrue(expand.performClick())
-        idleMain()
+        // The redesigned Tools screen exposes each security-gated group directly.
+        listOf("Connections and source browsing", "Code changes and review",
+            "Planning", "Testing and repair", "Self-development",
+            "Release verification", "Assistant diagnostics").forEach { section ->
+            assertTrue(button(activity, section).performClick())
+            idleMain()
+        }
     }
 
     private fun assertApprovalsUnavailable(activity: Activity) {
