@@ -149,7 +149,8 @@ object JarvisPackageInstaller {
         activity.startActivity(intent)
     }
     internal fun cancel(context: Context, request: DevelopmentArtifact.Installation) {
-        inbox(context).installationStatus(request, "CANCELLED")
+        require(inbox(context).installationRecord(request.job) == request)
+        inbox(context).cancelInstallationTracking(request)
         abandon(context, request)
     }
     internal fun abandon(context: Context, request: DevelopmentArtifact.Installation) {

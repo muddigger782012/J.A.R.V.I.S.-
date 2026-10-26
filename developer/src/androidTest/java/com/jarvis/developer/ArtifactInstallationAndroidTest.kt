@@ -35,7 +35,7 @@ class ArtifactInstallationAndroidTest {
     @Suppress("DEPRECATION")
     private fun fixture(): Pair<String, DevelopmentArtifact.Record> {
         val queue = JarvisPackageInstaller.inbox(context)
-        val request = Wire.Request(UUID.randomUUID().toString(), "source.personal.analysis.request", "Inspect the APK installer acceptance fixture without source writes")
+        val request = Wire.Request(UUID.randomUUID().toString(), "source.personal.analysis.request", "Improve conversation tone")
         val job = queue.handle("com.assistant.core", true, request).getString("id")
         val path = "app/src/main/java/com/assistant/core/services/ConversationTone.kt"
         val text = "package com.assistant.core.services\nobject ConversationTone { val enabled = false }\n"
@@ -66,7 +66,12 @@ class ArtifactInstallationAndroidTest {
             if (Build.VERSION.SDK_INT >= 28) installed.longVersionCode else installed.versionCode.toLong(), installed.versionName!!,
             DevelopmentArtifactInspection.verifiedSigners(actual, Build.VERSION.SDK_INT).single(), "debug")
         val destination = DevelopmentArtifactFiles(context.cacheDir).apk(hash)
-        if (!destination.exists()) actual.copyTo(destination)
+        val staging = DevelopmentArtifactFiles(context.cacheDir).temporaryApk()
+        try {
+            actual.copyTo(staging, overwrite = true)
+            DevelopmentArtifactInspection.inspect(context, staging, record)
+            if (!destination.exists()) check(staging.renameTo(destination))
+        } finally { staging.delete() }
         DevelopmentArtifactInspection.inspect(context, destination, record)
         check(queue.recordArtifact(source, record))
         return job to record
@@ -136,6 +141,9 @@ class ArtifactInstallationAndroidTest {
         val installer = context.packageManager.packageInstaller
         val id = installer.createSession(PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply { setAppPackageName(record.packageName) })
         val request = queue.bindInstallation(initial, id)
+        // Matching bytes already installed must not complete an owned live reinstall session.
+        JarvisPackageInstaller.recover(context)
+        assertEquals("OUTCOME_UNKNOWN", status(job).getJSONObject("artifact").getString("installation"))
         JarvisPackageInstaller.cancel(context, request)
         assertNull(installer.getSessionInfo(id))
         JarvisPackageInstaller.receive(context, Intent().setData(Uri.parse("jarvis-job-install://callback/${request.nonce}"))

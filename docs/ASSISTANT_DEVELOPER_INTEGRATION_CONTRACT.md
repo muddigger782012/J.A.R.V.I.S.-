@@ -23,6 +23,14 @@ package observation; `DEVICE_INSTALLED` remains blocked until separate acceptanc
 evidence is implemented. No source scope, mode, APK receipt or installer callback
 grants merge, signing, publication, root or accessibility authority.
 
+The v1 checkpoint keeps the previous release's last-two-stage values compatible;
+newer versions derive APK and installation stages from typed evidence extensions.
+If an older version updates its build evidence, an unmatched artifact becomes
+stale and cannot authorize installation. APK identity, version, signing class and
+workflow are retained in approval/result audit entries. Explicit legacy recovery
+builds whose source predates the provenance adapter retain the existing verified
+release path without claiming a new job artifact receipt.
+
 ## Phase A implementation under verification
 
 The isolated integration branch implements a shared primitive Binder protocol in `integration/src/main/kotlin`. Both apps compile the same source. Developer's exported service requires its signature permission **and** verifies the actual calling UID against exactly one known Assistant package and Android's signing records. The client checks the installed Developer identity before and after explicit binding, then negotiates the protocol, requested operation and mode on the authenticated connection. No caller identity, approval or completion evidence can be supplied in a request.

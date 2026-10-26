@@ -60,6 +60,42 @@ class DevelopmentEngineeringTest {
     }
     private fun apk(source: DevelopmentArtifact.Source) = DevelopmentArtifact.Record(source.commit, 42, 1, 99,
         "a".repeat(64), "b".repeat(64), 100, "com.jarvis.developer", 17, "0.1.17", "c".repeat(64), "production")
+    private fun legacyPayload(): JSONArray = JSONArray(JSONObject(PrivateCheckpointFile(directory.root,
+        "development-inbox.bin", 32, 1_048_576).read()!!.toString(Charsets.UTF_8)).getString("payload"))
+    private fun assertLegacyStages() {
+        val rows = legacyPayload()
+        for (i in 0 until rows.length()) for (stage in listOf("SIGNED_APK", "DEVICE_INSTALLED"))
+            assertTrue("Previous Developer versions require compatible checkpoint stages", rows.getJSONObject(i)
+                .getJSONObject("verification").getString(stage) in setOf("PENDING", "BLOCKED"))
+    }
+    @Test fun apkAndInstallerEvidenceRemainReadableByThePreviousCheckpointContract() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        assertLegacyStages()
+        assertEquals("PASSED", status(source.job).getJSONObject("verification").getString("SIGNED_APK"))
+        val request = inbox().beginInstallation(source.job, status(source.job).getLong("revision"), apk(source).apkSha256, true)
+        val bound = inbox().bindInstallation(request, 17); assertTrue(inbox().submitInstallation(bound))
+        assertLegacyStages()
+        assertEquals("RUNNING", status(source.job).getJSONObject("verification").getString("DEVICE_INSTALLED"))
+        assertTrue(inbox().installationStatus(bound, "FAILED", 7)); assertLegacyStages()
+        assertEquals("FAILED", status(source.job).getJSONObject("verification").getString("DEVICE_INSTALLED"))
+    }
+    @Test fun anOlderBuildUpdatingItsOwnCiEvidenceCannotTurnAStaleApkIntoInstallationApproval() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        val payload = legacyPayload()
+        // Older Developer retains unknown extension fields while updating its known build fields.
+        payload.getJSONObject(0).getJSONObject("engineering").getJSONObject("build").put("fingerprint", "f".repeat(64))
+        val raw = payload.toString()
+        val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
+        PrivateCheckpointFile(directory.root, "development-inbox.bin", 32, 1_048_576).write(JSONObject().put("version", 1)
+            .put("digest", digest).put("payload", raw).toString().toByteArray())
+        val snapshot = status(source.job)
+        assertEquals("BLOCKED", snapshot.getJSONObject("verification").getString("SIGNED_APK"))
+        assertTrue(snapshot.getJSONObject("artifact").getBoolean("stale"))
+        assertThrows(IllegalArgumentException::class.java) {
+            inbox().beginInstallation(source.job, snapshot.getLong("revision"), apk(source).apkSha256, true)
+        }
+        assertLegacyStages()
+    }
     @Test fun verifiedArtifactIsBoundToTheJobButCannotRestoreAnInstallationApproval() {
         val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
         val state = status(source.job)

@@ -133,7 +133,13 @@ jobs:
         # Provenance is metadata for an already authorized build, not a signing or publication grant.
         env:
           JARVIS_ARTIFACT_SOURCE: ${{ steps.recovery.outputs.sha || github.sha }}
-        run: python3 scripts/job_apk_evidence.py --directory "$RUNNER_TEMP/developer-job-artifact" --target DEVELOPER --signing production
+          JARVIS_JOB_RECOVERY_SOURCE: ${{ steps.recovery.outputs.sha }}
+        run: |
+          if [ -n "$JARVIS_JOB_RECOVERY_SOURCE" ] && [ ! -f scripts/job_apk_evidence.py ]; then
+            echo '::notice::Legacy recovery source predates job APK provenance. Preserve its existing verified release path; do not claim a job artifact receipt.'
+          else
+            python3 scripts/job_apk_evidence.py --directory "$RUNNER_TEMP/developer-job-artifact" --target DEVELOPER --signing production
+          fi
       - name: Upload signed release candidate artifact
         uses: actions/upload-artifact@v4
         with:

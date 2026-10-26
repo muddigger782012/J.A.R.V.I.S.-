@@ -95,6 +95,7 @@ class DeveloperBridgeOperations(private val context: Context) {
         (if (value.optString("problem") == "ENGINEERING_EVIDENCE_UNAVAILABLE") "\nBuild or test evidence remains unverified. Check repository access and the read budget in Developer. No additional source write was authorized." else "") +
         (if (value.optString("problem") == "SOURCE_ANALYSIS_INTERNAL") "\nDeveloper's source inspection encountered an internal failure. Review its diagnostic category before an explicit retry; no repair or build was completed." else "") +
         (value.optJSONObject("artifact")?.let { artifact -> "\nAPK inspection: " +
+            (if (artifact.optBoolean("stale")) "Earlier artifact; inspect the current verified build in Developer before another installation request. " else "") +
             (if (artifact.has("versionCode")) "${artifact.getString("packageName")} version ${artifact.getLong("versionCode")}, ${artifact.getString("signing")} signing. " else "No verified APK recorded. ") +
             when (artifact.optString("installation")) {
                 "PACKAGE_PRESENT" -> "The installed package matches the requested APK. Device acceptance remains unverified."

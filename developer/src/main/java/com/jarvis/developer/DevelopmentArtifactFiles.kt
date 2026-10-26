@@ -16,6 +16,7 @@ internal class DevelopmentArtifactFiles(cache: File) {
         return folder
     }
     fun temporary(): File = File.createTempFile("read-", ".part", root)
+    fun temporaryApk(): File = File.createTempFile("read-", ".apk", root)
     fun apk(digest: String): File {
         require(digest.matches(Regex("[a-f0-9]{64}")))
         return File(root, "$digest.apk").also {

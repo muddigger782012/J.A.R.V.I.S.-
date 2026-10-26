@@ -43,11 +43,12 @@ internal object DevelopmentArtifact {
         require(source.commit.matches(Regex("[a-f0-9]{40}")) && BuildDiagnostics.validBranch(source.branch, source.target))
         require(source.buildRun > 0 && source.buildAttempt > 0 && source.buildFingerprint.matches(Regex("[a-f0-9]{64}")))
     }
-    enum class Problem { PROVENANCE, NETWORK, LIMIT, CANCELLED, SIGNATURE, COMPATIBILITY, STORAGE, INSTALLATION }
+    enum class Problem { PROVENANCE, NETWORK, ACCESS, LIMIT, CANCELLED, SIGNATURE, COMPATIBILITY, STORAGE, INSTALLATION }
     class Failure(val problem: Problem) : IllegalStateException(problem.name)
     fun explain(failure: Throwable): String = when ((failure as? Failure)?.problem) {
         Problem.PROVENANCE -> "This APK could not be linked to the approved source and workflow. Use a retained build with current APK provenance; no installation was authorized."
         Problem.NETWORK -> "APK evidence could not be downloaded. Check GitHub access and connectivity, then explicitly retry."
+        Problem.ACCESS -> "GitHub denied this artifact read. Check Actions read access, the current account or credential, and GitHub request limits before explicitly retrying."
         Problem.LIMIT -> "This artifact exceeds the supported size, format or time limits. No installation was authorized."
         Problem.CANCELLED -> "Artifact inspection was cancelled. No installation was requested."
         Problem.SIGNATURE -> "The APK signature is invalid or differs from the existing Jarvis signing identity. Keep the installed application and check the selected build."

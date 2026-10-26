@@ -48,10 +48,14 @@ internal class DevelopmentArtifactDownload(
         return count
     }
     private fun json(url: String, token: String): JSONObject = request(url, token).use { response ->
-        require(response.status == 200)
+        requireStatus(response.status, 200)
         val output = java.io.ByteArrayOutputStream()
         copy(response, output, 256 * 1024)
         boundedJson(output.toByteArray())
+    }
+    private fun requireStatus(status: Int, vararg allowed: Int) {
+        if (status !in allowed) throw DevelopmentArtifact.Failure(if (status in setOf(401, 403))
+            DevelopmentArtifact.Problem.ACCESS else DevelopmentArtifact.Problem.NETWORK)
     }
     fun read(source: DevelopmentArtifact.Source, runId: Long, token: String, supportedAbis: List<String>): DevelopmentArtifact.Record {
         DevelopmentArtifact.validateSource(source)
@@ -85,12 +89,13 @@ internal class DevelopmentArtifactDownload(
             val digest = artifact.getString("digest").also { require(it.matches(Regex("sha256:[a-f0-9]{64}"))) }.removePrefix("sha256:")
             val size = artifact.getLong("size_in_bytes"); require(size in 1..DevelopmentArtifact.MAX_ARCHIVE)
             request("$api/actions/artifacts/$id/zip", token).use { first ->
+                requireStatus(first.status, 200, 302)
                 if (first.status == 200) archive.outputStream().use { require(copy(first, it, size) == size) }
                 else {
                     require(first.status == 302)
                     val location = requireNotNull(first.location); BuildFeedback.requireStorageUrl(location)
                     request(location, null).use { data ->
-                        require(data.status == 200)
+                        requireStatus(data.status, 200)
                         archive.outputStream().use { require(copy(data, it, size) == size) }
                     }
                 }
@@ -141,7 +146,7 @@ internal class DevelopmentArtifactDownload(
         DevelopmentArtifact.validate(record)
         require(record.packageName == DevelopmentArtifact.packageName(source.target))
         val entry = requireNotNull(zip.getEntry(candidate.getString("file"))); require(entry.size == record.bytes)
-        val temporary = files.temporary()
+        val temporary = files.temporaryApk()
         try {
             val hash = MessageDigest.getInstance("SHA-256")
             zip.getInputStream(entry).use { input -> temporary.outputStream().use { output ->

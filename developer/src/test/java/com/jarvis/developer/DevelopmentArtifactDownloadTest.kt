@@ -47,8 +47,10 @@ class DevelopmentArtifactDownloadTest {
         var redirect = storage
         var actualAttempt = 1
         var truncated = false
+        var denied = false
         override fun get(url: String, token: String?, timeoutMillis: Long): BuildFeedback.Response {
             calls += url to token
+            if (denied) return BuildFeedback.Response(403, 0, url, ByteArrayInputStream(byteArrayOf()))
             val body = when (url) {
                 "$api/actions/runs/42" -> JSONObject().put("id", 42).put("head_sha", if (wrongSource) "d".repeat(40) else commit)
                     .put("head_branch", if (wrongBranch) "main" else branch).put("status", "completed").put("conclusion", "success")
@@ -137,5 +139,15 @@ class DevelopmentArtifactDownloadTest {
         }
         assertEquals(DevelopmentArtifact.Problem.SIGNATURE, failure.problem)
         assertFalse(DevelopmentArtifactFiles(folder).root.listFiles()!!.any { it.extension == "apk" })
+    }
+    @Test fun artifactAccessDenialIsNotMisreportedAsAnUnsupportedSourceOrSuccessfulDownload() {
+        val remote = Remote(archive(manifest())).apply { denied = true }
+        val failure = assertThrows(DevelopmentArtifact.Failure::class.java) {
+            DevelopmentArtifactDownload(remote, DevelopmentArtifactFiles(temp.root), { _, _ -> fail() })
+                .read(source, 42, "explicit-test-token", listOf("x86_64"))
+        }
+        assertEquals(DevelopmentArtifact.Problem.ACCESS, failure.problem)
+        assertTrue(DevelopmentArtifact.explain(failure).contains("Actions read access"))
+        assertEquals(1, remote.calls.size)
     }
 }

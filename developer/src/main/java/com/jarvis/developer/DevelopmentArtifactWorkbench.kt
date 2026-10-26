@@ -27,7 +27,7 @@ internal object DevelopmentArtifactWorkbench {
         val status = label("APK inspection is read only. An installation needs a separate owner request and Android confirmation.")
         val summary = job.optJSONObject("artifact")
         if (summary?.has("versionCode") == true) parent.addView(label(
-            "Inspected APK: ${summary.getString("packageName")} · ${RepositoryRedaction.line(summary.getString("versionName"))} " +
+            "${if (summary.optBoolean("stale")) "Previous APK — inspect current build again" else "Inspected APK"}: ${summary.getString("packageName")} · ${RepositoryRedaction.line(summary.getString("versionName"))} " +
                 "(${summary.getLong("versionCode")}) · ${summary.getString("signing")} signing.\n" +
                 "Android installation: ${summary.optString("installation").ifEmpty { "not requested" }}. Device acceptance is still separate.\n" +
                 Wire.installationDiagnostic(summary.optInt("androidStatus", Int.MIN_VALUE))))
