@@ -264,13 +264,18 @@ class MainActivity : Activity() {
                 snapshot to RepositoryAnalysis.render(plan)
             }
         }
+        val codingStart = root.childCount
         val patchWorkbench = PatchWorkbench.attach(this, root, prompt, key, provider, model, githubToken, output, status) {
             health.getInt("confirmed_version", -1) == currentCode
         }
         patchPreview = patchWorkbench
+        val planningStart = root.childCount
         TaskPlanningWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        val repairStart = root.childCount
         RepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        val selfDevelopmentStart = root.childCount
         SelfDevelopmentWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        val personalDiagnosticsStart = root.childCount
         PersonalRepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         val projectStartIndex = root.childCount
         applicationWorkbench = ApplicationApprovalWorkbench.attach(this, root)
@@ -780,27 +785,29 @@ class MainActivity : Activity() {
             "Release verification",
             "Assistant diagnostics"
         )
-        val sectionMarkers = listOf(
-            "Scoped coding engine" to 1,
-            "Task planning" to 2,
-            "Testing and debugging" to 3,
-            "Controlled self-development" to 4,
-            "Trusted evaluation" to 5,
-            "Personal Jarvis diagnostic" to 6
-        )
+        // Boundaries captured at attachment time are reliable even if section labels change.
+        // Each existing view retains its original click listener and local state.
+        val groupBoundaries = listOf(
+            codingStart, planningStart, repairStart, selfDevelopmentStart,
+            personalDiagnosticsStart, projectStartIndex
+        ).map { it - advancedStart }
         val sectionGroups = sectionNames.map {
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 visibility = View.GONE
             }
         }
-        var sectionIndex = 0
-        advancedChildren.forEach { child ->
-            val heading = (child as? TextView)?.text?.toString().orEmpty()
-            sectionMarkers.firstOrNull { heading.startsWith(it.first, ignoreCase = true) }?.let {
-                sectionIndex = it.second
+        advancedChildren.forEachIndexed { index, child ->
+            val section = when {
+                index < groupBoundaries[0] -> 0
+                index < groupBoundaries[1] -> 1
+                index < groupBoundaries[2] -> 2
+                index < groupBoundaries[3] -> 3
+                index < groupBoundaries[4] -> 4
+                index < groupBoundaries[5] -> 6
+                else -> 5
             }
-            sectionGroups[sectionIndex].addView(child)
+            sectionGroups[section].addView(child)
         }
         var openSection = -1
         val sectionButtons = mutableListOf<Button>()
