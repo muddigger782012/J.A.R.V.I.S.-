@@ -45,6 +45,12 @@ class EngineeringJobAndroidTest {
         val job = UUID.randomUUID().toString()
         try {
             assertEquals("", DevelopmentEngineeringCredentials.token(job))
+            assertThrows(IllegalArgumentException::class.java) {
+                DevelopmentEngineeringCredentials.remember("", "invalid-job")
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                DevelopmentEngineeringCredentials.remember("bad\\njob", "invalid-job")
+            }
             DevelopmentEngineeringCredentials.remember(job, "temporary-github-token")
             assertEquals("temporary-github-token", DevelopmentEngineeringCredentials.token(job))
             assertThrows(IllegalArgumentException::class.java) {
