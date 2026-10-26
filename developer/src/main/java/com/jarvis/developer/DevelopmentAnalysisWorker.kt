@@ -17,7 +17,7 @@ class DevelopmentAnalysisWorker(context: Context, parameters: WorkerParameters) 
     private val cancellation = PatchPreviewCancellation()
     override fun doWork(): Result {
         val jobId = inputData.getString("job") ?: return Result.failure()
-        val inbox = DevelopmentJobInbox(File(applicationContext.noBackupFilesDir, "development-inbox"))
+        val inbox = DevelopmentJobInbox(File(applicationContext.noBackupFilesDir.canonicalFile, "development-inbox"))
         val lease = runCatching { inbox.claimAnalysis(jobId, Wire.personalPackage(applicationContext.packageName)) }
             .getOrNull() ?: return Result.failure()
         return try {
@@ -46,7 +46,7 @@ internal object DevelopmentAnalysisScheduler {
         }
     }
     fun recover(context: Context) {
-        val inbox = DevelopmentJobInbox(File(context.noBackupFilesDir, "development-inbox"))
+        val inbox = DevelopmentJobInbox(File(context.noBackupFilesDir.canonicalFile, "development-inbox"))
         val manager = WorkManager.getInstance(context)
         inbox.recoverableAnalysisJobs().forEach { job ->
             val work = OneTimeWorkRequestBuilder<DevelopmentAnalysisWorker>()

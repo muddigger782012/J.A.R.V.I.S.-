@@ -116,8 +116,8 @@ object RepositoryIntelligence {
     internal class Reader(
         private val transport: GetTransport,
         private val cancellation: PatchPreviewCancellation? = null,
-        private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
-        private val requestLimit: Int = MAX_SESSION_REQUESTS
+        private val requestLimit: Int = MAX_SESSION_REQUESTS,
+        private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 }
     ) {
         init { require(requestLimit in 4..MAX_SESSION_REQUESTS) }
         private val startedAt = nowMillis()
