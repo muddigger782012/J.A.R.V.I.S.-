@@ -159,7 +159,7 @@ object RepositoryAnalysis {
             val matched = doc.terms.intersect(query.primary).sorted()
             val semantic = doc.terms.intersect(query.expanded).sorted()
             val matchedSymbols = doc.symbols.sortedByDescending { symbol -> terms(symbol.name).count { it in query.primary || it in query.expanded } }.take(12)
-            val dependencies = dependencies(doc, documents, inventory.files)
+            val dependencies = dependencies(doc, documents, inventory.files, query)
             val reasons = mutableListOf<String>()
             if (matched.isNotEmpty()) reasons += "Source contains task terms: ${matched.take(10).joinToString()}."
             if (semantic.isNotEmpty()) reasons += "Related source concepts: ${semantic.take(8).joinToString()}."
@@ -285,7 +285,7 @@ object RepositoryAnalysis {
         return raw * multiplier
     }
 
-    private fun dependencies(doc: Document, documents: List<Document>, inventory: List<SourceFile>): List<Dependency> {
+    private fun dependencies(doc: Document, documents: List<Document>, inventory: List<SourceFile>, query: Query): List<Dependency> {
         val result = mutableListOf<Dependency>()
         fun add(reference: String, kind: String, paths: List<String>, external: Boolean = false) {
             val unique = paths.distinct().sorted()
@@ -351,7 +351,12 @@ object RepositoryAnalysis {
             }
         }
         // Android imports must not consume the whole budget before local source/resource edges.
-        return result.distinct().sortedBy { if (it.resolvedPaths.isNotEmpty()) 0 else if (it.status == "unresolved") 1 else 2 }.take(40)
+        return result.distinct().sortedWith(compareBy<Dependency> {
+            if (it.resolvedPaths.isNotEmpty()) 0 else if (it.status == "unresolved") 1 else 2
+        }.thenByDescending {
+            val concepts = terms(it.reference)
+            concepts.intersect(query.primary).size * 4 + concepts.intersect(query.expanded).size
+        }).take(40)
     }
 
     private fun citations(doc: Document, query: Query, commit: String): List<Citation> {

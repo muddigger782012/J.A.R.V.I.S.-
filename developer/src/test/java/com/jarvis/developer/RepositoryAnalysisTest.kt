@@ -7,6 +7,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RepositoryAnalysisTest {
+    @Test fun relevantQualifiedDependenciesSurviveTheBoundedListOfEarlierImports() {
+        val sources = linkedMapOf<String, String>()
+        val controller = "app/src/main/java/example/Controller.kt"
+        val store = "app/src/main/java/other/MessageStore.kt"
+        repeat(45) { index -> sources["app/src/main/java/other/Helper$index.kt"] = "package other\nclass Helper$index" }
+        sources[store] = "package other\nobject MessageStore { fun read() = 1 }"
+        sources[controller] = "package example\n" + (0 until 45).joinToString("\n") { "import other.Helper$it" } +
+            "\nclass Controller { fun conversation() = other.MessageStore.read() }"
+        val files = sources.map { (path, text) ->
+            val bytes = text.toByteArray()
+            val hash = MessageDigest.getInstance("SHA-1").digest("blob ${bytes.size}\u0000".toByteArray() + bytes)
+                .joinToString("") { "%02x".format(it.toInt() and 255) }
+            SourceFile(path, hash, bytes.size.toLong())
+        }
+        val plan = RepositoryAnalysis.analyze("Controller conversation message", Inventory(files, false, "a".repeat(40)), sources::getValue)
+        val file = plan.files.single { it.path == controller }
+        assertEquals(40, file.dependencies.size)
+        assertTrue(file.dependencies.any { store in it.resolvedPaths })
+    }
     @Test fun fullyQualifiedCallsResolveWithoutAnImportButQuotedExamplesDoNotCreateEdges() {
         val path = "app/src/main/java/example/Controller.kt"
         val dependency = "app/src/main/java/other/MessageStore.kt"
