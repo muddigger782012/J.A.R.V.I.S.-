@@ -148,7 +148,8 @@ class ArtifactInstallationAndroidTest {
         JarvisPackageInstaller.recover(context)
         assertEquals("OUTCOME_UNKNOWN", status(job).getJSONObject("artifact").getString("installation"))
         JarvisPackageInstaller.cancel(context, request)
-        assertNull(installer.getSessionInfo(id))
+        assertEquals("CANCELLED", status(job).getJSONObject("artifact").getString("installation"))
+        await("Android did not finish abandoning the owned session", 5) { installer.getSessionInfo(id) == null }
         JarvisPackageInstaller.receive(context, Intent().setData(Uri.parse("jarvis-job-install://callback/${request.nonce}"))
             .putExtra(PackageInstaller.EXTRA_SESSION_ID, id).putExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_SUCCESS))
         JarvisPackageInstaller.recover(context)
