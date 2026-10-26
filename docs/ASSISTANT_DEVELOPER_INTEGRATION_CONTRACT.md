@@ -31,6 +31,10 @@ workflow are retained in approval/result audit entries. Explicit legacy recovery
 builds whose source predates the provenance adapter retain the existing verified
 release path without claiming a new job artifact receipt.
 
+Personal job provenance uses `Jarvis-personal-job-APK`. The existing updater still
+receives `Jarvis-release-APK` containing exactly its three signed APKs. Its strict
+input inventory, signing, checksum and publication checks remain unchanged.
+
 ## Phase A implementation under verification
 
 The isolated integration branch implements a shared primitive Binder protocol in `integration/src/main/kotlin`. Both apps compile the same source. Developer's exported service requires its signature permission **and** verifies the actual calling UID against exactly one known Assistant package and Android's signing records. The client checks the installed Developer identity before and after explicit binding, then negotiates the protocol, requested operation and mode on the authenticated connection. No caller identity, approval or completion evidence can be supplied in a request.

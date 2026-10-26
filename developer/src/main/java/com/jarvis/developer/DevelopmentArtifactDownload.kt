@@ -73,7 +73,7 @@ internal class DevelopmentArtifactDownload(
             val artifactName = when {
                 source.target == PatchEngine.Target.DEVELOPER && workflow == ".github/workflows/build-jarvis-developer.yml" -> "Jarvis-Developer-debug-APK"
                 source.target == PatchEngine.Target.DEVELOPER && workflow == ".github/workflows/release-jarvis-developer.yml" -> "Jarvis-Developer-signed-release-candidate"
-                source.target == PatchEngine.Target.PERSONAL && workflow == ".github/workflows/build-jarvis.yml" -> "Jarvis-release-APK"
+                source.target == PatchEngine.Target.PERSONAL && workflow == ".github/workflows/build-jarvis.yml" -> "Jarvis-personal-job-APK"
                 else -> error("Unsupported build workflow")
             }
             val attempt = run.getInt("run_attempt"); require(attempt in 1..1_000_000)

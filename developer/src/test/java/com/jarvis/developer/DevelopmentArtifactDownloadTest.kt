@@ -31,14 +31,14 @@ class DevelopmentArtifactDownloadTest {
     private fun archive(manifest: JSONObject, extra: Boolean = false): ByteArray {
         val output = ByteArrayOutputStream()
         ZipOutputStream(output).use { zip ->
-            for ((name, data) in listOf("development-artifact.json" to manifest.toString().toByteArray(), "developer-debug.apk" to bytes) +
+            for ((name, data) in listOf("development-artifact.json" to manifest.toString().toByteArray(), manifest.getJSONArray("apks").getJSONObject(0).getString("file") to bytes) +
                 if (extra) listOf("../escape.apk" to bytes) else emptyList()) {
                 zip.putNextEntry(ZipEntry(name)); zip.write(data); zip.closeEntry()
             }
         }
         return output.toByteArray()
     }
-    private inner class Remote(val zip: ByteArray) : BuildFeedback.Transport {
+    private inner class Remote(val zip: ByteArray, val personal: Boolean = false) : BuildFeedback.Transport {
         val calls = mutableListOf<Pair<String, String?>>()
         var wrongSource = false
         var wrongBranch = false
@@ -53,12 +53,12 @@ class DevelopmentArtifactDownloadTest {
             if (denied) return BuildFeedback.Response(403, 0, url, ByteArrayInputStream(byteArrayOf()))
             val body = when (url) {
                 "$api/actions/runs/42" -> JSONObject().put("id", 42).put("head_sha", if (wrongSource) "d".repeat(40) else commit)
-                    .put("head_branch", if (wrongBranch) "main" else branch).put("status", "completed").put("conclusion", "success")
-                    .put("event", "push").put("run_attempt", actualAttempt).put("path", ".github/workflows/build-jarvis-developer.yml")
+                    .put("head_branch", if (wrongBranch) "main" else if (personal) "feature/jarvis-personal-repair/artifact-test-aaaaaaaaaaaa" else branch).put("status", "completed").put("conclusion", "success")
+                    .put("event", "push").put("run_attempt", actualAttempt).put("path", if (personal) ".github/workflows/build-jarvis.yml" else ".github/workflows/build-jarvis-developer.yml")
                     .put("repository", JSONObject().put("full_name", "muddigger782012/J.A.R.V.I.S.-"))
                     .put("head_repository", JSONObject().put("full_name", "muddigger782012/J.A.R.V.I.S.-")).toString().toByteArray()
                 "$api/actions/runs/42/artifacts?per_page=30" -> JSONObject().put("total_count", 1)
-                    .put("artifacts", JSONArray().put(JSONObject().put("id", 99).put("name", "Jarvis-Developer-debug-APK")
+                    .put("artifacts", JSONArray().put(JSONObject().put("id", 99).put("name", if (personal) "Jarvis-personal-job-APK" else "Jarvis-Developer-debug-APK")
                         .put("expired", expired).put("size_in_bytes", zip.size).put("digest", "sha256:" + if (wrongDigest) "0".repeat(64) else hash(zip))
                         .put("workflow_run", JSONObject().put("id", 42).put("head_sha", commit)))).toString().toByteArray()
                 "$api/actions/artifacts/99/zip" -> return BuildFeedback.Response(302, 0, url, ByteArrayInputStream(byteArrayOf()), redirect)
@@ -79,6 +79,18 @@ class DevelopmentArtifactDownloadTest {
         assertTrue(remote.calls.filter { it.first.startsWith(api) }.all { it.second == "explicit-test-token" })
         assertNull(remote.calls.single { it.first == storage }.second)
         assertFalse(files.root.listFiles()!!.any { it.extension == "part" })
+    }
+    @Test fun personalJobUsesTheProvenanceBundleWhileTheUpdaterKeepsItsOwnApkOnlyArtifact() {
+        val m = manifest().put("target", "PERSONAL").put("signing", "production")
+        m.getJSONArray("apks").getJSONObject(0).put("file", "app-x86_64-release.apk").put("packageName", "com.assistant.core")
+            .put("versionCode", 600).put("versionName", "3.6.600")
+        val personalSource = source.copy(target = PatchEngine.Target.PERSONAL,
+            branch = "feature/jarvis-personal-repair/artifact-test-aaaaaaaaaaaa")
+        val result = DevelopmentArtifactDownload(Remote(archive(m), personal = true), DevelopmentArtifactFiles(temp.root), { _, record ->
+            assertEquals("com.assistant.core", record.packageName)
+        }).read(personalSource, 42, "explicit-test-token", listOf("x86_64"))
+        assertEquals("production", result.signing)
+        assertEquals(600L, result.versionCode)
     }
     @Test fun changedSourceBranchExpiredDigestAndTruncatedPayloadNeverReachTheInspector() {
         for (problem in listOf("source", "branch", "expired", "digest", "truncated")) {

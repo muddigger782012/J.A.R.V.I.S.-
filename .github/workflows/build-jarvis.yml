@@ -185,15 +185,20 @@ jobs:
           if-no-files-found: error
       - name: Bind Personal APK source provenance
         if: steps.signing.outputs.configured == 'true'
-        run: python3 scripts/job_apk_evidence.py --directory app/build/outputs/apk/release --target PERSONAL --signing production
+        run: python3 scripts/job_apk_evidence.py --directory personal-apks --target PERSONAL --signing production
       - name: Upload APK artifact
         if: steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Jarvis-release-APK
-          path: |
-            app/build/outputs/apk/release/*.apk
-            app/build/outputs/apk/release/development-artifact.json
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+      - name: Upload separate Personal job APK provenance bundle
+        if: steps.signing.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-personal-job-APK
+          path: personal-apks/
           if-no-files-found: error
       - name: Upload Beta APK artifact
         if: steps.signing.outputs.configured == 'true' && github.ref == 'refs/heads/main'
