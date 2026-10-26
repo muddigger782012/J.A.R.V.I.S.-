@@ -50,7 +50,7 @@ object DevelopmentInboxWorkbench {
         fun refresh() {
             panel.removeAllViews(); panel.addView(label("Assistant development reviews — checking private queue"))
             thread(name = "developer-inbox-read", isDaemon = true) {
-                val inbox = DevelopmentJobInbox(java.io.File(activity.noBackupFilesDir, "development-inbox"))
+                val inbox = DevelopmentJobInbox(java.io.File(activity.noBackupFilesDir.canonicalFile, "development-inbox"))
                 val result = runCatching { inbox.localSnapshot() to inbox.pendingReviews().toMap() }
                 activity.runOnUiThread {
                     if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread

@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 import com.jarvis.integration.DevelopmentBridgeContract as Wire
 import java.util.concurrent.ThreadPoolExecutor
-import java.util.concurrent.SynchronousQueue
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.RejectedExecutionException
@@ -26,8 +26,8 @@ class DevelopmentBridgeClient(context: Context) {
         val future = try { worker.submit<JSONObject> { requestBound(value) } }
             catch (_: RejectedExecutionException) { throw Wire.Rejected("BUSY") }
         return try { future.get(4500, TimeUnit.MILLISECONDS) }
-        catch (_: TimeoutException) { future.cancel(true); throw Wire.Rejected("TIMEOUT") }
-        catch (_: InterruptedException) { future.cancel(true); Thread.currentThread().interrupt(); throw Wire.Rejected("CANCELLED") }
+        catch (_: TimeoutException) { future.cancel(true); worker.purge(); throw Wire.Rejected("TIMEOUT") }
+        catch (_: InterruptedException) { future.cancel(true); worker.purge(); Thread.currentThread().interrupt(); throw Wire.Rejected("CANCELLED") }
         catch (failure: ExecutionException) { throw (failure.cause as? Wire.Rejected ?: Wire.Rejected("COMPANION_UNAVAILABLE")) }
     }
     private fun requestBound(value: Wire.Request): JSONObject {
@@ -70,7 +70,9 @@ class DevelopmentBridgeClient(context: Context) {
         } finally { if (bound) runCatching { context.unbindService(connection) } }
     }
     companion object {
-        private val worker = ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, SynchronousQueue<Runnable>(),
+        // One active and one bounded waiting call also covers Future completion racing the
+        // worker's return to its receive loop. A rendezvous queue rejects valid serial calls.
+        private val worker = ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(1),
             java.util.concurrent.ThreadFactory { task -> Thread(task, "developer-bridge-io").apply { isDaemon = true } })
             .apply { allowCoreThreadTimeOut(true) }
     }
