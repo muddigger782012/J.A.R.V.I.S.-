@@ -35,7 +35,7 @@ jobs:
         run: >-
           bash gradlew --no-daemon -PjarvisDeveloper=true -PjarvisDevelopmentIntegration=true
           :app:testDebugUnitTest :app:lintDebug :developer:testDebugUnitTest :developer:lintDebug
-          :app:assembleDebug :app:assembleDebugAndroidTest :developer:assembleDebug
+          :app:assembleDebug :app:assembleDebugAndroidTest :developer:assembleDebug :developer:assembleDebugAndroidTest
           :bridge-test-peer:assembleDebug :bridge-test-peer:assembleDebugAndroidTest
           :bridge-commercial-test-peer:assembleDebug :bridge-commercial-test-peer:assembleDebugAndroidTest
       - uses: actions/upload-artifact@v4
@@ -55,6 +55,7 @@ jobs:
             app/build/outputs/apk/debug/app-x86_64-debug.apk
             app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             developer/build/outputs/apk/debug/developer-debug.apk
+            developer/build/outputs/apk/androidTest/debug/developer-debug-androidTest.apk
             integration/test-peer/build/outputs/apk/debug/bridge-test-peer-debug.apk
             integration/test-peer/build/outputs/apk/androidTest/debug/bridge-test-peer-debug-androidTest.apk
             integration/commercial-test-peer/build/outputs/apk/debug/bridge-commercial-test-peer-debug.apk

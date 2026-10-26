@@ -82,6 +82,15 @@ object RepositoryAnalysis {
     private val xmlClass = Regex("(?:android:name|class)=[\"']([A-Za-z_][\\w.]+)[\"']")
     private val projectReference = Regex("\\bproject\\s*\\(\\s*[\"'](:[\\w:-]+)[\"']\\s*\\)")
     private val artifactReference = Regex("\\b(?:implementation|api|compileOnly|runtimeOnly|testImplementation|androidTestImplementation)\\s*\\(?\\s*[\"']([^\"'\\r\\n]{1,512})[\"']")
+    private val identifier = Regex("[A-Za-z_]\\w*")
+
+    // Kotlin's successive MatchResults create successive Matchers. On older Android ICU each
+    // matcher can retain a native copy of the entire input until finalization, even when the
+    // Java heap is small. Reuse one matcher per scan and copy only the groups we actually need.
+    private inline fun eachMatch(pattern: Regex, text: String, consume: (java.util.regex.Matcher) -> Unit) {
+        val matcher = pattern.toPattern().matcher(text)
+        while (matcher.find()) consume(matcher)
+    }
     private val stop = setOf("a", "an", "the", "to", "of", "for", "and", "or", "in", "on", "with", "that", "this", "it", "is", "be", "as", "from", "by", "new", "add", "change", "fix", "please", "implement", "make", "update", "want", "need", "task", "requested", "request", "can", "should", "would", "without", "into")
     // General vocabulary expansion changes retrieval weights, never selects a file or a canned plan.
     private val related = mapOf(
@@ -300,10 +309,10 @@ object RepositoryAnalysis {
         }
         val symbols = mutableListOf<Symbol>()
         codeText.lines().forEachIndexed { index, line ->
-            declaration.findAll(line).forEach { match -> symbols += Symbol(match.groupValues[2], match.groupValues[1], index + 1) }
-            if (source.path.endsWith(".java")) javaMethod.findAll(line).forEach { match -> symbols += Symbol(match.groupValues[1], "method", index + 1) }
+            eachMatch(declaration, line) { match -> symbols += Symbol(match.group(2)!!, match.group(1)!!, index + 1) }
+            if (source.path.endsWith(".java")) eachMatch(javaMethod, line) { match -> symbols += Symbol(match.group(1)!!, "method", index + 1) }
             if (source.path.endsWith(".md") && line.startsWith('#')) symbols += Symbol(line.trimStart('#', ' '), "heading", index + 1)
-            if (source.path.endsWith(".xml")) xmlResourceName.findAll(line).forEach { match -> symbols += Symbol(match.groupValues[2], "resource:${match.groupValues[1]}", index + 1) }
+            if (source.path.endsWith(".xml")) eachMatch(xmlResourceName, line) { match -> symbols += Symbol(match.group(2)!!, "resource:${match.group(1)}", index + 1) }
         }
         return Document(source, text, codeText, lines, packagePattern.find(codeText)?.groupValues?.get(1).orEmpty(), symbols.distinct().take(2_000), terms(text), terms(source.path))
     }
@@ -332,7 +341,8 @@ object RepositoryAnalysis {
             return inventory.filter { it.path.endsWith("/$exact.kt") || it.path.endsWith("/$exact.java") }.map { it.path } +
                 documents.filter { other -> other.symbols.any { symbol -> "${other.packageName}.${symbol.name}" == reference } }.map { it.source.path }
         }
-        val imports = importPattern.findAll(doc.codeText).map { it.groupValues[1] }.toList()
+        val imports = mutableListOf<String>()
+        eachMatch(importPattern, doc.codeText) { match -> checkpoint(); imports += match.group(1)!! }
         val localPrefixes = documents.map { it.packageName.substringBeforeLast('.', it.packageName) }.filter { it.isNotBlank() }.distinct()
         imports.forEach { reference ->
             checkpoint()
@@ -342,21 +352,26 @@ object RepositoryAnalysis {
         }
         // Calls may use a fully qualified class without an import. Resolve actual code against
         // the pinned inventory; comments, strings and a filename coincidence cannot create edges.
-        qualifiedSymbol.findAll(doc.codeText).map { it.value }.distinct().filter { it !in imports }.forEach { reference ->
+        val qualified = linkedSetOf<String>()
+        eachMatch(qualifiedSymbol, doc.codeText) { match -> checkpoint(); qualified += match.group() }
+        qualified.filter { it !in imports }.forEach { reference ->
             checkpoint()
             val matches = resolveQualified(reference)
             if (matches.isNotEmpty()) add(reference, "qualified symbol", matches)
         }
         // Resolve same-package declarations used by name. A filename coincidence never proves an edge.
-        val identifiers = Regex("[A-Za-z_]\\w*").findAll(doc.codeText).map { it.value }.toSet()
+        val identifiers = hashSetOf<String>()
+        eachMatch(identifier, doc.codeText) { match -> checkpoint(); identifiers += match.group() }
         documents.filter { it.source.path != doc.source.path && it.packageName.isNotEmpty() && it.packageName == doc.packageName }.forEach { other ->
             checkpoint()
             other.symbols.filter { it.kind in setOf("class", "object", "interface", "typealias", "record", "enum") }.forEach { symbol ->
                 if (symbol.name in identifiers) add("${other.packageName}.${symbol.name}", "same-package symbol", listOf(other.source.path))
             }
         }
-        val resources = resourceCode.findAll(doc.codeText).map { Triple(it.groupValues[1], it.groupValues[2], it.groupValues[3]) } +
-            resourceXml.findAll(doc.codeText).map { Triple(it.groupValues[1], it.groupValues[2], it.groupValues[3]) }
+        val resources = linkedSetOf<Triple<String, String, String>>()
+        for (pattern in listOf(resourceCode, resourceXml)) eachMatch(pattern, doc.codeText) { match ->
+            checkpoint(); resources += Triple(match.group(1).orEmpty(), match.group(2)!!, match.group(3)!!)
+        }
         val currentModule = doc.source.path.substringBefore("/src/", "")
         val importedR = imports.firstOrNull { it.endsWith(".R") }
         val namespacePattern = Regex("\\bnamespace\\s*(?:=\\s*)?[\"']([^\"']+)[\"']")
@@ -364,7 +379,7 @@ object RepositoryAnalysis {
             (other.source.path.endsWith("/build.gradle") || other.source.path.endsWith("/build.gradle.kts")) &&
                 namespacePattern.find(other.text)?.groupValues?.get(1) == namespace
         }?.source?.path?.substringBeforeLast('/')
-        resources.distinct().forEach { (namespace, type, name) ->
+        resources.forEach { (namespace, type, name) ->
             checkpoint()
             val resourceNamespace = namespace.ifBlank { importedR?.removeSuffix(".R").orEmpty() }
             val resourceModule = if (resourceNamespace.isBlank()) currentModule else namespaceModule(resourceNamespace)
@@ -379,17 +394,21 @@ object RepositoryAnalysis {
                     ) }.map { it.source.path }
             add("${if (namespace.isBlank()) "" else "$namespace."}R.$type.$name", "resource", paths, resourceNamespace == "android")
         }
-        if (doc.source.path.endsWith(".xml")) xmlClass.findAll(doc.codeText).forEach { match ->
-            val reference = match.groupValues[1]
+        if (doc.source.path.endsWith(".xml")) eachMatch(xmlClass, doc.codeText) { match ->
+            checkpoint()
+            val reference = match.group(1)!!
             if ('.' in reference) add(reference, "xml class", resolveQualified(reference), reference.startsWith("android.") || reference.startsWith("androidx."))
         }
         if (doc.source.path.endsWith(".gradle") || doc.source.path.endsWith(".gradle.kts")) {
-            projectReference.findAll(doc.codeText).forEach { match ->
-                val module = match.groupValues[1].removePrefix(":").replace(':', '/')
-                add(match.groupValues[1], "gradle module", inventory.filter { it.path == "$module/build.gradle" || it.path == "$module/build.gradle.kts" }.map { it.path })
+            eachMatch(projectReference, doc.codeText) { match ->
+                checkpoint()
+                val reference = match.group(1)!!
+                val module = reference.removePrefix(":").replace(':', '/')
+                add(reference, "gradle module", inventory.filter { it.path == "$module/build.gradle" || it.path == "$module/build.gradle.kts" }.map { it.path })
             }
-            artifactReference.findAll(doc.codeText).forEach { match ->
-                val coordinate = match.groupValues[1]
+            eachMatch(artifactReference, doc.codeText) { match ->
+                checkpoint()
+                val coordinate = match.group(1)!!
                 val parts = coordinate.split(':')
                 if (parts.size in 3..4 && parts.all { it.isNotBlank() && it.none(Char::isWhitespace) })
                     add(coordinate, "gradle artifact", emptyList(), true)

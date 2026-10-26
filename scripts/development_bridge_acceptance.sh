@@ -5,6 +5,7 @@ mkdir -p development-bridge-results
 # Fresh disposable emulator only; no owner account, provider key, audio or private logs are loaded.
 trap 'adb logcat -d -b all > development-bridge-results/crashes.txt' EXIT
 adb install -r developer/build/outputs/apk/debug/developer-debug.apk
+adb install -r developer/build/outputs/apk/androidTest/debug/developer-debug-androidTest.apk
 adb install -r app/build/outputs/apk/debug/app-x86_64-debug.apk
 adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb install -r integration/test-peer/build/outputs/apk/debug/bridge-test-peer-debug.apk
@@ -26,5 +27,6 @@ run_suite() {
 run_suite com.assistant.core.test com.assistant.core.services.DevelopmentBridgeAndroidTest 4 development-bridge-results/assistant.txt
 run_suite com.jarvis.integration.fixture.test com.jarvis.integration.fixture.UnauthorizedPeerTest 1 development-bridge-results/unknown-peer.txt
 run_suite com.assistant.core.beta.test com.jarvis.integration.commercialfixture.CommercialPeerTest 1 development-bridge-results/commercial-peer.txt
+run_suite com.jarvis.developer.test com.jarvis.developer.RepositoryAnalysisRuntimeTest 1 development-bridge-results/source-memory.txt
 run_suite com.assistant.core.test com.assistant.core.services.DevelopmentSourceWorkerAndroidTest 1 development-bridge-results/source-worker.txt 240
 adb logcat -d -s AndroidRuntime:E > development-bridge-results/crashes.txt
