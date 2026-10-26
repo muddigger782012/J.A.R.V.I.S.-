@@ -18,6 +18,9 @@ import java.util.concurrent.atomic.AtomicReference
 class UnauthorizedPeerTest {
     @Test fun unknownPackageCannotImpersonateAssistantWithTheSameSigningKey() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        @Suppress("DEPRECATION") val callback = context.packageManager.getReceiverInfo(ComponentName(Wire.DEVELOPER_PACKAGE,
+            "com.jarvis.developer.DevelopmentInstallReceiver"), 0)
+        assertFalse("An unrelated app must not be able to deliver installation results", callback.exported)
         val ready = CountDownLatch(1); val remote = AtomicReference<IBinder?>()
         val connection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, binder: IBinder) { remote.set(binder); ready.countDown() }

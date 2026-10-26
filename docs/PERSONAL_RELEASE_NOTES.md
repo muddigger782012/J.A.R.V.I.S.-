@@ -1,5 +1,11 @@
 Personal Jarvis v3.6 — Intelligent Device Assistance:
 
+- In compatible Developer builds, attach a CI APK to its job's exact source and
+  verify archive/APK digests, cryptographic signature, installed signing identity,
+  package, version, Android requirement and CPU compatibility. Request installation
+  separately through Android, record actual callbacks and installed bytes, and
+  recover by reading state without replaying an install. Device acceptance remains
+  separate; no new signing, publication or standing installation grant is implied.
 - Stage analyzed source jobs in the existing Developer exact-diff workbench. A
   reviewed approval is consumed before the isolated commit. Save only hashes and
   task identities for interrupted-write verification; never restore approval or

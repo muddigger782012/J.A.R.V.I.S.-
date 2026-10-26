@@ -8,12 +8,25 @@ import os
 import unittest
 from unittest.mock import patch
 import zipfile
+import re
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import personal_release as release
 
 
 class PersonalReleaseTests(unittest.TestCase):
+    def test_job_provenance_does_not_change_the_existing_publisher_artifact_contract(self):
+        workflow = (Path(__file__).resolve().parents[2]/'.github/workflows/build-jarvis.yml').read_text()
+        original = re.search(r'(?ms)^      - name: Upload APK artifact\n(.*?)(?=^      - name:|\Z)', workflow)
+        self.assertIsNotNone(original)
+        path = re.search(r'^          path: (.+)$', original[1], re.M)
+        self.assertIsNotNone(path)
+        self.assertEqual('app/build/outputs/apk/release/*.apk', path[1])
+        # The real publisher deliberately rejects additional files in its APK input.
+        self.assertEqual(3, len(self.verified()['apks']))
+        (self.apks/'development-artifact.json').write_text('{}')
+        with self.assertRaisesRegex(ValueError, 'exactly'):
+            self.verified()
     def test_shared_integration_changes_invalidate_real_git_source_equivalence(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

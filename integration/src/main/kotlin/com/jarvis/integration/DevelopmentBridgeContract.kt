@@ -37,6 +37,19 @@ object DevelopmentBridgeContract {
     fun permitsMode(mode: String, receiverPersonal: Boolean, senderPersonal: Boolean) =
         mode in availableModes(receiverPersonal && senderPersonal)
     fun personalPackage(packageName: String) = packageName in setOf("com.assistant.core", DEVELOPER_PACKAGE)
+    /** Fixed Android result categories only; raw installer messages are never transported. */
+    fun installationDiagnostic(code: Int): String = when (code) {
+        -1 -> "Android requires installation confirmation."
+        0 -> "Android reported installer success; installed bytes and device acceptance are checked separately."
+        1 -> "Android could not complete installation. Review the APK and installer state before retrying."
+        2 -> "Android blocked installation. Review the device's installation policy and permissions."
+        3 -> "The Android installation was aborted. Review its outcome before explicitly requesting again."
+        4 -> "Android rejected the APK as invalid. Rebuild and verify the artifact before retrying."
+        5 -> "Android found a package conflict. Check the existing package and signing identity."
+        6 -> "Android reported an incompatible APK. Check Android version and CPU architecture."
+        7 -> "Android reported insufficient storage. Free space before explicitly retrying."
+        else -> ""
+    }
 
     private fun expect(valid: Boolean, code: String = "INVALID_REQUEST") { if (!valid) throw Rejected(code) }
     fun validate(request: Request) {

@@ -52,6 +52,107 @@ class DevelopmentEngineeringTest {
         return BuildDiagnostics.parse(committed, write.receipt.branch, 42, attempt, "completed", if (state == "failure") "failure" else "success",
             if (summary) "JARVIS_JUNIT_SUMMARY=$record" else "BUILD SUCCESSFUL", write.receipt.target)
     }
+    private fun artifactSource(mode: String = "supervised"): DevelopmentArtifact.Source {
+        val job = analyzed(mode); val draft = stage(job); val write = inbox().claimEngineering(draft, approved(draft), true)
+        assertTrue(inbox().finishEngineering(write, result(write)))
+        assertFalse(inbox().recordEngineeringBuild(inbox().claimEngineeringRead(job, true)!!, report(write)))
+        return inbox().beginArtifact(job, status(job).getLong("revision"), true)
+    }
+    private fun apk(source: DevelopmentArtifact.Source) = DevelopmentArtifact.Record(source.commit, 42, 1, 99,
+        "a".repeat(64), "b".repeat(64), 100, "com.jarvis.developer", 17, "0.1.17", "c".repeat(64), "production")
+    private fun legacyPayload(): JSONArray = JSONArray(JSONObject(PrivateCheckpointFile(directory.root,
+        "development-inbox.bin", 32, 1_048_576).read()!!.toString(Charsets.UTF_8)).getString("payload"))
+    private fun assertLegacyStages() {
+        val rows = legacyPayload()
+        for (i in 0 until rows.length()) for (stage in listOf("SIGNED_APK", "DEVICE_INSTALLED"))
+            assertTrue("Previous Developer versions require compatible checkpoint stages", rows.getJSONObject(i)
+                .getJSONObject("verification").getString(stage) in setOf("PENDING", "BLOCKED"))
+    }
+    @Test fun apkAndInstallerEvidenceRemainReadableByThePreviousCheckpointContract() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        assertLegacyStages()
+        assertEquals("PASSED", status(source.job).getJSONObject("verification").getString("SIGNED_APK"))
+        val request = inbox().beginInstallation(source.job, status(source.job).getLong("revision"), apk(source).apkSha256, true)
+        val bound = inbox().bindInstallation(request, 17); assertTrue(inbox().submitInstallation(bound))
+        assertLegacyStages()
+        assertEquals("RUNNING", status(source.job).getJSONObject("verification").getString("DEVICE_INSTALLED"))
+        assertTrue(inbox().installationStatus(bound, "FAILED", 7)); assertLegacyStages()
+        assertEquals("FAILED", status(source.job).getJSONObject("verification").getString("DEVICE_INSTALLED"))
+    }
+    @Test fun anOlderBuildUpdatingItsOwnCiEvidenceCannotTurnAStaleApkIntoInstallationApproval() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        val payload = legacyPayload()
+        // Older Developer retains unknown extension fields while updating its known build fields.
+        payload.getJSONObject(0).getJSONObject("engineering").getJSONObject("build").put("fingerprint", "f".repeat(64))
+        val raw = payload.toString()
+        val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
+        PrivateCheckpointFile(directory.root, "development-inbox.bin", 32, 1_048_576).write(JSONObject().put("version", 1)
+            .put("digest", digest).put("payload", raw).toString().toByteArray())
+        val snapshot = status(source.job)
+        assertEquals("BLOCKED", snapshot.getJSONObject("verification").getString("SIGNED_APK"))
+        assertTrue(snapshot.getJSONObject("artifact").getBoolean("stale"))
+        assertThrows(IllegalArgumentException::class.java) {
+            inbox().beginInstallation(source.job, snapshot.getLong("revision"), apk(source).apkSha256, true)
+        }
+        assertLegacyStages()
+    }
+    @Test fun verifiedArtifactIsBoundToTheJobButCannotRestoreAnInstallationApproval() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        val state = status(source.job)
+        assertEquals("PASSED", state.getJSONObject("verification").getString("SIGNED_APK"))
+        assertEquals("PENDING", state.getJSONObject("verification").getString("DEVICE_INSTALLED"))
+        assertFalse(state.getBoolean("deviceVerified")); assertTrue(inbox().pendingInstallations().isEmpty())
+        assertFalse(state.getJSONObject("artifact").has("signerSha256"))
+        assertEquals(apk(source), inbox().artifactRecord(source.job))
+        val install = inbox().beginInstallation(source.job, state.getLong("revision"), apk(source).apkSha256, true)
+        val bound = inbox().bindInstallation(install, 17); assertTrue(inbox().submitInstallation(bound))
+        assertEquals(listOf(bound), inbox().pendingInstallations())
+        assertThrows(IllegalArgumentException::class.java) { inbox().beginInstallation(source.job, status(source.job).getLong("revision"), apk(source).apkSha256, true) }
+        assertTrue(inbox().installationStatus(bound, "PACKAGE_PRESENT", 0))
+        assertEquals("BLOCKED", status(source.job).getJSONObject("verification").getString("DEVICE_INSTALLED"))
+        assertFalse(status(source.job).getBoolean("deviceVerified"))
+        assertTrue(inbox().pendingInstallations().isEmpty())
+        assertFalse(inbox().installationStatus(bound, "FAILED", 1))
+    }
+    @Test fun cancelledArtifactReadAndInstallationCannotAdmitLateSuccess() {
+        val source = artifactSource(); control(source.job, "task.cancel.request")
+        assertFalse(inbox().recordArtifact(source, apk(source)))
+        val other = artifactSource(); assertTrue(inbox().recordArtifact(other, apk(other)))
+        val install = inbox().beginInstallation(other.job, status(other.job).getLong("revision"), apk(other).apkSha256, true)
+        val bound = inbox().bindInstallation(install, 18); assertTrue(inbox().submitInstallation(bound))
+        control(other.job, "task.cancel.request")
+        assertFalse(inbox().installationStatus(bound, "PACKAGE_PRESENT", 0))
+        assertEquals("CANCELLED", status(other.job).getJSONObject("artifact").getString("installation"))
+        assertEquals("BLOCKED", status(other.job).getJSONObject("verification").getString("DEVICE_INSTALLED"))
+    }
+    @Test fun changedBuildEvidenceAndWrongCallbackIdentityCannotReuseAnOldArtifactDecision() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        val install = inbox().beginInstallation(source.job, status(source.job).getLong("revision"), apk(source).apkSha256, true)
+        val bound = inbox().bindInstallation(install, 18)
+        assertFalse(inbox().installationStatus(bound.copy(nonce = UUID.randomUUID().toString()), "PACKAGE_PRESENT", 0))
+        assertFalse(inbox().installationStatus(bound.copy(session = 19), "PACKAGE_PRESENT", 0))
+        assertFalse(inbox().installationStatus(install, "PACKAGE_PRESENT", 0))
+        assertThrows(IllegalArgumentException::class.java) { inbox().refreshEngineeringEvidence(source.job, status(source.job).getLong("revision"), true) }
+        assertTrue(inbox().installationStatus(bound, "CANCELLED"))
+        inbox().refreshEngineeringEvidence(source.job, status(source.job).getLong("revision"), true)
+        assertNull(inbox().artifactRecord(source.job)); assertFalse(inbox().recordArtifact(source, apk(source)))
+        assertEquals("PENDING", status(source.job).getJSONObject("verification").getString("SIGNED_APK"))
+        assertFalse(inbox().installationStatus(bound, "PACKAGE_PRESENT", 0))
+    }
+    @Test fun ownerDevelopmentArtifactOperationsRemainRejectedForCommercialPolicyAndUngatedJobs() {
+        val job = analyzed()
+        assertThrows(IllegalArgumentException::class.java) { inbox().beginArtifact(job, status(job).getLong("revision"), true) }
+        val source = artifactSource("owner_development")
+        assertEquals("POLICY_REQUIRED", assertThrows(Wire.Rejected::class.java) {
+            inbox().beginArtifact(source.job, status(source.job).getLong("revision"), false)
+        }.code)
+        assertTrue(inbox().recordArtifact(source, apk(source)))
+        assertEquals("POLICY_REQUIRED", assertThrows(Wire.Rejected::class.java) {
+            inbox().beginInstallation(source.job, status(source.job).getLong("revision"), apk(source).apkSha256, false)
+        }.code)
+        for (name in listOf("DevelopmentArtifactDownload", "DevelopmentArtifactInspection", "DevelopmentInstallReceiver", "JarvisPackageInstaller"))
+            assertFalse(PatchEngine.allowedPath("developer/src/main/java/com/jarvis/developer/$name.kt"))
+    }
     private fun claim(job: String): DevelopmentEngineering.Write {
         val draft = stage(job)
         return inbox().claimEngineering(draft, approved(draft), true)
