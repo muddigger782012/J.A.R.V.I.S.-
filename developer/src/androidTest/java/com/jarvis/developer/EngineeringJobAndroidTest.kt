@@ -67,6 +67,34 @@ class EngineeringJobAndroidTest {
             DevelopmentEngineeringCredentials.forget(job)
         }
     }
+    @Test fun engineeringCredentialCacheHasAnAtomicBoundAcrossConcurrentAdmissions() {
+        val prefix = UUID.randomUUID().toString()
+        val jobs = (0 until 96).map { "$prefix-$it" }
+        val start = java.util.concurrent.CountDownLatch(1)
+        val done = java.util.concurrent.CountDownLatch(jobs.size)
+        val accepted = java.util.concurrent.atomic.AtomicInteger()
+        try {
+            jobs.forEach { job ->
+                Thread {
+                    try {
+                        start.await()
+                        DevelopmentEngineeringCredentials.remember(job, "ephemeral")
+                        accepted.incrementAndGet()
+                    } catch (_: IllegalArgumentException) {
+                        // Capacity is intentionally bounded.
+                    } finally {
+                        done.countDown()
+                    }
+                }.start()
+            }
+            start.countDown()
+            assertTrue("Credential admission threads timed out", done.await(15, java.util.concurrent.TimeUnit.SECONDS))
+            assertTrue(accepted.get() <= 64)
+            assertEquals(accepted.get(), jobs.count { DevelopmentEngineeringCredentials.token(it) == "ephemeral" })
+        } finally {
+            jobs.forEach(DevelopmentEngineeringCredentials::forget)
+        }
+    }
     @Test fun reconstructedCheckpointsCannotReplayAWriteApprovalOrInferAnInstallation() {
         val f = fixture()
         try {
