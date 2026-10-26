@@ -328,6 +328,8 @@ object RepositoryIntelligence {
                 "gradle/libs.versions.toml", "gradle/wrapper/gradle-wrapper.properties")) return true
         if (path.startsWith("docs/") && path.endsWith(".md")) return true
         if (path in setOf("app/src/main/AndroidManifest.xml", "developer/src/main/AndroidManifest.xml")) return true
+        // Both apps compile this canonical source. Read access does not expand patch authority.
+        if (Regex("integration/src/main/kotlin/com/jarvis/integration/[A-Za-z0-9_/]+\\.kt").matches(path)) return true
         if (Regex("(?:developer|app)/src/(?:main|test|androidTest)/(?:java|kotlin)/(?:[A-Za-z0-9_/-]+)\\.(?:kt|java)").matches(path)) {
             return path.startsWith("developer/src/") || Regex("app/src/(?:main|test|androidTest)/(?:java|kotlin)/com/assistant/core/.*").matches(path)
         }
