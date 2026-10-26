@@ -5,7 +5,7 @@ package com.assistant.core.services
  * This parser is intentionally pure Kotlin, and NEVER grants execution authority.
  */
 object DeveloperReviewProtocol {
-    const val VERSION = 1
+    const val VERSION = com.jarvis.integration.DevelopmentBridgeContract.VERSION
     const val MAX_LENGTH = 8192
     private val idPattern = Regex("[A-Za-z0-9_-]{1,80}")
     private val allowedKinds = setOf("diagnostics.review.request", "capabilities.request")

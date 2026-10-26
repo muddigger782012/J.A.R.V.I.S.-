@@ -7,6 +7,7 @@
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <queries>
+        <package android:name="com.jarvis.developer" />
         <package android:name="com.jarvis.connectionmanager" />
         <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
         <intent><action android:name="android.speech.RecognitionService" /></intent>
@@ -20,6 +21,7 @@
     </queries>
 
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="com.jarvis.developer.permission.DEVELOPMENT_BRIDGE_V1" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />

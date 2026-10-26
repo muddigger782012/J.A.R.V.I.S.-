@@ -18,9 +18,8 @@ enum class DevelopmentApprovalMode(val wireValue: String) {
 
 class DevelopmentApprovalPolicy(private val allowOwnerDevelopment: Boolean) {
     val availableModes: List<DevelopmentApprovalMode>
-        get() = DevelopmentApprovalMode.entries.filter {
-            allowOwnerDevelopment || it != DevelopmentApprovalMode.OWNER_DEVELOPMENT
-        }
+        get() = com.jarvis.integration.DevelopmentBridgeContract.availableModes(allowOwnerDevelopment)
+            .mapNotNull { DevelopmentApprovalMode.fromWire(it) }
 
     fun accepts(mode: DevelopmentApprovalMode): Boolean = mode in availableModes
 

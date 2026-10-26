@@ -5,6 +5,10 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+if (providers.gradleProperty('jarvisDevelopmentIntegration').orElse('false').get() == 'true') {
+    include(':bridge-test-peer')
+    project(':bridge-test-peer').projectDir = file('integration/test-peer')
+}
 
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)

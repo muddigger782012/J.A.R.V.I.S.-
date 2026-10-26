@@ -10,6 +10,9 @@ import android.widget.ScrollView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import com.assistant.core.services.SelfDiagnosticsReport
+import com.assistant.core.services.DeveloperBridgeOperations
+import com.jarvis.integration.DevelopmentBridgeContract as Wire
+import com.jarvis.integration.DevelopmentPeerIdentity
 import org.json.JSONArray
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicReference
@@ -27,6 +30,9 @@ class SelfDiagnosticsActivity : MenuActivity("Self Diagnostics & Improvements") 
     private var operation: ReadOperation? = null
     private var loading = false
     private var restoredScroll: Int? = null
+    private var bridgeGeneration = 0
+    private var bridgeBusy = false
+    private val developer by lazy { DeveloperBridgeOperations(this) }
     private val document = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) importReport(uri) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,17 +66,38 @@ class SelfDiagnosticsActivity : MenuActivity("Self Diagnostics & Improvements") 
         panel.removeAllViews()
         note("Self Diagnostics & Improvements")
         note("Read-only review. Imported findings and claimed revisions are unverified; they cannot authorize edits.")
+        row("Developer connection", "Verify the installed companion's signing identity and supported protocol") {
+            bridge("Developer connection", action = developer::capabilities)
+        }
+        row("Development approval mode", "Choose the policy profile; this grants no source scope or Android privilege") {
+            val modes = developer.modes
+            val selected = runCatching { developer.selectedMode() }.getOrNull()
+            ThemedDialogBuilder(this).setTitle("Development approval mode")
+                .setSingleChoiceItems(modes.map { Wire.modeLabel(it.wireValue) }.toTypedArray(), modes.indexOf(selected)) { dialog, index ->
+                    dialog.dismiss()
+                    val mode = modes[index]
+                    ThemedDialogBuilder(this).setTitle("Use ${Wire.modeLabel(mode.wireValue)}?")
+                        .setMessage("This selects a policy profile only. Exact source scope, proposal approvals, merge, publication and installation authorizations remain separate. Android permissions are unchanged.")
+                        .setNegativeButton("Cancel", null).setPositiveButton("Save mode") { _, _ ->
+                            val saved = runCatching { developer.selectMode(mode) }.getOrDefault(false)
+                            message("Development approval mode", if (saved) "Mode saved with its audit record." else "The mode and audit record could not be saved. No policy change was confirmed.")
+                        }.show()
+                }.setNegativeButton("Close", null).show()
+        }
+        row("Developer task history", "Read actual review states and all five verification stages") { bridge("Developer tasks", action = developer::list) }
+        row("Latest Developer task", "Read the most recently acknowledged job") { bridge("Latest Developer task", action = developer::status) }
+        listOf("Pause" to "pause", "Resume" to "resume", "Cancel" to "cancel", "Retry" to "retry").forEach { (label, control) ->
+            row("$label latest Developer review", "Updates review queue state only; no code or release is executed") {
+                bridge("Developer review", action = { developer.control("task.$control.request") })
+            }
+        }
         if (loading) row("Cancel report import", "Keep the previous report", ::cancelImport)
         row("Review voice, AI and capability diagnostics", "Inspect current permissions and retained callback/request observations without making network requests") {
             val snapshot = com.assistant.core.services.LiveCapabilityRegistry.snapshot(this)
             val review = com.assistant.core.services.OperationalDiagnostics.render(snapshot)
             ThemedDialogBuilder(this).setTitle("Runtime diagnostics").setMessage(review)
                 .setNegativeButton("Close", null).setPositiveButton("Review in Developer") { _, _ ->
-                    runCatching {
-                        startActivity(Intent(Intent.ACTION_SEND).setComponent(ComponentName("com.jarvis.developer", "com.jarvis.developer.MainActivity"))
-                            .setType("text/plain").putExtra(Intent.EXTRA_TEXT, review))
-                        event(2)
-                    }.onFailure { message("Jarvis Developer unavailable", "Install the independent Developer app to open this read-only review. Source analysis and explicit owner approval are required before a repair can be written.") }
+                    submitReview(review)
                 }.show()
         }
         row("Analyze Source Code", "Open the read-only GitHub workflow; run it on an authorized revision, then import its JSON report") {
@@ -104,7 +131,7 @@ class SelfDiagnosticsActivity : MenuActivity("Self Diagnostics & Improvements") 
         row("Development History", "Local imports and opened review drafts only; no repair completion is inferred") {
             val history = runCatching { JSONArray(prefs.getString("history", "[]")) }.getOrNull()
             val lines = (0 until (history?.length() ?: 0).coerceAtMost(20)).map { index ->
-                when (history!!.optInt(index)) { 1 -> "Imported a diagnostic report"; 2 -> "Opened a Developer review draft"; else -> "Local review event" }
+                when (history!!.optInt(index)) { 1 -> "Imported a diagnostic report"; 2 -> "Opened a Developer review draft"; 3 -> "Developer acknowledged a queued read-only review"; else -> "Local review event" }
             }
             message("Development History", lines.joinToString("\n").ifEmpty { "No local review events recorded." })
         }
@@ -122,17 +149,42 @@ class SelfDiagnosticsActivity : MenuActivity("Self Diagnostics & Improvements") 
         ThemedDialogBuilder(this).setTitle(rule.title).setMessage(SelfDiagnosticsReport.details(finding) +
             "\n\nOpen a review draft in the separate Jarvis Developer app? No edit is approved. Verify the source and approve a scoped proposal there before any write.")
             .setNegativeButton("Cancel", null).setPositiveButton("Review in Developer") { _, _ ->
-                runCatching {
-                    startActivity(Intent(Intent.ACTION_SEND).setComponent(ComponentName("com.jarvis.developer", "com.jarvis.developer.MainActivity"))
-                        .setType("text/plain").putExtra(Intent.EXTRA_TEXT, SelfDiagnosticsReport.developerDraft(current, finding)))
-                    event(2)
-                }.onFailure { message("Jarvis Developer unavailable", "Install the independent Jarvis Developer application to review this draft. Nothing was changed or authorized.") }
+                submitReview(SelfDiagnosticsReport.developerDraft(current, finding))
             }.show()
+    }
+    private fun submitReview(draft: String) = bridge("Developer review", draft) { developer.submit(draft) }
+    private fun bridge(title: String, legacyDraft: String? = null, action: () -> String) {
+        if (bridgeBusy) { message(title, "A Developer request is already awaiting acknowledgement."); return }
+        bridgeBusy = true
+        val ticket = ++bridgeGeneration
+        thread(name = "jarvis-development-review", isDaemon = true) {
+            val result = runCatching(action)
+            runOnUiThread {
+                if (ticket != bridgeGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                bridgeBusy = false
+                result.onSuccess { if (legacyDraft != null) event(3); message(title, it) }.onFailure { failure ->
+                    val code = (failure as? Wire.Rejected)?.code
+                    val uid = runCatching { packageManager.getApplicationInfo(Wire.DEVELOPER_PACKAGE, 0).uid }.getOrNull()
+                    val trusted = uid != null && DevelopmentPeerIdentity.packageForUid(this, uid, setOf(Wire.DEVELOPER_PACKAGE)) != null
+                    if (legacyDraft != null && trusted && code in setOf("COMPANION_UNAVAILABLE", "UNSUPPORTED_VERSION", "UNSUPPORTED_OPERATION")) {
+                        ThemedDialogBuilder(this).setTitle("Older trusted Developer")
+                            .setMessage("The installed Developer has a matching signing identity but no compatible review bridge. Open this read-only draft in its existing share interface? No queue acknowledgement or edit approval will be inferred.")
+                            .setNegativeButton("Close", null).setPositiveButton("Open draft") { _, _ ->
+                                runCatching {
+                                    startActivity(Intent(Intent.ACTION_SEND).setComponent(ComponentName(Wire.DEVELOPER_PACKAGE, "com.jarvis.developer.MainActivity"))
+                                        .setType("text/plain").putExtra(Intent.EXTRA_TEXT, legacyDraft))
+                                    event(2)
+                                }.onFailure { message(title, "The installed Developer could not open the draft. No acknowledgement or source change was verified.") }
+                            }.show()
+                    } else message(title, DeveloperBridgeOperations.failure(failure))
+                }
+            }
+        }
     }
     private fun event(code: Int) {
         val old = runCatching { JSONArray(prefs.getString("history", "[]")) }.getOrElse { JSONArray() }
         val next = JSONArray().put(code)
-        for (i in 0 until old.length().coerceAtMost(19)) old.optInt(i).takeIf { it in 1..2 }?.let { next.put(it) }
+        for (i in 0 until old.length().coerceAtMost(19)) old.optInt(i).takeIf { it in 1..3 }?.let { next.put(it) }
         prefs.edit().putString("history", next.toString()).apply()
     }
     private fun stopRead() {
@@ -176,7 +228,7 @@ class SelfDiagnosticsActivity : MenuActivity("Self Diagnostics & Improvements") 
             }
         }
     }
-    override fun onDestroy() { stopRead(); super.onDestroy() }
+    override fun onDestroy() { bridgeGeneration++; stopRead(); super.onDestroy() }
     override fun onSaveInstanceState(outState: Bundle) {
         if (::scroll.isInitialized) outState.putInt("self_diagnostics_scroll", scroll.scrollY)
         super.onSaveInstanceState(outState)

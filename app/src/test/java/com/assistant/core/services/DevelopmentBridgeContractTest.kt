@@ -2,10 +2,21 @@ package com.assistant.core.services
 
 import com.jarvis.integration.DevelopmentBridgeContract as Wire
 import org.json.JSONObject
+import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Test
 
 class DevelopmentBridgeContractTest {
+    @Test fun negotiationRejectsMissingOperationsModelsAndNewerProtocolsBeforeAdmission() {
+        val request = Wire.Request("review", "diagnostics.review.request", "An unapproved review")
+        fun capabilities() = JSONObject().put("protocol", 1).put("operations", JSONArray(Wire.operations.toList()))
+            .put("modes", JSONArray(Wire.availableModes(true)))
+        Wire.negotiate(capabilities(), request)
+        assertThrows(Wire.Rejected::class.java) { Wire.negotiate(capabilities().put("protocol", 2), request) }
+        assertThrows(Wire.Rejected::class.java) { Wire.negotiate(capabilities().put("operations", JSONArray()), request) }
+        assertThrows(Wire.Rejected::class.java) { Wire.negotiate(capabilities().put("modes", JSONArray(listOf("supervised"))), request.copy(mode = "owner_development")) }
+        assertThrows(Wire.Rejected::class.java) { Wire.negotiate(capabilities().put("operations", JSONArray().put(2)), request) }
+    }
     @Test fun reviewDataRoundTripsWithoutGrantingAnOperationOrAcceptingClaimedIdentity() {
         val value = Wire.Request("review-one", "diagnostics.review.request", "Unverified source finding", "supervised")
         assertEquals(value, Wire.decode(Wire.encode(value)))

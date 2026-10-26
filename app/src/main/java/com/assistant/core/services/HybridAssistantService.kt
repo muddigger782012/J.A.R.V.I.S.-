@@ -1269,6 +1269,26 @@ class HybridAssistantService(
     }
 
     private fun handleUserInputWithinTurn(rawInput: String, turn: Long, callback: (HybridAssistantReply) -> Unit) {
+        DevelopmentCommands.parse(rawInput)?.let { command ->
+            clearPendingActionPrompts()
+            responseThread(turn, callback) {
+                val operations = DeveloperBridgeOperations(systemService.context())
+                val response = runCatching {
+                    when (command) {
+                        DevelopmentCommands.Kind.CAPABILITIES -> operations.capabilities()
+                        DevelopmentCommands.Kind.STATUS -> operations.status()
+                        DevelopmentCommands.Kind.LIST -> operations.list()
+                        DevelopmentCommands.Kind.REVIEW_RUNTIME -> operations.submit(OperationalDiagnostics.render(LiveCapabilityRegistry.snapshot(systemService.context())))
+                        DevelopmentCommands.Kind.CANCEL -> operations.control("task.cancel.request")
+                        DevelopmentCommands.Kind.PAUSE -> operations.control("task.pause.request")
+                        DevelopmentCommands.Kind.RESUME -> operations.control("task.resume.request")
+                        DevelopmentCommands.Kind.RETRY -> operations.control("task.retry.request")
+                    }
+                }.getOrElse(DeveloperBridgeOperations::failure)
+                callback(HybridAssistantReply(response))
+            }.start()
+            return
+        }
         hostInformation(rawInput)?.let { callback(it); return }
         val weatherInput = ForecastDates.contextual(rawInput, conversationTurns().map { it.first })
         if (weatherInput != null && !RoutineProposal.isCreationRequest(rawInput)) {

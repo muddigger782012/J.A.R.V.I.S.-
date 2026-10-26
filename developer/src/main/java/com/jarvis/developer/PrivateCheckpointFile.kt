@@ -10,6 +10,7 @@ import java.nio.file.OpenOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.nio.channels.FileChannel
 
 /** Bounded, no-follow, atomic metadata I/O shared by task plans and read-only repair bookmarks.
  * Callers own the read/compare/write transaction lock and their versioned data validation.
@@ -30,6 +31,19 @@ internal class PrivateCheckpointFile(
     init {
         require(name.matches(Regex("[a-z-]+\\.bin")) && minimum > 0 && maximum >= minimum)
     }
+
+    /** One read/compare/write transaction across UI, Binder workers and future process recovery. */
+    fun <T> transaction(block: () -> T): T = synchronized(transactionLock) {
+        ensureDirectory(create = true)
+        val lock = directory.resolve(checkpoint.fileName.toString() + ".lock")
+        require(!Files.isSymbolicLink(lock) && (!Files.exists(lock, LinkOption.NOFOLLOW_LINKS) ||
+            Files.isRegularFile(lock, LinkOption.NOFOLLOW_LINKS))) { "Private checkpoint lock is invalid." }
+        FileChannel.open(lock, StandardOpenOption.CREATE, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS).use { channel ->
+            channel.lock().use { block() }
+        }
+    }
+
+    companion object { private val transactionLock = Any() }
 
     fun read(): ByteArray? {
         if (!ensureDirectory(create = false) || !checkCheckpointType()) return null
