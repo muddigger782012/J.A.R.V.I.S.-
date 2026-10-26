@@ -1,6 +1,8 @@
 package com.jarvis.developer
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.content.res.ColorStateList
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -80,6 +82,20 @@ object DevelopmentInboxWorkbench {
                                     openReview(report)
                                 }) }
                                 val (paths, savedGoal) = scopes[job.getString("id")] ?: (emptyList<String>() to "")
+                                if (job.getBoolean("sourceVerified")) panel.addView(button("Review this verified commit on GitHub") {
+                                    runCatching {
+                                        val url = inbox.engineeringReviewUrl(job.getString("id")) ?: error("No verified commit")
+                                        activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                    }.onFailure { android.widget.Toast.makeText(activity,
+                                        "The recorded commit or browser could not be opened. Refresh this job; no source or approval was changed.", android.widget.Toast.LENGTH_LONG).show() }
+                                })
+                                if ((job.optJSONObject("engineering")?.optJSONObject("build")?.optLong("run", 0) ?: 0L) > 0L)
+                                    panel.addView(button("Open recorded build diagnostics") {
+                                        runCatching {
+                                            openReview(inbox.engineeringDiagnostics(job.getString("id")) ?: error("No recorded diagnostics"))
+                                        }.onFailure { android.widget.Toast.makeText(activity,
+                                            "Recorded diagnostics are unavailable. Refresh or recheck this job; no approval was granted.", android.widget.Toast.LENGTH_LONG).show() }
+                                    })
                                 if (job.optJSONObject("engineering")?.optBoolean("approvalConsumed") == true &&
                                     job.getString("state") in setOf("READY_FOR_REVIEW", "REVIEW_REQUIRED", "OUTCOME_UNKNOWN")) {
                                     val resultLabel = label("Build checks use your current in-memory GitHub connection when available; approvals are never restored.")

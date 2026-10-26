@@ -345,6 +345,9 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         e.put("build", JSONObject().put("run", report.runId).put("attempt", report.runAttempt).put("url", report.runUrl)
             .put("status", report.status).put("conclusion", report.conclusion ?: "").put("complete", report.evidenceComplete)
             .put("fingerprint", report.fingerprint).put("tests", report.totals?.tests ?: 0))
+        val rendered = BuildDiagnostics.render(report).toByteArray(Charsets.UTF_8)
+        e.put("diagnostics", String(rendered.copyOf(minOf(rendered.size, 4_096)), Charsets.UTF_8) +
+            if (rendered.size > 4_096) "\nDisplay truncated; review the recorded workflow for full evidence." else "")
         e.remove("readLease"); job.remove("problem")
         val stages = job.getJSONObject("verification")
         val complete = report.status == "completed"
@@ -371,6 +374,16 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         load().filter { it.has("engineering") && (it.getString("state") in setOf("OUTCOME_UNKNOWN", "VERIFYING") ||
             it.getString("state") == "COMMITTING" && it.getJSONObject("engineering").optString("writerProcess") != processIdentity) }
             .map { it.getString("id") }
+    }
+    internal fun engineeringReviewUrl(jobId: String): String? = checkpoint.transaction {
+        val job = load().single { it.getString("id") == jobId }
+        if (job.getJSONObject("verification").getString("SOURCE_COMMITTED") != "PASSED") return@transaction null
+        val commit = job.getJSONObject("engineering").getString("commit")
+        require(commit.matches(Regex("[a-f0-9]{40}")))
+        "https://github.com/muddigger782012/J.A.R.V.I.S.-/commit/$commit"
+    }
+    internal fun engineeringDiagnostics(jobId: String): String? = checkpoint.transaction {
+        load().single { it.getString("id") == jobId }.optJSONObject("engineering")?.optString("diagnostics")?.takeIf { it.isNotEmpty() }
     }
     internal fun refreshEngineeringEvidence(jobId: String, revision: Long, personal: Boolean) = checkpoint.transaction {
         val jobs = load(); val job = jobs.single { it.getString("id") == jobId }

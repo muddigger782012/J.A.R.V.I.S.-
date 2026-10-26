@@ -86,6 +86,8 @@ class DevelopmentEngineeringTest {
         listOf("SOURCE_COMMITTED", "BUILD_SUCCESSFUL", "TESTS_PASSED").forEach { assertEquals("PASSED", gates.getString(it)) }
         listOf("SIGNED_APK", "DEVICE_INSTALLED").forEach { assertEquals("PENDING", gates.getString(it)) }
         assertFalse(state.getBoolean("deviceVerified"))
+        assertEquals("https://github.com/muddigger782012/J.A.R.V.I.S.-/commit/$committed", inbox().engineeringReviewUrl(job))
+        assertTrue(inbox().engineeringDiagnostics(job)!!.contains("JUnit: 1 tests"))
         assertTrue(inbox().finishEngineering(write, result(write)))
         assertEquals("READY_FOR_REVIEW", status(job).getString("state"))
         assertTrue(inbox().recoverableEngineeringJobs().isEmpty())
@@ -142,6 +144,7 @@ class DevelopmentEngineeringTest {
     }
     @Test fun anAbsentBranchIsNotRollbackEvidenceOrPermissionToRetryAWritingAttempt() {
         val job = analyzed(); claim(job)
+        assertNull(inbox().engineeringReviewUrl(job))
         assertFalse(DevelopmentEngineeringRead.run(inbox(), job, true, PatchPreviewCancellation(), inspect = { null },
             feedback = { _, _, _ -> error("Must not read a build for an unverified commit") }))
         assertEquals("REVIEW_REQUIRED", status(job).getString("state")); assertFalse(status(job).getBoolean("sourceVerified"))
