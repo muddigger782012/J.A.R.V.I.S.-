@@ -1,5 +1,10 @@
 Personal Jarvis v3.6 — Intelligent Device Assistance:
 
+- Stage analyzed source jobs in the existing Developer exact-diff workbench. A
+  reviewed approval is consumed before the isolated commit. Save only hashes and
+  task identities for interrupted-write verification; never restore approval or
+  repeat a write automatically. Track real commit, build and complete test evidence
+  independently, with signing and device installation still separate.
 - Connect Assistant directly to the independently installed Developer through a
   versioned bridge authenticated by Android caller identity, package and signing
   records. Retain uncertain review requests across restarts without duplicate jobs.

@@ -35,7 +35,9 @@ class DeveloperBridgeOperations(private val context: Context) {
         return "Developer's identity and connection are verified. Review queuing, task status, pause, resume and cancellation are available. " +
             "Current approval mode: ${Wire.modeLabel(selectedMode().wireValue)}. " +
             (if (reply.optBoolean("publicSourceAnalysis")) "Queued public source inspection is available with bounded, partial context. " else "") +
-            "This bridge currently handles read-only reviews; code execution and installation require later verified integrations and their approvals. Android privileges are unchanged."
+            (if (reply.optBoolean("approvedEngineeringJobs")) "In Developer, you can stage a source review, approve its complete diff and track the verified commit, build and test evidence. Interrupted writes are checked without automatically repeating them. "
+            else "This Developer version handles read-only reviews. ") +
+            "This connection cannot grant source approval or install an application. Android privileges are unchanged."
     }
     fun submit(body: String): String {
         return submitRetained(outbox.prepare(body, selectedMode().wireValue))
@@ -86,6 +88,10 @@ class DeveloperBridgeOperations(private val context: Context) {
             "${it.name.replace('_', ' ')}: ${value.getJSONObject("verification").getString(it.name)}"
         } + (value.optJSONObject("analysis")?.let { "\nRead-only source context: ${it.getInt("inspected")} files inspected, ${it.getInt("planned")} references planned. Coverage is partial; inspect the report in Developer." } ?: "") +
         (if (value.optString("problem") == "SOURCE_READ_UNVERIFIED") "\nThe public source read could not be verified. Check Developer's internet connection and repository access, then retry the task explicitly." else "") +
+        (if (value.optString("problem") == "SOURCE_OUTCOME_UNKNOWN") "\nThe approved write outcome is unverified. Developer can check the expected branch using read-only requests; the old approval cannot repeat the write." else "") +
+        (if (value.getString("state") == "CANCELLED" && value.optJSONObject("engineering")?.optBoolean("approvalConsumed") == true)
+            "\nCancellation stops later steps. An approved commit request may already have reached GitHub; cancellation does not undo it." else "") +
+        (if (value.optString("problem") == "ENGINEERING_EVIDENCE_UNAVAILABLE") "\nBuild or test evidence remains unverified. Check repository access and the read budget in Developer. No additional source write was authorized." else "") +
         (if (value.optString("problem") == "SOURCE_ANALYSIS_INTERNAL") "\nDeveloper's source inspection encountered an internal failure. Review its diagnostic category before an explicit retry; no repair or build was completed." else "") +
         "\nA queued request or source analysis is not a verified source change, successful build, publication or installation."
 

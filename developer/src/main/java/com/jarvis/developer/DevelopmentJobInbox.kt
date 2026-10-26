@@ -8,6 +8,7 @@ import java.security.MessageDigest
 
 /** Admission/status metadata for cross-app reviews; existing source-plan stores remain authoritative. */
 class DevelopmentJobInbox(directory: File, private val now: () -> Long = System::currentTimeMillis) {
+    private companion object { val processIdentity = java.util.UUID.randomUUID().toString() }
     private val checkpoint = PrivateCheckpointFile(directory, "development-inbox.bin", 32, 1_048_576)
     private fun hash(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it.toInt() and 255) }
@@ -25,13 +26,30 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
             require(job.getString("caller") in Wire.assistantPackages)
             Wire.decode(job.getString("request"))
             val state = job.getString("state")
-            require(state in setOf("QUEUED", "PAUSED", "CANCELLED", "RUNNING", "REVIEW_READY", "FAILED"))
+            require(state in setOf("QUEUED", "PAUSED", "CANCELLED", "RUNNING", "REVIEW_READY", "FAILED",
+                "AWAITING_APPROVAL", "COMMITTING", "OUTCOME_UNKNOWN", "VERIFYING", "READY_FOR_REVIEW", "REVIEW_REQUIRED"))
             if (state in setOf("RUNNING", "REVIEW_READY", "FAILED")) require(Wire.decode(job.getString("request")).kind in Wire.sourceAnalysisKinds)
             require(job.getLong("revision") in 0..1_000_000 && job.getInt("attempts") in 1..3)
             require(job.getJSONArray("receipts").length() <= 100)
             require(job.getJSONObject("verification").keys().asSequence().toSet() == Wire.Stage.values().map { it.name }.toSet())
-            for (stage in Wire.Stage.values()) require(job.getJSONObject("verification").getString(stage.name) in
-                setOf(Wire.Verification.PENDING.name, Wire.Verification.BLOCKED.name))
+            val engineering = job.optJSONObject("engineering")
+            if (state in setOf("AWAITING_APPROVAL", "COMMITTING", "OUTCOME_UNKNOWN", "VERIFYING", "READY_FOR_REVIEW", "REVIEW_REQUIRED")) require(engineering != null)
+            if (engineering != null) {
+                require(Wire.decode(job.getString("request")).kind in Wire.sourceAnalysisKinds)
+                require(engineering.getInt("polls") in 0..20)
+                val paths = engineering.getJSONArray("paths")
+                require(paths.length() in 1..8 && (0 until paths.length()).map { paths.getString(it) }.distinct().size == paths.length())
+                if (engineering.has("commit")) require(engineering.getString("commit").matches(Regex("[a-f0-9]{40}")))
+            }
+            engineering?.optJSONObject("receipt")?.let(DevelopmentEngineering::decode)
+            for (stage in Wire.Stage.values()) {
+                val value = job.getJSONObject("verification").getString(stage.name)
+                require(value in Wire.Verification.values().map { it.name })
+                if (engineering == null || stage in setOf(Wire.Stage.SIGNED_APK, Wire.Stage.DEVICE_INSTALLED))
+                    require(value in setOf("PENDING", "BLOCKED"))
+                if (value == "PASSED") require(engineering?.has("receipt") == true &&
+                    engineering.optString("commit").matches(Regex("[a-f0-9]{40}")))
+            }
         }
         return jobs
     }
@@ -44,9 +62,15 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
     private fun view(job: JSONObject) = JSONObject().put("id", job.getString("id")).put("state", job.getString("state"))
         .put("mode", Wire.decode(job.getString("request")).mode).put("revision", job.getLong("revision"))
         .put("attempts", job.getInt("attempts")).put("verification", JSONObject(job.getJSONObject("verification").toString()))
-        .put("sourceVerified", false).put("deviceVerified", false).also { result ->
+        .put("sourceVerified", job.getJSONObject("verification").getString("SOURCE_COMMITTED") == "PASSED")
+        .put("deviceVerified", false).also { result ->
             if (job.has("phase")) result.put("phase", job.getString("phase")).put("phaseElapsedMillis", job.optLong("phaseElapsedMillis"))
-            job.optJSONObject("analysis")?.let { result.put("analysis", JSONObject(it.toString())) }
+            job.optJSONObject("analysis")?.let { result.put("analysis", JSONObject(it.toString()).also { it.remove("paths") }) }
+            job.optJSONObject("engineering")?.let { e ->
+                result.put("engineering", JSONObject().put("approvalConsumed", e.has("receipt"))
+                    .put("commit", e.optString("commit")).put("polls", e.optInt("polls"))
+                    .put("build", e.optJSONObject("build") ?: JSONObject()))
+            }
             job.optString("problem").takeIf { it.isNotEmpty() }?.let { result.put("problem", it) }
         }
 
@@ -91,13 +115,20 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         if (request.kind in setOf("task.resume.request", "task.retry.request") &&
             request.mode != Wire.decode(job.getString("request")).mode) reject("POLICY_REQUIRED")
         val state = job.getString("state")
+        val engineering = job.optJSONObject("engineering")
         val next = when (request.kind) {
             "task.cancel.request" -> "CANCELLED"
-            "task.pause.request" -> if (state in setOf("QUEUED", "RUNNING")) "PAUSED" else reject("CONFLICT")
-            "task.resume.request" -> if (state == "PAUSED") "QUEUED" else reject("CONFLICT")
+            "task.pause.request" -> if (state in setOf("QUEUED", "RUNNING", "AWAITING_APPROVAL", "COMMITTING", "OUTCOME_UNKNOWN", "VERIFYING")) "PAUSED" else reject("CONFLICT")
+            "task.resume.request" -> if (state == "PAUSED") {
+                if (engineering == null) "QUEUED" else if (engineering.has("commit")) "VERIFYING"
+                else if (engineering.has("receipt")) "OUTCOME_UNKNOWN" else "AWAITING_APPROVAL"
+            } else reject("CONFLICT")
             "task.retry.request" -> {
-                if (state !in setOf("CANCELLED", "FAILED") || job.getInt("attempts") >= 3) reject("RETRY_BLOCKED")
-                job.put("attempts", job.getInt("attempts") + 1); "QUEUED"
+                if (state !in setOf("CANCELLED", "FAILED", "REVIEW_REQUIRED") || job.getInt("attempts") >= 3) reject("RETRY_BLOCKED")
+                if (engineering != null && !engineering.has("commit")) reject("RETRY_BLOCKED")
+                engineering?.put("polls", 0)
+                job.put("attempts", job.getInt("attempts") + 1)
+                if (engineering == null) "QUEUED" else "VERIFYING"
             }
             else -> reject("INVALID_REQUEST")
         }
@@ -105,8 +136,13 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         if (receipts.length() >= 100) reject("AUDIT_FULL")
         job.put("state", next).put("revision", job.getLong("revision") + 1L)
         job.remove("lease"); job.remove("problem")
-        for (stage in Wire.Stage.values()) job.getJSONObject("verification").put(stage.name,
-            if (next == "CANCELLED") Wire.Verification.BLOCKED.name else Wire.Verification.PENDING.name)
+        engineering?.remove("readLease")
+        if (engineering != null && !engineering.has("receipt")) engineering.remove("nonce")
+        for (stage in Wire.Stage.values()) {
+            val stages = job.getJSONObject("verification")
+            if (engineering == null || stages.getString(stage.name) != "PASSED") stages.put(stage.name,
+                if (next == "CANCELLED") "BLOCKED" else "PENDING")
+        }
         receipts.put(JSONObject().put("id", request.requestId).put("fingerprint", fingerprint).put("kind", request.kind)
             .put("mode", request.mode).put("from", state).put("to", next).put("revision", job.getLong("revision")).put("at", now()))
         save(jobs)
@@ -161,6 +197,7 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         val report = if (shortened) String(rendered.copyOf(8000), Charsets.UTF_8) + "\nReport display truncated; context remains incomplete." else String(rendered, Charsets.UTF_8)
         job.put("report", report).put("analysis", JSONObject().put("commit", plan.commitSha)
             .put("inspected", plan.inspectedPaths.size).put("planned", plan.files.size).put("partial", true)
+            .put("paths", JSONArray(plan.files.map { it.path }))
             .put("reportTruncated", shortened))
         job.remove("lease"); save(jobs); true
     }
@@ -180,10 +217,167 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
     }
     internal fun recoverableAnalysisJobs(): List<String> = checkpoint.transaction {
         load().filter { it.getString("state") in setOf("QUEUED", "RUNNING") &&
-            Wire.decode(it.getString("request")).kind in Wire.sourceAnalysisKinds }.map { it.getString("id") }
+            !it.has("engineering") && Wire.decode(it.getString("request")).kind in Wire.sourceAnalysisKinds }.map { it.getString("id") }
     }
     fun localAnalysisReport(jobId: String): String? = checkpoint.transaction {
         load().singleOrNull { it.getString("id") == jobId && it.getString("state") == "REVIEW_READY" }?.getString("report")
+    }
+    private fun engineeringPolicy(job: JSONObject, personal: Boolean) {
+        val request = Wire.decode(job.getString("request"))
+        if (!Wire.permitsMode(request.mode, personal, Wire.personalPackage(job.getString("caller")))) reject("POLICY_REQUIRED")
+        require(request.kind in Wire.sourceAnalysisKinds)
+    }
+    internal fun engineeringPaths(jobId: String): List<String> = checkpoint.transaction {
+        val job = load().single { it.getString("id") == jobId }
+        val target = if (Wire.decode(job.getString("request")).kind == "source.personal.analysis.request")
+            PatchEngine.Target.PERSONAL else PatchEngine.Target.DEVELOPER
+        val paths = job.getJSONObject("analysis").optJSONArray("paths") ?: return@transaction emptyList()
+        require(paths.length() <= 8)
+        (0 until paths.length()).map { paths.getString(it) }.filter { PatchEngine.allowedPath(it, target) }
+    }
+    internal fun stageEngineering(jobId: String, revision: Long, paths: List<String>, personal: Boolean,
+        goal: String? = null): DevelopmentEngineering.Draft = checkpoint.transaction {
+        val jobs = load(); val job = jobs.single { it.getString("id") == jobId }
+        engineeringPolicy(job, personal)
+        require(job.getLong("revision") == revision && job.getString("state") in setOf("REVIEW_READY", "AWAITING_APPROVAL"))
+        require(job.optJSONObject("engineering")?.has("receipt") != true)
+        val request = Wire.decode(job.getString("request"))
+        val task = goal ?: request.body.lines().joinToString("\n", transform = RepositoryRedaction::line)
+        require(task.isNotBlank() && task.length <= 4_000 && task.lines().all { RepositoryRedaction.line(it) == it } &&
+            task.none { it.isISOControl() && it !in "\n\r\t" })
+        val target = if (request.kind == "source.personal.analysis.request") PatchEngine.Target.PERSONAL else PatchEngine.Target.DEVELOPER
+        val known = job.getJSONObject("analysis").getJSONArray("paths")
+        require(paths.size in 1..8 && paths.distinct().size == paths.size && paths.all { path ->
+            PatchEngine.allowedPath(path, target) && (0 until known.length()).any { known.getString(it) == path }
+        })
+        val draft = DevelopmentEngineering.Draft(jobId, java.util.UUID.randomUUID().toString(), "bridge-" + hash(jobId).take(24),
+            task,
+            job.getJSONObject("analysis").getString("commit"), if (target == PatchEngine.Target.PERSONAL) "main" else "feature/jarvis-developer",
+            target, paths.sorted())
+        job.put("engineering", JSONObject().put("nonce", draft.nonce).put("paths", JSONArray(draft.paths)).put("task", task).put("polls", 0))
+        analysisTransition(job, "AWAITING_APPROVAL", "engineering.staged")
+        save(jobs); draft
+    }
+    internal fun claimEngineering(draft: DevelopmentEngineering.Draft, approved: PatchEngine.ApprovedProposal,
+        personal: Boolean): DevelopmentEngineering.Write = checkpoint.transaction {
+        PatchEngine.validateApproval(approved)
+        val jobs = load(); val job = jobs.single { it.getString("id") == draft.job }
+        engineeringPolicy(job, personal)
+        val e = job.getJSONObject("engineering")
+        require(job.getString("state") == "AWAITING_APPROVAL" && e.optString("nonce") == draft.nonce && !e.has("receipt"))
+        val request = Wire.decode(job.getString("request"))
+        val target = if (request.kind == "source.personal.analysis.request") PatchEngine.Target.PERSONAL else PatchEngine.Target.DEVELOPER
+        val proposal = approved.proposal.request
+        val scope = e.getJSONArray("paths"); val paths = (0 until scope.length()).map { scope.getString(it) }
+        require(proposal.taskId == "bridge-" + hash(draft.job).take(24) && proposal.task == e.getString("task") &&
+            proposal.baseCommitSha == job.getJSONObject("analysis").getString("commit") && proposal.allowedPaths.sorted() == paths &&
+            proposal.target == target && proposal.baseBranch == if (target == PatchEngine.Target.PERSONAL) "main" else "feature/jarvis-developer")
+        val receipt = PatchPublisher.outcomeReceipt(approved)
+        val token = java.util.UUID.randomUUID().toString()
+        e.put("receipt", DevelopmentEngineering.encode(receipt)).put("writeToken", token).put("writerProcess", processIdentity); e.remove("nonce")
+        analysisTransition(job, "COMMITTING", "engineering.approval.consumed")
+        job.getJSONObject("verification").put("SOURCE_COMMITTED", "RUNNING")
+        save(jobs); DevelopmentEngineering.Write(draft.job, token, receipt)
+    }
+    internal fun finishEngineering(write: DevelopmentEngineering.Write, result: PatchPublisher.CommitResult): Boolean = checkpoint.transaction {
+        PatchPublisher.validateReceiptOutcome(write.receipt, result)
+        val jobs = load(); val job = jobs.single { it.getString("id") == write.job }; val e = job.getJSONObject("engineering")
+        if (e.optString("writeToken") != write.token || DevelopmentEngineering.decode(e.getJSONObject("receipt")) != write.receipt) return@transaction false
+        if (e.has("commit")) { require(e.getString("commit") == result.commitSha); return@transaction true }
+        recordCommit(job, result.commitSha); save(jobs); true
+    }
+    private fun recordCommit(job: JSONObject, commit: String) {
+        require(commit.matches(Regex("[a-f0-9]{40}")))
+        job.getJSONObject("engineering").put("commit", commit)
+        job.remove("problem")
+        job.getJSONObject("verification").put("SOURCE_COMMITTED", "PASSED")
+        analysisTransition(job, if (job.getString("state") in setOf("CANCELLED", "PAUSED")) job.getString("state") else "VERIFYING", "engineering.source.verified")
+    }
+    internal fun uncertainEngineering(write: DevelopmentEngineering.Write): Boolean = checkpoint.transaction {
+        val jobs = load(); val job = jobs.single { it.getString("id") == write.job }; val e = job.getJSONObject("engineering")
+        if (e.optString("writeToken") != write.token || e.has("commit")) return@transaction false
+        analysisTransition(job, if (job.getString("state") in setOf("CANCELLED", "PAUSED")) job.getString("state") else "OUTCOME_UNKNOWN", "engineering.outcome.unknown")
+        job.put("problem", "SOURCE_OUTCOME_UNKNOWN"); job.getJSONObject("verification").put("SOURCE_COMMITTED", "BLOCKED")
+        save(jobs); true
+    }
+    internal fun claimEngineeringRead(jobId: String, personal: Boolean): DevelopmentEngineering.Read? = checkpoint.transaction {
+        val jobs = load(); val job = jobs.single { it.getString("id") == jobId }
+        try { engineeringPolicy(job, personal) } catch (_: Wire.Rejected) {
+            analysisTransition(job, "REVIEW_REQUIRED", "engineering.policy.blocked")
+            job.put("problem", "POLICY_REQUIRED")
+            for (stage in listOf("SOURCE_COMMITTED", "BUILD_SUCCESSFUL", "TESTS_PASSED"))
+                if (job.getJSONObject("verification").getString(stage) != "PASSED") job.getJSONObject("verification").put(stage, "BLOCKED")
+            save(jobs); return@transaction null
+        }
+        if (job.getString("state") !in setOf("COMMITTING", "OUTCOME_UNKNOWN", "VERIFYING")) return@transaction null
+        val e = job.getJSONObject("engineering")
+        if (e.optInt("polls") >= 20) {
+            analysisTransition(job, "REVIEW_REQUIRED", "engineering.read.budget")
+            for (stage in listOf("SOURCE_COMMITTED", "BUILD_SUCCESSFUL", "TESTS_PASSED"))
+                if (job.getJSONObject("verification").getString(stage) != "PASSED") job.getJSONObject("verification").put(stage, "BLOCKED")
+            job.put("problem", "ENGINEERING_EVIDENCE_UNAVAILABLE"); save(jobs); return@transaction null
+        }
+        val token = java.util.UUID.randomUUID().toString()
+        e.put("readLease", token).put("polls", e.optInt("polls") + 1)
+        save(jobs)
+        DevelopmentEngineering.Read(jobId, token, DevelopmentEngineering.decode(e.getJSONObject("receipt")), e.optString("commit").takeIf { it.isNotEmpty() })
+    }
+    private fun currentRead(job: JSONObject, read: DevelopmentEngineering.Read) = job.getString("state") in setOf("COMMITTING", "OUTCOME_UNKNOWN", "VERIFYING") &&
+        job.getJSONObject("engineering").optString("readLease") == read.token &&
+        DevelopmentEngineering.decode(job.getJSONObject("engineering").getJSONObject("receipt")) == read.receipt
+    internal fun observedEngineering(read: DevelopmentEngineering.Read, result: PatchPublisher.CommitResult): Boolean = checkpoint.transaction {
+        PatchPublisher.validateReceiptOutcome(read.receipt, result)
+        val jobs = load(); val job = jobs.single { it.getString("id") == read.job }
+        if (!currentRead(job, read)) return@transaction false
+        recordCommit(job, result.commitSha); save(jobs); true
+    }
+    internal fun recordEngineeringBuild(read: DevelopmentEngineering.Read, report: BuildDiagnostics.Report): Boolean = checkpoint.transaction {
+        BuildDiagnostics.validateReport(report)
+        val jobs = load(); val job = jobs.single { it.getString("id") == read.job }; val e = job.getJSONObject("engineering")
+        if (!currentRead(job, read)) return@transaction false
+        require(report.target == read.receipt.target && report.branch == read.receipt.branch && report.commitSha == e.getString("commit"))
+        val old = e.optJSONObject("build")
+        if (old != null && (report.runId < old.optLong("run") || report.runId == old.optLong("run") && report.runAttempt < old.optInt("attempt"))) return@transaction false
+        e.put("build", JSONObject().put("run", report.runId).put("attempt", report.runAttempt).put("url", report.runUrl)
+            .put("status", report.status).put("conclusion", report.conclusion ?: "").put("complete", report.evidenceComplete)
+            .put("fingerprint", report.fingerprint).put("tests", report.totals?.tests ?: 0))
+        e.remove("readLease"); job.remove("problem")
+        val stages = job.getJSONObject("verification")
+        val complete = report.status == "completed"
+        val success = complete && report.conclusion == "success"
+        stages.put("BUILD_SUCCESSFUL", if (complete) { if (success) "PASSED" else "FAILED" } else if (report.status == "missing") "PENDING" else "RUNNING")
+        val testsPass = success && report.evidenceComplete && report.totals?.let { it.tests > 0 && it.failures == 0 && it.errors == 0 && it.skipped == 0 } == true
+        stages.put("TESTS_PASSED", if (testsPass) "PASSED" else if (!complete) "PENDING"
+            else if (report.tests.values.any { it in setOf(BuildDiagnostics.TestState.FAILED, BuildDiagnostics.TestState.ERROR) }) "FAILED" else "BLOCKED")
+        analysisTransition(job, if (!complete) "VERIFYING" else if (testsPass) "READY_FOR_REVIEW" else "REVIEW_REQUIRED", "engineering.build.observed")
+        save(jobs); !complete
+    }
+    internal fun engineeringReadFailed(read: DevelopmentEngineering.Read, absent: Boolean = false) = checkpoint.transaction {
+        val jobs = load(); val job = jobs.single { it.getString("id") == read.job }
+        if (!currentRead(job, read)) return@transaction false
+        job.getJSONObject("engineering").remove("readLease")
+        job.put("problem", if (absent) "SOURCE_OUTCOME_UNKNOWN" else "ENGINEERING_EVIDENCE_UNAVAILABLE")
+        if (absent) {
+            analysisTransition(job, "REVIEW_REQUIRED", "engineering.outcome.unverified")
+            job.getJSONObject("verification").put("SOURCE_COMMITTED", "BLOCKED")
+        }
+        save(jobs); !absent
+    }
+    internal fun recoverableEngineeringJobs(): List<String> = checkpoint.transaction {
+        load().filter { it.has("engineering") && (it.getString("state") in setOf("OUTCOME_UNKNOWN", "VERIFYING") ||
+            it.getString("state") == "COMMITTING" && it.getJSONObject("engineering").optString("writerProcess") != processIdentity) }
+            .map { it.getString("id") }
+    }
+    internal fun refreshEngineeringEvidence(jobId: String, revision: Long, personal: Boolean) = checkpoint.transaction {
+        val jobs = load(); val job = jobs.single { it.getString("id") == jobId }
+        engineeringPolicy(job, personal)
+        val e = job.getJSONObject("engineering")
+        require(job.getLong("revision") == revision && e.has("receipt") &&
+            job.getString("state") in setOf("READY_FOR_REVIEW", "REVIEW_REQUIRED", "OUTCOME_UNKNOWN"))
+        e.put("polls", 0); e.remove("readLease"); job.remove("problem")
+        analysisTransition(job, if (e.has("commit")) "VERIFYING" else "OUTCOME_UNKNOWN", "engineering.read.requested")
+        for (stage in listOf("BUILD_SUCCESSFUL", "TESTS_PASSED")) job.getJSONObject("verification").put(stage, "PENDING")
+        save(jobs)
     }
     fun localSnapshot(): List<JSONObject> = checkpoint.transaction {
         load().map { view(it).put("caller", it.getString("caller")) }

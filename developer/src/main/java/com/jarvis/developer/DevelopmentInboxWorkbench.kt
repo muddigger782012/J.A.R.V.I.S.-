@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.res.ColorStateList
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
@@ -14,7 +15,8 @@ import kotlin.concurrent.thread
 
 /** An owner-visible view of actual admission metadata, not a simulated engineering runner. */
 object DevelopmentInboxWorkbench {
-    fun attach(activity: Activity, parent: LinearLayout, settings: LinearLayout, openReview: (String) -> Unit) {
+    fun attach(activity: Activity, parent: LinearLayout, settings: LinearLayout,
+        patch: PatchWorkbench.Handle? = null, githubToken: () -> String = { "" }, openReview: (String) -> Unit) {
         val panel = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         fun label(text: String) = TextView(activity).apply {
             this.text = text; setTextColor(activity.getColor(R.color.developer_secondary)); textSize = 15f
@@ -55,14 +57,17 @@ object DevelopmentInboxWorkbench {
                     val jobs = inbox.localSnapshot()
                     Triple(jobs, inbox.pendingReviews().toMap(), jobs.takeLast(8).mapNotNull { job ->
                         inbox.localAnalysisReport(job.getString("id"))?.let { job.getString("id") to it }
-                    }.toMap())
+                    }.toMap()) to jobs.takeLast(8).associate { job -> job.getString("id") to
+                        if (job.getString("state") in setOf("REVIEW_READY", "AWAITING_APPROVAL"))
+                            runCatching { inbox.engineeringPaths(job.getString("id")) }.getOrDefault(emptyList()) else emptyList() }
                 }
                 activity.runOnUiThread {
                     if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                     panel.removeAllViews()
                     result.onFailure { panel.addView(label("Review history could not be read. No records were reset or completion inferred.")) }
-                        .onSuccess { (jobs, drafts, reports) ->
-                            panel.addView(label("${jobs.size} stored reviews. These are unverified admission records, not completed repairs."))
+                        .onSuccess { (snapshot, scopes) ->
+                            val (jobs, drafts, reports) = snapshot
+                            panel.addView(label("${jobs.size} stored jobs. Source, build, tests, signing and installation have separate verification gates."))
                             jobs.takeLast(8).forEachIndexed { index, job ->
                                 val stages = job.getJSONObject("verification")
                                 panel.addView(label("Review ${index + 1}: ${job.getString("state")} · ${Wire.modeLabel(job.getString("mode"))}\n" +
@@ -73,6 +78,46 @@ object DevelopmentInboxWorkbench {
                                 reports[job.getString("id")]?.let { report -> panel.addView(button("Open verified-source analysis (partial context)") {
                                     openReview(report)
                                 }) }
+                                val paths = scopes[job.getString("id")].orEmpty()
+                                if (job.optJSONObject("engineering")?.optBoolean("approvalConsumed") == true &&
+                                    job.getString("state") in setOf("READY_FOR_REVIEW", "REVIEW_REQUIRED", "OUTCOME_UNKNOWN")) {
+                                    val resultLabel = label("Build checks use your current in-memory GitHub connection when available; approvals are never restored.")
+                                    panel.addView(button("Recheck this job's outcome and build (read only)") {
+                                        val checked = runCatching {
+                                            inbox.refreshEngineeringEvidence(job.getString("id"), job.getLong("revision"), Wire.personalPackage(activity.packageName))
+                                            DevelopmentEngineeringCredentials.remember(job.getString("id"), githubToken())
+                                            DevelopmentEngineeringScheduler.recover(activity)
+                                        }
+                                        resultLabel.text = if (checked.isSuccess) "Read-only verification queued. Refresh for recorded results."
+                                            else "Refresh this changed job and check the GitHub connection. No write or approval was restored."
+                                    })
+                                    panel.addView(resultLabel)
+                                }
+                                if (patch != null && paths.isNotEmpty()) {
+                                    val goal = EditText(activity).apply {
+                                        hint = "Describe the change you want Developer to make"
+                                        contentDescription = "Requested engineering change"
+                                        minLines = 2
+                                    }
+                                    val scope = EditText(activity).apply {
+                                        hint = "Exact analyzed paths for this task (one per line)"
+                                        contentDescription = "Engineering task source scope"
+                                        setText(paths.joinToString("\n")); minLines = 2
+                                    }
+                                    val outcome = label("Staging does not grant approval. Review every proposed change in the existing coding engine.")
+                                    panel.addView(goal); panel.addView(scope)
+                                    panel.addView(button("Prepare this job for exact diff review") {
+                                        val result = runCatching {
+                                            val selected = scope.text.toString().lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+                                            val draft = inbox.stageEngineering(job.getString("id"), job.getLong("revision"), selected,
+                                                Wire.personalPackage(activity.packageName), goal.text.toString().trim())
+                                            check(patch.prepareEngineering(draft))
+                                        }
+                                        outcome.text = if (result.isSuccess) "Task staged in the coding engine. Generate a diff, review it, then approve the isolated commit explicitly."
+                                            else "The job changed or the coding engine is busy. Refresh and prepare again. No write was approved."
+                                    })
+                                    panel.addView(outcome)
+                                }
                             }
                         }
                 }

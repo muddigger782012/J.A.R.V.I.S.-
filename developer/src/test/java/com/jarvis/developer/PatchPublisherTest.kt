@@ -10,6 +10,39 @@ import java.util.Base64
 
 class PatchPublisherTest {
 
+    @Test fun persistedHashReceiptsRecoverLostResponsesUsingOnlyGetForBothProducts() {
+        for (target in PatchEngine.Target.values()) {
+            val f = Fixture(sourceBranch = if (target == PatchEngine.Target.PERSONAL) "main" else "feature/jarvis-developer", target = target)
+            val receipt = DevelopmentEngineering.decode(DevelopmentEngineering.encode(PatchPublisher.outcomeReceipt(f.approved)))
+            f.loseRefResponse = true
+            assertFailure("outcome is unknown") { f.publisher().commit(TOKEN, f.approved) }
+            f.calls.clear()
+            val observed = f.publisher().inspectReceipt(TOKEN, receipt)!!
+            PatchPublisher.validateReceiptOutcome(receipt, observed)
+            assertEquals(NEW_COMMIT, observed.commitSha)
+            assertEquals("", observed.diff)
+            assertTrue(f.calls.all { it.method == "GET" })
+        }
+    }
+    @Test fun recoveryReceiptsCannotAcceptExtraChangesSymlinksWrongParentsOrAuditText() {
+        val mutations: List<(Fixture) -> Unit> = listOf(
+            { it.newNodes["unapproved.txt"] = node("unapproved.txt", "blob", "100644", OTHER) },
+            { it.wrongParent = true }, { it.committedMessage += "\nChanged task" },
+            { it.baseNodes.getValue(KOTLIN).put("sha", OTHER) },
+            { it.newNodes.getValue(KOTLIN).put("mode", "120000") }, { it.truncated = true })
+        for (mutate in mutations) {
+            val f = Fixture(); val receipt = PatchPublisher.outcomeReceipt(f.approved)
+            f.publisher().commit(TOKEN, f.approved); mutate(f); f.calls.clear()
+            assertFailure("could not be verified") { f.publisher().inspectReceipt(TOKEN, receipt) }
+            assertTrue(f.calls.all { it.method == "GET" })
+        }
+    }
+    @Test fun runtimePatchScopeCannotModifyTheNewIpcJobOrEngineeringGuards() {
+        for (name in listOf("DevelopmentJobInbox", "DevelopmentBridgeService", "DevelopmentAnalysisWorker", "DevelopmentInboxWorkbench", "DevelopmentEngineering", "DevelopmentEngineeringWorker"))
+            assertFalse(PatchEngine.allowedPath("developer/src/main/java/com/jarvis/developer/$name.kt"))
+        assertFalse(PatchEngine.allowedPath("app/src/main/java/com/assistant/core/services/DeveloperBridgeOperations.kt", PatchEngine.Target.PERSONAL))
+    }
+
     @Test fun lostRefResponseCanBeVerifiedWithoutRepeatingAnyWriteForEitherProduct() {
         for (target in PatchEngine.Target.values()) {
             val f = Fixture(sourceBranch = if (target == PatchEngine.Target.PERSONAL) "main" else "feature/jarvis-developer", target = target)
