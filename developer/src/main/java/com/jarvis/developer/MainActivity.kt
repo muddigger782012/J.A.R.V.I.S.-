@@ -928,11 +928,11 @@ class MainActivity : Activity() {
         root.addView(quickRow(
             quickAction("⌁  Improve Jarvis", 2) {
                 selectPage?.invoke(2)
-                sectionButtons[4].performClick()
+                if (openSection != 4) sectionButtons[4].performClick()
             },
             quickAction("▤  Build status", 2) {
                 selectPage?.invoke(2)
-                sectionButtons[5].performClick()
+                if (openSection != 5) sectionButtons[5].performClick()
                 builds.performClick()
             }
         ))
