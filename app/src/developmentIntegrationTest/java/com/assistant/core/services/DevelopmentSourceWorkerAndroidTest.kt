@@ -25,6 +25,15 @@ class DevelopmentSourceWorkerAndroidTest {
             val response = client.request(Wire.Request(UUID.randomUUID().toString(), "task.status.request", jobId = job))
             assertEquals("OK", response.getString("code")); result = response.getJSONObject("data")
         }
+        if (result.getString("state") == "RUNNING") {
+            // Disposable debug emulator only: collect the actual blocked thread location.
+            fun shell(command: String) = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
+                .use { descriptor -> android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { it.readText().trim() } }
+            runCatching {
+                val pid = shell("pidof com.jarvis.developer")
+                if (pid.matches(Regex("[0-9]+"))) shell("run-as com.jarvis.developer kill -3 $pid")
+            }
+        }
         assertEquals("Verified source is required. Last phase: ${result.optString("phase", "unknown")}; measured transition: ${result.optLong("phaseElapsedMillis")} ms.", "REVIEW_READY", result.getString("state"))
         val analysis = result.getJSONObject("analysis")
         assertTrue(analysis.getString("commit").matches(Regex("[a-f0-9]{40}")))

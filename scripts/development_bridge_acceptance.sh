@@ -2,7 +2,7 @@
 # Disposable-emulator acceptance only. No production credential, app data or updater is used.
 set -euo pipefail
 mkdir -p development-bridge-results
-trap 'adb logcat -d -s DevelopmentBridge:W AndroidRuntime:E > development-bridge-results/crashes.txt' EXIT
+trap 'adb logcat -d -s DevelopmentBridge:W AndroidRuntime:E art:I > development-bridge-results/crashes.txt' EXIT
 adb install -r developer/build/outputs/apk/debug/developer-debug.apk
 adb install -r app/build/outputs/apk/debug/app-x86_64-debug.apk
 adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk

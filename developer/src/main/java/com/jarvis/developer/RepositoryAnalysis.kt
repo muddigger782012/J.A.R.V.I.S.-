@@ -71,8 +71,6 @@ object RepositoryAnalysis {
     )
     private data class Query(val primary: Set<String>, val expanded: Set<String>)
     private val revision = Regex("[0-9a-fA-F]{40}")
-    private val word = Regex("[A-Za-z][A-Za-z0-9_]*")
-    private val camelBoundary = Regex("([a-z0-9])([A-Z])")
     private val packagePattern = Regex("(?m)^[ \\t]*package[ \\t]+([\\w.]+)")
     private val importPattern = Regex("(?m)^[ \\t]*import[ \\t]+(?:static[ \\t]+)?([\\w.*]+)")
     private val qualifiedSymbol = Regex("\\b(?:[a-z_]\\w*\\.)+[A-Z]\\w*(?:\\.[A-Z]\\w*)*\\b")
@@ -235,8 +233,30 @@ object RepositoryAnalysis {
         value.endsWith("s") && value.length > 4 -> value.dropLast(1)
         else -> value
     }
-    private fun terms(value: String): Set<String> = word.findAll(value.replace(camelBoundary, "$1 $2").replace('_', ' '))
-        .map { normalize(it.value.lowercase(Locale.ROOT)) }.filter { it.length > 1 && it !in stop }.toSet()
+    /** Same ASCII word/camel/underscore boundaries, without thousands of ICU matcher calls. */
+    private fun terms(value: String): Set<String> {
+        val result = linkedSetOf<String>()
+        var start = -1
+        fun finish(end: Int) {
+            if (start < 0) return
+            val term = normalize(value.substring(start, end).lowercase(Locale.ROOT))
+            if (term.length > 1 && term !in stop) result.add(term)
+            start = -1
+        }
+        for (index in value.indices) {
+            val char = value[index]
+            val letter = char in 'a'..'z' || char in 'A'..'Z'
+            val digit = char in '0'..'9'
+            val previous = if (index > 0) value[index - 1] else ' '
+            if (!letter && !digit) finish(index)
+            else {
+                if (char in 'A'..'Z' && (previous in 'a'..'z' || previous in '0'..'9')) finish(index)
+                if (letter && start < 0) start = index
+            }
+        }
+        finish(value.length)
+        return result
+    }
     private fun query(task: String): Query {
         val primary = terms(task)
         return Query(primary, primary.flatMap { related[it].orEmpty() }.map(::normalize).toSet() - primary)
