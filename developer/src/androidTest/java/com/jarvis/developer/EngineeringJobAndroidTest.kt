@@ -41,6 +41,60 @@ class EngineeringJobAndroidTest {
         PatchPublisher.CommitResult(r.taskId, r.provider, r.model, r.proposalId, r.edits.map { it.path }.sorted(),
             r.base, "d".repeat(40), r.branch, "", r.baseBranch, r.target)
     }
+    @Test fun engineeringCredentialsAreEphemeralAndRejectControlCharacters() {
+        val job = UUID.randomUUID().toString()
+        try {
+            assertEquals("", DevelopmentEngineeringCredentials.token(job))
+            assertThrows(IllegalArgumentException::class.java) {
+                DevelopmentEngineeringCredentials.remember("", "invalid-job")
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                DevelopmentEngineeringCredentials.remember("bad\njob", "invalid-job")
+            }
+            DevelopmentEngineeringCredentials.remember(job, "temporary-github-token")
+            assertEquals("temporary-github-token", DevelopmentEngineeringCredentials.token(job))
+            assertThrows(IllegalArgumentException::class.java) {
+                DevelopmentEngineeringCredentials.remember(job, "unsafe\ncredential")
+            }
+            assertEquals("temporary-github-token", DevelopmentEngineeringCredentials.token(job))
+            assertThrows(IllegalArgumentException::class.java) {
+                DevelopmentEngineeringCredentials.remember(job, "x".repeat(4097))
+            }
+            assertEquals("temporary-github-token", DevelopmentEngineeringCredentials.token(job))
+            DevelopmentEngineeringCredentials.remember(job, "")
+            assertEquals("", DevelopmentEngineeringCredentials.token(job))
+        } finally {
+            DevelopmentEngineeringCredentials.forget(job)
+        }
+    }
+    @Test fun engineeringCredentialCacheHasAnAtomicBoundAcrossConcurrentAdmissions() {
+        val prefix = UUID.randomUUID().toString()
+        val jobs = (0 until 96).map { "$prefix-$it" }
+        val start = java.util.concurrent.CountDownLatch(1)
+        val done = java.util.concurrent.CountDownLatch(jobs.size)
+        val accepted = java.util.concurrent.atomic.AtomicInteger()
+        try {
+            jobs.forEach { job ->
+                Thread {
+                    try {
+                        start.await()
+                        DevelopmentEngineeringCredentials.remember(job, "ephemeral")
+                        accepted.incrementAndGet()
+                    } catch (_: IllegalArgumentException) {
+                        // Capacity is intentionally bounded.
+                    } finally {
+                        done.countDown()
+                    }
+                }.start()
+            }
+            start.countDown()
+            assertTrue("Credential admission threads timed out", done.await(15, java.util.concurrent.TimeUnit.SECONDS))
+            assertTrue(accepted.get() <= 64)
+            assertEquals(accepted.get(), jobs.count { DevelopmentEngineeringCredentials.token(it) == "ephemeral" })
+        } finally {
+            jobs.forEach(DevelopmentEngineeringCredentials::forget)
+        }
+    }
     @Test fun reconstructedCheckpointsCannotReplayAWriteApprovalOrInferAnInstallation() {
         val f = fixture()
         try {
