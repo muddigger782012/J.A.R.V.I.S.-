@@ -7,6 +7,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RepositoryAnalysisTest {
+    @Test fun fullyQualifiedCallsResolveWithoutAnImportButQuotedExamplesDoNotCreateEdges() {
+        val path = "app/src/main/java/example/Controller.kt"
+        val dependency = "app/src/main/java/other/MessageStore.kt"
+        val fake = "app/src/main/java/other/FakeStore.kt"
+        val sources = mapOf(path to """
+            package example
+            class Controller {
+                fun conversation() = other.MessageStore.read()
+                val example = "other.FakeStore.read()"
+                // other.FakeStore.read()
+            }
+        """.trimIndent(), dependency to "package other\nobject MessageStore { fun read() = 1 }",
+            fake to "package other\nobject FakeStore { fun read() = 1 }")
+        val files = sources.map { (name, value) ->
+            val bytes = value.toByteArray(Charsets.UTF_8)
+            val hash = MessageDigest.getInstance("SHA-1").digest("blob ${bytes.size}\u0000".toByteArray() + bytes)
+                .joinToString("") { "%02x".format(it.toInt() and 255) }
+            SourceFile(name, hash, bytes.size.toLong())
+        }
+        val controller = RepositoryAnalysis.analyze("Controller conversation", Inventory(files, false, "a".repeat(40)), sources::getValue)
+            .files.single { it.path == path }
+        assertTrue(controller.dependencies.any { it.kind == "qualified symbol" && dependency in it.resolvedPaths })
+        assertFalse(controller.dependencies.any { fake in it.resolvedPaths })
+    }
     private val commit = "a".repeat(40)
     private val core = "app/src/main/java/com/assistant/core/"
     private val developer = "developer/src/main/java/com/jarvis/developer/"

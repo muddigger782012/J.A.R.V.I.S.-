@@ -75,6 +75,7 @@ object RepositoryAnalysis {
     private val camelBoundary = Regex("([a-z0-9])([A-Z])")
     private val packagePattern = Regex("(?m)^[ \\t]*package[ \\t]+([\\w.]+)")
     private val importPattern = Regex("(?m)^[ \\t]*import[ \\t]+(?:static[ \\t]+)?([\\w.*]+)")
+    private val qualifiedSymbol = Regex("\\b(?:[a-z_]\\w*\\.)+[A-Z]\\w*(?:\\.[A-Z]\\w*)*\\b")
     private val declaration = Regex("\\b(class|object|interface|typealias|fun|val|var|record|enum)\\s+(?:<[^>]+>\\s*)?([A-Za-z_]\\w*)")
     private val javaMethod = Regex("\\b(?:public|protected|private)\\s+(?:static\\s+)?[\\w<>?\\[\\].]+\\s+([A-Za-z_]\\w*)\\s*\\(")
     private val resourceCode = Regex("\\b(?:([A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*)\\.)?R\\.(layout|drawable|string|color|style|menu|id|dimen|xml|navigation)\\.([A-Za-z_]\\w*)")
@@ -300,6 +301,12 @@ object RepositoryAnalysis {
             val matches = if (reference.endsWith(".*")) documents.filter { it.packageName == reference.removeSuffix(".*") }.map { it.source.path } else resolveQualified(reference)
             val localPrefix = documents.map { it.packageName.substringBeforeLast('.', it.packageName) }.filter { it.isNotBlank() }.any { reference.startsWith("$it.") }
             add(reference, "import", matches, !localPrefix && !reference.startsWith("com.jarvis.") && !reference.startsWith("com.assistant."))
+        }
+        // Calls may use a fully qualified class without an import. Resolve actual code against
+        // the pinned inventory; comments, strings and a filename coincidence cannot create edges.
+        qualifiedSymbol.findAll(doc.codeText).map { it.value }.distinct().filter { it !in imports }.forEach { reference ->
+            val matches = resolveQualified(reference)
+            if (matches.isNotEmpty()) add(reference, "qualified symbol", matches)
         }
         // Resolve same-package declarations used by name. A filename coincidence never proves an edge.
         documents.filter { it.source.path != doc.source.path && it.packageName.isNotEmpty() && it.packageName == doc.packageName }.forEach { other ->
