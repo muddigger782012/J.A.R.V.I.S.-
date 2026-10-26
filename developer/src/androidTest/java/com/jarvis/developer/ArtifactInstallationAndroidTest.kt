@@ -132,7 +132,10 @@ class ArtifactInstallationAndroidTest {
                 assertEquals("BLOCKED", status(job).getJSONObject("verification").getString("DEVICE_INSTALLED"))
                 println("Actual PackageInstaller confirmation, callback and installed APK digest verified; device acceptance remains separate.")
             }
-        } finally { shell("appops set com.jarvis.developer REQUEST_INSTALL_PACKAGES default") }
+        } finally {
+            // The host restores the permission after instrumentation exits. On Android 14,
+            // revocation deliberately kills the installer app, including its test runner.
+        }
     }
     @Test fun cancellingAnOwnedUncommittedSessionRejectsStaleCallbacksAndRecoveryDoesNotInstall() {
         guard()
