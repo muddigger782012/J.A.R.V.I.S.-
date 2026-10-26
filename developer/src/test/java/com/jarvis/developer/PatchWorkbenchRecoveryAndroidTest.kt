@@ -51,6 +51,10 @@ class PatchWorkbenchRecoveryAndroidTest {
         var afterInventory: (() -> Unit)? = null
         var afterProposal: (() -> Unit)? = null
         var writes = 0
+        var successfulWrite = false
+        var engineeringRecoveries = 0
+        val engineeringDirectory = java.io.File(temporary.newFolder(), "inbox")
+        fun inbox() = DevelopmentJobInbox(engineeringDirectory)
         var inspections = 0
         var feedbacks = 0
         val feedbackTokens = ArrayList<PatchPreviewCancellation>()
@@ -99,7 +103,9 @@ class PatchWorkbenchRecoveryAndroidTest {
                 },
                 commit = { _, approved ->
                     PatchEngine.validateApproval(approved); writes++
-                    throw IllegalStateException("Simulated lost response; private transport content")
+                    if (!successfulWrite) throw IllegalStateException("Simulated lost response; private transport content")
+                    approved.proposal.let { p -> p.request.let { r -> PatchPublisher.CommitResult(r.taskId, r.provider, r.model,
+                        p.id, p.edits.map { it.path }.sorted(), r.baseCommitSha, created, PatchEngine.branchName(p), p.diff, r.baseBranch, r.target) } }
                 },
                 inspectOutcome = { _, proposal ->
                     inspections++
@@ -140,6 +146,7 @@ class PatchWorkbenchRecoveryAndroidTest {
                         feedbacks++
                         BuildDiagnostics.parse(entry.commitSha, entry.branch, 23, 1, "completed", "failure", "", entry.target)
                     }, worker = { pending.add(it) }),
+                inbox = { inbox() }, engineeringRecovery = { engineeringRecoveries++ },
                 worker = { pending.add(it) }
             )
             handle = PatchWorkbench.attach(activity, root, task,
@@ -174,6 +181,44 @@ class PatchWorkbenchRecoveryAndroidTest {
             assertFalse(status.text.contains("private transport"))
         }
         fun close() { if (!activity.isDestroyed) controller.pause().stop().destroy() }
+        fun engineeringDraft(): DevelopmentEngineering.Draft {
+            val request = com.jarvis.integration.DevelopmentBridgeContract.Request("ui-engineering", "source.personal.analysis.request", "Improve the example status")
+            val job = inbox().handle("com.assistant.core", true, request).getString("id")
+            val plan = RepositoryAnalysis.analyze(request.body, inventory()) { source }
+            check(inbox().finishAnalysis(inbox().claimAnalysis(job, true)!!, plan))
+            return inbox().stageEngineering(job, 2, listOf(path), true)
+        }
+    }
+
+    @Test fun anApprovedJobRecordsItsOutcomeAfterTheActivityIsDestroyed() {
+        val h = Harness()
+        try {
+            val draft = h.engineeringDraft()
+            assertTrue(h.handle.prepareEngineering(draft))
+            h.successfulWrite = true
+            h.preview(); h.approval.isChecked = true
+            h.button("Create task branch").performClick()
+            h.close()
+            h.pending.removeFirst().invoke()
+            val state = h.inbox().localSnapshot().single()
+            assertEquals(1, h.writes); assertEquals(1, h.engineeringRecoveries)
+            assertTrue(state.getBoolean("sourceVerified")); assertFalse(state.getBoolean("deviceVerified"))
+            assertEquals("VERIFYING", state.getString("state"))
+            assertEquals("PENDING", state.getJSONObject("verification").getString("SIGNED_APK"))
+        } finally { h.close() }
+    }
+    @Test fun assistantCancellationBeforeApprovalClaimPreventsTheQueuedWrite() {
+        val h = Harness()
+        try {
+            val draft = h.engineeringDraft(); assertTrue(h.handle.prepareEngineering(draft))
+            h.preview(); h.approval.isChecked = true
+            val state = h.inbox().localSnapshot().single()
+            h.inbox().handle("com.assistant.core", true, com.jarvis.integration.DevelopmentBridgeContract.Request("cancel-ui", "task.cancel.request",
+                jobId = draft.job, expectedRevision = state.getLong("revision")))
+            h.button("Create task branch").performClick()
+            assertEquals(0, h.writes); assertTrue(h.pending.isEmpty())
+            assertFalse(h.approval.isChecked)
+        } finally { h.close() }
     }
 
     @Test fun cancellingQueuedTaskFeedbackPreservesTheCommitButRequiresAnExplicitFreshRead() {

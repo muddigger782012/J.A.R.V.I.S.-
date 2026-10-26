@@ -681,7 +681,7 @@ class MainActivity : Activity() {
             "Describe a change on Home to ask Jarvis for help. Here you can review code, check builds, and use advanced development tools.")
         sectionIntro(settings, "Connect your AI",
             "Choose Gemini or OpenAI, enter your API key, then tap Save connection. The key is encrypted on this device.")
-        DevelopmentInboxWorkbench.attach(this, advanced, settings) { review ->
+        DevelopmentInboxWorkbench.attach(this, advanced, settings, patchWorkbench, { githubToken.text.toString().trim() }) { review ->
             // Preserve the validated legacy diagnostic format for PersonalRepair.parse.
             // The text watcher invalidates any previously staged proposal before loading it.
             prompt.setText(review)

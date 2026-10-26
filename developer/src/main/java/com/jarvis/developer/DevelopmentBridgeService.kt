@@ -40,9 +40,12 @@ class DevelopmentBridgeService : Service() {
                     .put("modes", JSONArray(Wire.availableModes(personal && Wire.personalPackage(peer))))
                     .put("sourceExecution", false).put("installation", false).put("sourceWritesRequireApproval", true)
                     .put("publicSourceAnalysis", true)
+                    .put("approvedEngineeringJobs", true)
                 else inbox.handle(peer, personal, request).also { result ->
-                    if (request.kind !in setOf("task.status.request", "task.list.request"))
+                    if (request.kind !in setOf("task.status.request", "task.list.request")) {
                         DevelopmentAnalysisScheduler.accepted(this@DevelopmentBridgeService, result)
+                        DevelopmentEngineeringScheduler.accepted(this@DevelopmentBridgeService, result)
+                    }
                 }
                 Wire.response(requestId, "OK", result)
             } catch (failure: Wire.Rejected) {
