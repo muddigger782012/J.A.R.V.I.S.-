@@ -219,6 +219,17 @@ class MainActivityConfigurationAndroidTest {
         assertTrue("ScrollView can reach bottom", scroll.fullScroll(View.FOCUS_DOWN))
         idleMain()
         assertTrue("ScrollView moved down", scroll.scrollY > 0)
+        // The last action lives in a collapsed accordion section. Expand that section
+        // before checking reachability, rather than testing a hidden child at scroll bottom.
+        assertTrue(button(activity, "Release verification").performClick())
+        idleMain()
+        decor.measure(View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY))
+        decor.layout(0, 0, widthPx, heightPx)
+        idleMain()
+        assertTrue("Last action is displayed", isEffectivelyVisible(lastAction, root))
+        scroll.fullScroll(View.FOCUS_DOWN)
+        idleMain()
         val actionBounds = Rect(0, 0, lastAction.width, lastAction.height)
         scroll.offsetDescendantRectToMyCoords(lastAction, actionBounds)
         val viewportTop = scroll.scrollY + scroll.paddingTop
