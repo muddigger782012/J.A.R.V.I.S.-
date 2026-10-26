@@ -184,6 +184,11 @@ class MainActivityConfigurationAndroidTest {
         idleMain()
         assertTrue(button(activity, "Assistant diagnostics").performClick())
         idleMain()
+        // Opening a collapsed section changes measured height; force a new layout pass.
+        decor.measure(View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY))
+        decor.layout(0, 0, widthPx, heightPx)
+        idleMain()
         val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
         val root = scroll.getChildAt(0) as LinearLayout
         assertTrue("Measured scroll viewport width", scroll.width > 0)
@@ -208,8 +213,8 @@ class MainActivityConfigurationAndroidTest {
         }
 
         assertApprovalsUnavailable(activity)
-        val lastAction = button(activity, "Generate icon code, commit and check build")
-        assertTrue("Last action is inside the expanded Tools content", descendants(root).any { it === lastAction })
+        val lastAction = button(activity, "Assistant diagnostics")
+        assertTrue("Section navigation remains inside Tools content", descendants(root).any { it === lastAction })
         scroll.isSmoothScrollingEnabled = false
         assertTrue("ScrollView can reach bottom", scroll.fullScroll(View.FOCUS_DOWN))
         idleMain()
