@@ -2,7 +2,7 @@ name: Local assistant checks
 on:
   pull_request:
   push:
-    branches: [main, 'fix/local-date-math']
+    branches: [main, 'fix/local-date-math', 'feature/jarvis-personal-repair/**']
     paths-ignore:
       - 'artifacts/**'
 permissions:
