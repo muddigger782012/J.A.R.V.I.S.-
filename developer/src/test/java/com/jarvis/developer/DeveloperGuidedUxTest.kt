@@ -20,7 +20,7 @@ import org.robolectric.annotation.Config
 class DeveloperGuidedUxTest {
     private var controller: org.robolectric.android.controller.ActivityController<MainActivity>? = null
     @Before fun resetLocalProjects() {
-        org.robolectric.RuntimeEnvironment.getApplication<android.app.Application>()
+        org.robolectric.RuntimeEnvironment.getApplication()
             .getSharedPreferences("developer_local_projects_v1", Context.MODE_PRIVATE).edit().clear().commit()
     }
     @After fun close() { controller?.pause()?.stop()?.destroy() }
