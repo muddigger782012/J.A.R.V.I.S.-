@@ -91,6 +91,7 @@ class DeveloperConfigurationDeviceTest {
                 assertEffectiveConfiguration(activity)
                 val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
                 val lastAction = button(activity, LAST_ACTION)
+                lastAction.requestRectangleOnScreen(Rect(0, 0, lastAction.width, lastAction.height), true)
                 assertTrue("Native ScrollView must have moved downward", scroll.scrollY > 0)
                 val actionBounds = Rect(0, 0, lastAction.width, lastAction.height)
                 scroll.offsetDescendantRectToMyCoords(lastAction, actionBounds)

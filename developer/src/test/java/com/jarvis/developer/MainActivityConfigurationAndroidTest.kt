@@ -231,7 +231,9 @@ class MainActivityConfigurationAndroidTest {
         decor.layout(0, 0, widthPx, heightPx)
         idleMain()
         assertTrue("Last action is displayed", isEffectivelyVisible(lastAction, root))
-        scroll.fullScroll(View.FOCUS_DOWN)
+        // Later categories remain below this action. Bring its full bounds into view instead
+        // of assuming it is the final child of the whole Advanced tools page.
+        lastAction.requestRectangleOnScreen(Rect(0, 0, lastAction.width, lastAction.height), true)
         idleMain()
         val actionBounds = Rect(0, 0, lastAction.width, lastAction.height)
         scroll.offsetDescendantRectToMyCoords(lastAction, actionBounds)
