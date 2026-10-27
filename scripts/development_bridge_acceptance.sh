@@ -58,5 +58,6 @@ run_suite com.jarvis.developer.test com.jarvis.developer.ArtifactInstallationRec
 # First-launch microphone permission is an explicit disposable-fixture setup,
 # matching the existing UI smoke runner. No owner device is ever used here.
 adb shell pm grant com.assistant.core android.permission.RECORD_AUDIO
+run_suite com.assistant.core.test com.assistant.core.HudGradientCompatibilityTest 1 development-bridge-results/hud-gradient.txt 60
 run_suite com.assistant.core.test com.assistant.core.services.DevelopmentArtifactHandoffAndroidTest 2 development-bridge-results/artifact-handoff.txt 120
 adb logcat -d -s AndroidRuntime:E > development-bridge-results/crashes.txt
