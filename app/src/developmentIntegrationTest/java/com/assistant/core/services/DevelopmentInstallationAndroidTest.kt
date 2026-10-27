@@ -100,6 +100,7 @@ class DevelopmentInstallationAndroidTest {
         val previous = status(job).getJSONObject("artifact").getString("installation")
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
             await("Assistant did not become foreground") { foreground() == "com.assistant.core" }
+            var verified = false
             try {
                 send(scenario, "Can you install the APK that Developer just built?")
                 await("The exact APK consent prompt was not displayed") { visibleReply(scenario, "Approve asking Android to install this exact APK?") }
@@ -115,17 +116,31 @@ class DevelopmentInstallationAndroidTest {
                     button = instrumentation.uiAutomation.rootInActiveWindow?.let(::installButton); button != null
                 }
                 assertTrue(button!!.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-                await("The receiver did not verify installed package bytes") {
-                    status(job).getJSONObject("artifact").getString("installation") == "PACKAGE_PRESENT"
+                var lastRead = "No installed-state read yet"
+                await("The receiver did not verify installed package bytes", { "; last read=$lastRead" }) {
+                    // Updating Developer can disconnect Binder. Only repeat this read,
+                    // within the original deadline; never retry an installer action.
+                    val observed = try { status(job) } catch (failure: Wire.Rejected) {
+                        if (failure.code !in setOf("COMPANION_UNAVAILABLE", "TIMEOUT", "BUSY")) throw failure
+                        lastRead = failure.code; null
+                    }
+                    if (observed == null) false else {
+                        lastRead = observed.getJSONObject("artifact").getString("installation")
+                        lastRead == "PACKAGE_PRESENT"
+                    }
                 }
                 val installed = status(job)
                 assertTrue(installed.getJSONObject("artifactReview").getBoolean("consumed"))
                 assertFalse(installed.getBoolean("deviceVerified"))
                 assertEquals("BLOCKED", installed.getJSONObject("verification").getString("DEVICE_INSTALLED"))
+                verified = true
                 println("Actual conversational consent, authenticated handoff, Android confirmation and installed-byte verification passed; physical acceptance remains separate.")
             } finally {
-                if (status(job).getJSONObject("artifact").optString("installation") in setOf("PREPARING", "SUBMITTED", "PENDING_USER_ACTION", "OUTCOME_UNKNOWN"))
-                    call(Wire.ARTIFACT_INSTALL_CANCEL, job, status(job).getLong("revision"))
+                if (!verified) runCatching {
+                    val current = status(job)
+                    if (current.getJSONObject("artifact").optString("installation") in setOf("PREPARING", "SUBMITTED", "PENDING_USER_ACTION", "OUTCOME_UNKNOWN"))
+                        call(Wire.ARTIFACT_INSTALL_CANCEL, job, current.getLong("revision"))
+                }.onFailure { println("Installation cleanup could not be confirmed after the primary failure; no installer action was repeated.") }
             }
         }
     }
