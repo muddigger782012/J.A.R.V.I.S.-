@@ -52,7 +52,8 @@ object PatchWorkbench {
         private val personalAction: (PersonalRepair.Review) -> Boolean = { false },
         private val cancelPreviewAction: () -> Unit = {},
         private val disposeAction: () -> Unit = cancelPreviewAction,
-        private val engineeringAction: (DevelopmentEngineering.Draft) -> Boolean = { false }
+        private val engineeringAction: (DevelopmentEngineering.Draft) -> Boolean = { false },
+        private val guidedAction: (String, String, List<String>, String, PatchEngine.Target) -> Boolean = { _, _, _, _, _ -> false }
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
@@ -63,6 +64,8 @@ object PatchWorkbench {
         fun cancelPreview() = cancelPreviewAction()
         fun dispose() = disposeAction()
         internal fun prepareEngineering(draft: DevelopmentEngineering.Draft) = engineeringAction(draft)
+        internal fun prepareGuided(id: String, task: String, paths: List<String>, base: String, target: PatchEngine.Target) =
+            guidedAction(id, task, paths, base, target)
     }
 
     fun attach(
@@ -393,7 +396,7 @@ object PatchWorkbench {
                 frozen.allowedPaths.distinct().size != frozen.allowedPaths.size ->
                     "Remove duplicate source paths from the allowlist."
                 !frozen.allowedPaths.all { PatchEngine.allowedPath(it, frozen.target) } ->
-                    "The allowlist contains a protected or unsupported path for this product. Personal repairs require an explicitly staged source review."
+                    "The allowlist contains a protected or unsupported path for this product. Use Home analysis to select ordinary logic, or open repository issues for a supervised pull request covering protected controllers. No source request or approval was made."
                 else -> null
             }
             if (invalid != null) {
@@ -904,6 +907,9 @@ object PatchWorkbench {
             disposed = true
             githubToken.removeTextChangedListener(readCredentialChanges)
             disposeHistory()
+        }, guidedAction = { id, description, paths, base, target ->
+            prepareInputs(id, description, paths, base,
+                if (target == PatchEngine.Target.PERSONAL) "main" else "feature/jarvis-developer", target)
         }, engineeringAction = { draft ->
             if (prepareInputs(draft.taskId, draft.task, draft.paths, draft.base, draft.branch, draft.target)) {
                 activeEngineering = draft

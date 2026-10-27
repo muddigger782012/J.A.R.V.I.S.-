@@ -147,7 +147,8 @@ class MainActivityAndroidTest {
     }
 
     private fun openTools(activity: Activity) {
-        assertTrue(button(activity, "Tools").performClick())
+        assertTrue(button(activity, "Settings").performClick())
+        assertTrue(button(activity, "Advanced tools").performClick())
         idleMain()
         // The redesigned Tools screen exposes each security-gated group directly.
         listOf("Connections and source browsing", "Code changes and review",

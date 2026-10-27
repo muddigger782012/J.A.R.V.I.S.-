@@ -27,6 +27,15 @@ class MainActivity : Activity() {
     private var applicationWorkbench: ApplicationApprovalWorkbench.Handle? = null
     private var patchPreview: PatchWorkbench.Handle? = null
     private var activePage = 0
+    private val pageHistory = mutableListOf<Int>()
+    private var pageViews = emptyList<ScrollView>()
+    private var uiRoot: View? = null
+    private var navigateBack: (() -> Boolean)? = null
+    private var openToolSection = -1
+    private var guidedTarget: android.widget.Spinner? = null
+    private var disposeGuidance: (() -> Unit)? = null
+    private var activeProject: String? = null
+    internal val connectionVerification = ConnectionVerification()
     private var selectPage: ((Int) -> Unit)? = null
     private var artifactReviewIntent: ((Intent) -> Unit)? = null
     private var artifactReviewJob: String? = null
@@ -36,13 +45,21 @@ class MainActivity : Activity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("developer_active_page", activePage)
+        outState.putIntArray("developer_page_history", pageHistory.takeLast(32).toIntArray())
+        outState.putIntArray("developer_scroll", pageViews.map { it.scrollY }.toIntArray())
+        outState.putInt("developer_tool_section", openToolSection)
+        outState.putInt("developer_guided_target", guidedTarget?.selectedItemPosition ?: 0)
+        outState.putString("developer_active_project", activeProject)
+        uiRoot?.let { outState.putBundle("developer_drafts", DeveloperUiState.save(it)) }
         artifactReviewJob?.let { outState.putString("developer_artifact_review_job", it) }
         super.onSaveInstanceState(outState)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        activePage = savedInstanceState?.getInt("developer_active_page", 0)?.coerceIn(0, 3) ?: 0
+        activePage = savedInstanceState?.getInt("developer_active_page", 0)?.coerceIn(0, 4) ?: 0
+        pageHistory.addAll(savedInstanceState?.getIntArray("developer_page_history")?.filter { it in 0..4 }.orEmpty())
+        activeProject = savedInstanceState?.getString("developer_active_project")
         val health = getSharedPreferences("developer_health", MODE_PRIVATE)
         val currentCode = BuildConfig.VERSION_CODE
         val previousCode = health.getInt("last_started_version", -1)
@@ -104,17 +121,7 @@ class MainActivity : Activity() {
             contentDescription = "Open Settings to enter your AI provider credentials"
         }
         root.addView(setupButton)
-        fun updateConnectionSetup() {
-            val saved = ProviderCredentialStore.load(this@MainActivity)
-            setupButton.text = if (saved == null) "Set up AI connection" else "Manage / test AI connection"
-            setupButton.contentDescription = if (saved == null)
-                "Open Settings to connect an AI provider"
-                else "Open Settings to test or change the saved AI connection"
-            setupHint.text = if (saved == null)
-                "Connect an AI provider in Settings to get started."
-                else "${saved.first} credentials saved on this device. Connection has not been verified in this session."
-        }
-        updateConnectionSetup()
+        lateinit var updateConnectionSetup: () -> Unit
         val key = field("Paste your API key here (not a model name)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
@@ -151,8 +158,10 @@ class MainActivity : Activity() {
             setTextIsSelectable(true)
             text = "Your assistant’s response will appear here."
         }
-        val send = Button(this).apply { text = "Start project"; isAllCaps = false }
+        val send = Button(this).apply { text = "Ask Jarvis / save instructions"; isAllCaps = false }
         root.addView(send)
+        root.removeView(status)
+        root.addView(status)
         root.addView(output)
 
         val plans = Button(this).apply { text = "Read approved development plans" }
@@ -212,7 +221,7 @@ class MainActivity : Activity() {
         var repositorySnapshot: RepositoryAnalysis.Inventory? = null
         fun repositoryRead(label: String, operation: () -> Pair<RepositoryAnalysis.Inventory, String>) {
             listOf(inventoryButton, sourceButton, analyzeButton).forEach { it.isEnabled = false }
-            status.text = label
+            repositoryFeedback.text = label
             repositoryFeedback.text = label
             thread(name = "DeveloperRepositoryRead") {
                 try {
@@ -220,17 +229,13 @@ class MainActivity : Activity() {
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
                             repositorySnapshot = snapshot
-                            output.text = report
                             repositoryFeedback.text = report
-                            status.text = "Read-only preview complete at ${snapshot.commitSha.take(12)}"
                         }
                     }
                 } catch (e: Exception) {
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
-                            status.text = "Repository preview failed"
-                            output.text = e.message?.take(500) ?: "Repository read unavailable."
-                            repositoryFeedback.text = "Repository preview failed: " + output.text
+                            repositoryFeedback.text = "Repository preview failed. Check access, source path and line range, then retry. No source was changed."
                         }
                     }
                 } finally {
@@ -263,7 +268,7 @@ class MainActivity : Activity() {
             val token = githubToken.text.toString().trim()
             val task = prompt.text.toString().trim()
             if (task.isBlank()) {
-                status.text = "Enter a task to analyze."
+                repositoryFeedback.text = "Describe a task on Home before analyzing it here."
                 return@setOnClickListener
             }
             repositoryRead("Inspecting bounded source context and dependencies...") {
@@ -271,19 +276,37 @@ class MainActivity : Activity() {
                 snapshot to RepositoryAnalysis.render(plan)
             }
         }
+        fun feedback(): Pair<TextView, TextView> = Pair(
+            TextView(this).apply { setTextColor(getColor(R.color.developer_text)); setTextIsSelectable(true) },
+            TextView(this).apply { setTextColor(getColor(R.color.developer_secondary)); accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE })
+        fun addFeedback(pair: Pair<TextView, TextView>) { root.addView(pair.second); root.addView(pair.first) }
         val codingStart = root.childCount
-        val patchWorkbench = PatchWorkbench.attach(this, root, prompt, key, provider, model, githubToken, output, status) {
-            health.getInt("confirmed_version", -1) == currentCode
-        }
+        val codingFeedback = feedback()
+        val patchWorkbench = PatchWorkbench.attach(this, root, prompt, key, provider, model, githubToken,
+            codingFeedback.first, codingFeedback.second) { health.getInt("confirmed_version", -1) == currentCode }
+        addFeedback(codingFeedback)
         patchPreview = patchWorkbench
         val planningStart = root.childCount
-        TaskPlanningWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        val planningFeedback = feedback()
+        TaskPlanningWorkbench.attach(this, root, prompt, githubToken, planningFeedback.first, planningFeedback.second, patchWorkbench)
+        addFeedback(planningFeedback)
         val repairStart = root.childCount
-        RepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        val repairFeedback = feedback()
+        RepairWorkbench.attach(this, root, prompt, githubToken, repairFeedback.first, repairFeedback.second, patchWorkbench)
+        addFeedback(repairFeedback)
         val selfDevelopmentStart = root.childCount
-        SelfDevelopmentWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        val selfFeedback = feedback()
+        SelfDevelopmentWorkbench.attach(this, root, prompt, githubToken, selfFeedback.first, selfFeedback.second, patchWorkbench)
+        addFeedback(selfFeedback)
         val personalDiagnosticsStart = root.childCount
-        PersonalRepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        val personalFeedback = feedback()
+        PersonalRepairWorkbench.attach(this, root, prompt, githubToken, personalFeedback.first, personalFeedback.second, patchWorkbench)
+        addFeedback(personalFeedback)
+        val codingWidgets = (codingStart until planningStart).map { root.getChildAt(it) }.toSet()
+        val planningWidgets = (planningStart until repairStart).map { root.getChildAt(it) }.toSet()
+        val repairWidgets = (repairStart until selfDevelopmentStart).map { root.getChildAt(it) }.toSet()
+        val selfWidgets = (selfDevelopmentStart until personalDiagnosticsStart).map { root.getChildAt(it) }.toSet()
+        val personalWidgets = (personalDiagnosticsStart until root.childCount).map { root.getChildAt(it) }.toSet()
         val projectStartIndex = root.childCount
         applicationWorkbench = ApplicationApprovalWorkbench.attach(this, root)
         val projectViews = (projectStartIndex until root.childCount).map { root.getChildAt(it) }
@@ -293,44 +316,45 @@ class MainActivity : Activity() {
             updates.isEnabled = false
             status.text = "Recovery mode: AI edits and updates paused until this version is confirmed working."
         }
+        val releaseFeedback = feedback()
         iconTest.setOnClickListener {
             iconTest.isEnabled = false
             CodingAgent.run(provider.selectedItem.toString(), key.text.toString().trim(),
                 model.text.toString().trim(), githubToken.text.toString().trim(),
                 prompt.text.toString().trim()) { message ->
                 runOnUiThread {
-                    status.text = message.take(240)
-                    output.text = message
+                    releaseFeedback.second.text = message.take(240)
+                    releaseFeedback.first.text = message
                     if (message.startsWith("Coding task failed") ||
                         message.contains("Review the commit and build")) iconTest.isEnabled = true
                 }
             }
         }
-        updates.setOnClickListener { DeveloperUpdater.check(this) { message -> status.text = message } }
+        updates.setOnClickListener { DeveloperUpdater.check(this) { message -> releaseFeedback.second.text = message } }
         plans.setOnClickListener {
-            status.text = "Reading GitHub plans..."
+            releaseFeedback.second.text = "Reading GitHub plans..."
             thread {
                 try {
                     val approved = GithubPlans.listPlans().map { it to GithubPlans.plan(it) }
                         .filter { (_, body) -> Regex("(?im)^Status:\\s*approved\\s*$").containsMatchIn(body) }
                     runOnUiThread {
-                        output.text = if (approved.isEmpty()) "No approved plans found." else
+                        releaseFeedback.first.text = if (approved.isEmpty()) "No approved plans found." else
                             approved.joinToString("\n\n") { (name, body) -> "$name\n\n$body" }
-                        status.text = "Plans loaded"
+                        releaseFeedback.second.text = "Plans loaded"
                     }
                 } catch (e: Exception) {
-                    runOnUiThread { status.text = "Plan lookup failed"; output.text = e.message }
+                    runOnUiThread { releaseFeedback.second.text = "Plan lookup failed"; releaseFeedback.first.text = e.message }
                 }
             }
         }
         builds.setOnClickListener {
-            status.text = "Checking GitHub Actions..."
+            releaseFeedback.second.text = "Checking GitHub Actions..."
             thread {
                 try {
                     val result = GithubPlans.latestBuild()
-                    runOnUiThread { output.text = result; status.text = "Build status loaded" }
+                    runOnUiThread { releaseFeedback.first.text = result; releaseFeedback.second.text = "Build status loaded" }
                 } catch (e: Exception) {
-                    runOnUiThread { status.text = "Build lookup failed"; output.text = e.message }
+                    runOnUiThread { releaseFeedback.second.text = "Build lookup failed"; releaseFeedback.first.text = e.message }
                 }
             }
         }
@@ -343,12 +367,13 @@ class MainActivity : Activity() {
                 org.json.JSONObject(projectPrefs.getString("project_" + id, "{}") ?: "{}")
             } catch (_: Exception) { org.json.JSONObject() }
             val record = existing.put("id", id).put("description", task)
+                .put("target", guidedTarget?.selectedItemPosition ?: 0)
                 .put("state", state)
                 .put("response", response ?: existing.optString("response"))
                 .put("updated_at", System.currentTimeMillis()).toString()
             return projectPrefs.edit().putString("project_" + id, record).commit()
         }
-        var activeProjectId: String? = null
+
         var refreshSavedProjectsAfterChange: (() -> Unit)? = null
         send.setOnClickListener {
             val providerName = provider.selectedItem.toString()
@@ -360,8 +385,8 @@ class MainActivity : Activity() {
                 prompt.requestFocus()
                 return@setOnClickListener
             }
-            val projectId = activeProjectId ?: java.util.UUID.randomUUID().toString()
-            activeProjectId = projectId
+            val projectId = activeProject ?: java.util.UUID.randomUUID().toString()
+            activeProject = projectId
             if (!persistProject(projectId, task, "saved")) {
                 status.text = "Project could not be saved on this device."
                 return@setOnClickListener
@@ -455,8 +480,9 @@ class MainActivity : Activity() {
                     text = description.take(80) + " (" + state + ")"
                     isAllCaps = false
                     setOnClickListener {
-                        activeProjectId = record.optString("id").takeIf { it.isNotBlank() }
+                        activeProject = record.optString("id").takeIf { it.isNotBlank() }
                         prompt.setText(description)
+                        guidedTarget?.setSelection(record.optInt("target", 0).coerceIn(0, 1))
                         output.text = if (response.isNotBlank()) response else
                             "Project restored. Use Generate to retry the AI request."
                         status.text = "Loaded saved project. Description restored."
@@ -470,6 +496,11 @@ class MainActivity : Activity() {
         projects.addView(refreshProjects)
         projects.addView(savedProjects)
         refreshSavedProjects()
+        val activityPage = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(20), dp(20), dp(24))
+            setBackgroundColor(getColor(R.color.developer_background))
+        }
         val settings = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 20, 24, 24)
@@ -498,6 +529,29 @@ class MainActivity : Activity() {
             text = "Remove saved connection"
             isAllCaps = false
         }
+        fun renderConnection() {
+            setupHint.text = connectionVerification.detail
+            setupButton.text = if (key.text.isNullOrBlank()) "Set up AI connection" else "Manage / test AI connection"
+            setupButton.contentDescription = "Open Settings to test or change the AI connection"
+        }
+        connectionVerification.onChanged = {
+            renderConnection()
+            credentialStatus.text = connectionVerification.detail
+        }
+        updateConnectionSetup = {
+            connectionVerification.select(provider.selectedItem.toString(), key.text.toString().trim(), model.text.toString().trim())
+            renderConnection()
+        }
+        val connectionChanges = object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: android.text.Editable?) {
+                updateConnectionSetup()
+                credentialStatus.text = connectionVerification.detail
+            }
+        }
+        listOf(key, model).forEach { it.addTextChangedListener(connectionChanges) }
+        updateConnectionSetup()
         val testConnection = Button(this).apply {
             text = "Test AI connection"
             isAllCaps = false
@@ -512,10 +566,15 @@ class MainActivity : Activity() {
             val selectedProvider = provider.selectedItem.toString()
             val selectedModel = model.text.toString().trim()
             testConnection.isEnabled = false
+            updateConnectionSetup()
+            val ticket = connectionVerification.begin()
+            renderConnection()
             credentialStatus.text = "Testing $selectedProvider connection..."
             thread(name = "DeveloperConnectionTest") {
+                var successful = false
                 val message = try {
                     CodingAssistantProvider.testConnection(selectedProvider, selectedKey, selectedModel) 
+                    successful = true
                     "$selectedProvider connection successful."
                 } catch (e: CodingAssistantProvider.ProviderFailure) {
                     e.message ?: "AI connection failed."
@@ -524,7 +583,10 @@ class MainActivity : Activity() {
                 }
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
-                        credentialStatus.text = message
+                        if (connectionVerification.finish(ticket, successful, message)) {
+                            credentialStatus.text = message
+                            renderConnection()
+                        }
                         testConnection.isEnabled = true
                     }
                 }
@@ -545,6 +607,7 @@ class MainActivity : Activity() {
                 credentialStatus.text = "Enter your Gemini API key first."
                 return@setOnClickListener
             }
+            val discoveryModel = model.text.toString().trim()
             discoverModels.isEnabled = false
             credentialStatus.text = "Checking Gemini models available to this key..."
             thread(name = "GeminiModelDiscovery") {
@@ -561,6 +624,8 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
                         discoverModels.isEnabled = true
+                        if (provider.selectedItem.toString() != "Gemini" || key.text.toString().trim() != apiKey ||
+                            model.text.toString().trim() != discoveryModel) return@runOnUiThread
                         if (result.isEmpty()) {
                             credentialStatus.text = safeFailure ?: "No compatible models returned for this API key."
                         } else {
@@ -568,7 +633,8 @@ class MainActivity : Activity() {
                             android.app.AlertDialog.Builder(this@MainActivity)
                                 .setTitle("Available Gemini models")
                                 .setItems(result.toTypedArray()) { _, index ->
-                                    model.setText(result[index])
+                                    if (provider.selectedItem.toString() == "Gemini" && key.text.toString().trim() == apiKey &&
+                                        model.text.toString().trim() == discoveryModel) model.setText(result[index])
                                     credentialStatus.text = "Selected ${result[index]}. Save and test connection."
                                 }
                                 .setNegativeButton("Cancel", null)
@@ -591,7 +657,6 @@ class MainActivity : Activity() {
                         selectedKey, model.text.toString().trim())
                     credentialStatus.text = "Connection saved securely. You can now start a project."
                     updateConnectionSetup()
-                    status.text = "AI connection saved"
                 } catch (_: Exception) {
                     credentialStatus.text = "Unable to save securely. Check device security settings."
                 }
@@ -682,6 +747,8 @@ class MainActivity : Activity() {
                 if ((position == 0 && current.startsWith("gpt-")) ||
                     (position == 1 && current.startsWith("gemini-"))) model.text.clear()
                 refreshModelPicker()
+                updateConnectionSetup()
+                credentialStatus.text = connectionVerification.detail
             }
         }
         refreshModelPicker()
@@ -704,7 +771,7 @@ class MainActivity : Activity() {
             "Describe a change on Home to ask Jarvis for help. Here you can review code, check builds, and use advanced development tools.")
         sectionIntro(settings, "Connect your AI",
             "Choose Gemini or OpenAI, enter your API key, then tap Save connection. The key is encrypted on this device.")
-        val developmentInbox = DevelopmentInboxWorkbench.attach(this, advanced, settings, patchWorkbench, { githubToken.text.toString().trim() }) { review ->
+        val developmentInbox = DevelopmentInboxWorkbench.attach(this, activityPage, settings, patchWorkbench, { githubToken.text.toString().trim() }) { review ->
             // Preserve the validated legacy diagnostic format for PersonalRepair.parse.
             // The text watcher invalidates any previously staged proposal before loading it.
             prompt.setText(review)
@@ -733,7 +800,6 @@ class MainActivity : Activity() {
         updates.setOnClickListener {
             DeveloperUpdater.check(this) { message ->
                 updateStatusInSettings.text = message
-                status.text = message
             }
         }
         // Give every secondary screen the same rounded, readable Jarvis surfaces.
@@ -792,35 +858,27 @@ class MainActivity : Activity() {
             "Release verification",
             "Assistant diagnostics"
         )
-        // Boundaries captured at attachment time are reliable even if section labels change.
-        // Each existing view retains its original click listener and local state.
-        // The engineering modules were attached sequentially before moving the views.
-        // Their original child indices remain a stable partition after Projects views
-        // (which follow these modules) are removed.
-        val groupBoundaries = listOf(
-            codingStart, planningStart, repairStart, selfDevelopmentStart,
-            personalDiagnosticsStart
-        ).map { it - advancedStart }
+        // Partition by actual view identity, so intro text and moved controls cannot shift groups.
         val sectionGroups = sectionNames.map {
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 visibility = View.GONE
             }
         }
-        advancedChildren.forEachIndexed { index, child ->
-            val section = when {
-                index < groupBoundaries[0] -> 0
-                index < groupBoundaries[1] -> 1
-                index < groupBoundaries[2] -> 2
-                index < groupBoundaries[3] -> 3
-                index < groupBoundaries[4] -> 4
-                else -> 6
+        advancedChildren.forEach { child ->
+            val section = when (child) {
+                in codingWidgets -> 1
+                in planningWidgets -> 2
+                in repairWidgets -> 3
+                in selfWidgets -> 4
+                in personalWidgets -> 6
+                else -> 0
             }
             sectionGroups[section].addView(child)
         }
         // Promote the everyday build and recovery actions into their own section.
         // Keep the original button objects and click listeners.
-        listOf(plans, builds, recoveryStatus, confirmHealthy, recovery, iconTest).forEach { view ->
+        listOf(plans, builds, recoveryStatus, confirmHealthy, recovery, iconTest, releaseFeedback.second, releaseFeedback.first).forEach { view ->
             (view.parent as? android.view.ViewGroup)?.removeView(view)
             sectionGroups[5].addView(view)
         }
@@ -833,7 +891,14 @@ class MainActivity : Activity() {
             (view.parent as? android.view.ViewGroup)?.removeView(view)
             sectionGroups[0].addView(view)
         }
-        // Always give a clear route back to the six-category overview.
+        // The exact-diff, approvals and build/test results are also reachable from Activity.
+        val codingViews = (0 until sectionGroups[1].childCount).map { sectionGroups[1].getChildAt(it) }
+        codingViews.forEach { sectionGroups[1].removeView(it); activityPage.addView(it) }
+        sectionGroups[1].addView(Button(this).apply {
+            text = "Open code review in Activity"; isAllCaps = false
+            setOnClickListener { selectPage?.invoke(2) }
+        })
+        // Always give a clear route back to the category overview.
         val sectionIntro = TextView(this).apply {
             text = "Tap a category to open its tools. Tap it again to close."
             setTextColor(getColor(R.color.developer_secondary))
@@ -856,6 +921,7 @@ class MainActivity : Activity() {
             sectionButtons.add(button)
             button.setOnClickListener {
                 openSection = if (openSection == index) -1 else index
+                openToolSection = openSection
                 sectionGroups.forEachIndexed { i, group ->
                     group.visibility = if (i == openSection) View.VISIBLE else View.GONE
                     sectionButtons[i].text = sectionNames[i] +
@@ -898,6 +964,7 @@ class MainActivity : Activity() {
                 text = label
                 textSize = 14f
                 typeface = Typeface.DEFAULT_BOLD
+                minHeight = dp(92)
                 gravity = Gravity.CENTER_VERTICAL or Gravity.START
                 setPadding(dp(14), dp(12), dp(8), dp(12))
                 isAllCaps = false
@@ -915,34 +982,69 @@ class MainActivity : Activity() {
             LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 0, 0, dp(10))
-                addView(first, LinearLayout.LayoutParams(0, dp(92), 1f).apply {
+                addView(first, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginEnd = dp(5)
                 })
-                addView(second, LinearLayout.LayoutParams(0, dp(92), 1f).apply {
+                addView(second, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginStart = dp(5)
                 })
             }
         root.addView(quickRow(
-            quickAction("▣  Create an app", 1) {
-                activeProjectId = null
-                prompt.text.clear()
-                output.text = ""
-                status.text = "Describe your new project."
+            quickAction("Fix a problem", 0) { selectPage?.invoke(0); prompt.requestFocus() },
+            quickAction("Create something", 1) {
+                DeveloperUiState.descendants(projects).filterIsInstance<EditText>()
+                    .firstOrNull { it.hint?.toString() == "Written application specification (up to 4000 characters)" }
+                    ?.let { if (it.text.isNullOrBlank()) it.setText(prompt.text.toString().take(4_000)) }
                 selectPage?.invoke(1)
-            },
-            quickAction("▱  My projects", 1)
-        ))
-        root.addView(quickRow(
-            quickAction("⌁  Improve Jarvis", 2) {
-                selectPage?.invoke(2)
-                if (openSection != 4) sectionButtons[4].performClick()
-            },
-            quickAction("▤  Build status", 2) {
-                selectPage?.invoke(2)
-                if (openSection != 5) sectionButtons[5].performClick()
-                builds.performClick()
             }
         ))
+        root.addView(quickRow(quickAction("My projects", 1), quickAction("Review progress", 2)))
+        fun openCodeReview() {
+            selectPage?.invoke(2)
+            codingWidgets.firstOrNull()?.let { first -> first.post {
+                first.requestRectangleOnScreen(android.graphics.Rect(0, 0, first.width, 1), false)
+            } }
+        }
+        val guidance = GuidedDevelopmentWorkbench.attach(this, root, prompt, patchWorkbench,
+            savedInstanceState?.getInt("developer_guided_target", 0) ?: 0, ::openCodeReview)
+        guidedTarget = guidance.first
+        disposeGuidance = guidance.second
+        sectionIntro(activityPage, "Activity", "Review jobs, analysis, approvals, errors and actual verification results. Generate a diff, review all files, approve explicitly, then verify. Queued work is not a completed repair.")
+        settings.addView(Button(this).apply {
+            text = "Advanced tools"; isAllCaps = false
+            setOnClickListener { selectPage?.invoke(4) }
+        }, 2)
+        settings.addView(TextView(this).apply {
+            text = "Appearance: current cyan HUD and reactor branding. Android display size and font settings are respected."
+            setTextColor(getColor(R.color.developer_secondary))
+        })
+        settings.addView(Button(this).apply {
+            text = "Permissions and installation access"; isAllCaps = false
+            setOnClickListener { startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:$packageName"))) }
+        })
+        // GitHub credentials belong to Settings, and remain memory-only.
+        (githubToken.parent as? android.view.ViewGroup)?.removeView(githubToken)
+        settings.addView(githubToken, 3)
+        settings.addView(TextView(this).apply {
+            text = "GitHub access (optional for public reads; token is not saved)"
+            setTextColor(getColor(R.color.developer_primary))
+        }, 3)
+        projects.addView(Button(this).apply {
+            text = "Browse repository sources"; isAllCaps = false
+            setOnClickListener {
+                selectPage?.invoke(4)
+                if (openSection != 0) sectionButtons[0].performClick()
+            }
+        }, 2)
+        projects.addView(Button(this).apply {
+            text = "Resume saved development plans"; isAllCaps = false
+            setOnClickListener {
+                selectPage?.invoke(4)
+                if (openSection != 2) sectionButtons[2].performClick()
+            }
+        }, 3)
+        DeveloperUiState.descendants(shell).forEach { it.isSaveEnabled = false }
         // Move status feedback to the assistant screen when the user selects Tools.
         output.setPadding(dp(4), dp(12), dp(4), dp(12))
         prompt.apply {
@@ -950,21 +1052,29 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(16), dp(16), dp(12))
             background = roundedSurface(0xFF142F3B.toInt())
         }
-        val pages = listOf(root, projects, advanced, settings).map { page ->
+        val pages = listOf(root, projects, activityPage, settings, advanced).mapIndexed { index, page ->
             ScrollView(this).apply {
+                tag = "developer-page-$index"
                 addView(page)
                 isFillViewport = true
                 visibility = View.GONE
             }
         }
         val tabs = mutableListOf<Button>()
-        fun showPage(index: Int) {
-            activePage = index.coerceIn(0, pages.lastIndex)
+        val positions = savedInstanceState?.getIntArray("developer_scroll")?.takeIf { it.size == pages.size } ?: IntArray(pages.size)
+        pageViews = pages
+        fun showPage(index: Int, remember: Boolean = true) {
+            val next = index.coerceIn(0, pages.lastIndex)
+            if (next != activePage) {
+                positions[activePage] = pages[activePage].scrollY
+                if (remember) pageHistory.add(activePage)
+            }
+            activePage = next
             pages.forEachIndexed { pageIndex, page ->
                 page.visibility = if (pageIndex == activePage) View.VISIBLE else View.GONE
             }
             tabs.forEachIndexed { tabIndex, button ->
-                button.isSelected = tabIndex == activePage
+                button.isSelected = tabIndex == activePage || (activePage == 4 && tabIndex == 3)
                 button.alpha = if (tabIndex == activePage) 1f else 0.78f
                 button.background = GradientDrawable().apply {
                     setColor(if (tabIndex == activePage) 0xFF173F4B.toInt()
@@ -974,8 +1084,27 @@ class MainActivity : Activity() {
                 button.contentDescription = button.text.toString() +
                     if (tabIndex == activePage) ", selected" else ""
             }
+            pages[activePage].post { pages[activePage].scrollTo(0, positions[activePage]) }
         }
-        selectPage = ::showPage
+        selectPage = { showPage(it) }
+        navigateBack = {
+            if (activePage == 4 && openSection >= 0) {
+                sectionButtons[openSection].performClick(); true
+            } else if (pageHistory.isNotEmpty()) {
+                showPage(pageHistory.removeAt(pageHistory.lastIndex), false); true
+            } else if (activePage != 0) { showPage(0, false); true } else false
+        }
+        listOf(projects, activityPage, settings, advanced).forEach { page ->
+            val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            controls.addView(Button(this).apply {
+                text = "Back"; isAllCaps = false; setOnClickListener { navigateBack?.invoke() }
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            controls.addView(Button(this).apply {
+                text = "Close"; contentDescription = "Close page and return Home"; isAllCaps = false
+                setOnClickListener { pageHistory.clear(); showPage(0, false) }
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            page.addView(controls, 0)
+        }
         fun tab(label: String, pageIndex: Int, iconResource: Int) = Button(this).apply {
             text = label
             textSize = 11f
@@ -997,7 +1126,7 @@ class MainActivity : Activity() {
             key.requestFocus()
         }
         createProject.setOnClickListener {
-            activeProjectId = null
+            activeProject = null
             prompt.text.clear()
             output.text = ""
             status.text = "Describe your new project."
@@ -1005,21 +1134,23 @@ class MainActivity : Activity() {
         }
         tab("Home", 0, android.R.drawable.ic_menu_view)
         tab("Projects", 1, android.R.drawable.ic_menu_agenda)
-        tab("Tools", 2, android.R.drawable.ic_menu_manage)
+        tab("Activity", 2, android.R.drawable.ic_menu_recent_history)
         tab("Settings", 3, android.R.drawable.ic_menu_preferences)
-        showPage(activePage)
+        showPage(activePage, false)
         pages.forEach { page ->
             shell.addView(page, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         }
         navigation.setBackgroundColor(getColor(R.color.developer_panel))
         shell.addView(navigation)
+        uiRoot = shell
+        DeveloperUiState.descendants(shell).forEach { it.isSaveEnabled = false }
+        DeveloperUiState.restore(shell, savedInstanceState?.getBundle("developer_drafts"))
+        savedInstanceState?.getInt("developer_tool_section", -1)?.takeIf { it in sectionButtons.indices }
+            ?.let { sectionButtons[it].performClick() }
         setContentView(shell)
         fun openArtifactJob(job: String) {
-            val group = sectionGroups.indexOfFirst { it === developmentInbox.view.parent }
-            check(group >= 0)
             showPage(2)
-            if (openSection != group) sectionButtons[group].performClick()
             artifactReviewJob = job
             developmentInbox.focus(job)
             developmentInbox.view.post {
@@ -1088,6 +1219,11 @@ class MainActivity : Activity() {
         else if (savedInstanceState == null) intent?.let { artifactReviewIntent?.invoke(it) }
     }
 
+    @Deprecated("Uses the framework Back callback for the standalone Activity")
+    override fun onBackPressed() {
+        if (navigateBack?.invoke() != true) super.onBackPressed()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -1110,6 +1246,12 @@ class MainActivity : Activity() {
         artifactInstallWhenFocused = null
         pendingArtifactInstall = null
         selectPage = null
+        navigateBack = null
+        disposeGuidance?.invoke()
+        disposeGuidance = null
+        uiRoot = null
+        pageViews = emptyList()
+        connectionVerification.onChanged = null
         patchPreview?.dispose()
         patchPreview = null
         applicationWorkbench?.dispose()

@@ -138,7 +138,9 @@ class MainActivityConfigurationAndroidTest {
         assertNotSame(state, restoredState)
         assertSame("Framework simulation retains the Application", original.application, restored.application)
         draftFields.keys.filter { it != TASK_ID }.forEach { hint ->
-            assertEquals("Draft restored for $hint", "", field(restored, hint).text.toString())
+            assertEquals("Only safe instruction draft restored for $hint",
+                if (hint == "Example: Build me an app to track equipment maintenance.") draftFields.getValue(hint) else "",
+                field(restored, hint).text.toString())
         }
         val freshTaskId = field(restored, TASK_ID).text.toString()
         assertFalse("Unreviewed task ID draft restored", freshTaskId == draftFields.getValue(TASK_ID))
@@ -180,9 +182,10 @@ class MainActivityConfigurationAndroidTest {
         idleMain()
         // Inspect the Tools page where the long, security-gated action list lives.
         // Expanding it exercises the layout most likely to overflow at large font sizes.
-        assertTrue(button(activity, "Tools").performClick())
+        assertTrue(button(activity, "Settings").performClick())
+        assertTrue(button(activity, "Advanced tools").performClick())
         idleMain()
-        assertTrue(button(activity, "Assistant diagnostics").performClick())
+        assertTrue(button(activity, "Release verification").performClick())
         idleMain()
         // Opening a collapsed section changes measured height; force a new layout pass.
         decor.measure(View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
@@ -266,9 +269,10 @@ class MainActivityConfigurationAndroidTest {
     }
 
     private fun openTools(activity: Activity) {
-        assertTrue(button(activity, "Tools").performClick())
+        assertTrue(button(activity, "Settings").performClick())
+        assertTrue(button(activity, "Advanced tools").performClick())
         idleMain()
-        assertTrue(button(activity, "Assistant diagnostics").performClick())
+        assertTrue(button(activity, "Release verification").performClick())
         idleMain()
     }
 

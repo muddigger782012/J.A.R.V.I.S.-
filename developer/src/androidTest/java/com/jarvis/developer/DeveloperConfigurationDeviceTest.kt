@@ -50,10 +50,15 @@ class DeveloperConfigurationDeviceTest {
     @Test
     fun appliedHostConfigurationKeepsNativeControlsContainedAndLastActionReachable() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                button(activity, "Settings").performClick()
+                button(activity, "Advanced tools").performClick()
+                button(activity, "Release verification").performClick()
+            }
             awaitNativeLayout(scenario)
             scenario.onActivity { activity ->
                 assertEffectiveConfiguration(activity)
-                val scroll = views<ScrollView>(activity).single()
+                val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
                 val root = scroll.getChildAt(0) as LinearLayout
                 assertTrue("Content must require vertical scrolling", root.height > scroll.height)
                 assertTrue("Content must fit the actual viewport horizontally",
@@ -64,7 +69,7 @@ class DeveloperConfigurationDeviceTest {
                     assertWithinHorizontalContent(root, root.getChildAt(index))
                 }
                 val controls = descendants(root).filter {
-                    it.visibility == View.VISIBLE && (it is Button || it is EditText || it is Spinner)
+                    it.isShown && (it is Button || it is EditText || it is Spinner)
                 }.toList()
                 assertTrue("Visible interactive controls must exist", controls.isNotEmpty())
                 controls.forEach { control ->
@@ -74,8 +79,8 @@ class DeveloperConfigurationDeviceTest {
                 }
                 assertCredentialsEmptyAndApprovalsUnavailable(activity)
                 val lastAction = button(activity, LAST_ACTION)
-                assertTrue("Icon action must remain the final content child",
-                    root.getChildAt(root.childCount - 1) === lastAction)
+                assertTrue("Icon action remains reachable through release verification",
+                    descendants(root).any { it === lastAction })
                 scroll.isSmoothScrollingEnabled = false
                 assertTrue("Native ScrollView must scroll toward its final action",
                     scroll.fullScroll(View.FOCUS_DOWN))
@@ -84,7 +89,7 @@ class DeveloperConfigurationDeviceTest {
             awaitNativeLayout(scenario)
             scenario.onActivity { activity ->
                 assertEffectiveConfiguration(activity)
-                val scroll = views<ScrollView>(activity).single()
+                val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
                 val lastAction = button(activity, LAST_ACTION)
                 assertTrue("Native ScrollView must have moved downward", scroll.scrollY > 0)
                 val actionBounds = Rect(0, 0, lastAction.width, lastAction.height)
@@ -137,7 +142,7 @@ class DeveloperConfigurationDeviceTest {
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             var laidOut = false
             scenario.onActivity { activity ->
-                val scroll = views<ScrollView>(activity).single()
+                val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
                 val content = scroll.getChildAt(0)
                 laidOut = scroll.isLaidOut && !scroll.isLayoutRequested &&
                     scroll.width > 0 && scroll.height > 0 &&
@@ -185,7 +190,7 @@ class DeveloperConfigurationDeviceTest {
         else -> ""
     }
     private fun button(activity: Activity, text: String): Button =
-        views<Button>(activity).single { it.text.toString() == text }
+        views<Button>(activity).single { it.text.toString().removeSuffix("  ▼").removeSuffix("  ▲") == text }
     private fun field(activity: Activity, hint: String): EditText =
         views<EditText>(activity).single { it.hint?.toString() == hint }
     private inline fun <reified T : View> views(activity: Activity): List<T> =
