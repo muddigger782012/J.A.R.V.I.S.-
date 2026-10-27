@@ -10,13 +10,16 @@ object DevelopmentBridgeContract {
     const val DESCRIPTOR = "com.jarvis.developer.DevelopmentBridge.v1"
     const val SERVICE = "com.jarvis.developer.DevelopmentBridgeService"
     const val DEVELOPER_PACKAGE = "com.jarvis.developer"
+    const val ARTIFACT_REVIEW = "task.artifact.review.request"
+    const val ARTIFACT_REVIEW_ACTION = "com.jarvis.developer.REVIEW_JOB_APK"
+    const val ARTIFACT_REVIEW_EXTRA = "com.jarvis.developer.REVIEW_TICKET"
     const val MAX_BODY_BYTES = 8192
     const val MAX_WIRE_BYTES = 12288
     const val MAX_PARCEL_BYTES = 32768
     val assistantPackages: Set<String> = java.util.Collections.unmodifiableSet(setOf("com.assistant.core", "com.assistant.core.beta"))
     val modes: List<String> = java.util.Collections.unmodifiableList(listOf("supervised", "authorized_autonomous", "owner_development"))
     val operations: Set<String> = java.util.Collections.unmodifiableSet(setOf("capabilities.request", "diagnostics.review.request", "task.status.request",
-        "source.personal.analysis.request", "source.developer.analysis.request", "task.list.request", "task.cancel.request", "task.pause.request", "task.resume.request", "task.retry.request"))
+        "source.personal.analysis.request", "source.developer.analysis.request", "task.list.request", "task.cancel.request", "task.pause.request", "task.resume.request", "task.retry.request", ARTIFACT_REVIEW))
     val sourceAnalysisKinds: Set<String> = java.util.Collections.unmodifiableSet(setOf("source.personal.analysis.request", "source.developer.analysis.request"))
     private val id = Regex("[A-Za-z0-9_-]{1,80}")
     private val fields = setOf("v", "id", "kind", "body", "mode", "job", "revision")
@@ -58,9 +61,10 @@ object DevelopmentBridgeContract {
         expect(request.body.toByteArray(Charsets.UTF_8).size <= MAX_BODY_BYTES, "TOO_LARGE")
         expect(request.body.none { it.isISOControl() && it !in "\n\r\t" })
         val changesJob = request.kind in setOf("task.cancel.request", "task.pause.request", "task.resume.request", "task.retry.request")
-        val jobControl = changesJob || request.kind == "task.status.request"
+        val revisionRequired = changesJob || request.kind == ARTIFACT_REVIEW
+        val jobControl = revisionRequired || request.kind == "task.status.request"
         expect(if (jobControl) id.matches(request.jobId) else request.jobId.isEmpty())
-        expect(if (changesJob) request.expectedRevision != null && request.expectedRevision in 0..1_000_000
+        expect(if (revisionRequired) request.expectedRevision != null && request.expectedRevision in 0..1_000_000
             else request.expectedRevision == null)
         expect(if (request.kind == "diagnostics.review.request" || request.kind in sourceAnalysisKinds) request.body.isNotBlank() else request.body.isEmpty())
         if (request.kind in sourceAnalysisKinds) expect(request.body.length <= 4000)

@@ -42,8 +42,9 @@ class DevelopmentBridgeService : Service() {
                     .put("publicSourceAnalysis", true)
                     .put("approvedEngineeringJobs", true)
                     .put("verifiedArtifactReview", true)
+                    .put("artifactReviewHandoff", true)
                 else inbox.handle(peer, personal, request).also { result ->
-                    if (request.kind !in setOf("task.status.request", "task.list.request")) {
+                    if (request.kind !in setOf("task.status.request", "task.list.request", Wire.ARTIFACT_REVIEW)) {
                         if (request.kind in setOf("task.cancel.request", "task.pause.request")) {
                             DevelopmentArtifactReads.cancel(result.getString("id"))
                             inbox.installationRecord(result.getString("id"))?.let { JarvisPackageInstaller.abandon(this@DevelopmentBridgeService, it) }

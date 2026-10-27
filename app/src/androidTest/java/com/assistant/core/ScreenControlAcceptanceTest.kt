@@ -52,6 +52,8 @@ class ScreenControlAcceptanceTest {
             waitUntil { ScreenAccessClient(context).connected() == enabled }
             return block()
         } finally {
+            val client = ScreenAccessClient(context)
+            if (client.taskState().active) client.reply("cancel screen task")
             ScreenAccessClient(context).discard()
             if (services == "null" || services.isEmpty()) shell("settings delete secure enabled_accessibility_services")
             else shell("settings put secure enabled_accessibility_services $services")
@@ -232,7 +234,8 @@ class ScreenControlAcceptanceTest {
             remote("confirm screen step one"); scenario.onActivity { assertEquals(1, it.taskTapCount) }
             settled(); val nextStep = remote("continue screen task"); assertTrue("Expected step two review, got: $nextStep; task=${ScreenAccessClient(context).taskState()}; screen=${AndroidScreenPlatform(context).snapshot()}", nextStep.contains("confirm screen step two"))
             remote("confirm screen step one"); scenario.onActivity { assertEquals(1, it.taskTapCount) }
-            assertTrue(remote("confirm screen step two").contains("Android accepted step 2"))
+            val confirmedStepTwo = remote("confirm screen step two")
+            assertTrue("Expected the reviewed second step, got: $confirmedStepTwo; task=${ScreenAccessClient(context).taskState()}", confirmedStepTwo.contains("Android accepted step 2"))
             waitUntil { var count = 0; scenario.onActivity { count = it.taskTapCount }; count == 2 }
             settled(); assertTrue(remote("continue screen task").contains("Verified the requested visible screen text"))
             assertFalse(ScreenAccessClient(context).taskState().active)

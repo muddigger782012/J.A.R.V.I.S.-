@@ -48,10 +48,13 @@ class PersonalRepairDeviceTest {
         (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
     private fun buttons(activity: MainActivity) = views(activity.window.decorView).filterIsInstance<Button>()
     private fun button(activity: MainActivity, text: String) = buttons(activity).single { it.text.toString() == text }
-    private fun openTools(activity: MainActivity) {
+    private fun openTools(activity: MainActivity, sectionName: String = "Assistant diagnostics") {
         button(activity, "Tools").performClick()
-        button(activity, "Show developer controls").performClick()
-        assertTrue(button(activity, READ).isShown)
+        val section = buttons(activity).single {
+            it.contentDescription?.toString() in setOf("Open $sectionName tools", "Close $sectionName tools")
+        }
+        if (section.contentDescription.toString().startsWith("Open ")) section.performClick()
+        assertTrue(button(activity, if (sectionName == "Assistant diagnostics") READ else "Load private repair history (local only)").isShown)
     }
     private fun noApproval(activity: MainActivity) {
         val approval = views(activity.window.decorView).filterIsInstance<CheckBox>()
@@ -117,7 +120,7 @@ class PersonalRepairDeviceTest {
         RepairHistoryStore(directory).save(entry)
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
             scenario.onActivity { activity ->
-                openTools(activity); noApproval(activity)
+                openTools(activity, "Code changes and review"); noApproval(activity)
                 assertFalse(button(activity, "Recheck selected saved build diagnostics (GET only)").isEnabled)
                 button(activity, "Load private repair history (local only)").performClick()
             }
@@ -134,6 +137,7 @@ class PersonalRepairDeviceTest {
                 val choice = views(activity.window.decorView).filterIsInstance<Spinner>()
                     .single { it.contentDescription == "Saved repair commit bookmark" }
                 assertEquals(2, choice.count); assertEquals(0, choice.selectedItemPosition)
+                assertTrue(choice.isShown)
                 choice.setSelection(1)
                 noApproval(activity)
                 assertFalse(button(activity, "Check CI for this exact task commit (read-only)").isEnabled)
@@ -143,6 +147,7 @@ class PersonalRepairDeviceTest {
             scenario.onActivity { assertTrue(button(it, "Recheck selected saved build diagnostics (GET only)").isEnabled) }
             scenario.recreate()
             scenario.onActivity { activity ->
+                openTools(activity, "Code changes and review")
                 noApproval(activity)
                 assertFalse(button(activity, "Recheck selected saved build diagnostics (GET only)").isEnabled)
                 button(activity, "Save current verified task commit bookmark").performClick()
