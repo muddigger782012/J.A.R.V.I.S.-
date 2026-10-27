@@ -57,7 +57,7 @@ class DevelopmentArtifactHandoffAndroidTest {
             assertEquals(before.getLong("revision"), call("task.status.request", job = job).getLong("revision"))
             scenario.onActivity { activity ->
                 activity.findViewById<android.widget.EditText>(R.id.etCommandInput)
-                    .setText("Can you install the APK that Developer just built?")
+                    .setText("Can you open the APK review in Developer?")
                 assertTrue(activity.findViewById<android.view.View>(R.id.btnRunAssistantCommand).performClick())
             }
             val deadline = SystemClock.uptimeMillis() + 45_000

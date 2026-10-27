@@ -33,12 +33,14 @@ class ArtifactInstallationAndroidTest {
     }
     private fun status(job: String) = JarvisPackageInstaller.inbox(context).localSnapshot().single { it.getString("id") == job }
     @Suppress("DEPRECATION")
-    private fun fixture(requestId: String): Pair<String, DevelopmentArtifact.Record> {
+    private fun fixture(requestId: String, packageName: String = "com.assistant.core"): Pair<String, DevelopmentArtifact.Record> {
         val queue = JarvisPackageInstaller.inbox(context)
-        val request = Wire.Request(requestId, "source.personal.analysis.request", "Improve conversation tone")
+        val developer = packageName == "com.jarvis.developer"
+        require(developer || packageName == "com.assistant.core")
+        val request = Wire.Request(requestId, if (developer) "source.developer.analysis.request" else "source.personal.analysis.request", "Improve conversation tone")
         val job = queue.handle("com.assistant.core", true, request).getString("id")
-        val path = "app/src/main/java/com/assistant/core/services/ConversationTone.kt"
-        val text = "package com.assistant.core.services\nobject ConversationTone { val enabled = false }\n"
+        val path = if (developer) "developer/src/main/java/com/jarvis/developer/ConversationTone.kt" else "app/src/main/java/com/assistant/core/services/ConversationTone.kt"
+        val text = "package ${if (developer) "com.jarvis.developer" else "com.assistant.core.services"}\nobject ConversationTone { val enabled = false }\n"
         val bytes = text.toByteArray(); val base = "a".repeat(40); val commit = "d".repeat(40)
         val blob = MessageDigest.getInstance("SHA-1").digest("blob ${bytes.size}\u0000".toByteArray() + bytes).joinToString("") { "%02x".format(it.toInt() and 255) }
         val inventory = RepositoryAnalysis.Inventory(listOf(RepositoryAnalysis.SourceFile(path, blob, bytes.size.toLong())), false, base)
@@ -53,13 +55,14 @@ class ArtifactInstallationAndroidTest {
         check(queue.finishEngineering(write, PatchPublisher.CommitResult(r.taskId, r.provider, r.model, r.proposalId,
             r.edits.map { it.path }, r.base, commit, r.branch, "", r.baseBranch, r.target)))
         val counts = JSONObject().put("tests", 1).put("failures", 0).put("errors", 0).put("skipped", 0)
+        val suite = if (developer) "com.jarvis.developer.ConversationToneTest" else "PersonalJUnitEvidence"
         val summary = JSONObject().put("sourceCommit", commit).put("totals", counts)
-            .put("suites", JSONArray().put(JSONObject(counts.toString()).put("name", "PersonalJUnitEvidence").put("sha256", "c".repeat(64))))
-            .put("cases", JSONArray().put(JSONObject().put("suite", "PersonalJUnitEvidence").put("name", "b".repeat(64)).put("result", "passed")))
+            .put("suites", JSONArray().put(JSONObject(counts.toString()).put("name", suite).put("sha256", "c".repeat(64))))
+            .put("cases", JSONArray().put(JSONObject().put("suite", suite).put("name", if (developer) "conversation" else "b".repeat(64)).put("result", "passed")))
         queue.recordEngineeringBuild(queue.claimEngineeringRead(job, true)!!,
-            BuildDiagnostics.parse(commit, r.branch, 42, 1, "completed", "success", "JARVIS_JUNIT_SUMMARY=$summary", PatchEngine.Target.PERSONAL))
+            BuildDiagnostics.parse(commit, r.branch, 42, 1, "completed", "success", "JARVIS_JUNIT_SUMMARY=$summary", if (developer) PatchEngine.Target.DEVELOPER else PatchEngine.Target.PERSONAL))
         val source = queue.beginArtifact(job, status(job).getLong("revision"), true)
-        val installed = context.packageManager.getPackageInfo("com.assistant.core", 0)
+        val installed = context.packageManager.getPackageInfo(packageName, 0)
         val actual = File(installed.applicationInfo.sourceDir)
         val hash = DevelopmentArtifactFiles.sha256(actual)
         val record = DevelopmentArtifact.Record(commit, 42, 1, 99, "a".repeat(64), hash, actual.length(), installed.packageName,
@@ -75,6 +78,13 @@ class ArtifactInstallationAndroidTest {
         DevelopmentArtifactInspection.inspect(context, destination, record)
         check(queue.recordArtifact(source, record))
         return job to record
+    }
+    @Test fun stagesASeparateDeveloperApkSoAssistantInstallationAcceptanceCannotKillItsOwnRunner() {
+        guard()
+        val (job, record) = fixture("native-voice-install-apk", "com.jarvis.developer")
+        assertEquals("com.jarvis.developer", record.packageName)
+        assertEquals("PASSED", status(job).getJSONObject("verification").getString("SIGNED_APK"))
+        assertNull(JarvisPackageInstaller.inbox(context).installationRecord(job))
     }
     private fun installButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         if (root.packageName?.toString()?.let { "packageinstaller" in it || "permissioncontroller" in it } != true) return null

@@ -70,10 +70,12 @@ class DevelopmentBridgeClient(context: Context) {
         } finally { if (bound) runCatching { context.unbindService(connection) } }
     }
     companion object {
-        // One active and one bounded waiting call also covers Future completion racing the
-        // worker's return to its receive loop. A rendezvous queue rejects valid serial calls.
-        private val worker = ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(1),
+        // A completed Future can release its caller before the worker finishes returning.
+        // Two waiting slots admit that caller's next phase alongside a queued status read.
+        // Binder execution remains serial, admission bounded and call deadlines unchanged.
+        internal fun newExecutor() = ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(2),
             java.util.concurrent.ThreadFactory { task -> Thread(task, "developer-bridge-io").apply { isDaemon = true } })
             .apply { allowCoreThreadTimeOut(true) }
+        private val worker = newExecutor()
     }
 }

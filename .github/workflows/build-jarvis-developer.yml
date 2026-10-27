@@ -5,6 +5,7 @@ on:
     branches: [feature/jarvis-developer, 'feature/jarvis-developer-task/**', 'fix/developer-gemini-diagnostics-135']
     paths:
       - 'developer/**'
+      - 'integration/**'
       - 'settings.gradle'
       - 'build.gradle'
       - '.github/workflows/build-jarvis-developer.yml'

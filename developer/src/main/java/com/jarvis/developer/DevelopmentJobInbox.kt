@@ -53,14 +53,16 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
                 }
             }
             job.optJSONObject("artifactReview")?.let { review ->
+                require(review.optString("purpose", "review") in setOf("review", "installation"))
                 require(review.getString("ticket").matches(Regex("[a-f0-9-]{36}")))
                 require(review.getString("snapshot").matches(Regex("[a-f0-9]{64}")))
                 require(review.opt("used") is Boolean)
+                require(!review.has("cancelled") || review.opt("cancelled") is Boolean)
                 for (key in listOf("revision", "created", "expires")) require(review.opt(key) is Int || review.opt(key) is Long)
                 require(review.getLong("revision") in 0..job.getLong("revision"))
                 require(review.getLong("created") in 0..Long.MAX_VALUE - 120_000 &&
                     review.getLong("expires") - review.getLong("created") == 120_000L)
-                Wire.validate(Wire.Request(review.getString("request"), Wire.ARTIFACT_REVIEW,
+                Wire.validate(Wire.Request(review.getString("request"), if (review.optString("purpose") == "installation") Wire.ARTIFACT_INSTALL_REVIEW else Wire.ARTIFACT_REVIEW,
                     jobId = job.getString("id"), expectedRevision = review.getLong("revision")))
             }
             for (stage in Wire.Stage.values()) {
@@ -139,7 +141,8 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
             }
             job.optString("problem").takeIf { it.isNotEmpty() }?.let { result.put("problem", it) }
             job.optJSONObject("artifactReview")?.let { review ->
-                result.put("artifactReview", JSONObject().put("consumed", review.optBoolean("used")))
+                result.put("artifactReview", JSONObject().put("consumed", review.optBoolean("used"))
+                    .put("purpose", review.optString("purpose", "review")).put("cancelled", review.optBoolean("cancelled")))
             }
         }
 
@@ -152,26 +155,30 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
     }
     private fun reviewReply(job: JSONObject, request: Wire.Request, duplicate: Boolean): JSONObject {
         val review = job.optJSONObject("artifactReview") ?: reject("CONFLICT")
-        if (review.getString("request") != request.requestId || review.optBoolean("used") ||
+        if ((request.kind == Wire.ARTIFACT_INSTALL_REVIEW) != (review.optString("purpose") == "installation")) reject("CONFLICT")
+        if (review.getString("request") != request.requestId || review.optBoolean("used") || review.optBoolean("cancelled") ||
             job.getLong("revision") != review.getLong("revision") ||
             now() !in review.getLong("created") until review.getLong("expires") ||
             review.getString("snapshot") != reviewSnapshot(job)) reject("CONFLICT")
         return view(job).put("duplicate", duplicate).put("artifactReview", JSONObject()
-            .put("consumed", false).put("ticket", review.getString("ticket")).put("expires", review.getLong("expires")))
+            .put("consumed", false).put("purpose", review.optString("purpose", "review"))
+            .put("ticket", review.getString("ticket")).put("expires", review.getLong("expires")))
     }
-    /** One-use navigation only. No source, installation or Android privilege is approved. */
-    internal fun consumeArtifactReview(ticket: String, receiverPersonal: Boolean): JSONObject = checkpoint.transaction {
+    /** Purpose-bound delivery. Installation requires explicit consent in the authenticated Assistant. */
+    internal fun consumeArtifactReview(ticket: String, receiverPersonal: Boolean, installation: Boolean = false): JSONObject = checkpoint.transaction {
         if (!ticket.matches(Regex("[a-f0-9-]{36}"))) reject("CONFLICT")
         val jobs = load()
         val job = jobs.singleOrNull { it.optJSONObject("artifactReview")?.optString("ticket") == ticket } ?: reject("CONFLICT")
         val original = Wire.decode(job.getString("request"))
         if (!Wire.permitsMode(original.mode, receiverPersonal, Wire.personalPackage(job.getString("caller")))) reject("POLICY_REQUIRED")
+        if (installation && (!receiverPersonal || job.getString("caller") != "com.assistant.core")) reject("POLICY_REQUIRED")
         val review = job.getJSONObject("artifactReview")
         // Use the same immutable receipt checks for delivery and duplicate acknowledgement.
-        reviewReply(job, Wire.Request(review.getString("request"), Wire.ARTIFACT_REVIEW,
+        reviewReply(job, Wire.Request(review.getString("request"), if (installation) Wire.ARTIFACT_INSTALL_REVIEW else Wire.ARTIFACT_REVIEW,
             mode = original.mode, jobId = job.getString("id"), expectedRevision = review.getLong("revision")), true)
+        if (installation && jobs.any { it.optJSONObject("engineering")?.optJSONObject("artifact")?.optJSONObject("installation")?.optString("status") in DevelopmentArtifact.activeInstalls }) reject("CONFLICT")
         review.put("used", true)
-        analysisTransition(job, job.getString("state"), "artifact.review.consumed")
+        analysisTransition(job, job.getString("state"), if (installation) "artifact.install.consent.delivered" else "artifact.review.consumed")
         save(jobs); view(job)
     }
 
@@ -179,6 +186,7 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         Wire.validate(request)
         if (caller !in Wire.assistantPackages) reject("UNAUTHORIZED")
         if (!Wire.permitsMode(request.mode, receiverPersonal, Wire.personalPackage(caller))) reject("POLICY_REQUIRED")
+        if (request.kind in Wire.personalInstallOperations && (!receiverPersonal || caller != "com.assistant.core")) reject("POLICY_REQUIRED")
         val jobs = load()
         if (request.kind == "task.list.request") return@transaction JSONObject().put("jobs", JSONArray(jobs.filter {
             it.getString("caller") == caller
@@ -192,7 +200,7 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
                 if (receipt.optString("id") == request.requestId) {
                     if (!Wire.permitsMode(Wire.decode(job.getString("request")).mode, receiverPersonal, Wire.personalPackage(caller))) reject("POLICY_REQUIRED")
                     if (receipt.getString("fingerprint") != fingerprint) reject("CONFLICT")
-                    return@transaction if (request.kind == Wire.ARTIFACT_REVIEW) reviewReply(job, request, true)
+                    return@transaction if (request.kind in setOf(Wire.ARTIFACT_REVIEW, Wire.ARTIFACT_INSTALL_REVIEW)) reviewReply(job, request, true)
                         else view(job).put("duplicate", true)
                 }
             }
@@ -214,13 +222,28 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         if (!Wire.permitsMode(Wire.decode(job.getString("request")).mode, receiverPersonal, Wire.personalPackage(caller))) reject("POLICY_REQUIRED")
         if (request.kind == "task.status.request") return@transaction view(job)
         if (request.expectedRevision != job.getLong("revision")) reject("CONFLICT")
-        if (request.kind == Wire.ARTIFACT_REVIEW) {
+        if (request.kind == Wire.ARTIFACT_INSTALL_CANCEL) {
+            if (request.mode != Wire.decode(job.getString("request")).mode) reject("POLICY_REQUIRED")
+            job.optJSONObject("artifactReview")?.takeIf { it.optString("purpose") == "installation" }?.put("cancelled", true)
+            job.optJSONObject("engineering")?.optJSONObject("artifact")?.optJSONObject("installation")
+                ?.takeIf { it.optString("status") in DevelopmentArtifact.activeInstalls }?.let {
+                    it.put("status", "CANCELLED"); job.getJSONObject("verification").put("DEVICE_INSTALLED", "BLOCKED")
+                }
+            analysisTransition(job, job.getString("state"), "installation.owner.cancelled")
+            job.getJSONArray("receipts").getJSONObject(job.getJSONArray("receipts").length() - 1)
+                .put("id", request.requestId).put("fingerprint", fingerprint).put("mode", request.mode)
+            save(jobs); return@transaction view(job)
+        }
+        if (request.kind in setOf(Wire.ARTIFACT_REVIEW, Wire.ARTIFACT_INSTALL_REVIEW)) {
             if (request.mode != Wire.decode(job.getString("request")).mode) reject("POLICY_REQUIRED")
             val snapshot = reviewSnapshot(job)
-            analysisTransition(job, job.getString("state"), "artifact.review.requested")
+            val installation = request.kind == Wire.ARTIFACT_INSTALL_REVIEW
+            if (installation && jobs.any { it.optJSONObject("engineering")?.optJSONObject("artifact")?.optJSONObject("installation")?.optString("status") in DevelopmentArtifact.activeInstalls }) reject("CONFLICT")
+            analysisTransition(job, job.getString("state"), if (installation) "artifact.install.review.requested" else "artifact.review.requested")
             val created = now(); require(created in 0..Long.MAX_VALUE - 120_000)
             job.put("artifactReview", JSONObject().put("ticket", java.util.UUID.randomUUID().toString())
                 .put("request", request.requestId).put("revision", job.getLong("revision"))
+                .put("purpose", if (installation) "installation" else "review")
                 .put("created", created).put("expires", created + 120_000).put("snapshot", snapshot).put("used", false))
             job.getJSONArray("receipts").getJSONObject(job.getJSONArray("receipts").length() - 1)
                 .put("id", request.requestId).put("fingerprint", fingerprint).put("mode", request.mode)

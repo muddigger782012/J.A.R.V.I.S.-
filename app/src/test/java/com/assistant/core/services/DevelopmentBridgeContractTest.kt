@@ -7,6 +7,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DevelopmentBridgeContractTest {
+    @Test fun installationReviewAndCancellationAreRevisionBoundMetadataWithoutAnApprovalPayload() {
+        for (kind in Wire.personalInstallOperations) {
+            val request = Wire.Request("installation-review", kind, jobId = "job-one", expectedRevision = 12)
+            assertEquals(request, Wire.decode(Wire.encode(request)))
+            for (changed in listOf(request.copy(expectedRevision = null), request.copy(body = "approve; install APK"), request.copy(jobId = "")))
+                assertThrows(Wire.Rejected::class.java) { Wire.encode(changed) }
+            assertThrows(Wire.Rejected::class.java) { Wire.negotiate(JSONObject().put("protocol", 1)
+                .put("operations", JSONArray(listOf(Wire.ARTIFACT_REVIEW))).put("modes", JSONArray(listOf("supervised"))), request) }
+        }
+        assertThrows(Wire.Rejected::class.java) { Wire.encode(Wire.Request("forged", "task.install.approve", jobId = "job-one", expectedRevision = 12)) }
+    }
     @Test fun apkReviewRequiresNegotiatedOperationExactRevisionAndNoExecutionPayload() {
         val request = Wire.Request("review-apk", Wire.ARTIFACT_REVIEW, jobId = "job-1", expectedRevision = 7)
         assertEquals(request, Wire.decode(Wire.encode(request)))

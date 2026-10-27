@@ -31,6 +31,8 @@ class MainActivity : Activity() {
     private var artifactReviewIntent: ((Intent) -> Unit)? = null
     private var artifactReviewJob: String? = null
     private var artifactReviewGeneration = 0L
+    private var artifactInstallWhenFocused: (() -> Unit)? = null
+    private var pendingArtifactInstall: Pair<Long, String>? = null
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("developer_active_page", activePage)
@@ -1024,8 +1026,43 @@ class MainActivity : Activity() {
                 developmentInbox.view.requestRectangleOnScreen(android.graphics.Rect(0, 0, developmentInbox.view.width, 1), false)
             }
         }
+        artifactInstallWhenFocused = {
+            val pending = pendingArtifactInstall
+            if (pending != null && hasWindowFocus() && !isFinishing && !isDestroyed) {
+                pendingArtifactInstall = null
+                val (generation, ticket) = pending
+                thread(name = "developer-install-consent", isDaemon = true) {
+                    val result = runCatching {
+                        DevelopmentJobInbox(java.io.File(noBackupFilesDir.canonicalFile, "development-inbox"))
+                            .consumeArtifactReview(ticket, Wire.personalPackage(packageName), installation = true)
+                    }
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed && generation == artifactReviewGeneration && hasWindowFocus()) {
+                            result.onSuccess { job -> runCatching {
+                                openArtifactJob(job.getString("id"))
+                                val record = requireNotNull(JarvisPackageInstaller.inbox(this).artifactRecord(job.getString("id")))
+                                JarvisPackageInstaller.installVerified(this, job.getString("id"), job.getLong("revision"), record) { message ->
+                                    android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            }.onFailure {
+                                android.widget.Toast.makeText(this, "Review the current APK and request installation again. No successful installation was verified.", android.widget.Toast.LENGTH_LONG).show()
+                            } }.onFailure {
+                                android.util.Log.i("DeveloperReview", "artifact.install.handoff.rejected")
+                                android.widget.Toast.makeText(this, "The installation approval changed, expired or was already used. Request a fresh review in Assistant.", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+            }
+        }
         artifactReviewIntent = { incoming ->
-            if (incoming.action == Wire.ARTIFACT_REVIEW_ACTION) {
+            if (incoming.action == Wire.ARTIFACT_INSTALL_ACTION) {
+                val generation = ++artifactReviewGeneration
+                val ticket = runCatching { incoming.getStringExtra(Wire.ARTIFACT_REVIEW_EXTRA) }.getOrNull().orEmpty()
+                pendingArtifactInstall = generation to ticket
+                artifactInstallWhenFocused?.invoke()
+            } else if (incoming.action == Wire.ARTIFACT_REVIEW_ACTION) {
+                pendingArtifactInstall = null
                 val generation = ++artifactReviewGeneration
                 val ticket = runCatching { incoming.getStringExtra(Wire.ARTIFACT_REVIEW_EXTRA) }.getOrNull().orEmpty()
                 thread(name = "developer-artifact-review", isDaemon = true) {
@@ -1057,6 +1094,11 @@ class MainActivity : Activity() {
         artifactReviewIntent?.invoke(intent)
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) artifactInstallWhenFocused?.invoke()
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (applicationWorkbench?.onActivityResult(requestCode, resultCode, data) == true) return
         super.onActivityResult(requestCode, resultCode, data)
@@ -1065,6 +1107,8 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         artifactReviewGeneration++
         artifactReviewIntent = null
+        artifactInstallWhenFocused = null
+        pendingArtifactInstall = null
         selectPage = null
         patchPreview?.dispose()
         patchPreview = null

@@ -74,6 +74,7 @@ class HybridAssistantService(
     private val assistantConnections = AssistantConnections(systemService.context())
     private val fallbackAiClient = FallbackAiClient(systemService.context())
     private val responseTurns = AssistantResponseTurns()
+    private val developmentInstallConsent = DevelopmentInstallConsent()
     private val intelligencePrefs get() = RuntimeSettings.read(systemService.context(), "jarvis_cloud_ai")
     private val volumeConfirmations = VolumeConfirmationStore(systemService.context())
     private val deviceLearningSession = DeviceLearningSession(systemService.context())
@@ -127,6 +128,7 @@ class HybridAssistantService(
 
     private fun handleUserInputWithinCurrentTurn(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
+        handleDevelopmentInput(userInput, developmentInstallConsent.take())?.let { return HybridAssistantReply(it) }
         hostInformation(userInput)?.let { return it }
         if (personalAssistant) {
             if (screenAccess.accepts(userInput)) return handleScreenInput(screenAccess.prepare(userInput))
@@ -1269,27 +1271,10 @@ class HybridAssistantService(
     }
 
     private fun handleUserInputWithinTurn(rawInput: String, turn: Long, callback: (HybridAssistantReply) -> Unit) {
-        DevelopmentCommands.parse(rawInput)?.let { command ->
-            clearPendingActionPrompts()
+        val installationOffer = developmentInstallConsent.take()
+        if (DevelopmentCommands.parse(rawInput) != null || installationOffer != null && ConfirmationWords.isConfirmation(rawInput)) {
             responseThread(turn, callback) {
-                val operations = DeveloperBridgeOperations(systemService.context())
-                val response = runCatching {
-                    when (command) {
-                        DevelopmentCommands.Kind.CAPABILITIES -> operations.capabilities()
-                        DevelopmentCommands.Kind.STATUS -> operations.status()
-                        DevelopmentCommands.Kind.LIST -> operations.list()
-                        DevelopmentCommands.Kind.REVIEW_APK -> operations.reviewApk { responseTurns.current() }
-                        DevelopmentCommands.Kind.REVIEW_RUNTIME -> operations.submit(OperationalDiagnostics.render(LiveCapabilityRegistry.snapshot(systemService.context())))
-                        DevelopmentCommands.Kind.CANCEL -> operations.control("task.cancel.request")
-                        DevelopmentCommands.Kind.PAUSE -> operations.control("task.pause.request")
-                        DevelopmentCommands.Kind.RESUME -> operations.control("task.resume.request")
-                        DevelopmentCommands.Kind.RETRY -> operations.control("task.retry.request")
-                        DevelopmentCommands.Kind.RETRY_PENDING -> operations.retryPending()
-                        DevelopmentCommands.Kind.ANALYZE_PERSONAL -> operations.analyzeSource(true)
-                        DevelopmentCommands.Kind.ANALYZE_DEVELOPER -> operations.analyzeSource(false)
-                    }
-                }.getOrElse(DeveloperBridgeOperations::failure)
-                callback(HybridAssistantReply(response))
+                callback(HybridAssistantReply(requireNotNull(handleDevelopmentInput(rawInput, installationOffer))))
             }.start()
             return
         }
@@ -1673,6 +1658,7 @@ class HybridAssistantService(
         }.getOrElse { "This routine could not start safely. Check its saved apps and preferences, then review 'routine execution status'. If task history is full, say 'review task history' to review completed records for cleanup. No automatic retry was made." }
 
     private fun clearPendingActionPrompts() {
+        developmentInstallConsent.discard()
         pendingPrompt = PendingPrompt.NONE
         pendingShellCommand = null
         pendingLearningReset = false
@@ -1680,6 +1666,58 @@ class HybridAssistantService(
         volumeConfirmations.consume("")
         deviceLearningSession.consume("")
         preferenceConfirmations.consume("")
+    }
+
+    private fun handleDevelopmentInput(input: String, offered: DevelopmentInstallConsent.Offer?): String? {
+        val command = DevelopmentCommands.parse(input)
+        val generalReply = offered != null && ConfirmationWords.isConfirmation(input)
+        if (command == null && !generalReply) return null
+        if (responseTurns.mutate { clearPendingActionPrompts(); true } != true) return "The earlier development request was cancelled."
+        val operations = DeveloperBridgeOperations(systemService.context())
+        val current = { responseTurns.current() }
+        val reply = runCatching {
+            if (generalReply && command == null) {
+                operations.cancelInstallation(current)
+                return@runCatching if (ConfirmationWords.approves(input))
+                    "A general yes does not approve an APK installation. The pending request was cancelled. Ask to install Developer's APK again, then use the specific approval phrase."
+                else "The APK installation request was cancelled. No installation approval was sent."
+            }
+            when (requireNotNull(command)) {
+                DevelopmentCommands.Kind.INSTALL_APK -> {
+                    if (responseTurns.mutate { if (personalAssistant) {
+                        screenAccess.discard(); appDiscovery.discard()
+                        contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending()
+                        taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+                    }; true } != true) throw com.jarvis.integration.DevelopmentBridgeContract.Rejected("CANCELLED")
+                    try {
+                        val offer = operations.prepareInstallation(current)
+                        if (responseTurns.mutate { developmentInstallConsent.propose(offer) } != true) throw com.jarvis.integration.DevelopmentBridgeContract.Rejected("CANCELLED")
+                        offer.prompt()
+                    } catch (failure: com.jarvis.integration.DevelopmentBridgeContract.Rejected) {
+                        if (failure.code != "UNSUPPORTED_OPERATION") throw failure
+                        operations.reviewApk(current) + " This Developer version requires approval in its APK review page."
+                    }
+                }
+                DevelopmentCommands.Kind.APPROVE_INSTALL_APK -> if (offered == null)
+                    "No current APK installation review is awaiting approval. Ask to install the APK Developer built, then review its exact application and build."
+                    else operations.approveInstallation(offered, current)
+                DevelopmentCommands.Kind.CANCEL_INSTALL_APK -> operations.cancelInstallation(current)
+                DevelopmentCommands.Kind.CAPABILITIES -> operations.capabilities()
+                DevelopmentCommands.Kind.STATUS -> operations.status()
+                DevelopmentCommands.Kind.LIST -> operations.list()
+                DevelopmentCommands.Kind.REVIEW_APK -> operations.reviewApk(current)
+                DevelopmentCommands.Kind.REVIEW_RUNTIME -> operations.submit(OperationalDiagnostics.render(LiveCapabilityRegistry.snapshot(systemService.context())))
+                DevelopmentCommands.Kind.CANCEL -> operations.control("task.cancel.request")
+                DevelopmentCommands.Kind.PAUSE -> operations.control("task.pause.request")
+                DevelopmentCommands.Kind.RESUME -> operations.control("task.resume.request")
+                DevelopmentCommands.Kind.RETRY -> operations.control("task.retry.request")
+                DevelopmentCommands.Kind.RETRY_PENDING -> operations.retryPending()
+                DevelopmentCommands.Kind.ANALYZE_PERSONAL -> operations.analyzeSource(true)
+                DevelopmentCommands.Kind.ANALYZE_DEVELOPER -> operations.analyzeSource(false)
+            }
+        }.getOrElse(DeveloperBridgeOperations::failure)
+        remember(input, reply)
+        return reply
     }
 
     private fun reviewGoalPlan(plan: GoalPlanning.Plan): String {

@@ -1,5 +1,35 @@
 # J.A.R.V.I.S. Assistant ↔ Developer integration contract
 
+## Conversational APK installation consent (Personal applications)
+
+`task.artifact.install.review.request` prepares metadata, never an installer
+session. Its two-minute, one-use ticket reuses the existing private review
+checkpoint with an explicit installation purpose and the same immutable APK,
+source, build, owner, mode and revision binding. Navigation tickets cannot be
+used for installation, nor installation tickets for navigation. Preparation and
+delivery reject an existing active installation. Only Personal Assistant and
+Personal Developer negotiate these optional v1 operations; policy and admission
+also reject commercial participants independently of the UI.
+
+Assistant names the verified app, build and signing class, then holds consent
+context only in memory. Only a fresh user utterance explicitly approving this
+APK installation can deliver it to Developer's known activity. Generic yes is
+rejected, unrelated turns discard context, and cancellation, expired offers,
+mode/project changes and activity recreation cannot restore consent. Generated
+AI replies never enter this approval route. An older Developer falls back to the
+existing review page and its owner button.
+
+Developer consumes installation consent only in its foreground activity, then
+reuses the existing installer and rechecks actual APK bytes and compatibility.
+Missing Android permission consumes this consent without creating a session;
+after granting permission the owner must review and approve again. No authority
+is saved in activity state or automatically resumed after interruption.
+`task.artifact.install.cancel.request` invalidates this job's pending handoff and
+installation tracking and attempts to abandon its owned Android session. It
+cannot undo an installation Android already completed. Actual installed-byte
+observations still leave device acceptance blocked. There is no generic
+approval-grant, installer execution, merge, signing or publication RPC.
+
 ## Conversational APK review handoff
 
 `task.artifact.review.request` is an optional, negotiated v1 navigation operation.
@@ -11,8 +41,8 @@ changed evidence, cancellation or replacement cannot renew it. Normal status and
 list responses never expose the ticket. Older checkpoint readers can ignore the
 extension; older bridges reject the operation during capability negotiation.
 
-Explicit local voice/text requests such as reviewing the APK Developer built or
-installing that built APK request this review handoff. They do not approve an
+Explicit local voice/text requests to review the APK Developer built request
+this navigation handoff. Older bridges also use it for install wording. They do not approve an
 installation. Assistant launches only Developer's known activity after checking
 its identity again and rejects stale conversation delivery. Developer consumes
 the ticket and focuses the exact job in its existing Tools inbox, including jobs
@@ -23,7 +53,7 @@ Configuration restoration retains only the viewed job; it never reuses approval.
 Android foreground/background launch restrictions still apply. An unavailable or
 expired handoff requires a fresh explicit request. Owner APK approval, unknown-
 source permission and Android installer confirmation remain separate. No source
-write, signing, publication, install RPC or Android privilege is added.
+write, signing, publication, install RPC or Android privilege is added by navigation.
 
 ## APK evidence and local installation increment
 
@@ -36,7 +66,8 @@ version, Android level and ABI must all verify before `SIGNED_APK` can pass.
 Debug and production artifact labels remain distinct. Older artifacts without
 the current provenance record are rejected rather than inferred compatible.
 
-An explicit local owner action is still required to create an Android installer
+An explicit owner action in Developer or the purpose-bound Personal Assistant
+consent flow above is required to create an Android installer
 session. Android's unknown-source permission and confirmation are independent.
 Session IDs and fresh nonces bind a non-exported result callback to the current
 job. Cancellation invalidates later evidence and attempts to abandon the owned
@@ -93,7 +124,7 @@ Every message requires a version, unique request ID, bounded payload size, expli
 
 ## Non-negotiable approval boundaries
 
-No incoming Assistant message may authorize source writes, GitHub pushes, merging, signing, publication, APK installation, root commands or accessibility operations. Developer must independently request explicit approval for the exact revision and diff. Scope/revision changes invalidate prior approval. Merge, release and installation require separate approvals.
+No incoming metadata message may authorize source writes, GitHub pushes, merging, signing, publication, root commands or accessibility operations. APK installation requires the exact, separate owner consent flow above and Android's own permission and confirmation; a metadata request alone never creates a session. Developer independently requests explicit approval for the exact source revision and diff. Scope/revision changes invalidate prior approval. Merge, release and installation require separate approvals.
 
 ## Preservation and verification
 

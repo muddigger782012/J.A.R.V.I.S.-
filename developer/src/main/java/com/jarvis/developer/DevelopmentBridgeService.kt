@@ -34,17 +34,22 @@ class DevelopmentBridgeService : Service() {
                 if (data.dataAvail() != 0) throw Wire.Rejected("INVALID_REQUEST")
                 val personal = Wire.personalPackage(packageName)
                 if (!Wire.permitsMode(request.mode, personal, Wire.personalPackage(peer))) throw Wire.Rejected("POLICY_REQUIRED")
+                val personalInstall = personal && peer == "com.assistant.core"
+                if (request.kind in Wire.personalInstallOperations && !personalInstall) throw Wire.Rejected("POLICY_REQUIRED")
                 admitted = true
                 val result = if (request.kind == "capabilities.request") JSONObject()
-                    .put("protocol", Wire.VERSION).put("operations", JSONArray(Wire.operations.toList()))
+                    .put("protocol", Wire.VERSION).put("operations", JSONArray(Wire.operations.filter { personalInstall || it !in Wire.personalInstallOperations }))
                     .put("modes", JSONArray(Wire.availableModes(personal && Wire.personalPackage(peer))))
                     .put("sourceExecution", false).put("installation", false).put("sourceWritesRequireApproval", true)
                     .put("publicSourceAnalysis", true)
                     .put("approvedEngineeringJobs", true)
                     .put("verifiedArtifactReview", true)
                     .put("artifactReviewHandoff", true)
+                    .put("conversationalArtifactInstall", personalInstall)
                 else inbox.handle(peer, personal, request).also { result ->
-                    if (request.kind !in setOf("task.status.request", "task.list.request", Wire.ARTIFACT_REVIEW)) {
+                    if (request.kind == Wire.ARTIFACT_INSTALL_CANCEL)
+                        inbox.installationRecord(result.getString("id"))?.let { JarvisPackageInstaller.abandon(this@DevelopmentBridgeService, it) }
+                    if (request.kind !in setOf("task.status.request", "task.list.request", Wire.ARTIFACT_REVIEW) + Wire.personalInstallOperations) {
                         if (request.kind in setOf("task.cancel.request", "task.pause.request")) {
                             DevelopmentArtifactReads.cancel(result.getString("id"))
                             inbox.installationRecord(result.getString("id"))?.let { JarvisPackageInstaller.abandon(this@DevelopmentBridgeService, it) }
