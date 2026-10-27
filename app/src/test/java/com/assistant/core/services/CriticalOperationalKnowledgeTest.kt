@@ -8,6 +8,23 @@ import java.time.Instant
 import java.time.LocalDate
 
 class CriticalOperationalKnowledgeTest {
+    @Test fun packagedBuildNotesUseTheRuntimeReaderAndRemainAvailableToSelfKnowledge() {
+        val root = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
+            .first { java.io.File(it, "app/src/main/assets/installed-build-features.json").isFile }
+        val text = java.io.File(root, "app/src/main/assets/installed-build-features.json").readText()
+        val notes = LiveCapabilityRegistry.parseBuildNotes(text)
+        assertEquals(JSONObject(text).getJSONArray("notes").length(), notes.size)
+        assertTrue(notes.isNotEmpty())
+        assertTrue(LiveCapabilityRegistry.render(LiveCapabilityRegistry.Topic.FEATURES,
+            snapshot.copy(buildNotes = notes)).contains("Included build changes"))
+    }
+    @Test fun installedBuildNotesStayBoundedByBytesCountAndSafeText() {
+        fun manifest(notes: JSONArray) = JSONObject().put("schemaVersion", 1).put("notes", notes).toString()
+        assertThrows(IllegalArgumentException::class.java) { LiveCapabilityRegistry.parseBuildNotes(manifest(JSONArray(List(33) { "note" }))) }
+        assertThrows(IllegalArgumentException::class.java) { LiveCapabilityRegistry.parseBuildNotes(manifest(JSONArray().put("bad\ntext"))) }
+        assertThrows(IllegalArgumentException::class.java) { LiveCapabilityRegistry.parseBuildNotes(manifest(JSONArray().put("x".repeat(513)))) }
+        assertThrows(IllegalArgumentException::class.java) { LiveCapabilityRegistry.parseBuildNotes(manifest(JSONArray(List(32) { "界".repeat(512) }))) }
+    }
     private val snapshot = LiveCapabilityRegistry.Snapshot(DeviceReport.App("3.6.519", 519), true,
         DeviceReport.Accessibility.OFF, false, false, true, null, true, false, "gemini-2.5-flash",
         IntelligenceRouting.Provider.GEMINI, true, null, null)

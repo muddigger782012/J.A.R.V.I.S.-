@@ -66,7 +66,7 @@ class PersonalFoundationAcceptanceTest {
         assertFalse(version.needsInterpretation)
         assertTrue(version.text.contains(installed.versionName.orEmpty()))
         val features = service.handleUserInput("What new features are available?")
-        assertTrue(features.text.contains("Included build changes"))
+        assertTrue("Bundled installed-build notes were unavailable to the local feature answer", features.text.contains("Included build changes"))
         val screen = service.handleUserInput("Can you read my screen?")
         assertFalse(screen.needsInterpretation)
         assertTrue(screen.text.contains("includes Accessibility screen reading"))
