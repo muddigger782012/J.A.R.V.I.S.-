@@ -35,10 +35,10 @@ class DevelopmentBridgeService : Service() {
                 val personal = Wire.personalPackage(packageName)
                 if (!Wire.permitsMode(request.mode, personal, Wire.personalPackage(peer))) throw Wire.Rejected("POLICY_REQUIRED")
                 val personalInstall = personal && peer == "com.assistant.core"
-                if (request.kind in Wire.personalInstallOperations && !personalInstall) throw Wire.Rejected("POLICY_REQUIRED")
+                if (request.kind in Wire.personalArtifactOperations && !personalInstall) throw Wire.Rejected("POLICY_REQUIRED")
                 admitted = true
                 val result = if (request.kind == "capabilities.request") JSONObject()
-                    .put("protocol", Wire.VERSION).put("operations", JSONArray(Wire.operations.filter { personalInstall || it !in Wire.personalInstallOperations }))
+                    .put("protocol", Wire.VERSION).put("operations", JSONArray(Wire.operations.filter { personalInstall || it !in Wire.personalArtifactOperations }))
                     .put("modes", JSONArray(Wire.availableModes(personal && Wire.personalPackage(peer))))
                     .put("sourceExecution", false).put("installation", false).put("sourceWritesRequireApproval", true)
                     .put("publicSourceAnalysis", true)
@@ -46,6 +46,11 @@ class DevelopmentBridgeService : Service() {
                     .put("verifiedArtifactReview", true)
                     .put("artifactReviewHandoff", true)
                     .put("conversationalArtifactInstall", personalInstall)
+                    .put("installedApkChecks", personalInstall)
+                else if (request.kind == Wire.INSTALLED_APK_CHECK) {
+                    val source = inbox.installedCheckSource(peer, personal, request)
+                    inbox.recordInstalledCheck(source, InstalledApkCheck.run(this@DevelopmentBridgeService, source.record))
+                }
                 else inbox.handle(peer, personal, request).also { result ->
                     if (request.kind == Wire.ARTIFACT_INSTALL_CANCEL)
                         inbox.installationRecord(result.getString("id"))?.let { JarvisPackageInstaller.abandon(this@DevelopmentBridgeService, it) }

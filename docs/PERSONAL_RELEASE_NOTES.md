@@ -1,5 +1,11 @@
 Personal Jarvis v3.6 — Intelligent Device Assistance:
 
+- Ask to check the APK Developer installed. A compatible Developer runs five
+  bounded read-only checks of package, version, signing identity, APK bytes and
+  launcher availability. Recheck completed installations through Developer's
+  existing menu too. Reports bind the exact job/artifact, expire for current-state
+  use and reject changed jobs. These preflight checks cannot pass functional
+  device acceptance or authorize any installation.
 - In Personal Jarvis, ask to install the APK Developer built, review the named
   application and build, then say 'approve this APK installation'. A general
   'yes' cannot approve it. Android still controls install permission and final

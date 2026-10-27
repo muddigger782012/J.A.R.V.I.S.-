@@ -11,6 +11,62 @@ import java.security.MessageDigest
 import java.util.UUID
 
 class DevelopmentEngineeringTest {
+    private fun installedCheck(job: String, mode: String = "supervised") = Wire.Request(UUID.randomUUID().toString(),
+        Wire.INSTALLED_APK_CHECK, mode = mode, jobId = job, expectedRevision = status(job).getLong("revision"))
+    private fun installedReport(at: Long = System.currentTimeMillis()) = InstalledApkCheck.Report(34, at, 17,
+        InstalledApkCheck.Check.values().associateWith { InstalledApkCheck.Result.PASSED }, InstalledApkCheck.Problem.NONE)
+    @Test fun installedChecksAreBoundPersistedAndExpireWithoutClaimingDeviceAcceptance() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        var time = System.currentTimeMillis()
+        val queue = DevelopmentJobInbox(directory.root) { time }
+        val check = queue.installedCheckSource(caller, true, installedCheck(source.job))
+        val result = queue.recordInstalledCheck(check, installedReport(time))
+        assertTrue(result.getJSONObject("artifact").getJSONObject("installedCheck").getBoolean("fresh"))
+        assertFalse(result.getBoolean("deviceVerified"))
+        assertEquals("BLOCKED", result.getJSONObject("verification").getString("DEVICE_INSTALLED"))
+        assertFalse(result.getJSONObject("artifact").getJSONObject("installedCheck").getBoolean("functionalAcceptance"))
+        assertNull(queue.installationRecord(source.job)); assertLegacyStages()
+        time += 60_000
+        assertFalse(queue.localSnapshot().single().getJSONObject("artifact").getJSONObject("installedCheck").getBoolean("fresh"))
+        time -= 60_001
+        assertFalse(queue.localSnapshot().single().getJSONObject("artifact").getJSONObject("installedCheck").getBoolean("fresh"))
+    }
+    @Test fun cancellationAndChangedEvidenceRejectAnInFlightInstalledCheck() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        val pending = inbox().installedCheckSource(caller, true, installedCheck(source.job))
+        control(source.job, "task.cancel.request")
+        assertEquals("CONFLICT", assertThrows(Wire.Rejected::class.java) { inbox().recordInstalledCheck(pending, installedReport()) }.code)
+        val next = artifactSource(); assertTrue(inbox().recordArtifact(next, apk(next)))
+        val other = inbox().installedCheckSource(caller, true, installedCheck(next.job))
+        inbox().beginArtifact(next.job, status(next.job).getLong("revision"), true)
+        assertEquals("CONFLICT", assertThrows(Wire.Rejected::class.java) { inbox().recordInstalledCheck(other, installedReport()) }.code)
+        assertFalse(status(next.job).getJSONObject("artifact").has("installedCheck"))
+    }
+    @Test fun installedChecksRequireCurrentArtifactRevisionOwnerAndMode() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        val request = installedCheck(source.job)
+        for ((callerName, personal) in listOf("com.assistant.core.beta" to true, caller to false))
+            assertEquals("POLICY_REQUIRED", assertThrows(Wire.Rejected::class.java) {
+                inbox().installedCheckSource(callerName, personal, request) }.code)
+        assertEquals("POLICY_REQUIRED", assertThrows(Wire.Rejected::class.java) {
+            inbox().installedCheckSource(caller, true, request.copy(mode = "owner_development")) }.code)
+        assertEquals("CONFLICT", assertThrows(Wire.Rejected::class.java) {
+            inbox().installedCheckSource(caller, true, request.copy(expectedRevision = request.expectedRevision!! - 1)) }.code)
+        inbox().recordInstalledCheck(inbox().installedCheckSource(caller, true, request), installedReport())
+        assertEquals("CONFLICT", assertThrows(Wire.Rejected::class.java) { inbox().installedCheckSource(caller, true, request) }.code)
+    }
+    @Test fun installedCheckReportsRejectArbitraryCoverageAndHashingHonorsCancellation() {
+        val report = installedReport()
+        assertEquals(report, InstalledApkCheck.decode(report.json()))
+        assertThrows(IllegalArgumentException::class.java) { InstalledApkCheck.decode(report.json().put("checkedAt", 1.5)) }
+        assertThrows(IllegalArgumentException::class.java) { InstalledApkCheck.decode(report.json().apply {
+            getJSONObject("checks").put("VOICE_ACCEPTANCE", "PASSED") }) }
+        val file = directory.newFile("bounded-apk").apply { writeBytes(ByteArray(200_000)) }
+        var reads = 0
+        val failure = assertThrows(DevelopmentArtifact.Failure::class.java) { DevelopmentArtifactFiles.sha256(file) { ++reads > 1 } }
+        assertEquals(DevelopmentArtifact.Problem.CANCELLED, failure.problem)
+        assertEquals(2, reads)
+    }
     private fun installReview(job: String, mode: String = "supervised") = Wire.Request(UUID.randomUUID().toString(), Wire.ARTIFACT_INSTALL_REVIEW,
         mode = mode, jobId = job, expectedRevision = status(job).getLong("revision"))
     @Test fun installationHandoffCannotUseNavigationAuthorityAndNeverStartsASessionByItself() {

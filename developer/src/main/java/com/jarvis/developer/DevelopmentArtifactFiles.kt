@@ -28,11 +28,14 @@ internal class DevelopmentArtifactFiles(cache: File) {
             sha256(it) != record.apkSha256) throw DevelopmentArtifact.Failure(DevelopmentArtifact.Problem.STORAGE)
     }
     companion object {
-        fun sha256(file: File): String {
+        fun sha256(file: File, cancelled: () -> Boolean = { false }): String {
             val hash = MessageDigest.getInstance("SHA-256")
             file.inputStream().use { stream ->
                 val buffer = ByteArray(64 * 1024)
-                while (true) { val n = stream.read(buffer); if (n < 0) break; hash.update(buffer, 0, n) }
+                while (true) {
+                    if (cancelled()) throw DevelopmentArtifact.Failure(DevelopmentArtifact.Problem.CANCELLED)
+                    val n = stream.read(buffer); if (n < 0) break; hash.update(buffer, 0, n)
+                }
             }
             return hash.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
         }

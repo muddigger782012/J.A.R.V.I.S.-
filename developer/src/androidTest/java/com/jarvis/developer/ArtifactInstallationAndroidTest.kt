@@ -86,6 +86,24 @@ class ArtifactInstallationAndroidTest {
         assertEquals("PASSED", status(job).getJSONObject("verification").getString("SIGNED_APK"))
         assertNull(JarvisPackageInstaller.inbox(context).installationRecord(job))
     }
+    @Test fun realInstalledApkChecksRecordCurrentCoverageAndRejectADifferentVersion() {
+        guard()
+        val (job, record) = fixture("native-installed-checks", "com.jarvis.developer")
+        val queue = JarvisPackageInstaller.inbox(context)
+        val request = Wire.Request(UUID.randomUUID().toString(), Wire.INSTALLED_APK_CHECK,
+            jobId = job, expectedRevision = status(job).getLong("revision"))
+        val source = queue.installedCheckSource("com.assistant.core", true, request)
+        val report = InstalledApkCheck.run(context, record)
+        assertEquals(InstalledApkCheck.Problem.NONE, report.problem)
+        assertTrue(report.checks.values.all { it == InstalledApkCheck.Result.PASSED })
+        val recorded = queue.recordInstalledCheck(source, report)
+        assertTrue(recorded.getJSONObject("artifact").getJSONObject("installedCheck").getBoolean("fresh"))
+        assertEquals("BLOCKED", recorded.getJSONObject("verification").getString("DEVICE_INSTALLED"))
+        assertFalse(recorded.getBoolean("deviceVerified")); assertNull(queue.installationRecord(job))
+        val changed = InstalledApkCheck.run(context, record.copy(versionCode = record.versionCode + 1))
+        assertEquals(InstalledApkCheck.Result.FAILED, changed.checks[InstalledApkCheck.Check.VERSION])
+        assertEquals(InstalledApkCheck.Result.PASSED, changed.checks[InstalledApkCheck.Check.APK_BYTES])
+    }
     private fun installButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         if (root.packageName?.toString()?.let { "packageinstaller" in it || "permissioncontroller" in it } != true) return null
         fun find(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {

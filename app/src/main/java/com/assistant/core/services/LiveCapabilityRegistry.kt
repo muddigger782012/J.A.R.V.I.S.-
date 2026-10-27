@@ -5,6 +5,15 @@ import java.util.Locale
 
 /** Installed evidence and runtime availability, independent of feature requests or generated AI claims. */
 object LiveCapabilityRegistry {
+    internal fun parseBuildNotes(text: String): List<String> {
+        require(text.toByteArray(Charsets.UTF_8).size <= 16_384)
+        val json = org.json.JSONObject(text); require(json.getInt("schemaVersion") == 1)
+        // The byte/text limits remain fixed as the bundled feature catalogue grows.
+        val notes = json.getJSONArray("notes"); require(notes.length() <= 32)
+        return (0 until notes.length()).map { notes.getString(it).also { note ->
+            require(note.length <= 512 && note.none(Char::isISOControl))
+        } }
+    }
     enum class Topic { VERSION, FEATURES, SCREEN, VOICE, DIAGNOSTICS, PROVIDERS }
     data class Snapshot(val version: DeviceReport.App?, val personal: Boolean,
         val accessibility: DeviceReport.Accessibility?, val microphone: Boolean,
@@ -56,9 +65,7 @@ object LiveCapabilityRegistry {
                 val text = context.assets.open("installed-build-features.json").use { stream ->
                     ProviderResponseText.read(stream, 16_384)
                 }
-                val json = org.json.JSONObject(text); require(json.getInt("schemaVersion") == 1)
-                val notes = json.getJSONArray("notes"); require(notes.length() <= 16)
-                (0 until notes.length()).map { notes.getString(it).also { note -> require(note.length <= 512 && note.none(Char::isISOControl)) } }
+                parseBuildNotes(text)
             }.getOrDefault(emptyList()), DirectOnlineClient(context).connectionObservation(), FallbackAiClient(context).connectionObservation())
     }
     fun render(topic: Topic, value: Snapshot): String {

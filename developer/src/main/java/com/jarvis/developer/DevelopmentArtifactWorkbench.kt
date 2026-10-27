@@ -105,13 +105,27 @@ internal object DevelopmentArtifactWorkbench {
             })
         }
         if (summary?.optString("installation") == "PACKAGE_PRESENT") status.text =
-            "The installed package matches the requested APK bytes, version and signer. Device acceptance tests have not been recorded."
+            "A matching installed APK was previously observed. Recheck for current state; functional device acceptance is unverified."
+        if (summary?.has("installedCheck") == true) status.text = Wire.installedCheckSummary(summary)
+        var checkingInstalled = false
         parent.addView(button("Recheck installed state (read only)") {
+            if (checkingInstalled) return@button
+            checkingInstalled = true
             thread(name = "developer-install-read", isDaemon = true) {
-                val result = runCatching { JarvisPackageInstaller.recover(activity.applicationContext) }
-                activity.runOnUiThread { if (!activity.isFinishing && !activity.isDestroyed)
-                    status.text = if (result.isSuccess) "Installed-state read finished. Refresh for the recorded result; no installation was repeated."
-                        else "Installed state could not be read. Refresh and review diagnostics; no installation was repeated." }
+                val result = runCatching {
+                    JarvisPackageInstaller.recover(activity.applicationContext)
+                    val current = inbox.localSnapshot().single { it.getString("id") == job.getString("id") }
+                    val request = Wire.Request(java.util.UUID.randomUUID().toString(), Wire.INSTALLED_APK_CHECK,
+                        mode = current.getString("mode"), jobId = current.getString("id"), expectedRevision = current.getLong("revision"))
+                    val source = inbox.installedCheckSource(current.getString("caller"), Wire.personalPackage(activity.packageName), request)
+                    inbox.recordInstalledCheck(source, InstalledApkCheck.run(activity.applicationContext, source.record))
+                }
+                activity.runOnUiThread {
+                    checkingInstalled = false
+                    if (!activity.isFinishing && !activity.isDestroyed)
+                        status.text = result.fold({ Wire.installedCheckSummary(it.optJSONObject("artifact")) + " No installation was requested." },
+                            { "Installed state could not be verified. Refresh this job and review its APK evidence; no installation was repeated." })
+                }
             }
         })
         parent.addView(status)

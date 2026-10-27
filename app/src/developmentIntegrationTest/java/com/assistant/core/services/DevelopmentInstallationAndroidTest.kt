@@ -83,6 +83,24 @@ class DevelopmentInstallationAndroidTest {
         return result
     }
     private fun foreground() = instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString()
+    @Test fun actualAssistantRequestsReadOnlyInstalledChecksWithoutInstallationConsent() {
+        val job = fixture()
+        val before = status(job).getJSONObject("artifact").getString("installation")
+        ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
+            await("Assistant did not become foreground") { foreground() == "com.assistant.core" }
+            send(scenario, "Can you check the APK Developer installed?")
+            await("Grounded installed APK checks were not displayed", { lastReply(scenario) }) {
+                visibleReply(scenario, "Latest read-only installed APK checks") &&
+                    visibleReply(scenario, "functional device acceptance remains unverified")
+            }
+            val checked = status(job)
+            assertTrue(checked.getJSONObject("artifact").getJSONObject("installedCheck").getBoolean("fresh"))
+            assertEquals(before, checked.getJSONObject("artifact").getString("installation"))
+            assertFalse(checked.getBoolean("deviceVerified"))
+            assertEquals("BLOCKED", checked.getJSONObject("verification").getString("DEVICE_INSTALLED"))
+            assertEquals("com.assistant.core", foreground())
+        }
+    }
     private fun installButton(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         if (node.packageName?.toString()?.let { "packageinstaller" in it || "permissioncontroller" in it } != true) return null
         fun find(value: AccessibilityNodeInfo): AccessibilityNodeInfo? {

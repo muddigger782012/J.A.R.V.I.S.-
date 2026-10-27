@@ -1702,6 +1702,7 @@ class HybridAssistantService(
                     "No current APK installation review is awaiting approval. Ask to install the APK Developer built, then review its exact application and build."
                     else operations.approveInstallation(offered, current)
                 DevelopmentCommands.Kind.CANCEL_INSTALL_APK -> operations.cancelInstallation(current)
+                DevelopmentCommands.Kind.CHECK_INSTALLED_APK -> operations.checkInstalledApk(current)
                 DevelopmentCommands.Kind.CAPABILITIES -> operations.capabilities()
                 DevelopmentCommands.Kind.STATUS -> operations.status()
                 DevelopmentCommands.Kind.LIST -> operations.list()

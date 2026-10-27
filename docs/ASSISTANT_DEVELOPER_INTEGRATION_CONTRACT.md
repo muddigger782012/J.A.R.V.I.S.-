@@ -1,5 +1,31 @@
 # J.A.R.V.I.S. Assistant ↔ Developer integration contract
 
+## Installed APK preflight checks (Personal applications)
+
+The optional `task.artifact.installed.check.request` operation requires the
+authenticated Personal Assistant, original job owner/mode, exact revision and a
+current verified artifact. Its body is empty: clients cannot submit passing test
+claims. Developer performs bounded local reads outside the checkpoint lock,
+checks package, version, signer, APK bytes and launcher availability, then re-reads
+Android's package record to reject replacement during inspection. APK hashing
+checks interruption/deadline between buffers. No installer or application launch
+is invoked. Missing packages, changed versions, unavailable reads and deadlines
+produce fixed sanitized diagnostic categories.
+
+Only results still bound to the same job revision and artifact are saved in the
+existing private artifact extension. Public status contains fixed check names,
+results, actual elapsed time, Android API and observation time, never APK paths,
+device identifiers, source logs or credentials. Observations become stale after
+one minute, a wall-clock rollback, process restart, job change or changed artifact.
+The optional extension retains the previous version-one checkpoint stage values.
+
+The existing Developer recheck button also checks completed installations. The
+Assistant command routes locally without online AI; older Developer versions must
+negotiate support. Commercial peers are rejected at negotiation and execution.
+Five passing package preflight checks **never pass functional device acceptance**:
+`deviceVerified` remains false, and no `DEVICE_INSTALLED=PASSED` is derived. Voice,
+conversation and screen behavior require separate real acceptance evidence.
+
 ## Conversational APK installation consent (Personal applications)
 
 `task.artifact.install.review.request` prepares metadata, never an installer
