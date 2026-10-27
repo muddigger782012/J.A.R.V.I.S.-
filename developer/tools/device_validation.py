@@ -350,6 +350,7 @@ def run_profiles(adb, results=None):
             arguments += ["-e", key, value]
         arguments.append(RUNNER)
         record["stage"] = "native_case"
+        result = None
         try:
             result = adb.run(*arguments, timeout=120, max_bytes=262144)
             record["instrumentationOutputSha256"] = output_digest(result)
@@ -362,6 +363,14 @@ def run_profiles(adb, results=None):
             raise
         except ValidationError as error:
             record["failureClassification"] = str(error)
+            if result is not None:
+                # Only a line in our fixed public test class is retained. Raw assertions,
+                # stack traces, device text and credential representations remain omitted.
+                match = re.search(r"\bat " + re.escape(TEST_CLASS) +
+                                  r"\.[A-Za-z0-9_]+\(DeveloperConfigurationDeviceTest\.kt:([1-9][0-9]{0,3})\)",
+                                  result.text)
+                if match:
+                    record["failureTestLine"] = int(match.group(1))
             raise
         record.update(passed=True, stage="complete")
     return results
@@ -697,6 +706,15 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
                 evidence["configurationRestored"] = True
             except ValidationError:
                 evidence["configurationRestored"] = False
+                if failure:
+                    evidence["primaryFailureReason"] = failure
+                try:
+                    actual = snapshot(adb)
+                    evidence["restoreMismatchFields"] = [key for key in
+                        ("size", "density", "font_scale", "accelerometer_rotation", "user_rotation", "night")
+                        if actual[key] != saved[key]]
+                except ValidationError:
+                    evidence["restoreReadbackUnavailable"] = True
                 failure = "configuration_restore_failed"
             try:
                 adb.run("shell", "rm", "-f", UI_PATH)

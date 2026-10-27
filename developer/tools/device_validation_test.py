@@ -198,6 +198,21 @@ class ContractTests(unittest.TestCase):
             with self.subTest(kind=text[:50]), self.assertRaises(validation.ValidationError):
                 validation.parse_instrumentation(text)
 
+    def test_native_failure_reports_only_public_test_line_not_private_assertion_text(self):
+        adb = ConfigurationAdb()
+        original = adb.run
+        def failing(*args, **kwargs):
+            if args[:3] == ("shell", "am", "instrument"):
+                return validation.Result(0, "INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: owner-private-details\n"
+                    "at com.jarvis.developer.DeveloperConfigurationDeviceTest.assertEffectiveConfiguration(DeveloperConfigurationDeviceTest.kt:129)\n")
+            return original(*args, **kwargs)
+        adb.run = failing
+        records = []
+        with self.assertRaisesRegex(validation.ValidationError, "native_case_failed"):
+            validation.run_profiles(adb, records)
+        self.assertEqual(129, records[0]["failureTestLine"])
+        self.assertNotIn("owner-private", json.dumps(records))
+
     def test_malformed_settings_are_rejected_before_mutation(self):
         for name, text in (("font_scale", "1; reboot"), ("font_scale", "10"),
                            ("user_rotation", "4"), ("accelerometer_rotation", "unknown")):
