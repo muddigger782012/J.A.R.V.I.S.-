@@ -188,7 +188,7 @@ class DeveloperDeviceValidationTest {
     }
 
     companion object {
-        private const val PROVIDER_KEY = "Selected provider API key (not saved)"
+        private const val PROVIDER_KEY = "Paste your API key here (not a model name)"
         private const val GITHUB_TOKEN = "GitHub fine-grained token (not saved)"
         private const val REVIEW_FINGERPRINT = "Enter exact eligible review SHA-256"
     }

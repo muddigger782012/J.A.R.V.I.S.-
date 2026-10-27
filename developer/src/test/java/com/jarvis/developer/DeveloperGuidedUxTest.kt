@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.os.Looper
 import android.view.View
 import android.widget.*
+import org.junit.Before
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -18,6 +19,10 @@ import org.robolectric.annotation.Config
 @Config(sdk = [28])
 class DeveloperGuidedUxTest {
     private var controller: org.robolectric.android.controller.ActivityController<MainActivity>? = null
+    @Before fun resetLocalProjects() {
+        org.robolectric.RuntimeEnvironment.getApplication<android.app.Application>()
+            .getSharedPreferences("developer_local_projects_v1", Context.MODE_PRIVATE).edit().clear().commit()
+    }
     @After fun close() { controller?.pause()?.stop()?.destroy() }
     private fun start(): MainActivity {
         controller = Robolectric.buildActivity(MainActivity::class.java).setup()
@@ -50,6 +55,21 @@ class DeveloperGuidedUxTest {
         assertFalse(views(activity).filterIsInstance<CheckBox>().single { it.text.toString().startsWith("I reviewed this exact diff") }.isChecked)
         assertEquals(description, field(activity, PROMPT).text.toString())
         assertTrue(views(activity).filterIsInstance<Button>().none { it.text.toString() == "Tools" })
+    }
+
+    @Test fun projectRestorationRetainsTheChosenAppAndInstructionsWithoutAnAiKey() {
+        val activity = start()
+        val target = views(activity).filterIsInstance<Spinner>().single { it.contentDescription == "Application to improve" }
+        target.setSelection(1); idle()
+        field(activity, PROMPT).setText("Improve my offline memory")
+        button(activity, "Ask Jarvis / save instructions").performClick(); idle()
+        target.setSelection(0); idle()
+        button(activity, "Projects").performClick()
+        views(activity).filterIsInstance<Button>().single { it.text.toString().startsWith("Improve my offline memory (") }.performClick()
+        idle()
+        assertEquals(1, target.selectedItemPosition)
+        assertEquals("Improve my offline memory", field(activity, PROMPT).text.toString())
+        assertEquals("developer-page-0", page(activity))
     }
 
     @Test fun serializedLifecycleRestoresInstructionScopeAndLocationButNoCredentialsOrAuthority() {

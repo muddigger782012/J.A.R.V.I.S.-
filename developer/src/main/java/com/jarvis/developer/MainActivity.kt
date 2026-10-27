@@ -362,12 +362,12 @@ class MainActivity : Activity() {
         // Persist the project before contacting an AI provider. A network failure must
         // never discard the user's description or the generated response.
         val projectPrefs = getSharedPreferences("developer_local_projects_v1", MODE_PRIVATE)
-        fun persistProject(id: String, task: String, state: String, response: String? = null): Boolean {
+        fun persistProject(id: String, task: String, state: String, response: String? = null, target: Int? = null): Boolean {
             val existing = try {
                 org.json.JSONObject(projectPrefs.getString("project_" + id, "{}") ?: "{}")
             } catch (_: Exception) { org.json.JSONObject() }
             val record = existing.put("id", id).put("description", task)
-                .put("target", guidedTarget?.selectedItemPosition ?: 0)
+                .put("target", target ?: existing.optInt("target", 0))
                 .put("state", state)
                 .put("response", response ?: existing.optString("response"))
                 .put("updated_at", System.currentTimeMillis()).toString()
@@ -387,7 +387,8 @@ class MainActivity : Activity() {
             }
             val projectId = activeProject ?: java.util.UUID.randomUUID().toString()
             activeProject = projectId
-            if (!persistProject(projectId, task, "saved")) {
+            val projectTarget = guidedTarget?.selectedItemPosition ?: 0
+            if (!persistProject(projectId, task, "saved", target = projectTarget)) {
                 status.text = "Project could not be saved on this device."
                 return@setOnClickListener
             }
@@ -406,10 +407,12 @@ class MainActivity : Activity() {
                     val saved = persistProject(projectId, task, "generated", result)
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
-                            output.text = result
                             refreshSavedProjectsAfterChange?.invoke()
-                            status.text = if (saved) "Project saved; response received from " + providerName
-                                else "AI response received, but could not be saved locally"
+                            if (activeProject == projectId) {
+                                output.text = result
+                                status.text = if (saved) "Project saved; response received from " + providerName
+                                    else "AI response received, but could not be saved locally"
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -417,11 +420,13 @@ class MainActivity : Activity() {
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
                             refreshSavedProjectsAfterChange?.invoke()
-                            status.text = "Project saved; AI generation failed"
-                            output.text = (if (e is CodingAssistantProvider.ProviderFailure)
-                                e.message ?: "AI connection failed." else
-                                "Check the selected provider, API key and model.") +
-                                "\nYour project description remains saved on this device."
+                            if (activeProject == projectId) {
+                                status.text = "Project saved; AI generation failed"
+                                output.text = (if (e is CodingAssistantProvider.ProviderFailure)
+                                    e.message ?: "AI connection failed." else
+                                    "Check the selected provider, API key and model.") +
+                                    "\nYour project description remains saved on this device."
+                            }
                         }
                     }
                 } finally {
