@@ -185,7 +185,7 @@ class MainActivityConfigurationAndroidTest {
         assertTrue(button(activity, "Settings").performClick())
         assertTrue(button(activity, "Advanced tools").performClick())
         idleMain()
-        assertTrue(button(activity, "Release verification").performClick())
+        assertTrue(button(activity, "Assistant diagnostics").performClick())
         idleMain()
         // Opening a collapsed section changes measured height; force a new layout pass.
         decor.measure(View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),

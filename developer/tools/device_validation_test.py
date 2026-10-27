@@ -568,6 +568,7 @@ class ContractTests(unittest.TestCase):
 
         adb = InputAdb()
         ui = validation.HostUi(adb)
+        ui.navigate = lambda label: None
         field = node("EditText", validation.PROVIDER_HINT, focused="true")
         scroll = node("ScrollView", bounds="[0,0][320,640]")
         ui.find = lambda _: (field, [scroll, field])
@@ -580,6 +581,7 @@ class ContractTests(unittest.TestCase):
     def test_changed_focus_aborts_before_typing_any_sentinel(self):
         adb = MagicMock()
         ui = validation.HostUi(adb)
+        ui.navigate = lambda label: None
         field = node("EditText", validation.PROVIDER_HINT)
         scroll = node("ScrollView", bounds="[0,0][320,640]")
         ui.find = lambda _: (field, [scroll, field])
@@ -587,6 +589,21 @@ class ContractTests(unittest.TestCase):
         with self.assertRaisesRegex(validation.ValidationError, "focused_field_identity_mismatch"):
             ui.enter(validation.PROVIDER_HINT, validation.FAKE_PROVIDER)
         self.assertFalse(any(call.args[:3] == ("shell", "input", "text") for call in adb.run.call_args_list))
+
+    def test_navigation_rejects_engineering_actions_and_accepts_only_read_only_destinations(self):
+        adb = MagicMock()
+        ui = validation.HostUi(adb)
+        with self.assertRaisesRegex(validation.ValidationError, "navigation_action_not_allowlisted"):
+            ui.navigate("Create task branch and commit approved files (writes)")
+        adb.run.assert_not_called()
+        target = node("Button", "Self-development  ▼")
+        ui.find = lambda predicate: (target, [target]) if predicate(target) else self.fail("Route identity mismatch")
+        ui.navigate("Self-development")
+        self.assertEqual(adb.run.call_args.args[:3], ("shell", "input", "tap"))
+        adb.reset_mock()
+        target.set("content-desc", "Close Self-development tools")
+        ui.navigate("Self-development")
+        adb.run.assert_not_called()
 
     def test_subprocess_output_limit_is_enforced_without_exposing_output(self):
         process, selector = MagicMock(), MagicMock()

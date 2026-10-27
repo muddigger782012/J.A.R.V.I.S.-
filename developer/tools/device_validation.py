@@ -492,9 +492,22 @@ class HostUi:
                 break
         raise ValidationError("required_ui_target_not_observable")
 
+    def navigate(self, label):
+        require(label in ("Settings", "Activity", "Advanced tools", "Self-development", "Release verification"),
+                "navigation_action_not_allowlisted")
+        node, _ = self.find(lambda item: item.get("class") == "android.widget.Button"
+                            and item.get("text", "").removesuffix("  ▼").removesuffix("  ▲") == label)
+        require(node.get("enabled") == "true", "navigation_action_disabled")
+        if node.get("content-desc", "").startswith("Close "):
+            return  # This safe accordion is already open.
+        left, top, right, bottom = bounds(node)
+        self.adb.run("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+
     def enter(self, hint, sentinel):
         require((hint, sentinel) in ((PROVIDER_HINT, FAKE_PROVIDER), (TOKEN_HINT, FAKE_TOKEN),
                                      (REVIEW_HINT, FAKE_REVIEW)), "field_input_not_allowlisted")
+        for label in (("Settings", "Advanced tools", "Self-development") if hint == REVIEW_HINT else ("Settings",)):
+            self.navigate(label)
         node, nodes = self.find(lambda item: item.get("class") == "android.widget.EditText"
                                and exact_hint(item, hint))
         require(node.get("enabled") == "true", "input_field_disabled")
@@ -527,42 +540,48 @@ class HostUi:
         required = {hint: False for hint in (PROVIDER_HINT, TOKEN_HINT, REVIEW_HINT)}
         gates = {label: False for label in (*GATE_BUTTONS, *GATE_CHECKBOXES)}
         health = False
-        nodes = self.top()
-        for _ in range(25):
-            for node in own_nodes(nodes):
-                text, klass = node.get("text", ""), node.get("class", "")
-                if klass == "android.widget.EditText":
-                    for hint in required:
-                        if exact_hint(node, hint):
-                            # The exact visible hint, rather than empty redacted
-                            # text with hint metadata, is the required empty proof.
-                            require(text == hint, "empty_field_not_observable_password_redaction_unsupported")
-                            required[hint] = True
-                    require(not filled_field_proof(node, FAKE_PROVIDER)
-                            and not filled_field_proof(node, FAKE_TOKEN)
-                            and text != FAKE_REVIEW, "sentinel_survived_process_death")
-                if text in gates:
-                    expected = "android.widget.CheckBox" if text in GATE_CHECKBOXES else "android.widget.Button"
-                    require(klass == expected and node.get("enabled") == "false", "approval_gate_not_disabled")
-                    if text in GATE_CHECKBOXES:
-                        require(node.get("checked") == "false", "approval_checkbox_not_cleared")
-                    gates[text] = True
-                if klass == "android.widget.TextView":
-                    if re.fullmatch(r"Version [1-9][0-9]* is awaiting your health confirmation\.", text):
-                        health = True
-                    elif re.fullmatch(r"WARNING: [0-9]+ rapid launches on unconfirmed version [1-9][0-9]*\. "
-                                      r"This may be normal relaunching, not necessarily a crash\. "
-                                      r"Review recovery before coding or updating\.", text):
-                        health = True
-                    require(not re.search(r"confirmed working (?:locally|on this device)", text),
-                            "health_was_confirmed")
-            if all(required.values()) and all(gates.values()) and health:
-                return
-            previous = self.signature(nodes)
-            self.swipe(nodes, downward=False)
-            nodes = self.dump()
-            if self.signature(nodes) == previous:
-                break
+        routes = ((), ("Settings",), ("Activity",),
+                  ("Settings", "Advanced tools", "Self-development"),
+                  ("Settings", "Advanced tools", "Release verification"))
+        for route in routes:
+            for label in route:
+                self.navigate(label)
+            nodes = self.top()
+            for _ in range(25):
+                for node in own_nodes(nodes):
+                    text, klass = node.get("text", ""), node.get("class", "")
+                    if klass == "android.widget.EditText":
+                        for hint in required:
+                            if exact_hint(node, hint):
+                                # The exact visible hint, rather than empty redacted
+                                # text with hint metadata, is the required empty proof.
+                                require(text == hint, "empty_field_not_observable_password_redaction_unsupported")
+                                required[hint] = True
+                        require(not filled_field_proof(node, FAKE_PROVIDER)
+                                and not filled_field_proof(node, FAKE_TOKEN)
+                                and text != FAKE_REVIEW, "sentinel_survived_process_death")
+                    if text in gates:
+                        expected = "android.widget.CheckBox" if text in GATE_CHECKBOXES else "android.widget.Button"
+                        require(klass == expected and node.get("enabled") == "false", "approval_gate_not_disabled")
+                        if text in GATE_CHECKBOXES:
+                            require(node.get("checked") == "false", "approval_checkbox_not_cleared")
+                        gates[text] = True
+                    if klass == "android.widget.TextView":
+                        if re.fullmatch(r"Version [1-9][0-9]* is awaiting your health confirmation\.", text):
+                            health = True
+                        elif re.fullmatch(r"WARNING: [0-9]+ rapid launches on unconfirmed version [1-9][0-9]*\. "
+                                          r"This may be normal relaunching, not necessarily a crash\. "
+                                          r"Review recovery before coding or updating\.", text):
+                            health = True
+                        require(not re.search(r"confirmed working (?:locally|on this device)", text),
+                                "health_was_confirmed")
+                if all(required.values()) and all(gates.values()) and health:
+                    return
+                previous = self.signature(nodes)
+                self.swipe(nodes, downward=False)
+                nodes = self.dump()
+                if self.signature(nodes) == previous:
+                    break
         raise ValidationError("fresh_fields_gates_or_unconfirmed_health_not_observable")
 
 

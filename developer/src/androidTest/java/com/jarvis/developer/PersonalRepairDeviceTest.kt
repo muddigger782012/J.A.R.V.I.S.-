@@ -51,6 +51,7 @@ class PersonalRepairDeviceTest {
     private fun openTools(activity: MainActivity, sectionName: String = "Assistant diagnostics") {
         if (sectionName == "Code changes and review") {
             button(activity, "Activity").performClick()
+            assertTrue(button(activity, "Load private repair history (local only)").isShown)
             return
         }
         button(activity, "Settings").performClick()

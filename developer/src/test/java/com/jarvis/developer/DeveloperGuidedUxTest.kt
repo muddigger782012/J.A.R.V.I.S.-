@@ -119,7 +119,7 @@ class DeveloperGuidedUxTest {
         var opened = false
         val patch = PatchWorkbench.Handle({ _, _, _, _, _ -> false }, { _, _ -> false }, { true },
             guidedAction = { _, _, paths, _, _ -> staged = paths; true })
-        val ordinary = "developer/src/main/java/com/jarvis/developer/RepositoryAnalysis.kt"
+        val ordinary = "developer/src/main/java/com/jarvis/developer/TaskFileSummary.kt"
         val protected = "developer/src/main/java/com/jarvis/developer/MainActivity.kt"
         val files = listOf(ordinary, protected).map { path -> RepositoryAnalysis.PlannedFile(
             RepositoryAnalysis.SourceFile(path, "a".repeat(40), 20), listOf("Task reference"), "Inspect logic", "Review required", emptyList(), emptyList(), emptyList()) }
