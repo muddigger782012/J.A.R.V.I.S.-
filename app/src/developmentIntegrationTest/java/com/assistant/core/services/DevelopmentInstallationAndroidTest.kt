@@ -167,7 +167,9 @@ class DevelopmentInstallationAndroidTest {
             await("Cancelled consent could still be used") { visibleReply(scenario, "No current APK installation review is awaiting approval.") }
             requestReview()
             send(scenario, "Cancel APK installation")
-            await("Explicit voice/text cancellation was not recorded") { status(job).getJSONObject("artifactReview").getBoolean("cancelled") }
+            await("Explicit voice/text cancellation was not recorded", {
+                "; latest fixture chat=${lastReply(scenario)}; job=${runCatching { status(job).toString() }.getOrElse { "read unavailable" }}"
+            }) { status(job).getJSONObject("artifactReview").getBoolean("cancelled") }
             requestReview()
             scenario.recreate()
             send(scenario, "Approve this APK installation")
