@@ -4,10 +4,13 @@ import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.core.app.ActivityScenario
 import com.assistant.core.MainActivity
+import com.assistant.core.R
 import com.jarvis.integration.DevelopmentBridgeClient
 import com.jarvis.integration.DevelopmentBridgeContract as Wire
 import org.json.JSONObject
+import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.UUID
@@ -23,45 +26,60 @@ class DevelopmentArtifactHandoffAndroidTest {
             val response = DevelopmentBridgeClient(context).request(Wire.Request(UUID.randomUUID().toString(), kind, body, jobId = job))
             assertEquals("OK", response.getString("code")); return response.getJSONObject("data")
         }
-        val jobs = call("task.list.request").getJSONArray("jobs")
-        val before = (0 until jobs.length()).map { jobs.getJSONObject(it) }.last {
-            it.optJSONObject("artifact")?.optString("installation") == "PACKAGE_PRESENT"
-        }
+        val retainedRequest = Wire.Request("native-confirmed-apk", "source.personal.analysis.request", "Improve conversation tone")
+        val admitted = DevelopmentBridgeClient(context).request(retainedRequest)
+        assertEquals("OK", admitted.getString("code"))
+        val before = admitted.getJSONObject("data")
+        assertTrue(before.getBoolean("duplicate"))
+        assertEquals("PACKAGE_PRESENT", before.getJSONObject("artifact").getString("installation"))
         val job = before.getString("id")
-        lastReviewedJob = job
         repeat(9) { call("diagnostics.review.request", "Read-only handoff history fixture $it") }
         val newest = call("task.list.request").getJSONArray("jobs")
         assertFalse((0 until newest.length()).any { newest.getJSONObject(it).getString("id") == job })
-        context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        val foregroundDeadline = SystemClock.uptimeMillis() + 30_000
-        while (SystemClock.uptimeMillis() < foregroundDeadline &&
-            instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() != "com.assistant.core") SystemClock.sleep(100)
-        assertEquals("com.assistant.core", instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString())
-        assertEquals("CANCELLED", assertThrows(Wire.Rejected::class.java) {
-            DeveloperBridgeOperations(context).reviewApkForJob(job) { false }
-        }.code)
-        assertEquals(before.getLong("revision"), call("task.status.request", job = job).getLong("revision"))
-        val message = DeveloperBridgeOperations(context).reviewApkForJob(job)
-        assertTrue(message.contains("no installation was requested"))
-        val deadline = SystemClock.uptimeMillis() + 45_000
-        var opened: JSONObject? = null
-        var visible = false
-        while (SystemClock.uptimeMillis() < deadline) {
-            opened = call("task.status.request", job = job)
-            fun hasReview(node: android.view.accessibility.AccessibilityNodeInfo): Boolean =
-                node.contentDescription?.toString() == "Verified APK review from Assistant" && node.isVisibleToUser ||
-                    (0 until node.childCount).any { i -> node.getChild(i)?.let(::hasReview) == true }
-            visible = instrumentation.uiAutomation.rootInActiveWindow?.let(::hasReview) == true
-            if (opened.optJSONObject("artifactReview")?.optBoolean("consumed") == true && visible) break
-            SystemClock.sleep(150)
+        // Retain the actual acknowledged request as Assistant's current project context.
+        // No fabricated success response or owner credential is supplied.
+        val storage = PersonalStateFile(context, "developer-outbox.json")
+        storage.access {
+            val records = read()?.let(::JSONArray) ?: JSONArray()
+            assertTrue(records.length() < 16)
+            records.put(JSONObject().put("request", Wire.encode(retainedRequest)).put("transport", "PENDING"))
+            assertTrue(write(records.toString()))
         }
-        assertTrue("The exact job's authenticated handoff was not recorded", opened!!.getJSONObject("artifactReview").getBoolean("consumed"))
-        assertTrue("The focused APK review was not visible in Developer's preserved Tools screen", visible)
-        assertEquals("com.jarvis.developer", instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString())
-        assertEquals(before.getJSONObject("artifact").getString("installation"), opened.getJSONObject("artifact").getString("installation"))
-        assertFalse(opened.getBoolean("deviceVerified"))
-        assertEquals("BLOCKED", opened.getJSONObject("verification").getString("DEVICE_INSTALLED"))
-        assertEquals("READY_FOR_REVIEW", opened.getString("state"))
+        DevelopmentReviewOutbox(storage).record(retainedRequest, admitted)
+        ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
+            val foregroundDeadline = SystemClock.uptimeMillis() + 30_000
+            while (SystemClock.uptimeMillis() < foregroundDeadline &&
+                instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() != "com.assistant.core") SystemClock.sleep(100)
+            assertEquals("com.assistant.core", instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString())
+            assertEquals("CANCELLED", assertThrows(Wire.Rejected::class.java) {
+                DeveloperBridgeOperations(context).reviewApkForJob(job) { false }
+            }.code)
+            assertEquals(before.getLong("revision"), call("task.status.request", job = job).getLong("revision"))
+            scenario.onActivity { activity ->
+                activity.findViewById<android.widget.EditText>(R.id.etCommandInput)
+                    .setText("Can you install the APK that Developer just built?")
+                assertTrue(activity.findViewById<android.view.View>(R.id.btnRunAssistantCommand).performClick())
+            }
+            val deadline = SystemClock.uptimeMillis() + 45_000
+            var opened: JSONObject? = null
+            var visible = false
+            while (SystemClock.uptimeMillis() < deadline) {
+                opened = call("task.status.request", job = job)
+                fun hasReview(node: android.view.accessibility.AccessibilityNodeInfo): Boolean =
+                    node.contentDescription?.toString() == "Verified APK review from Assistant" && node.isVisibleToUser ||
+                        (0 until node.childCount).any { i -> node.getChild(i)?.let(::hasReview) == true }
+                visible = instrumentation.uiAutomation.rootInActiveWindow?.let(::hasReview) == true
+                if (opened.optJSONObject("artifactReview")?.optBoolean("consumed") == true && visible) break
+                SystemClock.sleep(150)
+            }
+            assertTrue("The exact job's authenticated handoff was not recorded", opened!!.getJSONObject("artifactReview").getBoolean("consumed"))
+            assertTrue("The focused APK review was not visible in Developer's preserved Tools screen", visible)
+            assertEquals("com.jarvis.developer", instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString())
+            assertEquals(before.getJSONObject("artifact").getString("installation"), opened.getJSONObject("artifact").getString("installation"))
+            assertFalse(opened.getBoolean("deviceVerified"))
+            assertEquals("BLOCKED", opened.getJSONObject("verification").getString("DEVICE_INSTALLED"))
+            assertEquals("READY_FOR_REVIEW", opened.getString("state"))
+        }
     }
 
     @Test fun authenticatedTicketSurvivesDeveloperProcessStopAndCannotBeReplayed() {
@@ -73,13 +91,9 @@ class DevelopmentArtifactHandoffAndroidTest {
             assertEquals("OK", it.getString("code"))
         }.getJSONObject("data")
         fun status(job: String) = exchange(Wire.Request(UUID.randomUUID().toString(), "task.status.request", jobId = job))
-        val jobs = exchange(Wire.Request(UUID.randomUUID().toString(), "task.list.request")).getJSONArray("jobs")
-        // This test may run before or after the older-job selection case.
-        // The persisted installation fixture is selected from Developer's full local job,
-        // retained as the previous focused review when it is outside the latest-eight list.
-        val job = (0 until jobs.length()).map { jobs.getJSONObject(it) }.lastOrNull {
-            it.optJSONObject("artifact")?.optString("installation") == "PACKAGE_PRESENT"
-        }?.getString("id") ?: requireNotNull(lastReviewedJob)
+        val acknowledged = exchange(Wire.Request("native-confirmed-apk", "source.personal.analysis.request", "Improve conversation tone"))
+        assertTrue(acknowledged.getBoolean("duplicate"))
+        val job = acknowledged.getString("id")
         context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         val foregroundDeadline = SystemClock.uptimeMillis() + 30_000
         while (SystemClock.uptimeMillis() < foregroundDeadline &&
@@ -115,5 +129,4 @@ class DevelopmentArtifactHandoffAndroidTest {
         assertEquals("PACKAGE_PRESENT", status(job).getJSONObject("artifact").getString("installation"))
         assertFalse(status(job).getBoolean("deviceVerified"))
     }
-    companion object { private var lastReviewedJob: String? = null }
 }

@@ -33,9 +33,9 @@ class ArtifactInstallationAndroidTest {
     }
     private fun status(job: String) = JarvisPackageInstaller.inbox(context).localSnapshot().single { it.getString("id") == job }
     @Suppress("DEPRECATION")
-    private fun fixture(): Pair<String, DevelopmentArtifact.Record> {
+    private fun fixture(requestId: String): Pair<String, DevelopmentArtifact.Record> {
         val queue = JarvisPackageInstaller.inbox(context)
-        val request = Wire.Request(UUID.randomUUID().toString(), "source.personal.analysis.request", "Improve conversation tone")
+        val request = Wire.Request(requestId, "source.personal.analysis.request", "Improve conversation tone")
         val job = queue.handle("com.assistant.core", true, request).getString("id")
         val path = "app/src/main/java/com/assistant/core/services/ConversationTone.kt"
         val text = "package com.assistant.core.services\nobject ConversationTone { val enabled = false }\n"
@@ -90,7 +90,7 @@ class ArtifactInstallationAndroidTest {
     }
     @Test fun actualAndroidConfirmationAndInstalledBytesAreRecordedWithoutClaimingDeviceAcceptance() {
         guard()
-        val (job, record) = fixture()
+        val (job, record) = fixture("native-confirmed-apk")
         shell("appops set com.jarvis.developer REQUEST_INSTALL_PACKAGES deny")
         try {
             ActivityScenario.launch(MainActivity::class.java).use { activity ->
@@ -139,7 +139,7 @@ class ArtifactInstallationAndroidTest {
     }
     @Test fun cancellingAnOwnedUncommittedSessionRejectsStaleCallbacksAndRecoveryDoesNotInstall() {
         guard()
-        val (job, record) = fixture(); val queue = JarvisPackageInstaller.inbox(context)
+        val (job, record) = fixture("native-cancelled-apk"); val queue = JarvisPackageInstaller.inbox(context)
         val initial = queue.beginInstallation(job, status(job).getLong("revision"), record.apkSha256, true)
         val installer = context.packageManager.packageInstaller
         val id = installer.createSession(PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply { setAppPackageName(record.packageName) })

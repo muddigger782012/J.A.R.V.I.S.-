@@ -50,7 +50,10 @@ class PersonalRepairDeviceTest {
     private fun button(activity: MainActivity, text: String) = buttons(activity).single { it.text.toString() == text }
     private fun openTools(activity: MainActivity) {
         button(activity, "Tools").performClick()
-        button(activity, "Show developer controls").performClick()
+        val section = buttons(activity).single {
+            it.contentDescription?.toString() in setOf("Open Assistant diagnostics tools", "Close Assistant diagnostics tools")
+        }
+        if (section.contentDescription.toString().startsWith("Open ")) section.performClick()
         assertTrue(button(activity, READ).isShown)
     }
     private fun noApproval(activity: MainActivity) {
