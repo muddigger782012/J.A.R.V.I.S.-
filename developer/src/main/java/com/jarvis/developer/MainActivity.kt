@@ -194,10 +194,19 @@ class MainActivity : Activity() {
         val sourceButton = Button(this).apply { text = "Read source lines (read-only)" }
         val analyzeButton = Button(this).apply { text = "Analyze task and preview file plan (read-only)" }
         listOf(inventoryButton, sourceButton, analyzeButton).forEach { root.addView(it) }
+        val repositoryFeedback = TextView(this).apply {
+            text = "Choose Browse source inventory to list available repository files."
+            textSize = 14f
+            setTextColor(getColor(R.color.developer_text))
+            setTextIsSelectable(true)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+        }
+        root.addView(repositoryFeedback, root.indexOfChild(analyzeButton) + 1)
         var repositorySnapshot: RepositoryAnalysis.Inventory? = null
         fun repositoryRead(label: String, operation: () -> Pair<RepositoryAnalysis.Inventory, String>) {
             listOf(inventoryButton, sourceButton, analyzeButton).forEach { it.isEnabled = false }
             status.text = label
+            repositoryFeedback.text = label
             thread(name = "DeveloperRepositoryRead") {
                 try {
                     val (snapshot, report) = operation()
@@ -205,6 +214,7 @@ class MainActivity : Activity() {
                         if (!isFinishing && !isDestroyed) {
                             repositorySnapshot = snapshot
                             output.text = report
+                            repositoryFeedback.text = report
                             status.text = "Read-only preview complete at ${snapshot.commitSha.take(12)}"
                         }
                     }
@@ -213,6 +223,7 @@ class MainActivity : Activity() {
                         if (!isFinishing && !isDestroyed) {
                             status.text = "Repository preview failed"
                             output.text = e.message?.take(500) ?: "Repository read unavailable."
+                            repositoryFeedback.text = "Repository preview failed: " + output.text
                         }
                     }
                 } finally {
@@ -253,13 +264,18 @@ class MainActivity : Activity() {
                 snapshot to RepositoryAnalysis.render(plan)
             }
         }
+        val codingStart = root.childCount
         val patchWorkbench = PatchWorkbench.attach(this, root, prompt, key, provider, model, githubToken, output, status) {
             health.getInt("confirmed_version", -1) == currentCode
         }
         patchPreview = patchWorkbench
+        val planningStart = root.childCount
         TaskPlanningWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        val repairStart = root.childCount
         RepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        val selfDevelopmentStart = root.childCount
         SelfDevelopmentWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
+        val personalDiagnosticsStart = root.childCount
         PersonalRepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         val projectStartIndex = root.childCount
         applicationWorkbench = ApplicationApprovalWorkbench.attach(this, root)
@@ -742,27 +758,107 @@ class MainActivity : Activity() {
             button.setTextColor(getColor(R.color.developer_primary))
             button.background = roundedSurface(0xFF112A35.toInt())
         }
-        // Keep complex repository, recovery, and approval controls accessible but collapsed by default.
-        val advancedChildren = (2 until advanced.childCount).map { advanced.getChildAt(it) }
+        // Organize the existing engineering controls into small, task-oriented sections.
+        // The original views and listeners are retained; only their presentation changes.
+        val advancedChildren = (0 until advanced.childCount).map { advanced.getChildAt(it) }
         advancedChildren.forEach { advanced.removeView(it) }
-        val advancedToggle = Button(this).apply {
-            text = "Show developer controls"
-            isAllCaps = false
+        val toolsTitle = TextView(this).apply {
+            text = "What would you like to do?"
+            textSize = 22f
+            typeface = Typeface.DEFAULT_BOLD
             setTextColor(getColor(R.color.developer_primary))
-            backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_panel))
+            setPadding(0, dp(16), 0, dp(12))
         }
-        advanced.addView(advancedToggle)
-        val advancedContent = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
+        advanced.addView(toolsTitle)
+        val toolsHint = TextView(this).apply {
+            text = "Choose a task below. Advanced engineering controls are kept available without crowding the screen."
+            setTextColor(getColor(R.color.developer_secondary))
+            setPadding(0, 0, 0, dp(16))
         }
-        advancedChildren.forEach { advancedContent.addView(it) }
-        advanced.addView(advancedContent)
-        advancedToggle.setOnClickListener {
-            val expanding = advancedContent.visibility != View.VISIBLE
-            advancedContent.visibility = if (expanding) View.VISIBLE else View.GONE
-            advancedToggle.text = if (expanding) "Hide developer controls" else "Show developer controls"
+        advanced.addView(toolsHint)
+        val sectionNames = listOf(
+            "Connections and source browsing",
+            "Code changes and review",
+            "Planning",
+            "Testing and repair",
+            "Self-development",
+            "Release verification",
+            "Assistant diagnostics"
+        )
+        // Boundaries captured at attachment time are reliable even if section labels change.
+        // Each existing view retains its original click listener and local state.
+        // The engineering modules were attached sequentially before moving the views.
+        // Their original child indices remain a stable partition after Projects views
+        // (which follow these modules) are removed.
+        val groupBoundaries = listOf(
+            codingStart, planningStart, repairStart, selfDevelopmentStart,
+            personalDiagnosticsStart
+        ).map { it - advancedStart }
+        val sectionGroups = sectionNames.map {
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = View.GONE
+            }
         }
+        advancedChildren.forEachIndexed { index, child ->
+            val section = when {
+                index < groupBoundaries[0] -> 0
+                index < groupBoundaries[1] -> 1
+                index < groupBoundaries[2] -> 2
+                index < groupBoundaries[3] -> 3
+                index < groupBoundaries[4] -> 4
+                else -> 6
+            }
+            sectionGroups[section].addView(child)
+        }
+        // Promote the everyday build and recovery actions into their own section.
+        // Keep the original button objects and click listeners.
+        listOf(plans, builds, recoveryStatus, confirmHealthy, recovery, iconTest).forEach { view ->
+            (view.parent as? android.view.ViewGroup)?.removeView(view)
+            sectionGroups[5].addView(view)
+        }
+        // Source feedback must be adjacent to its source buttons.
+        // Display a concise initial message instead of an empty results pane.
+        repositoryFeedback.text = "Source browsing results and errors will appear here."
+        // Keep frequently used actions discoverable in their task section.
+        // Moving a view preserves its original listener, enabled state and approval gate.
+        listOf(inventoryButton, sourceButton, analyzeButton, repositoryFeedback).forEach { view ->
+            (view.parent as? android.view.ViewGroup)?.removeView(view)
+            sectionGroups[0].addView(view)
+        }
+        // Always give a clear route back to the six-category overview.
+        val sectionIntro = TextView(this).apply {
+            text = "Tap a category to open its tools. Tap it again to close."
+            setTextColor(getColor(R.color.developer_secondary))
+            setPadding(0, dp(4), 0, dp(10))
+        }
+        advanced.addView(sectionIntro)
+        var openSection = -1
+        val sectionButtons = mutableListOf<Button>()
+        sectionNames.forEachIndexed { index, name ->
+            val button = Button(this).apply {
+                isAllCaps = false
+                text = name
+                textSize = 16f
+                setTextColor(getColor(R.color.developer_primary))
+                background = roundedSurface(0xFF142F3B.toInt())
+                contentDescription = "Open $name tools"
+            }
+            advanced.addView(button)
+            advanced.addView(sectionGroups[index])
+            sectionButtons.add(button)
+            button.setOnClickListener {
+                openSection = if (openSection == index) -1 else index
+                sectionGroups.forEachIndexed { i, group ->
+                    group.visibility = if (i == openSection) View.VISIBLE else View.GONE
+                    sectionButtons[i].text = sectionNames[i] +
+                        if (i == openSection) "  ▲" else "  ▼"
+                    sectionButtons[i].contentDescription =
+                        (if (i == openSection) "Close " else "Open ") + sectionNames[i] + " tools"
+                }
+            }
+        }
+        sectionButtons.forEachIndexed { i, button -> button.text = sectionNames[i] + "  ▼" }
         val shell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(getColor(R.color.developer_background))
@@ -832,13 +928,11 @@ class MainActivity : Activity() {
         root.addView(quickRow(
             quickAction("⌁  Improve Jarvis", 2) {
                 selectPage?.invoke(2)
-                advancedContent.visibility = View.VISIBLE
-                advancedToggle.text = "Hide developer controls"
+                if (openSection != 4) sectionButtons[4].performClick()
             },
             quickAction("▤  Build status", 2) {
                 selectPage?.invoke(2)
-                advancedContent.visibility = View.VISIBLE
-                advancedToggle.text = "Hide developer controls"
+                if (openSection != 5) sectionButtons[5].performClick()
                 builds.performClick()
             }
         ))
