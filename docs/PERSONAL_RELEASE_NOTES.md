@@ -1,5 +1,7 @@
 Personal Jarvis v3.6 — Intelligent Device Assistance:
 
+- Repair Android 8 HUD startup when its radial pulse drawable reapplies a theme;
+  retain the existing pulse radius and each selected palette.
 - Ask Jarvis to review the APK Developer built. A compatible Developer opens the
   exact verified job in its existing inbox using a short-lived, one-use handoff.
   Stale, cancelled, changed or replayed requests are rejected. Installation still

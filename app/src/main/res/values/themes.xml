@@ -45,6 +45,7 @@
         <item name="jarvis_button_fill_pressed">@color/jarvis_button_fill_pressed</item>
         <item name="jarvis_background">@drawable/bg_default_wallpaper</item>
         <item name="jarvis_pulse_tint">#225DFF99</item>
+        <item name="jarvis_pulse_radius">420dp</item>
         <item name="jarvis_scan_tint">#CC5DFF99</item>
         <item name="jarvis_panel_stroke">#665DFF99</item>
         <item name="jarvis_corner">16dp</item>

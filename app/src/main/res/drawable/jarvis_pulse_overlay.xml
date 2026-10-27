@@ -3,7 +3,7 @@
     android:shape="rectangle">
     <gradient
         android:type="radial"
-        android:gradientRadius="420dp"
+        android:gradientRadius="?attr/jarvis_pulse_radius"
         android:centerX="50%"
         android:centerY="35%"
         android:startColor="?attr/jarvis_pulse_tint"
