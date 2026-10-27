@@ -16,7 +16,7 @@ class CommercialPeerTest {
         assertEquals("OK", capabilities.getString("code"))
         assertEquals(2, capabilities.getJSONObject("data").getJSONArray("modes").length())
         assertFalse(capabilities.getJSONObject("data").getBoolean("conversationalArtifactInstall"))
-        for (operation in Wire.personalInstallOperations) {
+        for (operation in Wire.personalArtifactOperations) {
             val denied = assertThrows(Wire.Rejected::class.java) { client.request(Wire.Request("commercial-install",
                 operation, jobId = "job-one", expectedRevision = 1)) }
             assertEquals("UNSUPPORTED_OPERATION", denied.code)

@@ -7,6 +7,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DevelopmentBridgeContractTest {
+    @Test fun installedChecksCannotAcceptAReportOrClaimFunctionalDeviceAcceptance() {
+        val request = Wire.Request("check-apk", Wire.INSTALLED_APK_CHECK, jobId = "job-1", expectedRevision = 2)
+        assertEquals(request, Wire.decode(Wire.encode(request)))
+        assertThrows(Wire.Rejected::class.java) { Wire.encode(request.copy(body = "all tests passed")) }
+        assertThrows(Wire.Rejected::class.java) { Wire.encode(request.copy(expectedRevision = null)) }
+        val checks = JSONObject().put("checks", JSONObject().apply {
+            for (name in listOf("PACKAGE", "VERSION", "SIGNATURE", "APK_BYTES", "LAUNCHER")) put(name, "PASSED")
+        }).put("fresh", true).put("functionalAcceptance", true)
+        val artifact = JSONObject().put("installedCheck", checks)
+        assertTrue(Wire.installedCheckSummary(artifact).contains("functional device acceptance remains unverified"))
+        checks.put("fresh", false)
+        assertTrue(Wire.installedCheckSummary(artifact).startsWith("Earlier"))
+        checks.getJSONObject("checks").put("LAUNCHER", "private log secret")
+        assertFalse(Wire.installedCheckSummary(artifact).contains("private log secret"))
+    }
     @Test fun installationReviewAndCancellationAreRevisionBoundMetadataWithoutAnApprovalPayload() {
         for (kind in Wire.personalInstallOperations) {
             val request = Wire.Request("installation-review", kind, jobId = "job-one", expectedRevision = 12)

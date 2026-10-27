@@ -16,11 +16,11 @@ internal object DevelopmentArtifactInspection {
     @Suppress("DEPRECATION")
     private fun flags() = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
     @Suppress("DEPRECATION")
-    private fun certificates(info: PackageInfo): Set<String> =
+    internal fun certificates(info: PackageInfo): Set<String> =
         (if (Build.VERSION.SDK_INT >= 28) info.signingInfo?.apkContentsSigners else info.signatures)
             ?.map { digest(it.toByteArray()) }?.toSet().orEmpty()
     @Suppress("DEPRECATION")
-    private fun version(info: PackageInfo) = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+    internal fun version(info: PackageInfo) = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
     fun inspect(context: Context, file: File, record: DevelopmentArtifact.Record) {
         DevelopmentArtifact.validate(record)
         if (file.length() != record.bytes || DevelopmentArtifactFiles.sha256(file) != record.apkSha256)

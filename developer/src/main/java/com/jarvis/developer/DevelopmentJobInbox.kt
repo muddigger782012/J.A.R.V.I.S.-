@@ -51,6 +51,12 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
                     require(artifact.has("record") && install.getString("status") in DevelopmentArtifact.installStates)
                     require(install.getString("nonce").matches(Regex("[a-f0-9-]{36}")) && install.getInt("session") >= -1)
                 }
+                artifact.optJSONObject("installedCheck")?.let { check ->
+                    InstalledApkCheck.decode(check.getJSONObject("report"))
+                    DevelopmentArtifact.record(check.getJSONObject("record"))
+                    require(check.getString("process").matches(Regex("[a-f0-9-]{36}")))
+                    require(DevelopmentArtifact.number(check, "revision") in 0..job.getLong("revision"))
+                }
             }
             job.optJSONObject("artifactReview")?.let { review ->
                 require(review.optString("purpose", "review") in setOf("review", "installation"))
@@ -136,6 +142,15 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
                             a.optJSONObject("record")?.let { record ->
                                 for (key in listOf("packageName", "versionCode", "versionName", "signing", "run", "artifact")) summary.put(key, record.get(key))
                             }
+                            a.optJSONObject("installedCheck")?.let { check ->
+                                val report = InstalledApkCheck.decode(check.getJSONObject("report"))
+                                val fresh = check.getString("process") == processIdentity &&
+                                    check.getLong("revision") == job.getLong("revision") &&
+                                    now() - report.checkedAt in 0..59_999L &&
+                                    boundArtifact(job) == DevelopmentArtifact.record(check.getJSONObject("record"))
+                                summary.put("installedCheck", report.json().put("fresh", fresh)
+                                    .put("functionalAcceptance", false))
+                            }
                         })
                 }
             }
@@ -186,7 +201,7 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         Wire.validate(request)
         if (caller !in Wire.assistantPackages) reject("UNAUTHORIZED")
         if (!Wire.permitsMode(request.mode, receiverPersonal, Wire.personalPackage(caller))) reject("POLICY_REQUIRED")
-        if (request.kind in Wire.personalInstallOperations && (!receiverPersonal || caller != "com.assistant.core")) reject("POLICY_REQUIRED")
+        if (request.kind in Wire.personalArtifactOperations && (!receiverPersonal || caller != "com.assistant.core")) reject("POLICY_REQUIRED")
         val jobs = load()
         if (request.kind == "task.list.request") return@transaction JSONObject().put("jobs", JSONArray(jobs.filter {
             it.getString("caller") == caller
@@ -668,6 +683,31 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         val artifact = job.optJSONObject("engineering")?.optJSONObject("artifact") ?: return@transaction null
         val install = artifact.optJSONObject("installation") ?: return@transaction null
         DevelopmentArtifact.Installation(jobId, install.getString("nonce"), DevelopmentArtifact.record(artifact.getJSONObject("record")), install.getInt("session"))
+    }
+    internal data class InstalledCheckSource(val job: String, val revision: Long, val record: DevelopmentArtifact.Record)
+    /** No lease, approval, installer, source write or external report import is granted by this read. */
+    internal fun installedCheckSource(caller: String, personal: Boolean, request: Wire.Request): InstalledCheckSource = checkpoint.transaction {
+        Wire.validate(request)
+        if (request.kind != Wire.INSTALLED_APK_CHECK) reject("INVALID_REQUEST")
+        if (!personal || caller != "com.assistant.core") reject("POLICY_REQUIRED")
+        val job = load().singleOrNull { it.getString("id") == request.jobId && it.getString("caller") == caller } ?: reject("NOT_FOUND")
+        val original = Wire.decode(job.getString("request"))
+        if (!Wire.permitsMode(original.mode, personal, true) || request.mode != original.mode) reject("POLICY_REQUIRED")
+        if (request.expectedRevision != job.getLong("revision")) reject("CONFLICT")
+        if (job.getString("state") != "READY_FOR_REVIEW" || verificationView(job).getString("SIGNED_APK") != "PASSED") reject("UNVERIFIED_ARTIFACT")
+        InstalledCheckSource(request.jobId, job.getLong("revision"), boundArtifact(job) ?: reject("UNVERIFIED_ARTIFACT"))
+    }
+    internal fun recordInstalledCheck(source: InstalledCheckSource, report: InstalledApkCheck.Report): JSONObject = checkpoint.transaction {
+        val jobs = load(); val job = jobs.single { it.getString("id") == source.job }
+        if (job.getLong("revision") != source.revision || job.getString("state") != "READY_FOR_REVIEW" ||
+            verificationView(job).getString("SIGNED_APK") != "PASSED" ||
+            boundArtifact(job) != source.record || now() - report.checkedAt !in 0..120_000L) reject("CONFLICT")
+        job.getJSONObject("verification").put("DEVICE_INSTALLED", "BLOCKED")
+        analysisTransition(job, job.getString("state"), "installation.readonly.checked")
+        job.getJSONObject("engineering").getJSONObject("artifact").put("installedCheck", JSONObject()
+            .put("process", processIdentity).put("revision", job.getLong("revision"))
+            .put("record", source.record.json()).put("report", report.json()))
+        artifactAudit(job, source.record); save(jobs); view(job)
     }
     fun localSnapshot(): List<JSONObject> = checkpoint.transaction {
         load().map { view(it).put("caller", it.getString("caller")) }

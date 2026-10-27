@@ -16,14 +16,16 @@ object DevelopmentBridgeContract {
     const val ARTIFACT_INSTALL_REVIEW = "task.artifact.install.review.request"
     const val ARTIFACT_INSTALL_CANCEL = "task.artifact.install.cancel.request"
     const val ARTIFACT_INSTALL_ACTION = "com.jarvis.developer.INSTALL_REVIEWED_JOB_APK"
+    const val INSTALLED_APK_CHECK = "task.artifact.installed.check.request"
     const val MAX_BODY_BYTES = 8192
     const val MAX_WIRE_BYTES = 12288
     const val MAX_PARCEL_BYTES = 32768
     val assistantPackages: Set<String> = java.util.Collections.unmodifiableSet(setOf("com.assistant.core", "com.assistant.core.beta"))
     val modes: List<String> = java.util.Collections.unmodifiableList(listOf("supervised", "authorized_autonomous", "owner_development"))
     val operations: Set<String> = java.util.Collections.unmodifiableSet(setOf("capabilities.request", "diagnostics.review.request", "task.status.request",
-        "source.personal.analysis.request", "source.developer.analysis.request", "task.list.request", "task.cancel.request", "task.pause.request", "task.resume.request", "task.retry.request", ARTIFACT_REVIEW, ARTIFACT_INSTALL_REVIEW, ARTIFACT_INSTALL_CANCEL))
+        "source.personal.analysis.request", "source.developer.analysis.request", "task.list.request", "task.cancel.request", "task.pause.request", "task.resume.request", "task.retry.request", ARTIFACT_REVIEW, ARTIFACT_INSTALL_REVIEW, ARTIFACT_INSTALL_CANCEL, INSTALLED_APK_CHECK))
     val personalInstallOperations = setOf(ARTIFACT_INSTALL_REVIEW, ARTIFACT_INSTALL_CANCEL)
+    val personalArtifactOperations = personalInstallOperations + INSTALLED_APK_CHECK
     val sourceAnalysisKinds: Set<String> = java.util.Collections.unmodifiableSet(setOf("source.personal.analysis.request", "source.developer.analysis.request"))
     private val id = Regex("[A-Za-z0-9_-]{1,80}")
     private val fields = setOf("v", "id", "kind", "body", "mode", "job", "revision")
@@ -57,6 +59,28 @@ object DevelopmentBridgeContract {
         7 -> "Android reported insufficient storage. Free space before explicitly retrying."
         else -> ""
     }
+    /** Only fixed probe names/results are rendered; repository or diagnostic text is never spoken. */
+    fun installedCheckSummary(artifact: JSONObject?): String {
+        val check = artifact?.optJSONObject("installedCheck") ?: return "No installed APK checks have been recorded."
+        val labels = linkedMapOf("PACKAGE" to "package", "VERSION" to "version", "SIGNATURE" to "signing identity",
+            "APK_BYTES" to "APK bytes", "LAUNCHER" to "launcher availability")
+        val results = check.optJSONObject("checks") ?: return "The installed APK check record is unavailable."
+        if (results.keys().asSequence().toSet() != labels.keys ||
+            labels.keys.any { results.optString(it) !in setOf("PASSED", "FAILED", "BLOCKED") })
+            return "The installed APK check record is unavailable."
+        val heading = if (check.optBoolean("fresh") && artifact.optBoolean("stale") == false)
+            "Latest read-only installed APK checks" else "Earlier installed APK checks; run them again for a fresh observation"
+        val reason = when (check.optString("problem")) {
+            "NOT_INSTALLED" -> " The package is not installed or visible to Developer."
+            "CHANGED" -> " The application changed during inspection; run the checks again."
+            "DEADLINE" -> " The read deadline was reached; a complete result is unavailable."
+            "UNAVAILABLE" -> " Android could not provide a complete installed-state observation."
+            else -> ""
+        }
+        return heading + ": " + labels.entries.joinToString(", ") { (name, label) ->
+            label + when (results.getString(name)) { "PASSED" -> " passed"; "FAILED" -> " differs or is unavailable"; else -> " unverified" }
+        } + "." + reason + " These checks do not test voice, conversation or screen behavior; functional device acceptance remains unverified."
+    }
 
     private fun expect(valid: Boolean, code: String = "INVALID_REQUEST") { if (!valid) throw Rejected(code) }
     fun validate(request: Request) {
@@ -65,7 +89,7 @@ object DevelopmentBridgeContract {
         expect(request.body.toByteArray(Charsets.UTF_8).size <= MAX_BODY_BYTES, "TOO_LARGE")
         expect(request.body.none { it.isISOControl() && it !in "\n\r\t" })
         val changesJob = request.kind in setOf("task.cancel.request", "task.pause.request", "task.resume.request", "task.retry.request")
-        val revisionRequired = changesJob || request.kind == ARTIFACT_REVIEW || request.kind in personalInstallOperations
+        val revisionRequired = changesJob || request.kind == ARTIFACT_REVIEW || request.kind in personalArtifactOperations
         val jobControl = revisionRequired || request.kind == "task.status.request"
         expect(if (jobControl) id.matches(request.jobId) else request.jobId.isEmpty())
         expect(if (revisionRequired) request.expectedRevision != null && request.expectedRevision in 0..1_000_000

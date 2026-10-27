@@ -43,6 +43,7 @@ class DeveloperBridgeOperations(private val context: Context) {
             (if (reply.optBoolean("verifiedArtifactReview")) "Developer can inspect an APK from the job's exact source and request a separately approved Android installation. " else "") +
             (if (reply.optBoolean("artifactReviewHandoff")) "You can ask me to open this job's verified APK review in Developer. " else "") +
             (if (reply.optBoolean("conversationalArtifactInstall")) "You can separately approve this exact APK installation in conversation. " else "") +
+            (if (reply.optBoolean("installedApkChecks")) "Read-only checks of the installed APK are available separately from functional device acceptance. " else "") +
             "Source approval remains separate. Android owns installation permission and confirmation."
     }
     fun submit(body: String): String {
@@ -120,6 +121,15 @@ class DeveloperBridgeOperations(private val context: Context) {
             else "No pending installation handoff or active installation tracking remained for this job. ") +
             "An operation Android already completed is not undone; check development job status for the recorded outcome."
     }
+    fun checkInstalledApk(isCurrent: () -> Boolean): String {
+        if (!isCurrent()) throw Wire.Rejected("CANCELLED")
+        val job = outbox.latestJob(); val mode = selectedMode().wireValue
+        val current = call(Wire.Request(UUID.randomUUID().toString(), "task.status.request", mode = mode, jobId = job))
+        if (!isCurrent()) throw Wire.Rejected("CANCELLED")
+        val result = call(Wire.Request(UUID.randomUUID().toString(), Wire.INSTALLED_APK_CHECK,
+            mode = mode, jobId = job, expectedRevision = current.getLong("revision")))
+        return Wire.installedCheckSummary(result.optJSONObject("artifact")) + " No installation was requested."
+    }
     private fun launchArtifactReview(ticket: String, action: String, isCurrent: () -> Boolean) {
         val uid = context.packageManager.getApplicationInfo(Wire.DEVELOPER_PACKAGE, 0).uid
         if (DevelopmentPeerIdentity.packageForUid(context, uid, setOf(Wire.DEVELOPER_PACKAGE)) == null)
@@ -167,14 +177,15 @@ class DeveloperBridgeOperations(private val context: Context) {
             (if (artifact.optBoolean("stale")) "Earlier artifact; inspect the current verified build in Developer before another installation request. " else "") +
             (if (artifact.has("versionCode")) "${artifact.getString("packageName")} version ${artifact.getLong("versionCode")}, ${artifact.getString("signing")} signing. " else "No verified APK recorded. ") +
             when (artifact.optString("installation")) {
-                "PACKAGE_PRESENT" -> "The installed package matches the requested APK. Device acceptance remains unverified."
+                "PACKAGE_PRESENT" -> "A matching installed package was previously observed. Recheck for its current state. Device acceptance remains unverified."
                 "PENDING_USER_ACTION" -> "Android is waiting for installation confirmation in Developer."
                 "PREPARING", "SUBMITTED" -> "An owner-approved Android installation request is in progress; completion is unverified."
                 "OUTCOME_UNKNOWN" -> "The installation outcome is unknown. Developer can read the installed package without repeating installation."
                 "FAILED" -> "Android installation failed. Review the build and recorded status in Developer."
                 "CANCELLED" -> "Installation tracking was cancelled; this does not undo an operation Android already completed."
                 else -> "No Android installation has been verified."
-            } + " " + Wire.installationDiagnostic(artifact.optInt("androidStatus", Int.MIN_VALUE)) } ?: "") +
+            } + " " + Wire.installationDiagnostic(artifact.optInt("androidStatus", Int.MIN_VALUE)) +
+                "\n" + Wire.installedCheckSummary(artifact) } ?: "") +
         "\nA queued request or source analysis is not a verified source change, successful build, publication or installation."
 
     companion object {
