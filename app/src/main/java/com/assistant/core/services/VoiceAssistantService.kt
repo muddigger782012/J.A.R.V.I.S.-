@@ -99,6 +99,7 @@ class VoiceAssistantService(
     private var captureToken = 0L
     private val screenAccess by lazy { ScreenAccessClient(context) }
     private var captureScreenScope = ""
+    private var captureDevelopmentScope = ""
     private var onDeviceCapture = false
     private var usedSystemFallback = false
     private var legacyCaptureWindow: VoiceCaptureWindow? = null
@@ -597,6 +598,7 @@ class VoiceAssistantService(
         mode = RecognitionMode.COMMAND
         usedSystemFallback = false
         captureScreenScope = if (context.packageName == "com.assistant.core") screenAccess.voiceScope() else ""
+        captureDevelopmentScope = DevelopmentInstallConsent.voiceScope()
         var hypotheses = emptyList<Pair<String, Float>>()
         commandCapture.listen(config.preferOfflineCommandRecognition, onPartial = {},
             onResult = { text ->
@@ -642,6 +644,10 @@ class VoiceAssistantService(
             onStatus("No command detected. Push-to-talk ended.")
             if (commandFromWake) { commandFromWake = false; resumeHotwordEngineAfterCommand() }
             onCaptureFinished()
+        } else if (context.packageName == "com.assistant.core" &&
+            !VoiceDevelopmentApprovalScope.valid(command, captureDevelopmentScope, DevelopmentInstallConsent.voiceScope())) {
+            onStatus("APK review changed during voice capture; confirmation discarded.")
+            speak("The APK review changed while you were speaking. Review the latest APK and repeat the specific approval; no installation approval was sent.")
         } else if (context.packageName == "com.assistant.core" &&
             !VoiceScreenApprovalScope.valid(command, captureScreenScope, screenAccess.voiceScope())) {
             onStatus("Screen review changed during voice capture; confirmation discarded.")
@@ -721,6 +727,7 @@ class VoiceAssistantService(
             return
         }
         captureScreenScope = if (context.packageName == "com.assistant.core") screenAccess.voiceScope() else ""
+        captureDevelopmentScope = DevelopmentInstallConsent.voiceScope()
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)

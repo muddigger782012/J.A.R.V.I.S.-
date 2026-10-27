@@ -42,7 +42,8 @@ class DeveloperBridgeOperations(private val context: Context) {
             else "This Developer version handles read-only reviews. ") +
             (if (reply.optBoolean("verifiedArtifactReview")) "Developer can inspect an APK from the job's exact source and request a separately approved Android installation. " else "") +
             (if (reply.optBoolean("artifactReviewHandoff")) "You can ask me to open this job's verified APK review in Developer. " else "") +
-            "This connection cannot grant source approval or install an application. Android privileges are unchanged."
+            (if (reply.optBoolean("conversationalArtifactInstall")) "You can separately approve this exact APK installation in conversation. " else "") +
+            "Source approval remains separate. Android owns installation permission and confirmation."
     }
     fun submit(body: String): String {
         return submitRetained(outbox.prepare(body, selectedMode().wireValue))
@@ -82,14 +83,52 @@ class DeveloperBridgeOperations(private val context: Context) {
         if (review.getString("id") != job || !ticket.matches(Regex("[a-f0-9-]{36}")) ||
             delivery.getLong("expires") - System.currentTimeMillis() !in 1..120_000L) throw Wire.Rejected("CONFLICT")
         if (!isCurrent() || selectedMode().wireValue != mode) throw Wire.Rejected("CANCELLED")
+        launchArtifactReview(ticket, Wire.ARTIFACT_REVIEW_ACTION, isCurrent)
+        return "I requested Developer's verified APK review for this job. Review the APK there before approving installation. Android's permission and confirmation are still required; no installation was requested."
+    }
+    fun prepareInstallation(isCurrent: () -> Boolean): DevelopmentInstallConsent.Offer = prepareInstallationForJob(outbox.latestJob(), isCurrent)
+    internal fun prepareInstallationForJob(job: String, isCurrent: () -> Boolean = { true }): DevelopmentInstallConsent.Offer {
+        if (context.packageName != "com.assistant.core") throw Wire.Rejected("POLICY_REQUIRED")
+        if (!isCurrent()) throw Wire.Rejected("CANCELLED")
+        val mode = selectedMode().wireValue
+        val state = call(Wire.Request(UUID.randomUUID().toString(), "task.status.request", mode = mode, jobId = job))
+        if (!isCurrent()) throw Wire.Rejected("CANCELLED")
+        val review = call(Wire.Request(UUID.randomUUID().toString(), Wire.ARTIFACT_INSTALL_REVIEW,
+            mode = mode, jobId = job, expectedRevision = state.getLong("revision")))
+        if (!isCurrent() || selectedMode().wireValue != mode) throw Wire.Rejected("CANCELLED")
+        return DevelopmentInstallConsent.decode(review, job, mode)
+    }
+    fun approveInstallation(offer: DevelopmentInstallConsent.Offer, isCurrent: () -> Boolean): String {
+        if (context.packageName != "com.assistant.core" || selectedMode().wireValue != offer.mode) throw Wire.Rejected("POLICY_REQUIRED")
+        if (!isCurrent() || outbox.latestJob() != offer.job || offer.expires - System.currentTimeMillis() !in 1..120_000L) throw Wire.Rejected("CANCELLED")
+        val state = call(Wire.Request(UUID.randomUUID().toString(), "task.status.request", mode = offer.mode, jobId = offer.job))
+        if (state.getLong("revision") != offer.revision) throw Wire.Rejected("CONFLICT")
+        if (!isCurrent() || selectedMode().wireValue != offer.mode) throw Wire.Rejected("CANCELLED")
+        launchArtifactReview(offer.ticket, Wire.ARTIFACT_INSTALL_ACTION, isCurrent)
+        return "Your approval was sent to Developer for this exact APK. Android's permission and installer confirmation are still required. Check development job status for the actual result."
+    }
+    fun cancelInstallation(isCurrent: () -> Boolean): String {
+        if (!isCurrent()) throw Wire.Rejected("CANCELLED")
+        val job = outbox.latestJob(); val mode = selectedMode().wireValue
+        val state = call(Wire.Request(UUID.randomUUID().toString(), "task.status.request", mode = mode, jobId = job))
+        if (!isCurrent()) throw Wire.Rejected("CANCELLED")
+        val pending = state.optJSONObject("artifactReview")?.let { it.optString("purpose") == "installation" && !it.optBoolean("consumed") && !it.optBoolean("cancelled") } == true ||
+            state.optJSONObject("artifact")?.optString("installation") in setOf("PREPARING", "SUBMITTED", "PENDING_USER_ACTION", "OUTCOME_UNKNOWN")
+        call(Wire.Request(UUID.randomUUID().toString(), Wire.ARTIFACT_INSTALL_CANCEL, mode = mode,
+            jobId = job, expectedRevision = state.getLong("revision")))
+        return (if (pending) "Cancelled this job's pending installation handoff and local installation tracking. "
+            else "No pending installation handoff or active installation tracking remained for this job. ") +
+            "An operation Android already completed is not undone; check development job status for the recorded outcome."
+    }
+    private fun launchArtifactReview(ticket: String, action: String, isCurrent: () -> Boolean) {
         val uid = context.packageManager.getApplicationInfo(Wire.DEVELOPER_PACKAGE, 0).uid
         if (DevelopmentPeerIdentity.packageForUid(context, uid, setOf(Wire.DEVELOPER_PACKAGE)) == null)
             throw Wire.Rejected("UNAUTHORIZED")
-        context.startActivity(Intent(Wire.ARTIFACT_REVIEW_ACTION)
+        if (!isCurrent()) throw Wire.Rejected("CANCELLED")
+        context.startActivity(Intent(action)
             .setComponent(ComponentName(Wire.DEVELOPER_PACKAGE, "com.jarvis.developer.MainActivity"))
             .putExtra(Wire.ARTIFACT_REVIEW_EXTRA, ticket)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
-        return "I requested Developer's verified APK review for this job. Review the APK there before approving installation. Android's permission and confirmation are still required; no installation was requested."
     }
     fun list(): String {
         val data = call(Wire.Request(UUID.randomUUID().toString(), "task.list.request", mode = selectedMode().wireValue))
@@ -114,7 +153,9 @@ class DeveloperBridgeOperations(private val context: Context) {
         } + "\n" + Wire.Stage.values().joinToString("\n") {
             "${it.name.replace('_', ' ')}: ${value.getJSONObject("verification").getString(it.name)}"
         } + (if (value.optJSONObject("artifactReview")?.optBoolean("consumed") == true)
-            "\nDeveloper acknowledged this job's APK review handoff. Installation approval and device acceptance remain separate." else "") +
+            (if (value.getJSONObject("artifactReview").optString("purpose") == "installation")
+                "\nDeveloper acknowledged delivery of this job's installation consent. Read the Android installation status below; delivery is not installation or device acceptance."
+            else "\nDeveloper acknowledged this job's APK review handoff. Installation approval and device acceptance remain separate.") else "") +
         (value.optJSONObject("analysis")?.let { "\nRead-only source context: ${it.getInt("inspected")} files inspected, ${it.getInt("planned")} references planned. Coverage is partial; inspect the report in Developer." } ?: "") +
         (if (value.optString("problem") == "SOURCE_READ_UNVERIFIED") "\nThe public source read could not be verified. Check Developer's internet connection and repository access, then retry the task explicitly." else "") +
         (if (value.optString("problem") == "SOURCE_OUTCOME_UNKNOWN") "\nThe approved write outcome is unverified. Developer can check the expected branch using read-only requests; the old approval cannot repeat the write." else "") +

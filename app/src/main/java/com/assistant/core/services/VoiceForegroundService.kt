@@ -329,13 +329,18 @@ class VoiceForegroundService : Service() {
             }
             liveStatus(VoiceInteractionState.IDLE, "Starting speech capture; waiting for the recognizer.")
             val captureScope = if (packageName == "com.assistant.core") screenAccess.voiceScope() else ""
+            val developmentScope = DevelopmentInstallConsent.voiceScope()
             liveCapture.listen(currentConfig.preferOfflineCommandRecognition,
                 onPartial = { /* Partial transcripts stay transient; only complete turns enter chat. */ },
                 onResult = { text ->
                     if (liveChatActive && liveSession.transcript(turn)) {
                         liveFailures = 0
                         liveLine("You: $text")
-                        if (packageName == "com.assistant.core" && !VoiceScreenApprovalScope.valid(text, captureScope, screenAccess.voiceScope())) {
+                        if (packageName == "com.assistant.core" && !VoiceDevelopmentApprovalScope.valid(text, developmentScope, DevelopmentInstallConsent.voiceScope())) {
+                            liveSession.response(turn)
+                            val message = "The APK review changed while you were speaking. Review the latest APK and repeat the specific approval; no installation approval was sent."
+                            liveLine("J.A.R.V.I.S.: $message"); speakLiveReply(message)
+                        } else if (packageName == "com.assistant.core" && !VoiceScreenApprovalScope.valid(text, captureScope, screenAccess.voiceScope())) {
                             liveSession.response(turn)
                             val message = "The screen review changed during voice capture. Review the current target and confirm again; nothing was tapped."
                             liveLine("J.A.R.V.I.S.: $message"); speakLiveReply(message)

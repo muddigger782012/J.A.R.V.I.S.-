@@ -5,10 +5,18 @@ import org.junit.Test
 
 class DevelopmentCommandsTest {
     @Test fun explicitApkRequestsRouteToReviewAcrossNaturalVariations() {
-        for (text in listOf("Install the APK Developer just built", "Can you install the APK that Developer built?",
-            "Please open the verified APK review in Developer", "Review my APK from Developer",
+        for (text in listOf("Please open the verified APK review in Developer", "Review my APK from Developer",
             "Show me the APK review for my development job", "Open Developer’s APK review"))
             assertEquals(text, DevelopmentCommands.Kind.REVIEW_APK, DevelopmentCommands.parse(text))
+    }
+    @Test fun installingABuiltApkRequiresItsOwnReviewAndPurposeSpecificFollowUp() {
+        for (text in listOf("Install the APK Developer just built", "Can you install the APK that Developer built?",
+            "Please install my latest APK Developer built!"))
+            assertEquals(DevelopmentCommands.Kind.INSTALL_APK, DevelopmentCommands.parse(text))
+        assertEquals(DevelopmentCommands.Kind.APPROVE_INSTALL_APK, DevelopmentCommands.parse("Approve this APK installation"))
+        assertEquals(DevelopmentCommands.Kind.CANCEL_INSTALL_APK, DevelopmentCommands.parse("Cancel APK installation"))
+        for (text in listOf("yes", "confirm installation", "approve it", "don't approve this APK installation", "explain approve this APK installation"))
+            assertNull(DevelopmentCommands.parse(text))
     }
     @Test fun questionsNegationsAndUnrelatedInstallRequestsCannotTriggerDevelopmentHandoff() {
         for (text in listOf("Don't install the APK Developer just built", "Explain how to install the APK Developer built",

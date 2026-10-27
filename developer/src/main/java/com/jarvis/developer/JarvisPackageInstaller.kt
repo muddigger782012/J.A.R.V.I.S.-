@@ -52,7 +52,7 @@ object JarvisPackageInstaller {
         return true
     }
 
-    /** An explicit owner click creates one fresh session; this entry point is never exposed through IPC. */
+    /** An owner click or purpose-bound conversational consent creates one fresh session. No installer RPC exists. */
     internal fun installVerified(activity: Activity, job: String, revision: Long, record: DevelopmentArtifact.Record,
         report: (String) -> Unit) {
         if (!canRequestInstall(activity)) {

@@ -11,6 +11,88 @@ import java.security.MessageDigest
 import java.util.UUID
 
 class DevelopmentEngineeringTest {
+    private fun installReview(job: String, mode: String = "supervised") = Wire.Request(UUID.randomUUID().toString(), Wire.ARTIFACT_INSTALL_REVIEW,
+        mode = mode, jobId = job, expectedRevision = status(job).getLong("revision"))
+    @Test fun installationHandoffCannotUseNavigationAuthorityAndNeverStartsASessionByItself() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        val navigation = inbox().handle(caller, true, review(source.job)).getJSONObject("artifactReview").getString("ticket")
+        assertThrows(Wire.Rejected::class.java) { inbox().consumeArtifactReview(navigation, true, installation = true) }
+        val request = installReview(source.job)
+        val response = inbox().handle(caller, true, request)
+        val ticket = response.getJSONObject("artifactReview").getString("ticket")
+        assertEquals("installation", response.getJSONObject("artifactReview").getString("purpose"))
+        assertEquals(ticket, inbox().handle(caller, true, request).getJSONObject("artifactReview").getString("ticket"))
+        assertFalse(status(source.job).toString().contains(ticket))
+        assertNull(inbox().installationRecord(source.job))
+        assertThrows(Wire.Rejected::class.java) { inbox().consumeArtifactReview(ticket, true) }
+        val delivered = inbox().consumeArtifactReview(ticket, true, installation = true)
+        assertEquals("PASSED", delivered.getJSONObject("verification").getString("SIGNED_APK"))
+        assertNull(inbox().installationRecord(source.job)); assertFalse(delivered.getBoolean("deviceVerified"))
+        assertThrows(Wire.Rejected::class.java) { inbox().consumeArtifactReview(ticket, true, installation = true) }
+        assertThrows(Wire.Rejected::class.java) { inbox().handle(caller, true, request) }
+        assertLegacyStages()
+    }
+    @Test fun explicitInstallationCancellationRevokesTheHandoffWithoutCancellingSourceOrInventingInstallation() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        val ticket = inbox().handle(caller, true, installReview(source.job)).getJSONObject("artifactReview").getString("ticket")
+        val cancel = Wire.Request(UUID.randomUUID().toString(), Wire.ARTIFACT_INSTALL_CANCEL,
+            jobId = source.job, expectedRevision = status(source.job).getLong("revision"))
+        val cancelled = inbox().handle(caller, true, cancel)
+        assertTrue(cancelled.getJSONObject("artifactReview").getBoolean("cancelled"))
+        assertFalse(cancelled.getJSONObject("artifactReview").getBoolean("consumed"))
+        assertEquals("READY_FOR_REVIEW", cancelled.getString("state"))
+        assertEquals("PASSED", cancelled.getJSONObject("verification").getString("SIGNED_APK"))
+        assertNull(inbox().installationRecord(source.job))
+        assertEquals(cancelled.getLong("revision"), inbox().handle(caller, true, cancel).getLong("revision"))
+        assertThrows(Wire.Rejected::class.java) { inbox().consumeArtifactReview(ticket, true, installation = true) }
+    }
+    @Test fun voiceCancellationAlsoInvalidatesAnOwnedPendingSessionAndItsLateCallback() {
+        val source = artifactSource(); val record = apk(source); assertTrue(inbox().recordArtifact(source, record))
+        val initial = inbox().beginInstallation(source.job, status(source.job).getLong("revision"), record.apkSha256, true)
+        val session = inbox().bindInstallation(initial, 73)
+        inbox().handle(caller, true, Wire.Request(UUID.randomUUID().toString(), Wire.ARTIFACT_INSTALL_CANCEL,
+            jobId = source.job, expectedRevision = status(source.job).getLong("revision")))
+        assertFalse(inbox().installationStatus(session, "PACKAGE_PRESENT", 0))
+        assertEquals("CANCELLED", status(source.job).getJSONObject("artifact").getString("installation"))
+        assertEquals("BLOCKED", status(source.job).getJSONObject("verification").getString("DEVICE_INSTALLED"))
+        assertTrue(inbox().pendingInstallations().isEmpty())
+    }
+    @Test fun personalInstallationConsentCannotBePreparedOrConsumedByCommercialParticipants() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        val request = installReview(source.job)
+        for (receiver in listOf(false, true)) {
+            assertEquals("POLICY_REQUIRED", assertThrows(Wire.Rejected::class.java) { inbox().handle("com.assistant.core.beta", receiver, request) }.code)
+        }
+        assertEquals("POLICY_REQUIRED", assertThrows(Wire.Rejected::class.java) { inbox().handle(caller, false, request) }.code)
+        val ticket = inbox().handle(caller, true, request).getJSONObject("artifactReview").getString("ticket")
+        assertEquals("POLICY_REQUIRED", assertThrows(Wire.Rejected::class.java) { inbox().consumeArtifactReview(ticket, false, installation = true) }.code)
+        assertTrue(inbox().consumeArtifactReview(ticket, true, installation = true).getJSONObject("artifactReview").getBoolean("consumed"))
+    }
+    @Test fun installationConsentExpiresFailsOnClockRollbackAndCannotSurviveChangedBuildEvidence() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        var time = 1000L
+        val queue = DevelopmentJobInbox(directory.root) { time }
+        val request = installReview(source.job)
+        val ticket = queue.handle(caller, true, request).getJSONObject("artifactReview").getString("ticket")
+        time = 999
+        assertThrows(Wire.Rejected::class.java) { queue.consumeArtifactReview(ticket, true, installation = true) }
+        time = 121000
+        assertThrows(Wire.Rejected::class.java) { queue.consumeArtifactReview(ticket, true, installation = true) }
+        time = 200000
+        val newer = queue.handle(caller, true, installReview(source.job)).getJSONObject("artifactReview").getString("ticket")
+        queue.refreshEngineeringEvidence(source.job, status(source.job).getLong("revision"), true)
+        assertThrows(Wire.Rejected::class.java) { queue.consumeArtifactReview(newer, true, installation = true) }
+        assertTrue(queue.pendingInstallations().isEmpty())
+    }
+    @Test fun anActiveInstallationPreventsAnotherProposalOrDeliveryEvenForAnotherVerifiedJob() {
+        val first = artifactSource(); assertTrue(inbox().recordArtifact(first, apk(first)))
+        val second = artifactSource(); assertTrue(inbox().recordArtifact(second, apk(second)))
+        val ticket = inbox().handle(caller, true, installReview(second.job)).getJSONObject("artifactReview").getString("ticket")
+        inbox().beginInstallation(first.job, status(first.job).getLong("revision"), apk(first).apkSha256, true)
+        assertThrows(Wire.Rejected::class.java) { inbox().handle(caller, true, installReview(second.job)) }
+        assertThrows(Wire.Rejected::class.java) { inbox().consumeArtifactReview(ticket, true, installation = true) }
+        assertNull(inbox().installationRecord(second.job))
+    }
     private fun review(job: String, mode: String = "supervised") = Wire.Request(UUID.randomUUID().toString(), Wire.ARTIFACT_REVIEW,
         mode = mode, jobId = job, expectedRevision = status(job).getLong("revision"))
     @Test fun apkReviewIsOneUseNavigationAcrossRestartAndNeverAnInstallationApproval() {

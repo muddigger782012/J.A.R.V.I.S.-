@@ -13,13 +13,17 @@ object DevelopmentBridgeContract {
     const val ARTIFACT_REVIEW = "task.artifact.review.request"
     const val ARTIFACT_REVIEW_ACTION = "com.jarvis.developer.REVIEW_JOB_APK"
     const val ARTIFACT_REVIEW_EXTRA = "com.jarvis.developer.REVIEW_TICKET"
+    const val ARTIFACT_INSTALL_REVIEW = "task.artifact.install.review.request"
+    const val ARTIFACT_INSTALL_CANCEL = "task.artifact.install.cancel.request"
+    const val ARTIFACT_INSTALL_ACTION = "com.jarvis.developer.INSTALL_REVIEWED_JOB_APK"
     const val MAX_BODY_BYTES = 8192
     const val MAX_WIRE_BYTES = 12288
     const val MAX_PARCEL_BYTES = 32768
     val assistantPackages: Set<String> = java.util.Collections.unmodifiableSet(setOf("com.assistant.core", "com.assistant.core.beta"))
     val modes: List<String> = java.util.Collections.unmodifiableList(listOf("supervised", "authorized_autonomous", "owner_development"))
     val operations: Set<String> = java.util.Collections.unmodifiableSet(setOf("capabilities.request", "diagnostics.review.request", "task.status.request",
-        "source.personal.analysis.request", "source.developer.analysis.request", "task.list.request", "task.cancel.request", "task.pause.request", "task.resume.request", "task.retry.request", ARTIFACT_REVIEW))
+        "source.personal.analysis.request", "source.developer.analysis.request", "task.list.request", "task.cancel.request", "task.pause.request", "task.resume.request", "task.retry.request", ARTIFACT_REVIEW, ARTIFACT_INSTALL_REVIEW, ARTIFACT_INSTALL_CANCEL))
+    val personalInstallOperations = setOf(ARTIFACT_INSTALL_REVIEW, ARTIFACT_INSTALL_CANCEL)
     val sourceAnalysisKinds: Set<String> = java.util.Collections.unmodifiableSet(setOf("source.personal.analysis.request", "source.developer.analysis.request"))
     private val id = Regex("[A-Za-z0-9_-]{1,80}")
     private val fields = setOf("v", "id", "kind", "body", "mode", "job", "revision")
@@ -61,7 +65,7 @@ object DevelopmentBridgeContract {
         expect(request.body.toByteArray(Charsets.UTF_8).size <= MAX_BODY_BYTES, "TOO_LARGE")
         expect(request.body.none { it.isISOControl() && it !in "\n\r\t" })
         val changesJob = request.kind in setOf("task.cancel.request", "task.pause.request", "task.resume.request", "task.retry.request")
-        val revisionRequired = changesJob || request.kind == ARTIFACT_REVIEW
+        val revisionRequired = changesJob || request.kind == ARTIFACT_REVIEW || request.kind in personalInstallOperations
         val jobControl = revisionRequired || request.kind == "task.status.request"
         expect(if (jobControl) id.matches(request.jobId) else request.jobId.isEmpty())
         expect(if (revisionRequired) request.expectedRevision != null && request.expectedRevision in 0..1_000_000

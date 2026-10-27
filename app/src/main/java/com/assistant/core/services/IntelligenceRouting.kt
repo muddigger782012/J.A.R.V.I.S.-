@@ -78,3 +78,8 @@ object VoiceScreenApprovalScope {
         ScreenTaskCommands.parse(text, active = true)?.kind in setOf(ScreenTaskCommands.Kind.CONFIRM_STEP, ScreenTaskCommands.Kind.CONTINUE)
     fun valid(text: String, captured: String, current: String) = !bound(text) || captured == current
 }
+
+object VoiceDevelopmentApprovalScope {
+    fun valid(text: String, captured: String, current: String): Boolean =
+        DevelopmentCommands.parse(text) != DevelopmentCommands.Kind.APPROVE_INSTALL_APK || captured == current
+}

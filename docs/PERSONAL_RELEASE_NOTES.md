@@ -1,5 +1,11 @@
 Personal Jarvis v3.6 — Intelligent Device Assistance:
 
+- In Personal Jarvis, ask to install the APK Developer built, review the named
+  application and build, then say 'approve this APK installation'. A general
+  'yes' cannot approve it. Android still controls install permission and final
+  confirmation. Cancellation, changed evidence, expiry and replay invalidate
+  the handoff; neither delivery nor matching installed bytes claims that device
+  acceptance tests passed. Older Developer builds retain the APK review flow.
 - Repair Android 8 HUD startup when its radial pulse drawable reapplies a theme;
   retain the existing pulse radius and each selected palette.
 - Ask Jarvis to review the APK Developer built. A compatible Developer opens the
