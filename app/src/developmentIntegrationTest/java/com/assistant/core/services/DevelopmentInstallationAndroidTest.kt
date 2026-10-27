@@ -31,14 +31,14 @@ class DevelopmentInstallationAndroidTest {
         DevelopmentBridgeClient(context).request(Wire.Request(UUID.randomUUID().toString(), kind,
             jobId = job, expectedRevision = revision)).also { assertEquals("OK", it.getString("code")) }.getJSONObject("data")
     private fun status(job: String) = call("task.status.request", job)
-    private fun await(message: String, condition: () -> Boolean) {
+    private fun await(message: String, diagnostics: () -> String = { "" }, condition: () -> Boolean) {
         val deadline = SystemClock.uptimeMillis() + 45_000
         while (SystemClock.uptimeMillis() < deadline) { if (condition()) return; SystemClock.sleep(100) }
-        assertTrue(message, condition())
+        assertTrue(message + diagnostics(), condition())
     }
     private fun fixture(): String {
         guard()
-        val request = Wire.Request("native-confirmed-apk", "source.personal.analysis.request", "Improve conversation tone")
+        val request = Wire.Request("native-voice-install-apk", "source.developer.analysis.request", "Improve conversation tone")
         val reply = DevelopmentBridgeClient(context).request(request)
         assertEquals("OK", reply.getString("code")); assertTrue(reply.getJSONObject("data").getBoolean("duplicate"))
         val storage = PersonalStateFile(context, "developer-outbox.json")
@@ -72,6 +72,15 @@ class DevelopmentInstallationAndroidTest {
             found = last != null && (last.getChildAt(0) as? TextView)?.text?.toString() == "J.A.R.V.I.S." && contains(last)
         }
         return found
+    }
+    private fun lastReply(scenario: ActivityScenario<MainActivity>): String {
+        var result = "No reply card"
+        scenario.onActivity {
+            val messages = it.findViewById<ViewGroup>(R.id.chatMessages)
+            val last = messages.getChildAt(messages.childCount - 1) as? ViewGroup
+            if (last != null) result = (0 until last.childCount).mapNotNull { n -> (last.getChildAt(n) as? TextView)?.text?.toString() }.joinToString(" | ").take(1200)
+        }
+        return result
     }
     private fun foreground() = instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString()
     private fun installButton(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
@@ -128,7 +137,7 @@ class DevelopmentInstallationAndroidTest {
             fun requestReview() {
                 val earlier = status(job).getLong("revision")
                 send(scenario, "Install the APK Developer just built")
-                await("Fresh installation review did not arrive") {
+                await("Fresh installation review did not arrive", { "; job=${status(job)}; latest fixture chat=${lastReply(scenario)}" }) {
                     val current = status(job)
                     current.getLong("revision") > earlier && !current.getJSONObject("artifactReview").getBoolean("consumed") &&
                         visibleReply(scenario, "Approve asking Android to install this exact APK?")

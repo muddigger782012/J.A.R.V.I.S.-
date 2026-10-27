@@ -52,7 +52,7 @@ run_suite com.assistant.core.beta.test com.jarvis.integration.commercialfixture.
 run_suite com.jarvis.developer.test com.jarvis.developer.RepositoryAnalysisRuntimeTest 1 development-bridge-results/source-memory.txt
 run_suite com.jarvis.developer.test com.jarvis.developer.EngineeringJobAndroidTest 4 development-bridge-results/engineering-jobs.txt
 run_suite com.assistant.core.test com.assistant.core.services.DevelopmentSourceWorkerAndroidTest 1 development-bridge-results/source-worker.txt 240
-run_suite com.jarvis.developer.test com.jarvis.developer.ArtifactInstallationAndroidTest 2 development-bridge-results/artifact-installation.txt 180
+run_suite com.jarvis.developer.test com.jarvis.developer.ArtifactInstallationAndroidTest 3 development-bridge-results/artifact-installation.txt 180
 adb shell am force-stop com.jarvis.developer
 run_suite com.jarvis.developer.test com.jarvis.developer.ArtifactInstallationRecoveryAndroidTest 1 development-bridge-results/artifact-recovery.txt 60
 # First-launch microphone permission is an explicit disposable-fixture setup,
