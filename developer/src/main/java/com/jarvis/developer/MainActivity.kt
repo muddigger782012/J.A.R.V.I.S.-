@@ -16,6 +16,7 @@ import android.view.View
 import android.graphics.drawable.GradientDrawable
 import android.graphics.Typeface
 import kotlin.concurrent.thread
+import com.jarvis.integration.DevelopmentBridgeContract as Wire
 
 /**
  * Independent Gemini/OpenAI coding client.
@@ -27,9 +28,13 @@ class MainActivity : Activity() {
     private var patchPreview: PatchWorkbench.Handle? = null
     private var activePage = 0
     private var selectPage: ((Int) -> Unit)? = null
+    private var artifactReviewIntent: ((Intent) -> Unit)? = null
+    private var artifactReviewJob: String? = null
+    private var artifactReviewGeneration = 0L
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("developer_active_page", activePage)
+        artifactReviewJob?.let { outState.putString("developer_artifact_review_job", it) }
         super.onSaveInstanceState(outState)
     }
 
@@ -697,7 +702,7 @@ class MainActivity : Activity() {
             "Describe a change on Home to ask Jarvis for help. Here you can review code, check builds, and use advanced development tools.")
         sectionIntro(settings, "Connect your AI",
             "Choose Gemini or OpenAI, enter your API key, then tap Save connection. The key is encrypted on this device.")
-        DevelopmentInboxWorkbench.attach(this, advanced, settings, patchWorkbench, { githubToken.text.toString().trim() }) { review ->
+        val developmentInbox = DevelopmentInboxWorkbench.attach(this, advanced, settings, patchWorkbench, { githubToken.text.toString().trim() }) { review ->
             // Preserve the validated legacy diagnostic format for PersonalRepair.parse.
             // The text watcher invalidates any previously staged proposal before loading it.
             prompt.setText(review)
@@ -1008,6 +1013,48 @@ class MainActivity : Activity() {
         navigation.setBackgroundColor(getColor(R.color.developer_panel))
         shell.addView(navigation)
         setContentView(shell)
+        fun openArtifactJob(job: String) {
+            val group = sectionGroups.indexOfFirst { it === developmentInbox.view.parent }
+            check(group >= 0)
+            showPage(2)
+            if (openSection != group) sectionButtons[group].performClick()
+            artifactReviewJob = job
+            developmentInbox.focus(job)
+            developmentInbox.view.post {
+                developmentInbox.view.requestRectangleOnScreen(android.graphics.Rect(0, 0, developmentInbox.view.width, 1), false)
+            }
+        }
+        artifactReviewIntent = { incoming ->
+            if (incoming.action == Wire.ARTIFACT_REVIEW_ACTION) {
+                val generation = ++artifactReviewGeneration
+                val ticket = runCatching { incoming.getStringExtra(Wire.ARTIFACT_REVIEW_EXTRA) }.getOrNull().orEmpty()
+                thread(name = "developer-artifact-review", isDaemon = true) {
+                    val result = runCatching {
+                        DevelopmentJobInbox(java.io.File(noBackupFilesDir.canonicalFile, "development-inbox"))
+                            .consumeArtifactReview(ticket, Wire.personalPackage(packageName)).getString("id")
+                    }
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed && generation == artifactReviewGeneration) {
+                            result.onSuccess { job -> runCatching { openArtifactJob(job) }.onFailure {
+                                android.widget.Toast.makeText(this, "Open the development inbox to review this job. No installation was requested.", android.widget.Toast.LENGTH_LONG).show()
+                            } }.onFailure {
+                                android.util.Log.i("DeveloperReview", "artifact.handoff.rejected")
+                                android.widget.Toast.makeText(this, "The APK review changed or expired. Ask Assistant for a fresh review. No installation was requested.", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        val restoredReview = savedInstanceState?.getString("developer_artifact_review_job")
+        if (restoredReview != null) runCatching { openArtifactJob(restoredReview) }
+        else if (savedInstanceState == null) intent?.let { artifactReviewIntent?.invoke(it) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        artifactReviewIntent?.invoke(intent)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -1016,6 +1063,8 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        artifactReviewGeneration++
+        artifactReviewIntent = null
         selectPage = null
         patchPreview?.dispose()
         patchPreview = null

@@ -11,6 +11,69 @@ import java.security.MessageDigest
 import java.util.UUID
 
 class DevelopmentEngineeringTest {
+    private fun review(job: String, mode: String = "supervised") = Wire.Request(UUID.randomUUID().toString(), Wire.ARTIFACT_REVIEW,
+        mode = mode, jobId = job, expectedRevision = status(job).getLong("revision"))
+    @Test fun apkReviewIsOneUseNavigationAcrossRestartAndNeverAnInstallationApproval() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        val request = review(source.job)
+        val ack = inbox().handle(caller, true, request)
+        val ticket = ack.getJSONObject("artifactReview").getString("ticket")
+        assertEquals(ticket, inbox().handle(caller, true, request).getJSONObject("artifactReview").getString("ticket"))
+        assertFalse(status(source.job).toString().contains(ticket))
+        assertFalse(inbox().localSnapshot().single().toString().contains(ticket))
+        val opened = inbox().consumeArtifactReview(ticket, true)
+        assertEquals(source.job, opened.getString("id")); assertTrue(opened.getJSONObject("artifactReview").getBoolean("consumed"))
+        assertEquals("PASSED", opened.getJSONObject("verification").getString("SIGNED_APK"))
+        assertEquals("PENDING", opened.getJSONObject("verification").getString("DEVICE_INSTALLED"))
+        assertFalse(opened.getBoolean("deviceVerified")); assertNull(inbox().installationRecord(source.job))
+        assertThrows(Wire.Rejected::class.java) { inbox().consumeArtifactReview(ticket, true) }
+        assertThrows(Wire.Rejected::class.java) { inbox().handle(caller, true, request) }
+        assertLegacyStages()
+    }
+    @Test fun apkReviewRejectsWrongCallerModeRevisionAndUnverifiedSource() {
+        val unready = analyzed()
+        assertEquals("UNVERIFIED_ARTIFACT", assertThrows(Wire.Rejected::class.java) { inbox().handle(caller, true, review(unready)) }.code)
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        val request = review(source.job)
+        assertEquals("NOT_FOUND", assertThrows(Wire.Rejected::class.java) { inbox().handle("com.assistant.core.beta", true, request) }.code)
+        assertEquals("POLICY_REQUIRED", assertThrows(Wire.Rejected::class.java) { inbox().handle(caller, true, request.copy(mode = "authorized_autonomous")) }.code)
+        assertEquals("CONFLICT", assertThrows(Wire.Rejected::class.java) { inbox().handle(caller, true, request.copy(expectedRevision = 0)) }.code)
+        assertFalse(status(source.job).has("artifactReview"))
+    }
+    @Test fun cancelledOrChangedJobsCannotConsumeAnEarlierReviewTicket() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        val ticket = inbox().handle(caller, true, review(source.job)).getJSONObject("artifactReview").getString("ticket")
+        control(source.job, "task.cancel.request")
+        assertThrows(Wire.Rejected::class.java) { inbox().consumeArtifactReview(ticket, true) }
+        val other = artifactSource(); assertTrue(inbox().recordArtifact(other, apk(other)))
+        val stale = inbox().handle(caller, true, review(other.job)).getJSONObject("artifactReview").getString("ticket")
+        inbox().refreshEngineeringEvidence(other.job, status(other.job).getLong("revision"), true)
+        assertThrows(Wire.Rejected::class.java) { inbox().consumeArtifactReview(stale, true) }
+        assertTrue(inbox().pendingInstallations().isEmpty())
+    }
+    @Test fun expirationClockRollbackAndSupersedingRequestNeverRenewATicket() {
+        val source = artifactSource(); assertTrue(inbox().recordArtifact(source, apk(source)))
+        var clock = 100_000L
+        val queue = DevelopmentJobInbox(directory.root) { clock }
+        val first = review(source.job)
+        val ticket = queue.handle(caller, true, first).getJSONObject("artifactReview").getString("ticket")
+        clock = 99_999L
+        assertThrows(Wire.Rejected::class.java) { queue.consumeArtifactReview(ticket, true) }
+        clock = 220_000L
+        assertThrows(Wire.Rejected::class.java) { queue.handle(caller, true, first) }
+        assertThrows(Wire.Rejected::class.java) { queue.consumeArtifactReview(ticket, true) }
+        val next = queue.handle(caller, true, review(source.job)).getJSONObject("artifactReview").getString("ticket")
+        assertNotEquals(ticket, next)
+        assertThrows(Wire.Rejected::class.java) { queue.handle(caller, true, first) }
+        assertTrue(queue.consumeArtifactReview(next, true).getJSONObject("artifactReview").getBoolean("consumed"))
+    }
+    @Test fun commercialReceiverCannotOpenAnOwnerDevelopmentReview() {
+        val source = artifactSource("owner_development"); assertTrue(inbox().recordArtifact(source, apk(source)))
+        val ticket = inbox().handle(caller, true, review(source.job, "owner_development")).getJSONObject("artifactReview").getString("ticket")
+        assertEquals("POLICY_REQUIRED", assertThrows(Wire.Rejected::class.java) { inbox().consumeArtifactReview(ticket, false) }.code)
+        assertThrows(Wire.Rejected::class.java) { inbox().consumeArtifactReview("not-a-ticket", true) }
+        assertTrue(inbox().consumeArtifactReview(ticket, true).getJSONObject("artifactReview").getBoolean("consumed"))
+    }
     @get:Rule val directory = TemporaryFolder()
     private val caller = "com.assistant.core"
     private val base = "a".repeat(40)

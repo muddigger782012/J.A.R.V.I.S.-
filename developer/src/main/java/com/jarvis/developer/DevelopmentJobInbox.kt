@@ -52,6 +52,17 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
                     require(install.getString("nonce").matches(Regex("[a-f0-9-]{36}")) && install.getInt("session") >= -1)
                 }
             }
+            job.optJSONObject("artifactReview")?.let { review ->
+                require(review.getString("ticket").matches(Regex("[a-f0-9-]{36}")))
+                require(review.getString("snapshot").matches(Regex("[a-f0-9]{64}")))
+                require(review.opt("used") is Boolean)
+                for (key in listOf("revision", "created", "expires")) require(review.opt(key) is Int || review.opt(key) is Long)
+                require(review.getLong("revision") in 0..job.getLong("revision"))
+                require(review.getLong("created") in 0..Long.MAX_VALUE - 120_000 &&
+                    review.getLong("expires") - review.getLong("created") == 120_000L)
+                Wire.validate(Wire.Request(review.getString("request"), Wire.ARTIFACT_REVIEW,
+                    jobId = job.getString("id"), expectedRevision = review.getLong("revision")))
+            }
             for (stage in Wire.Stage.values()) {
                 val value = job.getJSONObject("verification").getString(stage.name)
                 require(value in Wire.Verification.values().map { it.name })
@@ -127,7 +138,42 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
                 }
             }
             job.optString("problem").takeIf { it.isNotEmpty() }?.let { result.put("problem", it) }
+            job.optJSONObject("artifactReview")?.let { review ->
+                result.put("artifactReview", JSONObject().put("consumed", review.optBoolean("used")))
+            }
         }
+
+    private fun reviewSnapshot(job: JSONObject): String {
+        val record = boundArtifact(job) ?: reject("UNVERIFIED_ARTIFACT")
+        if (job.getString("state") != "READY_FOR_REVIEW" ||
+            verificationView(job).getString("SIGNED_APK") != "PASSED") reject("UNVERIFIED_ARTIFACT")
+        return hash(listOf(record.commit, record.apkSha256, record.signerSha256, record.packageName,
+            record.versionCode.toString(), job.getJSONObject("engineering").getJSONObject("artifact").getString("buildFingerprint")).joinToString("\u0000"))
+    }
+    private fun reviewReply(job: JSONObject, request: Wire.Request, duplicate: Boolean): JSONObject {
+        val review = job.optJSONObject("artifactReview") ?: reject("CONFLICT")
+        if (review.getString("request") != request.requestId || review.optBoolean("used") ||
+            job.getLong("revision") != review.getLong("revision") ||
+            now() !in review.getLong("created") until review.getLong("expires") ||
+            review.getString("snapshot") != reviewSnapshot(job)) reject("CONFLICT")
+        return view(job).put("duplicate", duplicate).put("artifactReview", JSONObject()
+            .put("consumed", false).put("ticket", review.getString("ticket")).put("expires", review.getLong("expires")))
+    }
+    /** One-use navigation only. No source, installation or Android privilege is approved. */
+    internal fun consumeArtifactReview(ticket: String, receiverPersonal: Boolean): JSONObject = checkpoint.transaction {
+        if (!ticket.matches(Regex("[a-f0-9-]{36}"))) reject("CONFLICT")
+        val jobs = load()
+        val job = jobs.singleOrNull { it.optJSONObject("artifactReview")?.optString("ticket") == ticket } ?: reject("CONFLICT")
+        val original = Wire.decode(job.getString("request"))
+        if (!Wire.permitsMode(original.mode, receiverPersonal, Wire.personalPackage(job.getString("caller")))) reject("POLICY_REQUIRED")
+        val review = job.getJSONObject("artifactReview")
+        // Use the same immutable receipt checks for delivery and duplicate acknowledgement.
+        reviewReply(job, Wire.Request(review.getString("request"), Wire.ARTIFACT_REVIEW,
+            mode = original.mode, jobId = job.getString("id"), expectedRevision = review.getLong("revision")), true)
+        review.put("used", true)
+        analysisTransition(job, job.getString("state"), "artifact.review.consumed")
+        save(jobs); view(job)
+    }
 
     fun handle(caller: String, receiverPersonal: Boolean, request: Wire.Request): JSONObject = checkpoint.transaction {
         Wire.validate(request)
@@ -146,7 +192,8 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
                 if (receipt.optString("id") == request.requestId) {
                     if (!Wire.permitsMode(Wire.decode(job.getString("request")).mode, receiverPersonal, Wire.personalPackage(caller))) reject("POLICY_REQUIRED")
                     if (receipt.getString("fingerprint") != fingerprint) reject("CONFLICT")
-                    return@transaction view(job).put("duplicate", true)
+                    return@transaction if (request.kind == Wire.ARTIFACT_REVIEW) reviewReply(job, request, true)
+                        else view(job).put("duplicate", true)
                 }
             }
         }
@@ -167,6 +214,18 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         if (!Wire.permitsMode(Wire.decode(job.getString("request")).mode, receiverPersonal, Wire.personalPackage(caller))) reject("POLICY_REQUIRED")
         if (request.kind == "task.status.request") return@transaction view(job)
         if (request.expectedRevision != job.getLong("revision")) reject("CONFLICT")
+        if (request.kind == Wire.ARTIFACT_REVIEW) {
+            if (request.mode != Wire.decode(job.getString("request")).mode) reject("POLICY_REQUIRED")
+            val snapshot = reviewSnapshot(job)
+            analysisTransition(job, job.getString("state"), "artifact.review.requested")
+            val created = now(); require(created in 0..Long.MAX_VALUE - 120_000)
+            job.put("artifactReview", JSONObject().put("ticket", java.util.UUID.randomUUID().toString())
+                .put("request", request.requestId).put("revision", job.getLong("revision"))
+                .put("created", created).put("expires", created + 120_000).put("snapshot", snapshot).put("used", false))
+            job.getJSONArray("receipts").getJSONObject(job.getJSONArray("receipts").length() - 1)
+                .put("id", request.requestId).put("fingerprint", fingerprint).put("mode", request.mode)
+            save(jobs); return@transaction reviewReply(job, request, false)
+        }
         if (request.kind in setOf("task.resume.request", "task.retry.request") &&
             request.mode != Wire.decode(job.getString("request")).mode) reject("POLICY_REQUIRED")
         val state = job.getString("state")

@@ -10,6 +10,16 @@ import java.util.UUID
 
 /** Installed independent APKs and real Binder transactions; only disposable emulator data is used. */
 class DevelopmentBridgeAndroidTest {
+    @Test fun negotiatedApkReviewCannotTurnAnUnverifiedJobIntoInstallationAuthority() {
+        val capabilities = ok(request("capabilities.request"))
+        assertTrue(capabilities.getBoolean("artifactReviewHandoff"))
+        assertFalse(capabilities.getBoolean("installation"))
+        val job = ok(request("diagnostics.review.request", "Unverified APK review acceptance fixture."))
+        val rejected = call(request(Wire.ARTIFACT_REVIEW, job = job.getString("id"), revision = job.getLong("revision")))
+        assertEquals("UNVERIFIED_ARTIFACT", rejected.getString("code"))
+        assertFalse(rejected.getJSONObject("data").has("artifactReview"))
+        assertFalse(ok(request("task.status.request", job = job.getString("id"))).getBoolean("deviceVerified"))
+    }
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
     private fun id() = UUID.randomUUID().toString()

@@ -7,6 +7,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DevelopmentBridgeContractTest {
+    @Test fun apkReviewRequiresNegotiatedOperationExactRevisionAndNoExecutionPayload() {
+        val request = Wire.Request("review-apk", Wire.ARTIFACT_REVIEW, jobId = "job-1", expectedRevision = 7)
+        assertEquals(request, Wire.decode(Wire.encode(request)))
+        for (changed in listOf(request.copy(expectedRevision = null), request.copy(body = "approve installation"), request.copy(jobId = "")))
+            assertThrows(Wire.Rejected::class.java) { Wire.encode(changed) }
+        assertThrows(Wire.Rejected::class.java) { Wire.negotiate(JSONObject().put("protocol", 1)
+            .put("operations", JSONArray(listOf("task.status.request"))).put("modes", JSONArray(listOf("supervised"))), request) }
+    }
     @Test fun negotiationRejectsMissingOperationsModelsAndNewerProtocolsBeforeAdmission() {
         val request = Wire.Request("review", "diagnostics.review.request", "An unapproved review")
         fun capabilities() = JSONObject().put("protocol", 1).put("operations", JSONArray(Wire.operations.toList()))

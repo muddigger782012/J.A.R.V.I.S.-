@@ -17,9 +17,14 @@ import kotlin.concurrent.thread
 
 /** An owner-visible view of actual admission metadata, not a simulated engineering runner. */
 object DevelopmentInboxWorkbench {
+    class Handle internal constructor(val view: LinearLayout, private val select: (String) -> Unit) {
+        fun focus(job: String) = select(job)
+    }
     fun attach(activity: Activity, parent: LinearLayout, settings: LinearLayout,
-        patch: PatchWorkbench.Handle? = null, githubToken: () -> String = { "" }, openReview: (String) -> Unit) {
+        patch: PatchWorkbench.Handle? = null, githubToken: () -> String = { "" }, openReview: (String) -> Unit): Handle {
         val panel = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        var focusedJob: String? = null
+        var displayGeneration = 0L
         fun label(text: String) = TextView(activity).apply {
             this.text = text; setTextColor(activity.getColor(R.color.developer_secondary)); textSize = 15f
             setPadding(8, 12, 8, 12)
@@ -52,26 +57,34 @@ object DevelopmentInboxWorkbench {
                 else "The mode or audit record could not be saved. No approval change was confirmed."
         })
         fun refresh() {
+            val generation = ++displayGeneration
+            val focus = focusedJob
             panel.removeAllViews(); panel.addView(label("Assistant development reviews — checking private queue"))
             thread(name = "developer-inbox-read", isDaemon = true) {
                 val inbox = DevelopmentJobInbox(java.io.File(activity.noBackupFilesDir.canonicalFile, "development-inbox"))
                 val result = runCatching {
                     val jobs = inbox.localSnapshot()
-                    Triple(jobs, inbox.pendingReviews().toMap(), jobs.takeLast(8).mapNotNull { job ->
+                    val shown = if (focus == null) jobs.takeLast(8) else jobs.filter { it.getString("id") == focus }
+                    require(focus == null || shown.size == 1)
+                    Triple(jobs, inbox.pendingReviews().toMap(), shown.mapNotNull { job ->
                         inbox.localAnalysisReport(job.getString("id"))?.let { job.getString("id") to it }
-                    }.toMap()) to jobs.takeLast(8).associate { job -> job.getString("id") to
+                    }.toMap()) to shown.associate { job -> job.getString("id") to
                         if (job.getString("state") in setOf("REVIEW_READY", "AWAITING_APPROVAL"))
                             runCatching { inbox.engineeringPaths(job.getString("id")) to inbox.engineeringGoal(job.getString("id")) }
                                 .getOrDefault(emptyList<String>() to "") else emptyList<String>() to "" }
                 }
                 activity.runOnUiThread {
-                    if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                    if (activity.isFinishing || activity.isDestroyed || generation != displayGeneration) return@runOnUiThread
                     panel.removeAllViews()
                     result.onFailure { panel.addView(label("Review history could not be read. No records were reset or completion inferred.")) }
                         .onSuccess { (snapshot, scopes) ->
                             val (jobs, drafts, reports) = snapshot
                             panel.addView(label("${jobs.size} stored jobs. Source, build, tests, signing and installation have separate verification gates."))
-                            jobs.takeLast(8).forEachIndexed { index, job ->
+                            if (focus != null) panel.addView(label("Verified APK review from Assistant. Installation needs your separate approval.").apply {
+                                contentDescription = "Verified APK review from Assistant"
+                            })
+                            val shown = if (focus == null) jobs.takeLast(8) else jobs.filter { it.getString("id") == focus }
+                            shown.forEachIndexed { index, job ->
                                 val stages = job.getJSONObject("verification")
                                 panel.addView(label("Review ${index + 1}: ${job.getString("state")} · ${Wire.modeLabel(job.getString("mode"))}\n" +
                                     Wire.Stage.values().joinToString("\n") { "${it.name.replace('_', ' ')}: ${stages.getString(it.name)}" }))
@@ -145,9 +158,14 @@ object DevelopmentInboxWorkbench {
         val inboxSection = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         inboxSection.addView(label("Assistant development inbox"))
         inboxSection.addView(button("Refresh development reviews", ::refresh))
+        inboxSection.addView(button("Show all development reviews") { focusedJob = null; refresh() })
         panel.addView(label("Refresh to read persisted review states and verification gates."))
         inboxSection.addView(panel)
         // Retain the existing final action and scroll-to-bottom behavior on short screens.
         parent.addView(inboxSection, minOf(2, parent.childCount))
+        return Handle(inboxSection) { job ->
+            Wire.validate(Wire.Request("focus-review", "task.status.request", jobId = job))
+            focusedJob = job; refresh()
+        }
     }
 }

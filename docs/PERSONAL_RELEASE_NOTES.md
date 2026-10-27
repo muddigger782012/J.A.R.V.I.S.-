@@ -1,5 +1,10 @@
 Personal Jarvis v3.6 — Intelligent Device Assistance:
 
+- Ask Jarvis to review the APK Developer built. A compatible Developer opens the
+  exact verified job in its existing inbox using a short-lived, one-use handoff.
+  Stale, cancelled, changed or replayed requests are rejected. Installation still
+  needs your separate approval and Android confirmation; opening a review is not
+  installation or device acceptance.
 - In compatible Developer builds, attach a CI APK to its job's exact source and
   verify archive/APK digests, cryptographic signature, installed signing identity,
   package, version, Android requirement and CPU compatibility. Request installation

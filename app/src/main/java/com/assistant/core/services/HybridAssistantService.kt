@@ -1278,6 +1278,7 @@ class HybridAssistantService(
                         DevelopmentCommands.Kind.CAPABILITIES -> operations.capabilities()
                         DevelopmentCommands.Kind.STATUS -> operations.status()
                         DevelopmentCommands.Kind.LIST -> operations.list()
+                        DevelopmentCommands.Kind.REVIEW_APK -> operations.reviewApk { responseTurns.current() }
                         DevelopmentCommands.Kind.REVIEW_RUNTIME -> operations.submit(OperationalDiagnostics.render(LiveCapabilityRegistry.snapshot(systemService.context())))
                         DevelopmentCommands.Kind.CANCEL -> operations.control("task.cancel.request")
                         DevelopmentCommands.Kind.PAUSE -> operations.control("task.pause.request")

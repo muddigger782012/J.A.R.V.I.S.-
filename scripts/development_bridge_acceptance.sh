@@ -46,7 +46,7 @@ run_suite() {
   if grep -Eq 'FAILURES|INSTRUMENTATION_FAILED|Process crashed' "$destination"; then return 1; fi
   printf 'Emulator acceptance duration: %s seconds\n' "$((SECONDS - started))" >> "$destination"
 }
-run_suite com.assistant.core.test com.assistant.core.services.DevelopmentBridgeAndroidTest 4 development-bridge-results/assistant.txt
+run_suite com.assistant.core.test com.assistant.core.services.DevelopmentBridgeAndroidTest 5 development-bridge-results/assistant.txt
 run_suite com.jarvis.integration.fixture.test com.jarvis.integration.fixture.UnauthorizedPeerTest 1 development-bridge-results/unknown-peer.txt
 run_suite com.assistant.core.beta.test com.jarvis.integration.commercialfixture.CommercialPeerTest 1 development-bridge-results/commercial-peer.txt
 run_suite com.jarvis.developer.test com.jarvis.developer.RepositoryAnalysisRuntimeTest 1 development-bridge-results/source-memory.txt
@@ -55,4 +55,5 @@ run_suite com.assistant.core.test com.assistant.core.services.DevelopmentSourceW
 run_suite com.jarvis.developer.test com.jarvis.developer.ArtifactInstallationAndroidTest 2 development-bridge-results/artifact-installation.txt 180
 adb shell am force-stop com.jarvis.developer
 run_suite com.jarvis.developer.test com.jarvis.developer.ArtifactInstallationRecoveryAndroidTest 1 development-bridge-results/artifact-recovery.txt 60
+run_suite com.assistant.core.test com.assistant.core.services.DevelopmentArtifactHandoffAndroidTest 2 development-bridge-results/artifact-handoff.txt 120
 adb logcat -d -s AndroidRuntime:E > development-bridge-results/crashes.txt

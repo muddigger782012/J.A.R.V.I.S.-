@@ -4,6 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DevelopmentCommandsTest {
+    @Test fun explicitApkRequestsRouteToReviewAcrossNaturalVariations() {
+        for (text in listOf("Install the APK Developer just built", "Can you install the APK that Developer built?",
+            "Please open the verified APK review in Developer", "Review my APK from Developer",
+            "Show me the APK review for my development job", "Open Developer’s APK review"))
+            assertEquals(text, DevelopmentCommands.Kind.REVIEW_APK, DevelopmentCommands.parse(text))
+    }
+    @Test fun questionsNegationsAndUnrelatedInstallRequestsCannotTriggerDevelopmentHandoff() {
+        for (text in listOf("Don't install the APK Developer just built", "Explain how to install the APK Developer built",
+            "What does open the APK review mean?", "Install WhatsApp", "install that APK", "Confirm installation", "yes"))
+            assertNull(text, DevelopmentCommands.parse(text))
+    }
     @Test fun explicitReviewAndJobControlsRouteLocallyWithoutAuthorizingSourceChanges() {
         assertEquals(DevelopmentCommands.Kind.REVIEW_RUNTIME, DevelopmentCommands.parse("Send voice diagnostics to developer!"))
         assertEquals(DevelopmentCommands.Kind.STATUS, DevelopmentCommands.parse("How is the development task going?"))

@@ -1,8 +1,11 @@
 package com.assistant.core.services
 
 import android.content.Context
+import android.content.Intent
+import android.content.ComponentName
 import com.jarvis.integration.DevelopmentBridgeContract as Wire
 import com.jarvis.integration.DevelopmentBridgeClient
+import com.jarvis.integration.DevelopmentPeerIdentity
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -38,6 +41,7 @@ class DeveloperBridgeOperations(private val context: Context) {
             (if (reply.optBoolean("approvedEngineeringJobs")) "In Developer, you can stage a source review, approve its complete diff and track the verified commit, build and test evidence. Interrupted writes are checked without automatically repeating them. "
             else "This Developer version handles read-only reviews. ") +
             (if (reply.optBoolean("verifiedArtifactReview")) "Developer can inspect an APK from the job's exact source and request a separately approved Android installation. " else "") +
+            (if (reply.optBoolean("artifactReviewHandoff")) "You can ask me to open this job's verified APK review in Developer. " else "") +
             "This connection cannot grant source approval or install an application. Android privileges are unchanged."
     }
     fun submit(body: String): String {
@@ -65,6 +69,28 @@ class DeveloperBridgeOperations(private val context: Context) {
     }
     fun status(): String = render(call(Wire.Request(UUID.randomUUID().toString(), "task.status.request",
         mode = selectedMode().wireValue, jobId = outbox.latestJob())))
+    fun reviewApk(isCurrent: () -> Boolean = { true }): String = reviewApkForJob(outbox.latestJob(), isCurrent)
+    internal fun reviewApkForJob(job: String, isCurrent: () -> Boolean = { true }): String {
+        if (!isCurrent()) throw Wire.Rejected("CANCELLED")
+        val mode = selectedMode().wireValue
+        val state = call(Wire.Request(UUID.randomUUID().toString(), "task.status.request", mode = mode, jobId = job))
+        if (!isCurrent()) throw Wire.Rejected("CANCELLED")
+        val review = call(Wire.Request(UUID.randomUUID().toString(), Wire.ARTIFACT_REVIEW, mode = mode,
+            jobId = job, expectedRevision = state.getLong("revision")))
+        val delivery = review.getJSONObject("artifactReview")
+        val ticket = delivery.getString("ticket")
+        if (review.getString("id") != job || !ticket.matches(Regex("[a-f0-9-]{36}")) ||
+            delivery.getLong("expires") - System.currentTimeMillis() !in 1..120_000L) throw Wire.Rejected("CONFLICT")
+        if (!isCurrent() || selectedMode().wireValue != mode) throw Wire.Rejected("CANCELLED")
+        val uid = context.packageManager.getApplicationInfo(Wire.DEVELOPER_PACKAGE, 0).uid
+        if (DevelopmentPeerIdentity.packageForUid(context, uid, setOf(Wire.DEVELOPER_PACKAGE)) == null)
+            throw Wire.Rejected("UNAUTHORIZED")
+        context.startActivity(Intent(Wire.ARTIFACT_REVIEW_ACTION)
+            .setComponent(ComponentName(Wire.DEVELOPER_PACKAGE, "com.jarvis.developer.MainActivity"))
+            .putExtra(Wire.ARTIFACT_REVIEW_EXTRA, ticket)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+        return "I requested Developer's verified APK review for this job. Review the APK there before approving installation. Android's permission and confirmation are still required; no installation was requested."
+    }
     fun list(): String {
         val data = call(Wire.Request(UUID.randomUUID().toString(), "task.list.request", mode = selectedMode().wireValue))
         val jobs = data.getJSONArray("jobs")
@@ -87,7 +113,9 @@ class DeveloperBridgeOperations(private val context: Context) {
             else -> ""
         } + "\n" + Wire.Stage.values().joinToString("\n") {
             "${it.name.replace('_', ' ')}: ${value.getJSONObject("verification").getString(it.name)}"
-        } + (value.optJSONObject("analysis")?.let { "\nRead-only source context: ${it.getInt("inspected")} files inspected, ${it.getInt("planned")} references planned. Coverage is partial; inspect the report in Developer." } ?: "") +
+        } + (if (value.optJSONObject("artifactReview")?.optBoolean("consumed") == true)
+            "\nDeveloper acknowledged this job's APK review handoff. Installation approval and device acceptance remain separate." else "") +
+        (value.optJSONObject("analysis")?.let { "\nRead-only source context: ${it.getInt("inspected")} files inspected, ${it.getInt("planned")} references planned. Coverage is partial; inspect the report in Developer." } ?: "") +
         (if (value.optString("problem") == "SOURCE_READ_UNVERIFIED") "\nThe public source read could not be verified. Check Developer's internet connection and repository access, then retry the task explicitly." else "") +
         (if (value.optString("problem") == "SOURCE_OUTCOME_UNKNOWN") "\nThe approved write outcome is unverified. Developer can check the expected branch using read-only requests; the old approval cannot repeat the write." else "") +
         (if (value.getString("state") == "CANCELLED" && value.optJSONObject("engineering")?.optBoolean("approvalConsumed") == true)
@@ -115,6 +143,8 @@ class DeveloperBridgeOperations(private val context: Context) {
             "TIMEOUT", "BUSY" -> "Developer has not acknowledged this request. Retrying the same retained review reuses its request ID; acceptance and completion remain unverified."
             "NOT_FOUND" -> "No acknowledged Developer job is available for this command. Submit a review first."
             "CONFLICT" -> "The Developer job or request changed. Review its current status before issuing another control."
+            "UNVERIFIED_ARTIFACT" -> "This job does not yet have a current verified APK. Finish its build and APK inspection in Developer, then ask me to open its APK review."
+            "CANCELLED" -> "The development handoff was cancelled. No installation was requested."
             "QUEUE_FULL", "AUDIT_FULL" -> "The bounded development history is full. Review it in Developer; no existing job was discarded."
             "TOO_LARGE" -> "This review exceeds the bounded transfer size. Select a smaller diagnostic review; no queue acknowledgement was verified."
             else -> "Development status could not be verified. No build, source change or installation success is inferred."

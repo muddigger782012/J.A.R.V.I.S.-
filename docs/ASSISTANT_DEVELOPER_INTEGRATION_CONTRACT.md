@@ -1,5 +1,30 @@
 # J.A.R.V.I.S. Assistant ↔ Developer integration contract
 
+## Conversational APK review handoff
+
+`task.artifact.review.request` is an optional, negotiated v1 navigation operation.
+It requires the authenticated job owner, original permitted mode, exact revision
+and a current verified APK. A two-minute, one-use ticket is stored in the existing
+private job checkpoint, bound to that revision and APK/build fingerprint. An
+identical retry returns the original unconsumed ticket; expiry, consumption,
+changed evidence, cancellation or replacement cannot renew it. Normal status and
+list responses never expose the ticket. Older checkpoint readers can ignore the
+extension; older bridges reject the operation during capability negotiation.
+
+Explicit local voice/text requests such as reviewing the APK Developer built or
+installing that built APK request this review handoff. They do not approve an
+installation. Assistant launches only Developer's known activity after checking
+its identity again and rejects stale conversation delivery. Developer consumes
+the ticket and focuses the exact job in its existing Tools inbox, including jobs
+outside the latest-eight list. A consumed ticket acknowledges delivery; it is not
+proof that the UI was seen, Android installed anything, or device acceptance ran.
+Configuration restoration retains only the viewed job; it never reuses approval.
+
+Android foreground/background launch restrictions still apply. An unavailable or
+expired handoff requires a fresh explicit request. Owner APK approval, unknown-
+source permission and Android installer confirmation remain separate. No source
+write, signing, publication, install RPC or Android privilege is added.
+
 ## APK evidence and local installation increment
 
 The authenticated status response optionally includes `verifiedArtifactReview` and
