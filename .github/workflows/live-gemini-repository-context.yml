@@ -1,0 +1,45 @@
+name: Live Gemini repository context acceptance
+on:
+  # Creating this opt-in ref is a real, potentially chargeable model test.
+  # It requires owner authorization and never matches ordinary development pushes.
+  push:
+    branches: ['acceptance/live-gemini/**']
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Authorized Gemini model for the real, read-only context test
+        type: string
+        required: false
+        default: gemini-2.5-flash
+permissions:
+  contents: read
+jobs:
+  live-context:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Run one real Gemini request with verified authorized repository source
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          JARVIS_GITHUB_READ_TOKEN: ${{ github.token }}
+          JARVIS_GEMINI_TEST_MODEL: ${{ inputs.model }}
+        run: >-
+          bash gradlew --no-daemon --init-script developer/tools/live_gemini.init.gradle
+          :developer:testDebugUnitTest --tests com.jarvis.developer.LiveGeminiRepositoryContextTest
+      - name: Retain bounded, credential-free acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Developer-live-Gemini-context-evidence
+          path: developer/build/reports/live-gemini/acceptance.json
+          if-no-files-found: error
+          retention-days: 14
