@@ -12,11 +12,15 @@ internal object RepositoryRedaction {
     /** Whole-file sanitation preserves line numbers, including multiline literals and PEM blocks. */
     fun source(source: String, secrets: List<String> = emptyList()): String {
         val ranges = mutableListOf<IntRange>()
-        privateKey.findAll(source).forEach { ranges.add(it.range) }
-        xmlSecret.findAll(source).forEach { ranges.add(it.range) }
-        manifestSecret.findAll(source).forEach { ranges.add(it.range) }
-        for (match in valueStart.findAll(source)) {
-            val start = match.range.last + 1
+        for (pattern in listOf(privateKey, xmlSecret, manifestSecret)) {
+            val matcher = pattern.toPattern().matcher(source)
+            while (matcher.find()) ranges.add(matcher.start() until matcher.end())
+        }
+        // Reuse whole-file matchers: older Android ICU can retain a native input copy
+        // for each successive Kotlin MatchResult until finalization.
+        val values = valueStart.toPattern().matcher(source)
+        while (values.find()) {
+            val start = values.end()
             if (start >= source.length) continue
             val triple = source.startsWith("\"\"\"", start) || source.startsWith("'''", start)
             val quote = source[start].takeIf { it == '\"' || it == '\'' }

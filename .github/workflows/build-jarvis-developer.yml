@@ -92,7 +92,7 @@ jobs:
           import hashlib, json, os, pathlib, xml.etree.ElementTree as ET
           results = pathlib.Path('developer/build/test-results/testDebugUnitTest')
           files = sorted(results.glob('TEST-*.xml'))
-          assert 0 < len(files) <= 50, 'Expected bounded JUnit XML evidence'
+          assert 0 < len(files) <= 64, 'Expected bounded JUnit XML evidence'
           assert sum(p.stat().st_size for p in files) <= 2_000_000, 'JUnit evidence exceeds budget'
           totals = dict.fromkeys(('tests', 'failures', 'errors', 'skipped'), 0)
           suites, cases = [], []

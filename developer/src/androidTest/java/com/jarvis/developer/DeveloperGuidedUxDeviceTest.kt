@@ -63,6 +63,8 @@ class DeveloperGuidedUxDeviceTest {
                                 RepositoryAnalysis.analyze(task, inventory) { source }, mapOf(path to source), emptyList())
                         }
                     })
+                    views(activity.window.decorView).filterIsInstance<Spinner>()
+                        .single { it.contentDescription == "Application to improve" }.setSelection(0)
                     field(activity, PROMPT).setText("Repair voice network latency")
                     button(activity, "Ask Jarvis / save instructions").performClick(); pending.removeAt(0).invoke()
                     var record = org.json.JSONObject(prefs.getString("project_$project", "{}")!!)
