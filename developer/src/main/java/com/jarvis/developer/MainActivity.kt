@@ -27,9 +27,11 @@ class MainActivity : Activity() {
     private var patchPreview: PatchWorkbench.Handle? = null
     private var activePage = 0
     private var selectPage: ((Int) -> Unit)? = null
+    private var draftRoot: View? = null
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("developer_active_page", activePage)
+        draftRoot?.let { outState.putBundle("developer_drafts", DeveloperUiState.save(it)) }
         super.onSaveInstanceState(outState)
     }
 
@@ -905,6 +907,9 @@ class MainActivity : Activity() {
         }
         navigation.setBackgroundColor(getColor(R.color.developer_panel))
         shell.addView(navigation)
+        DeveloperUiState.descendants(shell).forEach { it.isSaveEnabled = false }
+        DeveloperUiState.restore(shell, savedInstanceState?.getBundle("developer_drafts"))
+        draftRoot = shell
         setContentView(shell)
     }
 
