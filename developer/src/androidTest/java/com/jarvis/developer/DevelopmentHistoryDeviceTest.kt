@@ -2,6 +2,7 @@ package com.jarvis.developer
 
 import android.os.Bundle
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
@@ -15,6 +16,83 @@ import java.util.UUID
 
 /** Real Android widgets/checkpoints; diagnostic fixtures invoke no remote source or provider operation. */
 class DevelopmentHistoryDeviceTest {
+    private val draftPath = "developer/src/main/java/com/jarvis/developer/ConversationTone.kt"
+    private fun analysisFixture(): Pair<File, String> {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val directory = File(context.cacheDir.canonicalFile, "draft-ui-" + UUID.randomUUID())
+        val queue = DevelopmentJobInbox(directory)
+        val request = Wire.Request(UUID.randomUUID().toString(), "source.developer.analysis.request", "Draft device fixture")
+        val id = queue.handle("com.assistant.core", true, request).getString("id")
+        val source = RepositoryAnalysis.SourceFile(draftPath, "a".repeat(40), 20)
+        val file = RepositoryAnalysis.PlannedFile(source, listOf("Task reference"), "Inspect logic", "Review required", emptyList(), emptyList(), emptyList())
+        queue.finishAnalysis(queue.claimAnalysis(id, true)!!,
+            RepositoryAnalysis.AnalysisPlan(request.body, "b".repeat(40), listOf(file), emptyList(), listOf(draftPath), 1))
+        return directory to id
+    }
+    private fun draftScreen(scenario: ActivityScenario<MainActivity>, directory: File): LinearLayout {
+        lateinit var root: LinearLayout
+        scenario.onActivity { activity ->
+            root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            activity.setContentView(ScrollView(activity).apply { addView(root) })
+            val patch = PatchWorkbench.Handle({ _, _, _, _, _ -> false }, { _, _ -> false }, { true })
+            DevelopmentInboxWorkbench.attach(activity, root, LinearLayout(activity), patch,
+                services = DevelopmentInboxWorkbench.Services(inbox = { DevelopmentJobInbox(directory) }, drafts = { DevelopmentJobDrafts(directory) }))
+            DeveloperUiState.descendants(root).filterIsInstance<Button>().single { it.text.toString() == "Show all development reviews" }.performClick()
+        }
+        await(scenario) { DeveloperUiState.descendants(root).filterIsInstance<EditText>().any { it.contentDescription == "Requested engineering change" } }
+        return root
+    }
+    @Test fun savedInstructionsAndPathsRecoverOnANewActivityWithoutAnApproval() {
+        val (directory, id) = analysisFixture()
+        try {
+            val queue = DevelopmentJobInbox(directory)
+            val checkpoint = File(directory, "development-inbox.bin").readBytes()
+            val key = DevelopmentJobDrafts.key(queue.localSnapshot().single())
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val root = draftScreen(scenario, directory)
+                scenario.onActivity { activity ->
+                    val fields = DeveloperUiState.descendants(root).filterIsInstance<EditText>().toList()
+                    fields.single { it.contentDescription == "Requested engineering change" }.setText("Keep my unfinished instructions")
+                    fields.single { it.contentDescription == "Engineering task source scope" }.setText(draftPath + "\n")
+                    DeveloperUiState.descendants(root).filterIsInstance<Button>().single { it.text == activity.getString(R.string.development_draft_save) }.performClick()
+                }
+                await(scenario) { DevelopmentJobDrafts(directory).read(key).text?.goal == "Keep my unfinished instructions" }
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val root = draftScreen(scenario, directory)
+                scenario.onActivity { activity ->
+                    val fields = DeveloperUiState.descendants(root).filterIsInstance<EditText>().toList()
+                    assertEquals("Keep my unfinished instructions", fields.single { it.contentDescription == "Requested engineering change" }.text.toString())
+                    assertEquals(draftPath + "\n", fields.single { it.contentDescription == "Engineering task source scope" }.text.toString())
+                    assertTrue(DeveloperUiState.descendants(root).filterIsInstance<android.widget.TextView>()
+                        .any { it.text == activity.getString(R.string.development_draft_restored) })
+                }
+            }
+            assertArrayEquals(checkpoint, File(directory, "development-inbox.bin").readBytes())
+            val job = queue.localSnapshot().single { it.getString("id") == id }
+            assertEquals("REVIEW_READY", job.getString("state")); assertFalse(job.getBoolean("sourceVerified"))
+        } finally { directory.deleteRecursively() }
+    }
+    @Test fun changedJobStateDoesNotApplyAnOlderSavedDraftOrConsumeApproval() {
+        val (directory, id) = analysisFixture()
+        try {
+            val queue = DevelopmentJobInbox(directory)
+            val job = queue.localSnapshot().single()
+            DevelopmentJobDrafts(directory).save(DevelopmentJobDrafts.key(job), 0, DevelopmentJobDrafts.Text("Old unsent text", "Old paths"))
+            queue.stageEngineering(id, job.getLong("revision"), listOf(draftPath), true, "New current goal")
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val root = draftScreen(scenario, directory)
+                scenario.onActivity { activity ->
+                    assertEquals("New current goal", DeveloperUiState.descendants(root).filterIsInstance<EditText>()
+                        .single { it.contentDescription == "Requested engineering change" }.text.toString())
+                    assertTrue(DeveloperUiState.descendants(root).filterIsInstance<android.widget.TextView>()
+                        .any { it.text == activity.getString(R.string.development_draft_stale) })
+                }
+            }
+            assertFalse(queue.localSnapshot().single().getJSONObject("engineering").getBoolean("approvalConsumed"))
+            assertFalse(queue.localSnapshot().single().getBoolean("sourceVerified"))
+        } finally { directory.deleteRecursively() }
+    }
     private fun fixture(paused: Boolean = false): Pair<File, List<String>> {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(context.cacheDir.canonicalFile, "history-ui-" + UUID.randomUUID())
