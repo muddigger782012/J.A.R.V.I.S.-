@@ -136,8 +136,21 @@ class ArtifactInstallationAndroidTest {
                 }
                 assertTrue(JarvisPackageInstaller.inbox(context).pendingInstallations().isEmpty())
                 assertEquals("PENDING", status(job).getJSONObject("verification").getString("DEVICE_INSTALLED"))
-                await("Android installation-source settings did not open") {
-                    instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == "com.android.settings"
+                var observedForeground = "<no active window>"
+                try {
+                    await("Android installation-source settings did not open", 45) {
+                        observedForeground = instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString()
+                            ?: "<no active window>"
+                        observedForeground == "com.android.settings"
+                    }
+                } catch (failure: AssertionError) {
+                    val activityState = shell("dumpsys activity activities")
+                        .lineSequence().filter { it.contains("mResumedActivity") ||
+                            it.contains("topResumedActivity") || it.contains("Resumed:") }
+                        .take(8).joinToString(" | ").take(1200)
+                    throw AssertionError(
+                        "Android installation-source settings did not open; foreground=$observedForeground; " +
+                            "activityState=$activityState", failure)
                 }
                 shell("input keyevent KEYCODE_BACK")
                 await("Developer did not resume after Android settings") {
