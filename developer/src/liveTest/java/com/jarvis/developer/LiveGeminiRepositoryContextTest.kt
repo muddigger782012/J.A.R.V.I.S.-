@@ -56,8 +56,10 @@ class LiveGeminiRepositoryContextTest {
         } catch (failure: AssertionError) {
             if (evidence.optString("status") != "BLOCKED") evidence.put("status", "FAILED")
             throw failure
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
             evidence.put("status", "FAILED")
+            if (failure is CodingAssistantProvider.ProviderFailure)
+                evidence.put("providerFailure", failure.message.orEmpty().take(300))
             // Exceptions/source/provider bodies are deliberately absent from logs and reports.
             fail("Real Gemini repository-context acceptance failed at $stage; inspect the bounded evidence report")
         } finally {
