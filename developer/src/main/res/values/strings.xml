@@ -26,7 +26,6 @@
     <string name="project_generation_saved_offline">Project saved locally. Connect an AI provider in Settings to generate code.</string>
     <string name="project_generation_not_started">Project saved. Your description is safe on this device; AI generation has not started.</string>
     <string name="project_generation_save_failed">Project could not be saved on this device. Your current instructions are unchanged; AI generation has not started.</string>
-    <string name="project_generation_connecting">Project saved. Connecting to %1$s…</string>
     <string name="project_generation_changed">This saved project changed while the request was running. Its reply was not applied. Refresh Projects before retrying.</string>
     <string name="project_generation_received">Project saved; response received from %1$s. No build or source change was performed.</string>
     <string name="project_generation_response_unsaved">AI response received, but could not be saved locally. Keep a copy before leaving.</string>
