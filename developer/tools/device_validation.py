@@ -560,6 +560,13 @@ class HostUi:
         focused = [item for item in own_nodes(self.dump(), "EditText") if item.get("focused") == "true"]
         require(len(focused) == 1 and exact_hint(focused[0], hint), "focused_field_identity_mismatch")
         self.adb.run("shell", "input", "text", sentinel)
+        # Establish the actual typed value while the positively identified editor
+        # still has focus. Closing an IME may correctly move focus to the page.
+        focused = [item for item in own_nodes(self.dump(), "EditText") if item.get("focused") == "true"]
+        require(len(focused) == 1 and filled_field_proof(focused[0], sentinel),
+                "prefill_not_observable_password_redaction_unsupported")
+        if hint == REVIEW_HINT:
+            require(focused[0].get("text") == FAKE_REVIEW, "review_fingerprint_prefill_not_exact")
         # BACK is safe only with positively observed IME visibility; a blind BACK
         # can finish the Activity on emulators using a hardware keyboard.
         if ime_shown(self.adb.run("shell", "dumpsys", "input_method", max_bytes=262144).text):
@@ -567,11 +574,6 @@ class HostUi:
             wait_for(lambda: not ime_shown(self.adb.run("shell", "dumpsys", "input_method",
                                                        max_bytes=262144).text),
                      "ime_did_not_hide", pause=0.1, sleeper=time.sleep)
-        focused = [item for item in own_nodes(self.dump(), "EditText") if item.get("focused") == "true"]
-        require(len(focused) == 1 and filled_field_proof(focused[0], sentinel),
-                "prefill_not_observable_password_redaction_unsupported")
-        if hint == REVIEW_HINT:
-            require(focused[0].get("text") == FAKE_REVIEW, "review_fingerprint_prefill_not_exact")
 
     def assert_fresh(self):
         # Scan once from top to bottom and retain only presence booleans. No UI

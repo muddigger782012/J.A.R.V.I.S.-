@@ -925,6 +925,7 @@ class MainActivity : Activity() {
             advanced.addView(sectionGroups[index])
             sectionButtons.add(button)
             button.setOnClickListener {
+                dismissKeyboard()
                 openSection = if (openSection == index) -1 else index
                 openToolSection = openSection
                 sectionGroups.forEachIndexed { i, group ->
@@ -939,6 +940,7 @@ class MainActivity : Activity() {
         sectionButtons.forEachIndexed { i, button -> button.text = sectionNames[i] + "  ▼" }
         val shell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            isFocusableInTouchMode = true
             setBackgroundColor(getColor(R.color.developer_background))
         }
         val navigation = LinearLayout(this).apply {
@@ -1071,6 +1073,7 @@ class MainActivity : Activity() {
         fun showPage(index: Int, remember: Boolean = true) {
             val next = index.coerceIn(0, pages.lastIndex)
             if (next != activePage) {
+                dismissKeyboard()
                 positions[activePage] = pages[activePage].scrollY
                 if (remember) pageHistory.add(activePage)
             }
@@ -1102,7 +1105,7 @@ class MainActivity : Activity() {
         listOf(projects, activityPage, settings, advanced).forEach { page ->
             val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             controls.addView(Button(this).apply {
-                text = "Back"; isAllCaps = false; setOnClickListener { navigateBack?.invoke() }
+                text = "Back"; isAllCaps = false; setOnClickListener { onBackPressed() }
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             controls.addView(Button(this).apply {
                 text = "Close"; contentDescription = "Close page and return Home"; isAllCaps = false
@@ -1226,7 +1229,19 @@ class MainActivity : Activity() {
 
     @Deprecated("Uses the framework Back callback for the standalone Activity")
     override fun onBackPressed() {
+        val insets = androidx.core.view.ViewCompat.getRootWindowInsets(window.decorView)
+        if (currentFocus is EditText && insets?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true) {
+            dismissKeyboard()
+            return
+        }
         if (navigateBack?.invoke() != true) super.onBackPressed()
+    }
+
+    private fun dismissKeyboard() {
+        val token = currentFocus?.windowToken ?: window.decorView.windowToken
+        uiRoot?.requestFocus()
+        (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+            .hideSoftInputFromWindow(token, 0)
     }
 
     override fun onNewIntent(intent: Intent) {

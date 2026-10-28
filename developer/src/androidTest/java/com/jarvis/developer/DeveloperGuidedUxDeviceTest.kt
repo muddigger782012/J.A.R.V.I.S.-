@@ -127,6 +127,45 @@ class DeveloperGuidedUxDeviceTest {
         }
     }
 
+    @Test fun realBackClosesKeyboardBeforeNavigatingAndRetainsTheTypedValue() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { button(it, "Settings").performClick() }
+            settle(scenario)
+            scenario.onActivity { activity ->
+                val editor = field(activity, "Paste your API key here (not a model name)")
+                editor.setText("fixture-key-not-saved")
+                editor.requestFocus()
+                @Suppress("DEPRECATION")
+                (activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                    .showSoftInput(editor, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
+            }
+            fun awaitKeyboard(visible: Boolean) {
+                val deadline = SystemClock.elapsedRealtime() + 10_000
+                do {
+                    instrumentation.waitForIdleSync()
+                    var matches = false
+                    scenario.onActivity { activity ->
+                        matches = androidx.core.view.ViewCompat.getRootWindowInsets(activity.window.decorView)
+                            ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == visible
+                    }
+                    if (matches) return
+                    SystemClock.sleep(50)
+                } while (SystemClock.elapsedRealtime() < deadline)
+                fail("Native keyboard visibility did not reach the expected state")
+            }
+            awaitKeyboard(true)
+            instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+            awaitKeyboard(false)
+            scenario.onActivity {
+                assertEquals("developer-page-3", scroll(it).tag)
+                assertEquals("fixture-key-not-saved", field(it, "Paste your API key here (not a model name)").text.toString())
+            }
+            instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+            settle(scenario)
+            scenario.onActivity { assertEquals("developer-page-0", scroll(it).tag) }
+        }
+    }
+
     companion object {
         private const val PROMPT = "Example: Build me an app to track equipment maintenance."
         private const val SOURCE = "Source path or directory prefix (blank lists all allowed sources)"
