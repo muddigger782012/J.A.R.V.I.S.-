@@ -265,7 +265,6 @@ class MainActivity : Activity() {
         PersonalRepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         val projectStartIndex = root.childCount
         applicationWorkbench = ApplicationApprovalWorkbench.attach(this, root)
-        GuidedDevelopmentWorkbench.attach(this, root, prompt, patchWorkbench, 0, { selectPage?.invoke(2) })
         val projectViews = (projectStartIndex until root.childCount).map { root.getChildAt(it) }
         root.addView(iconTest)
         if (recoveryWarning) {
@@ -416,6 +415,7 @@ class MainActivity : Activity() {
             (widget.parent as? android.view.ViewGroup)?.removeView(widget)
             projects.addView(widget)
         }
+        GuidedDevelopmentWorkbench.attach(this, projects, prompt, patchWorkbench, 0, { selectPage?.invoke(2) })
         // Existing projects are readable and recoverable after a failed AI request.
         val savedProjects = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val refreshProjects = Button(this).apply { text = "Refresh saved projects"; isAllCaps = false }
