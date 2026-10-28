@@ -276,6 +276,14 @@ def validate_installed_targets(adb, evidence):
     evidence["runnerAvailable"] = True
 
 
+def snapshot_mismatches(actual, saved):
+    # Android's configuration observer can recreate an unset font_scale as its
+    # canonical 1.0 default. This restores the same display preference; explicit
+    # non-default overrides and every other setting still require exact equality.
+    return [key for key in saved if actual[key] != saved[key] and not
+            (key == "font_scale" and saved[key] == "null" and actual[key] in ("1", "1.0"))]
+
+
 def restore(adb, saved):
     failures = []
     # Attempt every restoration even if an earlier command fails.
@@ -290,10 +298,12 @@ def restore(adb, saved):
         except ValidationError:
             failures.append("configuration_restore_command_failed")
     try:
-        require(snapshot(adb) == saved, "configuration_restore_mismatch")
+        actual = snapshot(adb)
+        require(not snapshot_mismatches(actual, saved), "configuration_restore_mismatch")
     except ValidationError:
         failures.append("configuration_restore_not_verified")
     require(not failures, "configuration_restore_failed")
+    return actual["font_scale"] != saved["font_scale"]
 
 
 def parse_instrumentation(text):
@@ -685,7 +695,7 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
         evidence["phase"] = "native_profiles"
         run_profiles(adb, evidence["profiles"])
         evidence["phase"] = "restore_before_process_death"
-        restore(adb, saved)
+        evidence["fontScaleDefaultNormalized"] = restore(adb, saved)
         evidence["configurationRestored"] = True
         adb.deadline = clock() + 360
         evidence["phase"] = "process_death"
@@ -702,7 +712,7 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
         adb.deadline = clock() + 90
         if saved is not None:
             try:
-                restore(adb, saved)
+                evidence["fontScaleDefaultNormalized"] = restore(adb, saved) or evidence.get("fontScaleDefaultNormalized", False)
                 evidence["configurationRestored"] = True
             except ValidationError:
                 evidence["configurationRestored"] = False
@@ -710,9 +720,7 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
                     evidence["primaryFailureReason"] = failure
                 try:
                     actual = snapshot(adb)
-                    evidence["restoreMismatchFields"] = [key for key in
-                        ("size", "density", "font_scale", "accelerometer_rotation", "user_rotation", "night")
-                        if actual[key] != saved[key]]
+                    evidence["restoreMismatchFields"] = snapshot_mismatches(actual, saved)
                 except ValidationError:
                     evidence["restoreReadbackUnavailable"] = True
                 failure = "configuration_restore_failed"

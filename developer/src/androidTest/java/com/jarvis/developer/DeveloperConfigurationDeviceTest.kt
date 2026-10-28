@@ -3,6 +3,7 @@ package com.jarvis.developer
 import android.app.Activity
 import android.content.Context
 import android.content.res.Configuration
+import android.content.pm.ActivityInfo
 import android.graphics.Rect
 import android.os.Bundle
 import android.os.SystemClock
@@ -50,6 +51,14 @@ class DeveloperConfigurationDeviceTest {
     @Test
     fun appliedHostConfigurationKeepsNativeControlsContainedAndLastActionReachable() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            // Headless emulators can retain the launcher's rotation lock despite a changed
+            // user_rotation setting. Request the actual Activity posture and wait for the
+            // resulting native configuration; never substitute simulated window bounds.
+            scenario.onActivity { activity ->
+                activity.requestedOrientation = if (profile.orientation == Configuration.ORIENTATION_LANDSCAPE)
+                    ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
+            awaitNativeLayout(scenario)
             scenario.onActivity { activity ->
                 button(activity, "Settings").performClick()
                 button(activity, "Advanced tools").performClick()
@@ -145,7 +154,12 @@ class DeveloperConfigurationDeviceTest {
             scenario.onActivity { activity ->
                 val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
                 val content = scroll.getChildAt(0)
-                laidOut = scroll.isLaidOut && !scroll.isLayoutRequested &&
+                val display = DisplayMetrics()
+                activity.windowManager.defaultDisplay.getRealMetrics(display)
+                laidOut = activity.resources.configuration.orientation == profile.orientation &&
+                    display.widthPixels == profile.displayWidthDp * HOST_DENSITY_DPI / 160 &&
+                    display.heightPixels == profile.displayHeightDp * HOST_DENSITY_DPI / 160 &&
+                    scroll.isLaidOut && !scroll.isLayoutRequested &&
                     scroll.width > 0 && scroll.height > 0 &&
                     content.isLaidOut && !content.isLayoutRequested &&
                     content.width > 0 && content.height > 0

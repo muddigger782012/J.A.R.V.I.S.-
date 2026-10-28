@@ -408,6 +408,23 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(any(token in {"install", "install-multiple", "force-stop", "pull", "push", "curl", "wget"}
                              for args in adb.commands for token in args))
 
+    def test_android_recreated_default_font_is_reported_without_accepting_changed_overrides(self):
+        class DefaultFontAdb(ConfigurationAdb):
+            def run(self, *args, **kwargs):
+                result = super().run(*args, **kwargs)
+                if args == ("shell", "settings", "delete", "system", "font_scale"):
+                    self.settings["font_scale"] = "1.0"
+                return result
+        adb = DefaultFontAdb()
+        evidence = validation.execute(adb, SHA, process_runner=lambda _: {"passed": True})
+        self.assertTrue(evidence["passed"])
+        self.assertTrue(evidence["configurationRestored"])
+        self.assertTrue(evidence["fontScaleDefaultNormalized"])
+        self.assertEqual([], validation.snapshot_mismatches({"font_scale": "1.0"}, {"font_scale": "null"}))
+        self.assertEqual(["font_scale"], validation.snapshot_mismatches({"font_scale": "2.0"}, {"font_scale": "null"}))
+        self.assertEqual(["font_scale"], validation.snapshot_mismatches({"font_scale": "1.0"}, {"font_scale": "2.0"}))
+        self.assertEqual(["user_rotation"], validation.snapshot_mismatches({"user_rotation": "0"}, {"user_rotation": "null"}))
+
     def test_native_timeout_still_restores_every_snapshot(self):
         adb = ConfigurationAdb(fail_instrument=True)
         called = []
