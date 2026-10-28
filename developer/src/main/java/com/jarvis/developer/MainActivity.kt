@@ -265,6 +265,7 @@ class MainActivity : Activity() {
         PersonalRepairWorkbench.attach(this, root, prompt, githubToken, output, status, patchWorkbench)
         val projectStartIndex = root.childCount
         applicationWorkbench = ApplicationApprovalWorkbench.attach(this, root)
+        GuidedDevelopmentWorkbench.attach(this, root, prompt, patchWorkbench, 0, { selectPage?.invoke(2) })
         val projectViews = (projectStartIndex until root.childCount).map { root.getChildAt(it) }
         root.addView(iconTest)
         if (recoveryWarning) {
