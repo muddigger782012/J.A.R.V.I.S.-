@@ -1083,15 +1083,16 @@ class MainActivity : Activity() {
                 page.visibility = if (pageIndex == activePage) View.VISIBLE else View.GONE
             }
             tabs.forEachIndexed { tabIndex, button ->
-                button.isSelected = tabIndex == activePage || (activePage == 4 && tabIndex == 3)
-                button.alpha = if (tabIndex == activePage) 1f else 0.78f
+                val selected = tabIndex == activePage || (activePage == 4 && tabIndex == 3)
+                button.isSelected = selected
+                button.alpha = if (selected) 1f else 0.78f
                 button.background = GradientDrawable().apply {
-                    setColor(if (tabIndex == activePage) 0xFF173F4B.toInt()
+                    setColor(if (selected) 0xFF173F4B.toInt()
                         else getColor(R.color.developer_panel))
                     cornerRadius = 18f
                 }
                 button.contentDescription = button.text.toString() +
-                    if (tabIndex == activePage) ", selected" else ""
+                    if (selected) ", selected" else ""
             }
             pages[activePage].post { pages[activePage].scrollTo(0, positions[activePage]) }
         }

@@ -628,6 +628,13 @@ def package_pid(adb):
     return parse_pid(adb.run("shell", "pidof", PACKAGE, allow_empty=True).text)
 
 
+def package_uid(adb):
+    text = adb.run("shell", "pm", "list", "packages", "-U", PACKAGE, max_bytes=32768).text
+    matches = re.findall(r"(?m)^package:" + re.escape(PACKAGE) + r"\s+uid:([1-9][0-9]{0,8})\s*$", text)
+    require(len(matches) == 1 and int(matches[0]) >= 10000, "developer_uid_not_observable")
+    return matches[0]
+
+
 def activity_state(adb):
     text = adb.run("shell", "dumpsys", "activity", "activities", max_bytes=1048576).text
     return parse_task(text), foreground_own(text)
@@ -654,6 +661,7 @@ def run_process_death(adb, ui=None, sleeper=time.sleep):
     launcher(adb)
     old_pid = package_pid(adb)
     require(old_pid is not None, "launcher_pid_missing")
+    uid = package_uid(adb)
     task, foreground = activity_state(adb)
     require(foreground, "launcher_not_foreground")
     for hint, sentinel in ((PROVIDER_HINT, FAKE_PROVIDER), (TOKEN_HINT, FAKE_TOKEN),
@@ -670,6 +678,20 @@ def run_process_death(adb, ui=None, sleeper=time.sleep):
 
     wait_for(background, "launcher_did_not_background", sleeper=sleeper)
     require(package_pid(adb) == old_pid, "process_died_before_am_kill")
+    # A recently hidden Activity can still have foreground/transient importance.
+    # am kill deliberately leaves those processes alive. Observe a stable eligible
+    # background state instead of force-stopping or pretending the kill succeeded.
+    stable = 0
+    def eligible_background():
+        nonlocal stable
+        require(package_pid(adb) == old_pid, "process_died_before_am_kill")
+        state = adb.run("shell", "am", "get-uid-state", uid, max_bytes=32768).text.strip()
+        match = re.fullmatch(r"[0-9]{1,2}\s+\(([A-Z_]+)\)", state)
+        require(match is not None, "developer_uid_state_not_observable")
+        eligible = match.group(1) in ("LAST_ACTIVITY", "CACHED_ACTIVITY", "CACHED_ACTIVITY_CLIENT", "CACHED_RECENT", "CACHED_EMPTY")
+        stable = stable + 1 if eligible else 0
+        return stable >= 2
+    wait_for(eligible_background, "background_uid_not_killable", attempts=100, pause=0.2, sleeper=sleeper)
     # This is an Android background-process kill. Never substitute force-stop:
     # that destroys task-restoration semantics and cannot prove process death.
     adb.run("shell", "am", "kill", "--user", "current", PACKAGE)

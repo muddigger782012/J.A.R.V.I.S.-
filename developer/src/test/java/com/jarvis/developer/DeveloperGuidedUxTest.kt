@@ -42,6 +42,9 @@ class DeveloperGuidedUxTest {
         field(activity, PROMPT).setText(description)
         button(activity, "Settings").performClick(); button(activity, "Advanced tools").performClick(); idle()
         assertEquals("developer-page-4", page(activity))
+        assertTrue(button(activity, "Settings").isSelected)
+        assertEquals(1f, button(activity, "Settings").alpha, 0f)
+        assertTrue(button(activity, "Settings").contentDescription.toString().endsWith(", selected"))
         button(activity, "Connections and source browsing").performClick()
         field(activity, SOURCE).setText("developer/src/main/java/com/jarvis/developer/RepositoryAnalysis.kt")
         activity.onBackPressed(); idle() // close category
@@ -137,7 +140,8 @@ class DeveloperGuidedUxTest {
         val task = EditText(activity).apply { setText("Improve parsing") }
         var staged: List<String>? = null
         var opened = false
-        val patch = PatchWorkbench.Handle({ _, _, _, _, _ -> false }, { _, _ -> false }, { true },
+        var mayInvalidate = true
+        val patch = PatchWorkbench.Handle({ _, _, _, _, _ -> false }, { _, _ -> false }, { mayInvalidate },
             guidedAction = { _, _, paths, _, _ -> staged = paths; true })
         val ordinary = "developer/src/main/java/com/jarvis/developer/TaskFileSummary.kt"
         val protected = "developer/src/main/java/com/jarvis/developer/MainActivity.kt"
@@ -157,6 +161,10 @@ class DeveloperGuidedUxTest {
         assertEquals(listOf(ordinary), staged); assertTrue(opened)
         task.setText("Different request")
         assertFalse(action("Review suggested changes in Activity").isEnabled)
+        mayInvalidate = false
+        val target = DeveloperUiState.descendants(home).filterIsInstance<Spinner>().single()
+        target.setSelection(1); idle()
+        assertEquals("Busy operations retain their reviewed product context", 0, target.selectedItemPosition)
     }
 
     @Test fun cancelledGuidedAnalysisCannotRepopulateReviewFromLateCallback() {

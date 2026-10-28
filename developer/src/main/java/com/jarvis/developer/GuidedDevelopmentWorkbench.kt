@@ -65,7 +65,12 @@ internal object GuidedDevelopmentWorkbench {
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
             override fun onItemSelected(parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
                 if (position != selected) {
-                    selected = position; invalidate(); patches.invalidate()
+                    if (!patches.invalidate()) {
+                        target.setSelection(selected)
+                        feedback.text = "Finish or cancel the active code operation before changing the application."
+                        return
+                    }
+                    selected = position; invalidate()
                     feedback.text = "Application changed. Analyze this app before review."
                 }
             }

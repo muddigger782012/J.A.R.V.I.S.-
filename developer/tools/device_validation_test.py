@@ -128,6 +128,10 @@ class ProcessAdb:
                 if not self.retain_task:
                     self.task = "6"
             return validation.Result(0, "Status: ok\nActivity: com.jarvis.developer/.MainActivity\n")
+        if args == ("shell", "pm", "list", "packages", "-U", validation.PACKAGE):
+            return validation.Result(0, "package:com.jarvis.developer uid:10123\npackage:com.jarvis.developer.test uid:10124\n")
+        if args == ("shell", "am", "get-uid-state", "10123"):
+            return validation.Result(0, "16 (CACHED_ACTIVITY)")
         if args == ("shell", "pidof", validation.PACKAGE):
             return validation.Result(0 if self.pid else 1, self.pid or "")
         if args == ("shell", "dumpsys", "activity", "activities"):
@@ -490,6 +494,30 @@ class ContractTests(unittest.TestCase):
         self.assertLess(home, kill)
         self.assertFalse(any("force-stop" in args for args in adb.commands))
         self.assertEqual(2, sum(args[:3] == ("shell", "am", "start") for args in adb.commands))
+
+    def test_background_kill_waits_for_a_stable_eligible_uid_state(self):
+        class SettlingAdb(ProcessAdb):
+            def __init__(self):
+                super().__init__()
+                self.states = iter(("8 (TRANSIENT_BACKGROUND)", "8 (TRANSIENT_BACKGROUND)",
+                                    "15 (LAST_ACTIVITY)", "15 (LAST_ACTIVITY)"))
+            def run(self, *args, **kwargs):
+                if args == ("shell", "am", "get-uid-state", "10123"):
+                    self.commands.append(args)
+                    return validation.Result(0, next(self.states))
+                return super().run(*args, **kwargs)
+        adb = SettlingAdb()
+        result = validation.run_process_death(adb, FakeUi(), sleeper=lambda _: None)
+        self.assertTrue(result["passed"])
+        kill = adb.commands.index(("shell", "am", "kill", "--user", "current", validation.PACKAGE))
+        self.assertEqual(4, adb.commands[:kill].count(("shell", "am", "get-uid-state", "10123")))
+
+    def test_uid_probe_requires_the_exact_installed_developer_package(self):
+        self.assertEqual("10123", validation.package_uid(ProcessAdb()))
+        adb = MagicMock()
+        adb.run.return_value = validation.Result(0, "package:com.jarvis.developer.test uid:10123")
+        with self.assertRaisesRegex(validation.ValidationError, "developer_uid_not_observable"):
+            validation.package_uid(adb)
 
     def test_kill_failure_never_falls_back_to_force_stop(self):
         adb, ui = ProcessAdb(kill_works=False), FakeUi()
