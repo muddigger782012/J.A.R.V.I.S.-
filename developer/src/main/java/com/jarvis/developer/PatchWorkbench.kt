@@ -57,6 +57,12 @@ object PatchWorkbench {
         fun prepareRepair(ticket: RepairEngine.Ticket, observer: RepairObserver): Boolean = repairAction(ticket, observer)
         fun invalidate(): Boolean = invalidateAction()
         fun preparePersonal(review: PersonalRepair.Review): Boolean = personalAction(review)
+        /** Guided scope is staged for Developer review only; no approval or write is implied. */
+        internal fun prepareGuided(id: String, task: String, paths: List<String>, base: String, target: PatchEngine.Target): Boolean =
+            if (target == PatchEngine.Target.DEVELOPER && paths.isNotEmpty() &&
+                paths.all { PatchEngine.allowedPath(it, target) })
+                prepare(id, task, paths, base, "feature/jarvis-developer")
+            else false
         fun cancelPreview() = cancelPreviewAction()
         fun dispose() = disposeAction()
     }
