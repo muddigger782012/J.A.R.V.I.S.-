@@ -14,7 +14,7 @@ import android.widget.ScrollView
 import android.view.View
 import android.text.Editable
 import android.text.TextWatcher
-import androidx.core.view.doOnLayout
+import android.view.ViewTreeObserver
 import com.jarvis.integration.DevelopmentBridgeContract as Wire
 import org.json.JSONArray
 import org.json.JSONObject
@@ -175,7 +175,14 @@ object DevelopmentInboxWorkbench {
                                 }
                             }
                         }
-                    panel.doOnLayout { if (generation == displayGeneration && !activity.isDestroyed) scroll?.scrollTo(0, scrollY) }
+                    val observer = panel.viewTreeObserver
+                    observer.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+                        override fun onGlobalLayout() {
+                            if (observer.isAlive) observer.removeOnGlobalLayoutListener(this)
+                            if (generation == displayGeneration && !activity.isFinishing && !activity.isDestroyed)
+                                scroll?.scrollTo(0, scrollY)
+                        }
+                    })
                 }
             }
         }

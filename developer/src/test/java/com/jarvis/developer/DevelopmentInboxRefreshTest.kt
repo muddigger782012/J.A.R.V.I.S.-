@@ -47,6 +47,7 @@ class DevelopmentInboxRefreshTest {
                 scroll.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(240, View.MeasureSpec.EXACTLY))
                 scroll.layout(0, 0, 360, 240)
+                scroll.viewTreeObserver.dispatchOnGlobalLayout()
             }
             fun awaitFields() {
                 val deadline = System.nanoTime() + 8_000_000_000L
