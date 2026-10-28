@@ -62,11 +62,17 @@ class DevelopmentInboxRefreshTest {
             refresh(); awaitFields()
             field("Describe the change you want Developer to make").setText("Keep my revised instructions")
             field("Exact analyzed paths for this task (one per line)").setText(path + "\n")
+            val editor = field("Describe the change you want Developer to make")
+            editor.requestFocus()
+            val input = activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            input.showSoftInput(editor, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
+            assertTrue(shadowOf(input).isSoftInputVisible)
             layout(); scroll.scrollTo(0, 80); assertEquals(80, scroll.scrollY)
             refresh(); layout(); awaitFields()
             assertEquals("Keep my revised instructions", field("Describe the change you want Developer to make").text.toString())
             assertEquals(path + "\n", field("Exact analyzed paths for this task (one per line)").text.toString())
             assertEquals(80, scroll.scrollY)
+            assertFalse(shadowOf(input).isSoftInputVisible)
         } finally {
             controller.pause().stop().destroy()
             directory.deleteRecursively()

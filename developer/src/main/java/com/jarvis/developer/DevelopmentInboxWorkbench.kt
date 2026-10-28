@@ -104,6 +104,18 @@ object DevelopmentInboxWorkbench {
             modeStatus.text = if (success) "Saved ${Wire.modeLabel(mode.wireValue)}. No source scope or Android privilege was granted."
                 else "The mode or audit record could not be saved. No approval change was confirmed."
         })
+        fun finishHistoryEditing() {
+            val focus = activity.currentFocus ?: return
+            if (generateSequence(focus as View?) { it.parent as? View }.none { it === inboxSection }) return
+            focus.windowToken?.let { token ->
+                (activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+                    ?.hideSoftInputFromWindow(token, 0)
+            }
+            focus.clearFocus()
+            inboxSection.isFocusableInTouchMode = true
+            inboxSection.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            inboxSection.requestFocus()
+        }
         fun refresh() {
             val generation = ++displayGeneration
             val focus = focusedJob
@@ -117,6 +129,7 @@ object DevelopmentInboxWorkbench {
             DeveloperUiState.descendants(topNavigation).filterIsInstance<Button>().forEach { it.isEnabled = false }
             browserStatus.text = "Reading development history…"
             val selectedMode = preferences.getString("mode", "supervised") ?: "supervised"
+            finishHistoryEditing()
             panel.removeAllViews(); panel.addView(label("Assistant development reviews — checking private queue"))
             services.worker {
                 val inbox = services.inbox(activity)
