@@ -1154,6 +1154,9 @@ class MainActivity : Activity() {
         navigation.setBackgroundColor(getColor(R.color.developer_panel))
         shell.addView(navigation)
         uiRoot = shell
+        // Keep the visible/accessibility labels identical to the reviewed action
+        // names; legacy workbenches otherwise inherit Android's all-caps transform.
+        DeveloperUiState.descendants(shell).filterIsInstance<Button>().forEach { it.isAllCaps = false }
         DeveloperUiState.descendants(shell).forEach { it.isSaveEnabled = false }
         DeveloperUiState.restore(shell, savedInstanceState?.getBundle("developer_drafts"))
         savedInstanceState?.getInt("developer_tool_section", -1)?.takeIf { it in sectionButtons.indices }
