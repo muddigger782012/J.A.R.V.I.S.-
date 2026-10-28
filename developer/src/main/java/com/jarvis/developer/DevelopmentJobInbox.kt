@@ -755,6 +755,11 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         artifactAudit(job, source.record); save(jobs); view(job)
     }
     fun localSnapshot(): List<JSONObject> = checkpoint.transaction {
-        load().map { view(it).put("caller", it.getString("caller")) }
+        load().map { job ->
+            val request = Wire.decode(job.getString("request"))
+            view(job).put("caller", job.getString("caller")).put("kind", request.kind)
+                .put("summary", BuildDiagnostics.localTaskSummary(job.optJSONObject("engineering")?.optString("task")
+                    ?.takeIf { it.isNotBlank() } ?: request.body))
+        }
     }
 }

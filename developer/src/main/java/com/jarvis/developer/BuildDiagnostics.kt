@@ -326,6 +326,10 @@ object BuildDiagnostics {
         return path.takeIf { Regex("(?:developer|app)/(?:build\\.gradle(?:\\.kts)?|src/(?:main|test|androidTest)/(?:java|kotlin|res)/[A-Za-z0-9_./$-]+\\.(?:kt|java|xml))").matches(it) }
     }
 
+    /** Local task titles are display data; use the same bounded credential redaction as diagnostics. */
+    internal fun localTaskSummary(value: String): String =
+        clean(value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' '), 240)
+
     private fun clean(value: String, max: Int = 512): String {
         val withoutControls = value.filter { !Character.isISOControl(it) && Character.getType(it) != Character.FORMAT.toInt() && Character.getType(it) != Character.SURROGATE.toInt() }
         var output = RepositoryRedaction.line(withoutControls)
