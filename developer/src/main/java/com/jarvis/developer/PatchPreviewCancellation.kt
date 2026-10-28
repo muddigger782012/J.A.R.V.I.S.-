@@ -3,7 +3,7 @@ package com.jarvis.developer
 import java.io.Closeable
 import kotlin.concurrent.thread
 
-/** One in-memory source/proposal preview or GET-only diagnostic read. No write authority.
+/** One in-memory preview, diagnostic read or text-only AI request. No source-write authority.
  * Signal immediately; resource cleanup must not block Android's main thread.
  */
 internal class PatchPreviewCancellation(

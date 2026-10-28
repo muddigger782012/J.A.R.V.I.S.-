@@ -5,6 +5,7 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
 /** Provider contract checks use fake in-memory credentials and transports; no live request is made. */
@@ -398,5 +399,49 @@ class CodingAssistantProviderTest {
         } } }
         fails(fake)
         assertEquals(1, fake.closed)
+    }
+    @Test fun anAlreadyCancelledRequestNeverPostsToAProvider() {
+        val fake = Fixture().apply { body(openAi()) }
+        val cancellation = PatchPreviewCancellation().also { it.cancel() }
+        val client = CodingAssistantProvider.Client(fake, cancellation = cancellation)
+        val failure = assertThrows(IllegalStateException::class.java) { client.ask("OpenAI", key, "", task) }
+        assertEquals(CodingAssistantProvider.FAILURE, failure.message); assertTrue(fake.requests.isEmpty())
+    }
+    @Test fun cancellationDuringResponseReadingClosesAndRejectsPartialText() {
+        val cancellation = PatchPreviewCancellation()
+        val fake = Fixture().apply { body(openAi()); stream = { object : ByteArrayInputStream(bytes) {
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                val count = super.read(buffer, offset, length); cancellation.cancel(); return count
+            }
+        } } }
+        val client = CodingAssistantProvider.Client(fake, cancellation = cancellation)
+        val failure = assertThrows(IllegalStateException::class.java) { client.ask("OpenAI", key, "", task) }
+        assertEquals(CodingAssistantProvider.FAILURE, failure.message); assertEquals(1, fake.closed)
+    }
+    @Test fun cancellationDisconnectsTheHttpRequestBeforeAResponseExists() {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val released = java.util.concurrent.CountDownLatch(1)
+        val stopped = java.util.concurrent.CountDownLatch(1)
+        val connection = object : java.net.HttpURLConnection(java.net.URL("https://api.openai.com/v1/responses")) {
+            override fun connect() = Unit
+            override fun usingProxy() = false
+            override fun disconnect() { stopped.countDown(); released.countDown() }
+            override fun getOutputStream(): java.io.OutputStream = ByteArrayOutputStream()
+            override fun getResponseCode(): Int {
+                entered.countDown(); released.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                throw java.net.SocketException("private transport fixture $key")
+            }
+        }
+        val cancellation = PatchPreviewCancellation()
+        val pool = java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            val client = CodingAssistantProvider.Client(CodingAssistantProvider.http(cancellation) { connection }, cancellation = cancellation)
+            val job = pool.submit<Exception?> { try { client.ask("OpenAI", key, "", task); null } catch (failure: Exception) { failure } }
+            assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)); cancellation.cancel()
+            assertTrue(cancellation.isCancelled); assertTrue(stopped.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            val failure = job.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertNotNull(failure); assertEquals(CodingAssistantProvider.FAILURE, failure!!.message)
+            assertFalse(failure.toString().contains(key)); assertFalse(failure.toString().contains("private transport fixture"))
+        } finally { released.countDown(); pool.shutdownNow() }
     }
 }

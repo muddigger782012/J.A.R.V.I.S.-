@@ -35,6 +35,7 @@ class MainActivity : Activity() {
     private var guidedTarget: android.widget.Spinner? = null
     private var disposeGuidance: (() -> Unit)? = null
     private var activeProject: String? = null
+    private var projectGeneration: ProjectGenerationWorkbench.Handle? = null
     internal val connectionVerification = ConnectionVerification()
     private var selectPage: ((Int) -> Unit)? = null
     private var artifactReviewIntent: ((Intent) -> Unit)? = null
@@ -103,6 +104,7 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT))
         val status = TextView(this).apply {
+            tag = "project-generation-status"
             text = "Your AI development assistant"
             textSize = 13f
             setPadding(dp(4), dp(8), 0, dp(6))
@@ -156,12 +158,20 @@ class MainActivity : Activity() {
             prompt.setText(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
         }
         val output = TextView(this).apply {
+            tag = "project-generation-reply"
             setTextColor(getColor(R.color.developer_text))
             setTextIsSelectable(true)
             text = "Your assistant’s response will appear here."
         }
         val send = Button(this).apply { text = "Ask Jarvis / save instructions"; isAllCaps = false }
         root.addView(send)
+        val cancelGeneration = Button(this).apply {
+            setText(R.string.project_generation_cancel); isAllCaps = false; isEnabled = false
+            minHeight = dp(48)
+            setTextColor(getColor(R.color.developer_primary))
+            backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_panel))
+        }
+        root.addView(cancelGeneration)
         root.removeView(status)
         root.addView(status)
         root.addView(output)
@@ -364,80 +374,11 @@ class MainActivity : Activity() {
         // Persist the project before contacting an AI provider. A network failure must
         // never discard the user's description or the generated response.
         val projectPrefs = getSharedPreferences("developer_local_projects_v1", MODE_PRIVATE)
-        fun persistProject(id: String, task: String, state: String, response: String? = null, target: Int? = null): Boolean {
-            val existing = try {
-                org.json.JSONObject(projectPrefs.getString("project_" + id, "{}") ?: "{}")
-            } catch (_: Exception) { org.json.JSONObject() }
-            val record = existing.put("id", id).put("description", task)
-                .put("target", target ?: existing.optInt("target", 0))
-                .put("state", state)
-                .put("response", response ?: existing.optString("response"))
-                .put("updated_at", System.currentTimeMillis()).toString()
-            return projectPrefs.edit().putString("project_" + id, record).commit()
-        }
-
         var refreshSavedProjectsAfterChange: (() -> Unit)? = null
-        send.setOnClickListener {
-            val providerName = provider.selectedItem.toString()
-            val apiKey = key.text.toString().trim()
-            val modelName = model.text.toString().trim()
-            val task = prompt.text.toString().trim()
-            if (task.isEmpty()) {
-                status.text = "Describe the project you want to create first."
-                prompt.requestFocus()
-                return@setOnClickListener
-            }
-            val projectId = activeProject ?: java.util.UUID.randomUUID().toString()
-            activeProject = projectId
-            val projectTarget = guidedTarget?.selectedItemPosition ?: 0
-            if (!persistProject(projectId, task, "saved", target = projectTarget)) {
-                status.text = "Project could not be saved on this device."
-                return@setOnClickListener
-            }
-            refreshSavedProjectsAfterChange?.invoke()
-            if (apiKey.isEmpty()) {
-                status.text = "Project saved locally. Connect an AI provider in Settings to generate code."
-                output.text = "Project saved. Your description is safe on this device; AI generation has not started."
-                return@setOnClickListener
-            }
-            val requestInputs = listOf(send, provider, key, model, prompt)
-            requestInputs.forEach { it.isEnabled = false }
-            status.text = "Project saved. Connecting to " + providerName + "..."
-            thread(name = "DeveloperCodingAssistant") {
-                try {
-                    val result = CodingAssistantProvider.ask(providerName, apiKey, modelName, task)
-                    val saved = persistProject(projectId, task, "generated", result)
-                    runOnUiThread {
-                        if (!isFinishing && !isDestroyed) {
-                            refreshSavedProjectsAfterChange?.invoke()
-                            if (activeProject == projectId) {
-                                output.text = result
-                                status.text = if (saved) "Project saved; response received from " + providerName
-                                    else "AI response received, but could not be saved locally"
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    persistProject(projectId, task, "generation_failed")
-                    runOnUiThread {
-                        if (!isFinishing && !isDestroyed) {
-                            refreshSavedProjectsAfterChange?.invoke()
-                            if (activeProject == projectId) {
-                                status.text = "Project saved; AI generation failed"
-                                output.text = (if (e is CodingAssistantProvider.ProviderFailure)
-                                    e.message ?: "AI connection failed." else
-                                    "Check the selected provider, API key and model.") +
-                                    "\nYour project description remains saved on this device."
-                            }
-                        }
-                    }
-                } finally {
-                    runOnUiThread {
-                        if (!isFinishing && !isDestroyed) requestInputs.forEach { it.isEnabled = true }
-                    }
-                }
-            }
-        }
+        projectGeneration = ProjectGenerationWorkbench.attach(this, send, cancelGeneration, provider, key, model,
+            prompt, output, status, { guidedTarget?.selectedItemPosition ?: 0 }, { guidedTarget },
+            { activeProject }, { activeProject = it }, ProjectGenerationStore(projectPrefs),
+            { refreshSavedProjectsAfterChange?.invoke() })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -481,17 +422,23 @@ class MainActivity : Activity() {
             }
             records.forEach { record ->
                 val description = record.optString("description")
-                val state = record.optString("state")
+                val state = ProjectGenerationStore.stateLabel(record)
                 val response = record.optString("response")
                 savedProjects.addView(Button(this).apply {
                     text = description.take(80) + " (" + state + ")"
                     isAllCaps = false
                     setOnClickListener {
+                        if (!patchWorkbench.invalidate()) {
+                            status.setText(R.string.project_generation_finish_code_operation)
+                            return@setOnClickListener
+                        }
+                        projectGeneration?.cancel()
                         activeProject = record.optString("id").takeIf { it.isNotBlank() }
                         prompt.setText(description)
                         guidedTarget?.setSelection(record.optInt("target", 0).coerceIn(0, 1))
-                        output.text = if (response.isNotBlank()) response else
-                            "Project restored. Use Generate to retry the AI request."
+                        output.text = if (response.isBlank()) getString(R.string.project_generation_restored_without_reply)
+                            else if (ProjectGenerationStore.replyMatches(record) == true) response
+                            else getString(R.string.project_generation_previous_reply, response)
                         status.text = "Loaded saved project. Description restored."
                         selectPage?.invoke(0)
                     }
@@ -670,6 +617,7 @@ class MainActivity : Activity() {
             }
         }
         forgetConnection.setOnClickListener {
+            projectGeneration?.cancel()
             ProviderCredentialStore.clear(this)
             key.text.clear()
             model.text.clear()
@@ -1141,6 +1089,11 @@ class MainActivity : Activity() {
             key.requestFocus()
         }
         createProject.setOnClickListener {
+            if (!patchWorkbench.invalidate()) {
+                status.setText(R.string.project_generation_finish_code_operation)
+                return@setOnClickListener
+            }
+            projectGeneration?.cancel()
             activeProject = null
             prompt.text.clear()
             output.text = ""
@@ -1274,6 +1227,8 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        projectGeneration?.dispose()
+        projectGeneration = null
         artifactReviewGeneration++
         artifactReviewIntent = null
         artifactInstallWhenFocused = null
