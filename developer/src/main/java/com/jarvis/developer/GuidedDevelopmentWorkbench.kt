@@ -12,7 +12,9 @@ import kotlin.concurrent.thread
 internal object GuidedDevelopmentWorkbench {
     internal class Services(
         val analyze: (String, PatchEngine.Target, PatchPreviewCancellation) -> RepositoryAnalysis.AnalysisPlan = { task, target, cancellation ->
-            RepositoryIntelligence.analyzeSnapshot("", task).second
+            require(target == PatchEngine.Target.DEVELOPER) { "Guided Personal analysis is not available yet" }
+            cancellation.check()
+            RepositoryIntelligence.analyzeSnapshot("", task).second.also { cancellation.check() }
         },
         val worker: (() -> Unit) -> Unit = { work -> thread(name = "DeveloperGuidedAnalysis") { work() }; Unit }
     )
