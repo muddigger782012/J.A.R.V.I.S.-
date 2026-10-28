@@ -83,7 +83,7 @@ class DeveloperDeviceValidationTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             waitForIdle()
             scenario.onActivity { activity ->
-                val scroll = views<ScrollView>(activity).single()
+                val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
                 assertTrue("Activity viewport must be laid out", scroll.height > 0)
                 assertTrue("The complete workbench must exceed the viewport", scroll.getChildAt(0).height > scroll.height)
                 scroll.isSmoothScrollingEnabled = false
@@ -92,7 +92,7 @@ class DeveloperDeviceValidationTest {
             waitForIdle()
 
             scenario.onActivity { activity ->
-                val scroll = views<ScrollView>(activity).single()
+                val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
                 val content = scroll.getChildAt(0)
                 assertTrue("The workbench must actually scroll", scroll.scrollY > 0)
                 assertTrue("The bottom of the workbench must be reachable",
@@ -114,7 +114,7 @@ class DeveloperDeviceValidationTest {
                 override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
                 override fun afterTextChanged(text: Editable?) {
                     val message = text?.toString().orEmpty()
-                    if (message.startsWith("Read-only preview complete at ") || message == "Repository preview failed") {
+                    if (message.startsWith("READ-ONLY SOURCE INVENTORY\n") || message.startsWith("Repository preview failed")) {
                         completed.countDown()
                     }
                 }
@@ -124,12 +124,13 @@ class DeveloperDeviceValidationTest {
                 assertEquals("", field(activity, GITHUB_TOKEN).text.toString())
                 field(activity, "Source path or directory prefix (blank lists all allowed sources)")
                     .setText("developer/")
-                status = views<TextView>(activity).single {
-                    it.text.toString() == "Local task plans loaded; no repository request was made."
-                }
+                button(activity, "Settings").performClick()
+                button(activity, "Advanced tools").performClick()
+                button(activity, "Connections and source browsing").performClick()
                 output = views<TextView>(activity).single {
-                    it.text.toString().startsWith("Coding responses appear here.")
+                    it.text.toString() == "Source browsing results and errors will appear here."
                 }
+                status = output
                 status.addTextChangedListener(watcher)
                 assertTrue(button(activity, "Browse source inventory (read-only)").performClick())
             }
@@ -145,8 +146,7 @@ class DeveloperDeviceValidationTest {
                     report.startsWith("READ-ONLY SOURCE INVENTORY\n"))
                 val source = Regex("(?m)^Commit: ([a-f0-9]{40})$").find(report)
                 assertTrue("Inventory must cite a full immutable source SHA", source != null)
-                assertEquals("Read-only preview complete at ${source!!.groupValues[1].take(12)}",
-                    status.text.toString())
+                assertEquals("Inline source result also reports progress completion", output, status)
                 assertTrue("Inventory must identify the relevant Developer source file",
                     report.contains("developer/src/main/java/com/jarvis/developer/TaskFileSummary.kt"))
                 assertEquals("", field(activity, PROVIDER_KEY).text.toString())
@@ -175,7 +175,7 @@ class DeveloperDeviceValidationTest {
 
     private fun waitForIdle() = InstrumentationRegistry.getInstrumentation().waitForIdleSync()
     private fun button(activity: Activity, text: String): Button =
-        views<Button>(activity).single { it.text.toString() == text }
+        views<Button>(activity).single { it.text.toString().removeSuffix("  ▼").removeSuffix("  ▲") == text }
     private fun field(activity: Activity, hint: String): EditText =
         views<EditText>(activity).single { it.hint?.toString() == hint }
     private inline fun <reified T : View> views(activity: Activity): List<T> =
@@ -188,7 +188,7 @@ class DeveloperDeviceValidationTest {
     }
 
     companion object {
-        private const val PROVIDER_KEY = "Selected provider API key (not saved)"
+        private const val PROVIDER_KEY = "Paste your API key here (not a model name)"
         private const val GITHUB_TOKEN = "GitHub fine-grained token (not saved)"
         private const val REVIEW_FINGERPRINT = "Enter exact eligible review SHA-256"
     }

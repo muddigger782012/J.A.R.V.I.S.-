@@ -147,7 +147,8 @@ class MainActivityAndroidTest {
     }
 
     private fun openTools(activity: Activity) {
-        assertTrue(button(activity, "Tools").performClick())
+        assertTrue(button(activity, "Settings").performClick())
+        assertTrue(button(activity, "Advanced tools").performClick())
         idleMain()
         // The redesigned Tools screen exposes each security-gated group directly.
         listOf("Connections and source browsing", "Code changes and review",
@@ -165,7 +166,13 @@ class MainActivityAndroidTest {
             "Stage this exact source scope for a NEW diff review",
             "Compare baseline, candidate and verified recovery evidence",
             "Record exact approved promotion request (metadata only)"
-        ).forEach { label -> assertFalse(label, button(activity, label).isEnabled) }
+        ).forEach { label ->
+            val control = button(activity, label)
+            assertFalse(label, control.isEnabled)
+            assertEquals("Visible approval label remains identifiable", label,
+                control.transformationMethod?.getTransformation(control.text, control)?.toString()
+                    ?: control.text.toString())
+        }
         listOf(
             "I reviewed this exact diff and approve creating its isolated task branch",
             "I reviewed this exact eligible candidate and approve recording its promotion request"

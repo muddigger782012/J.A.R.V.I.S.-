@@ -44,7 +44,14 @@ class ArtifactInstallationAndroidTest {
         val bytes = text.toByteArray(); val base = "a".repeat(40); val commit = "d".repeat(40)
         val blob = MessageDigest.getInstance("SHA-1").digest("blob ${bytes.size}\u0000".toByteArray() + bytes).joinToString("") { "%02x".format(it.toInt() and 255) }
         val inventory = RepositoryAnalysis.Inventory(listOf(RepositoryAnalysis.SourceFile(path, blob, bytes.size.toLong())), false, base)
-        check(queue.finishAnalysis(queue.claimAnalysis(job, true)!!, RepositoryAnalysis.analyze(request.body, inventory) { text }))
+        val lease = queue.claimAnalysis(job, true)
+            ?: error("Fixture analysis could not be claimed: state=${status(job).optString("state")} revision=${status(job).optLong("revision")}")
+        val plan = RepositoryAnalysis.analyze(request.body, inventory) { text }
+        check(queue.finishAnalysis(lease, plan)) {
+            val snapshot = status(job)
+            "Fixture analysis lease lost: state=${snapshot.optString("state")} revision=${snapshot.optLong("revision")} " +
+                "phase=${snapshot.optString("phase")} request=${requestId}"
+        }
         val draft = queue.stageEngineering(job, status(job).getLong("revision"), listOf(path), true, "Test the APK installation path in this disposable emulator")
         val proposal = PatchEngine.parse(PatchEngine.Request(draft.taskId, draft.task, draft.base, draft.paths,
             listOf(PatchEngine.SourceFile(path, blob, text)), "OpenAI", "gpt-4.1-mini", draft.branch, draft.target),
@@ -129,8 +136,21 @@ class ArtifactInstallationAndroidTest {
                 }
                 assertTrue(JarvisPackageInstaller.inbox(context).pendingInstallations().isEmpty())
                 assertEquals("PENDING", status(job).getJSONObject("verification").getString("DEVICE_INSTALLED"))
-                await("Android installation-source settings did not open") {
-                    instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == "com.android.settings"
+                var observedForeground = "<no active window>"
+                try {
+                    await("Android installation-source settings did not open", 45) {
+                        observedForeground = instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString()
+                            ?: "<no active window>"
+                        observedForeground == "com.android.settings"
+                    }
+                } catch (failure: AssertionError) {
+                    val activityState = shell("dumpsys activity activities")
+                        .lineSequence().filter { it.contains("mResumedActivity") ||
+                            it.contains("topResumedActivity") || it.contains("Resumed:") }
+                        .take(8).joinToString(" | ").take(1200)
+                    throw AssertionError(
+                        "Android installation-source settings did not open; foreground=$observedForeground; " +
+                            "activityState=$activityState", failure)
                 }
                 shell("input keyevent KEYCODE_BACK")
                 await("Developer did not resume after Android settings") {

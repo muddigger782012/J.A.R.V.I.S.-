@@ -49,7 +49,13 @@ class PersonalRepairDeviceTest {
     private fun buttons(activity: MainActivity) = views(activity.window.decorView).filterIsInstance<Button>()
     private fun button(activity: MainActivity, text: String) = buttons(activity).single { it.text.toString() == text }
     private fun openTools(activity: MainActivity, sectionName: String = "Assistant diagnostics") {
-        button(activity, "Tools").performClick()
+        if (sectionName == "Code changes and review") {
+            button(activity, "Activity").performClick()
+            assertTrue(button(activity, "Load private repair history (local only)").isShown)
+            return
+        }
+        button(activity, "Settings").performClick()
+        button(activity, "Advanced tools").performClick()
         val section = buttons(activity).single {
             it.contentDescription?.toString() in setOf("Open $sectionName tools", "Close $sectionName tools")
         }
