@@ -30,6 +30,7 @@
     <string name="project_generation_failed">Project saved; AI generation failed.</string>
     <string name="project_generation_check_connection">Check the selected provider, API key and model.</string>
     <string name="project_generation_description_kept">Your project description remains saved on this device.</string>
+    <string name="project_generation_failure_detail">%1$s\n%2$s</string>
     <string name="project_generation_start_failed">The AI request could not start. Your instructions remain saved; retry when ready.</string>
     <string name="project_generation_finish_code_operation">Finish or cancel the active code operation before changing projects. Your current work is unchanged.</string>
     <string name="project_generation_restored_without_reply">Project restored. Use Ask Jarvis to request an AI reply when ready.</string>

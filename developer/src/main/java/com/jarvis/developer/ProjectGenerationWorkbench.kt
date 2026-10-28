@@ -94,7 +94,8 @@ internal object ProjectGenerationWorkbench {
                             status.setText(R.string.project_generation_failed)
                             val reason = if (failure is CodingAssistantProvider.ProviderFailure) failure.message.orEmpty()
                                 else activity.getString(R.string.project_generation_check_connection)
-                            output.text = reason + "\n" + activity.getString(R.string.project_generation_description_kept)
+                            output.text = activity.getString(R.string.project_generation_failure_detail, reason,
+                                activity.getString(R.string.project_generation_description_kept))
                         }
                     }
                 }
