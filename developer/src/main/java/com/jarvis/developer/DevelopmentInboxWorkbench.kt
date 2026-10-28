@@ -127,7 +127,7 @@ object DevelopmentInboxWorkbench {
             resetScroll = false; reading = true
             historyFilter.isEnabled = focus == null
             DeveloperUiState.descendants(topNavigation).filterIsInstance<Button>().forEach { it.isEnabled = false }
-            browserStatus.text = "Reading development history…"
+            browserStatus.setText(R.string.development_history_reading)
             val selectedMode = preferences.getString("mode", "supervised") ?: "supervised"
             finishHistoryEditing()
             panel.removeAllViews(); panel.addView(label("Assistant development reviews — checking private queue"))
@@ -153,7 +153,7 @@ object DevelopmentInboxWorkbench {
                     reading = false
                     panel.removeAllViews()
                     result.onFailure {
-                        browserStatus.text = "History could not be read. Refresh to try again."
+                        browserStatus.setText(R.string.development_history_read_failed)
                         topNavigation.removeAllViews(); topNavigation.addView(pager(null, generation))
                         panel.addView(label("Review history could not be read. No records were reset or completion inferred."))
                     }

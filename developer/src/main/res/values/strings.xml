@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="development_history_reading">Reading development history…</string>
+    <string name="development_history_read_failed">History could not be read. Refresh to try again.</string>
+</resources>
