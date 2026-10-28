@@ -621,7 +621,15 @@ class HostUi:
                 nodes = self.dump()
                 if self.signature(nodes) == previous:
                     break
-        raise ValidationError("fresh_fields_gates_or_unconfirmed_health_not_observable")
+        # Report missing names and booleans, never field values or raw UI content.
+        missing_fields = sorted(hint for hint, observed in required.items() if not observed)
+        missing_gates = sorted(label for label, observed in gates.items() if not observed)
+        raise ValidationError(
+            "fresh_fields_gates_or_unconfirmed_health_not_observable"
+            + "; missing_fields=" + repr(missing_fields)
+            + "; missing_gates=" + repr(missing_gates)
+            + "; unconfirmed_health_visible=" + str(health)
+        )
 
 
 def package_pid(adb):
