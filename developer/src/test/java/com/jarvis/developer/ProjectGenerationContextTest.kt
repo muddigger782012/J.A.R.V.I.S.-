@@ -76,8 +76,13 @@ class ProjectGenerationContextTest {
         for (provider in listOf("Gemini", "OpenAI")) Screen().use { s ->
             if (provider == "OpenAI") { s.provider.setSelection(1); s.model.setText("gpt-4.1-mini") }
             s.send.performClick(); assertTrue(s.requests.isEmpty()); s.complete()
-            val request = s.requests.single().toString()
-            assertTrue(request.contains(commit)); assertTrue(request.contains(path)); assertTrue(request.contains("voiceLatency"))
+            val body = s.requests.single()
+            val encoded = if (provider == "Gemini") body.getJSONArray("contents").getJSONObject(0).getJSONArray("parts").getJSONObject(1).getString("text")
+                else body.getJSONArray("input").getJSONObject(0).getJSONArray("content").getJSONObject(1).getString("text")
+            val context = JSONObject(encoded)
+            val request = body.toString()
+            assertEquals(commit, context.getString("commitSha"))
+            assertEquals(path, context.getJSONArray("files").getJSONObject(0).getString("path")); assertTrue(encoded.contains("voiceLatency"))
             assertFalse(request.contains(secret)); assertFalse(request.contains(readToken))
             assertTrue(s.output.text.toString().startsWith("Verified repository excerpts:"))
             assertTrue(s.output.text.toString().endsWith("Use the voice evidence."))
@@ -93,7 +98,8 @@ class ProjectGenerationContextTest {
             s.reader = { _, _ -> error("reflected untrusted failure $readToken $secret") }
             s.send.performClick(); s.complete()
             val sent = s.requests.single().toString()
-            assertTrue(sent.contains("unavailable")); assertFalse(sent.contains("verified_excerpts"))
+            val context = JSONObject(s.requests.single().getJSONArray("contents").getJSONObject(0).getJSONArray("parts").getJSONObject(1).getString("text"))
+            assertEquals("unavailable", context.getString("status")); assertFalse(context.has("files")); assertFalse(context.has("commitSha"))
             assertTrue(s.output.text.toString().startsWith("Repository context unavailable."))
             assertFalse(sent.contains("reflected")); assertFalse(s.record().contains(secret)); assertFalse(s.record().contains(readToken))
         }
@@ -104,7 +110,7 @@ class ProjectGenerationContextTest {
             s.reader = { task, target -> s.cancel.performClick(); evidence(task, target) }
             s.send.performClick(); s.complete()
             assertTrue(s.requests.isEmpty()); assertEquals("generation_cancelled", JSONObject(s.record()).getString("state"))
-            assertTrue(s.send.isEnabled); assertFalse(s.record().contains(commit)); assertFalse(s.record().contains("response"))
+            assertTrue(s.send.isEnabled); assertFalse(s.record().contains(commit)); assertEquals("", JSONObject(s.record()).getString("response"))
         }
     }
 

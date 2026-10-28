@@ -5,6 +5,7 @@ internal object RepositoryRedaction {
     private val valueStart = Regex("(?i)(?<![a-z0-9_-])[\"']?[a-z0-9_.-]*(?:api[_-]?key|token|password|secret|authorization)[\"']?\\s*(?::\\s*[a-z0-9_?.<>]+)?\\s*[=:]\\s*")
     private val privateKey = Regex("-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|\\z)")
     private val xmlSecret = Regex("(?i)<(?:string|item)\\b[^>]*\\bname=[\"'][^\"']*(?:api[_-]?key|token|password|secret|authorization)[^\"']*[\"'][^>]*>[\\s\\S]*?(?:</(?:string|item)>|\\z)")
+    private val manifestSecret = Regex("(?i)<meta-data\\b[^>]*\\b(?:android:)?name=[\"'][^\"']*(?:api[_-]?key|token|password|secret|authorization)[^\"']*[\"'][^>]*>")
     private val auth = Regex("(?i)\\b(?:Bearer|Basic)\\s+[A-Za-z0-9+/_=.-]{8,}")
     private val userInfo = Regex("https?://[^\\s/:@]+:[^\\s/@]+@")
 
@@ -13,6 +14,7 @@ internal object RepositoryRedaction {
         val ranges = mutableListOf<IntRange>()
         privateKey.findAll(source).forEach { ranges.add(it.range) }
         xmlSecret.findAll(source).forEach { ranges.add(it.range) }
+        manifestSecret.findAll(source).forEach { ranges.add(it.range) }
         for (match in valueStart.findAll(source)) {
             val start = match.range.last + 1
             if (start >= source.length) continue
