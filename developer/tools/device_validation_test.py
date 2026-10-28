@@ -542,6 +542,18 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(validation.ValidationError):
             validation.parse_task("ActivityRecord{a u0 malicious.com.jarvis.developer/.MainActivity t5}")
 
+    def test_launcher_identity_uses_live_history_and_rejects_conflicting_live_or_resumed_tasks(self):
+        live = "* Hist #0: ActivityRecord{a u0 com.jarvis.developer/.MainActivity t5}\n"
+        stale = "mLastPausedActivity: ActivityRecord{b u0 com.jarvis.developer/.MainActivity t8}\n"
+        resumed = "topResumedActivity=ActivityRecord{a u0 com.jarvis.developer/.MainActivity t5}\n"
+        self.assertEqual("5", validation.parse_task(live + stale + resumed))
+        with self.assertRaisesRegex(validation.ValidationError, "ambiguous_or_missing_launcher_task"):
+            validation.parse_task(live + live.replace("t5", "t8"))
+        with self.assertRaisesRegex(validation.ValidationError, "ambiguous_or_missing_launcher_task"):
+            validation.parse_task(live + resumed.replace("t5", "t8"))
+        with self.assertRaisesRegex(validation.ValidationError, "ambiguous_or_missing_launcher_task"):
+            validation.parse_task(stale)
+
     def test_password_prefill_requires_exact_raw_or_exact_length_mask(self):
         sentinel = validation.FAKE_PROVIDER
         for text in (sentinel, "\u2022" * len(sentinel), "*" * len(sentinel)):

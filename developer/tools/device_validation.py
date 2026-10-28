@@ -395,12 +395,19 @@ def parse_pid(text):
 def parse_task(text):
     records = []
     for line in text.splitlines():
-        if "ActivityRecord{" in line and re.search(
+        # dumpsys also includes last-paused/destroyed records from earlier profile
+        # scenarios. Only the live task history can establish launcher continuity.
+        if re.search(r"^\s*\*\s*(?:Hist #[0-9]+:\s*)?ActivityRecord\{", line) and re.search(
                 r"(?<![A-Za-z0-9_.])com\.jarvis\.developer/(?:\.MainActivity|com\.jarvis\.developer\.MainActivity)(?:\s|\})", line):
             match = re.search(r"\bt([1-9][0-9]{0,8})\b", line)
             require(match is not None, "unsupported_launcher_task_record")
             records.append(match.group(1))
     require(len(set(records)) == 1, "ambiguous_or_missing_launcher_task")
+    for line in text.splitlines():
+        if ("mResumedActivity" in line or "topResumedActivity" in line) and re.search(
+                r"(?<![A-Za-z0-9_.])com\.jarvis\.developer/(?:\.MainActivity|com\.jarvis\.developer\.MainActivity)(?:\s|\})", line):
+            match = re.search(r"\bt([1-9][0-9]{0,8})\b", line)
+            require(match is not None and match.group(1) == records[0], "ambiguous_or_missing_launcher_task")
     return records[0]
 
 
