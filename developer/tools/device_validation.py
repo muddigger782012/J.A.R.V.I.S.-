@@ -531,7 +531,7 @@ class HostUi:
         raise ValidationError("required_ui_target_not_observable")
 
     def navigate(self, label):
-        require(label in ("Settings", "Activity", "Advanced tools", "Self-development", "Release verification"),
+        require(label in ("Settings", "Activity", "Advanced tools", "Self-development", "Testing and repair", "Release verification"),
                 "navigation_action_not_allowlisted")
         node, _ = self.find(lambda item: item.get("class") == "android.widget.Button"
                             and item.get("text", "").removesuffix("  ▼").removesuffix("  ▲") == label)
@@ -581,7 +581,8 @@ class HostUi:
         health = False
         routes = ((), ("Settings",), ("Activity",),
                   ("Settings", "Advanced tools", "Self-development"),
-                  ("Settings", "Advanced tools", "Release verification"))
+                  ("Settings", "Advanced tools", "Testing and repair"),
+                   ("Settings", "Advanced tools", "Release verification"))
         for route in routes:
             for label in route:
                 self.navigate(label)
