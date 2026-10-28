@@ -8,6 +8,10 @@ import java.security.MessageDigest
 
 /** Admission/status metadata for cross-app reviews; existing source-plan stores remain authoritative. */
 class DevelopmentJobInbox(directory: File, private val now: () -> Long = System::currentTimeMillis) {
+    internal enum class LocalControl(val kind: String, val label: String) {
+        PAUSE("task.pause.request", "Pause task"), RESUME("task.resume.request", "Resume task"),
+        CANCEL("task.cancel.request", "Cancel task"), RETRY("task.retry.request", "Retry read-only work")
+    }
     private companion object { val processIdentity = java.util.UUID.randomUUID().toString() }
     private val checkpoint = PrivateCheckpointFile(directory, "development-inbox.bin", 32, 1_048_576)
     private fun hash(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
@@ -264,11 +268,44 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
                 .put("id", request.requestId).put("fingerprint", fingerprint).put("mode", request.mode)
             save(jobs); return@transaction reviewReply(job, request, false)
         }
+        applyControl(jobs, job, request, fingerprint, "assistant_bridge")
+    }
+
+    /** In-process owner controls are not RPCs and cannot grant source or installation approval. */
+    internal fun localControls(jobId: String, revision: Long, mode: String, personal: Boolean): List<LocalControl> = checkpoint.transaction {
+        val job = load().singleOrNull { it.getString("id") == jobId } ?: reject("NOT_FOUND")
+        if (job.getLong("revision") != revision) return@transaction emptyList()
+        try { localPolicy(job, mode, personal) } catch (_: Wire.Rejected) { return@transaction emptyList() }
+        LocalControl.entries.filter { action ->
+            if (action == LocalControl.CANCEL && job.getString("state") == "CANCELLED") false
+            else try { nextControlState(job, localRequest(job, revision, mode, action)); true }
+            catch (_: Wire.Rejected) { false }
+        }
+    }
+
+    internal fun controlLocal(jobId: String, revision: Long, mode: String, personal: Boolean,
+        action: LocalControl): JSONObject = checkpoint.transaction {
+        val jobs = load(); val job = jobs.singleOrNull { it.getString("id") == jobId } ?: reject("NOT_FOUND")
+        localPolicy(job, mode, personal)
+        val request = localRequest(job, revision, mode, action)
+        Wire.validate(request)
+        applyControl(jobs, job, request, Wire.fingerprint(request), "developer_ui")
+    }
+    private fun localRequest(job: JSONObject, revision: Long, mode: String, action: LocalControl) =
+        Wire.Request("owner-" + java.util.UUID.randomUUID(), action.kind, mode = mode,
+            jobId = job.getString("id"), expectedRevision = revision)
+    private fun localPolicy(job: JSONObject, mode: String, personal: Boolean) {
+        val callerPersonal = Wire.personalPackage(job.getString("caller"))
+        if (!Wire.permitsMode(mode, personal, callerPersonal) ||
+            !Wire.permitsMode(Wire.decode(job.getString("request")).mode, personal, callerPersonal)) reject("POLICY_REQUIRED")
+    }
+    private fun nextControlState(job: JSONObject, request: Wire.Request): String {
+        if (request.expectedRevision != job.getLong("revision")) reject("CONFLICT")
         if (request.kind in setOf("task.resume.request", "task.retry.request") &&
             request.mode != Wire.decode(job.getString("request")).mode) reject("POLICY_REQUIRED")
         val state = job.getString("state")
         val engineering = job.optJSONObject("engineering")
-        val next = when (request.kind) {
+        return when (request.kind) {
             "task.cancel.request" -> "CANCELLED"
             "task.pause.request" -> if (state in setOf("QUEUED", "RUNNING", "AWAITING_APPROVAL", "COMMITTING", "OUTCOME_UNKNOWN", "VERIFYING")) "PAUSED" else reject("CONFLICT")
             "task.resume.request" -> if (state == "PAUSED") {
@@ -278,14 +315,22 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
             "task.retry.request" -> {
                 if (state !in setOf("CANCELLED", "FAILED", "REVIEW_REQUIRED") || job.getInt("attempts") >= 3) reject("RETRY_BLOCKED")
                 if (engineering != null && !engineering.has("commit")) reject("RETRY_BLOCKED")
-                engineering?.put("polls", 0)
-                job.put("attempts", job.getInt("attempts") + 1)
                 if (engineering == null) "QUEUED" else "VERIFYING"
             }
             else -> reject("INVALID_REQUEST")
         }
+    }
+    private fun applyControl(jobs: MutableList<JSONObject>, job: JSONObject, request: Wire.Request,
+        fingerprint: String, origin: String): JSONObject {
+        val next = nextControlState(job, request)
+        val state = job.getString("state")
+        val engineering = job.optJSONObject("engineering")
         val receipts = job.getJSONArray("receipts")
         if (receipts.length() >= 100) reject("AUDIT_FULL")
+        if (request.kind == "task.retry.request") {
+            engineering?.put("polls", 0)
+            job.put("attempts", job.getInt("attempts") + 1)
+        }
         job.put("state", next).put("revision", job.getLong("revision") + 1L)
         job.remove("lease"); job.remove("problem")
         engineering?.remove("readLease")
@@ -304,9 +349,9 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
                 if (next == "CANCELLED") "BLOCKED" else "PENDING")
         }
         receipts.put(JSONObject().put("id", request.requestId).put("fingerprint", fingerprint).put("kind", request.kind)
-            .put("mode", request.mode).put("from", state).put("to", next).put("revision", job.getLong("revision")).put("at", now()))
+            .put("mode", request.mode).put("origin", origin).put("from", state).put("to", next).put("revision", job.getLong("revision")).put("at", now()))
         save(jobs)
-        view(job).put("duplicate", false)
+        return view(job).put("duplicate", false)
     }
 
     fun pendingReviews(): List<Pair<String, String>> = checkpoint.transaction {

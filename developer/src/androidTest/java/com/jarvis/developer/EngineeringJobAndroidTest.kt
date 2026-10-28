@@ -125,4 +125,18 @@ class EngineeringJobAndroidTest {
             assertFalse(restored.getBoolean("deviceVerified")); assertTrue(f.inbox().recoverableEngineeringJobs().isEmpty())
         } finally { f.directory.deleteRecursively() }
     }
+    @Test fun localPauseAndResumeCannotRestoreAnEarlierSourceApproval() {
+        val f = fixture()
+        try {
+            val state = f.inbox().localSnapshot().single()
+            val paused = f.inbox().controlLocal(f.job, state.getLong("revision"), "supervised", true,
+                DevelopmentJobInbox.LocalControl.PAUSE)
+            val resumed = f.inbox().controlLocal(f.job, paused.getLong("revision"), "supervised", true,
+                DevelopmentJobInbox.LocalControl.RESUME)
+            assertEquals("AWAITING_APPROVAL", resumed.getString("state"))
+            assertThrows(IllegalArgumentException::class.java) { f.inbox().claimEngineering(f.draft, f.approval, true) }
+            assertFalse(resumed.getBoolean("sourceVerified"))
+            assertTrue(f.inbox().recoverableEngineeringJobs().isEmpty())
+        } finally { f.directory.deleteRecursively() }
+    }
 }
