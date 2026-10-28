@@ -623,6 +623,8 @@ class HostUi:
                 if self.signature(nodes) == previous:
                     break
         # Report missing names and booleans, never field values or raw UI content.
+        # Distinguish an absent gate from a gate exposed with a non-exact label.
+        # Only fixed expected labels are emitted; no raw hierarchy is retained.
         missing_fields = sorted(hint for hint, observed in required.items() if not observed)
         missing_gates = sorted(label for label, observed in gates.items() if not observed)
         raise ValidationError(
