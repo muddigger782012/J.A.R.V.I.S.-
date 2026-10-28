@@ -48,15 +48,19 @@ object CodingAssistantProvider {
         override fun close() { try { body.close() } finally { disconnect() } }
     }
 
-    private val http = PostTransport { request ->
+    internal fun http(cancellation: PatchPreviewCancellation? = null,
+        open: (String) -> HttpURLConnection = { URL(it).openConnection() as HttpURLConnection }): PostTransport = PostTransport { request ->
+        cancellation?.check()
         requireProviderUrl(request.url)
         require(request.body.size <= MAX_REQUEST_BYTES)
-        val connection = URL(request.url).openConnection() as HttpURLConnection
+        val connection = open(request.url)
         val deadline = Timer("JarvisDeveloper-AssistantTimeout", true)
         deadline.schedule(object : TimerTask() {
             override fun run() { try { connection.disconnect() } catch (_: Exception) { /* never log provider errors */ } }
         }, MAX_SESSION_MILLIS)
+        val stop = cancellation?.registerStop { deadline.cancel(); connection.disconnect() }
         try {
+            cancellation?.check()
             connection.requestMethod = "POST"
             connection.instanceFollowRedirects = false
             connection.doOutput = true
@@ -72,26 +76,32 @@ object CodingAssistantProvider {
             // Error bodies can reflect credentials; never open or render them.
             val body = if (status in 200..299) connection.inputStream else ByteArrayInputStream(byteArrayOf())
             PostResponse(status, connection.contentLengthLong, connection.url.toString(), body) {
+                stop?.close()
                 deadline.cancel()
                 connection.disconnect()
             }
         } catch (e: java.net.SocketTimeoutException) {
+            stop?.close()
             deadline.cancel()
             connection.disconnect()
             throw ProviderFailure("AI provider did not respond within the network timeout. Test the connection in Settings, then try a shorter request or another available model.")
         } catch (e: java.net.UnknownHostException) {
+            stop?.close()
             deadline.cancel()
             connection.disconnect()
             throw ProviderFailure("AI provider hostname could not be resolved. Check internet or DNS.")
         } catch (e: java.net.ConnectException) {
+            stop?.close()
             deadline.cancel()
             connection.disconnect()
             throw ProviderFailure("Could not connect to the AI provider. Check network access.")
         } catch (e: ProviderFailure) {
+            stop?.close()
             deadline.cancel()
             connection.disconnect()
             throw e
         } catch (_: Exception) {
+            stop?.close()
             deadline.cancel()
             connection.disconnect()
             throw IllegalStateException(FAILURE)
@@ -147,17 +157,23 @@ object CodingAssistantProvider {
         return available.toList()
     }
 
-    fun ask(provider: String, key: String, model: String, task: String): String = Client(http).ask(provider, key, model, task)
+    fun ask(provider: String, key: String, model: String, task: String): String = Client(http()).ask(provider, key, model, task)
+
+    internal fun ask(provider: String, key: String, model: String, task: String, cancellation: PatchPreviewCancellation): String =
+        Client(http(cancellation), cancellation = cancellation).ask(provider, key, model, task)
 
     /** Small bounded request for checking credentials/model access without a full coding response. */
     fun testConnection(provider: String, key: String, model: String): String =
-        Client(http).ask(provider, key, model, "Reply with the single word connected.", 64)
+        Client(http()).ask(provider, key, model, "Reply with the single word connected.", 64)
 
     /** One text request, no retries. Injectable dependencies are instance-local and internal to tests. */
     internal class Client(
         private val transport: PostTransport,
-        private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 }
+        private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
+        private val cancellation: PatchPreviewCancellation? = null
     ) {
+        constructor(transport: PostTransport, nowMillis: () -> Long) : this(transport, nowMillis, null)
+
         fun ask(provider: String, key: String, model: String, task: String, maxOutputTokens: Int = 8192): String {
             try {
                 val started = nowMillis()
@@ -209,6 +225,7 @@ object CodingAssistantProvider {
         }
 
         private fun checkBudget(started: Long) {
+            cancellation?.check()
             if (nowMillis() - started !in 0 until MAX_SESSION_MILLIS)
                 throw ProviderFailure("AI request exceeded the 90-second session limit. Try a smaller task or faster model.")
         }
