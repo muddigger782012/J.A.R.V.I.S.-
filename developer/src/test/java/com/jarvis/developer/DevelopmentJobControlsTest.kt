@@ -34,7 +34,7 @@ class DevelopmentJobControlsTest {
             inbox.localControls(job.getString("id"), 0, "supervised", true), { "supervised" }, { true }, { changed++ },
             DevelopmentJobControls.Services(accepted = { _, _, _ ->
                 scheduled++; if (schedulerFailure) throw IllegalStateException("private-credential-marker")
-            }, worker = { work = it }))
+            }, worker = { work = it }), githubToken = { fail("Pause must not read a GitHub credential"); "" })
         fun button(text: String) = DeveloperUiState.descendants(panel).filterIsInstance<Button>().single { it.text.toString() == text }
         button("Pause task").performClick(); button("Pause task").performClick()
         assertNotNull(work)

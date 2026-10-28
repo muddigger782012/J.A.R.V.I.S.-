@@ -109,7 +109,7 @@ object DevelopmentInboxWorkbench {
                                 val (paths, savedGoal, controls) = scopes.getValue(job.getString("id"))
                                 DevelopmentJobControls.attach(activity, panel, inbox, job, controls,
                                     { preferences.getString("mode", "supervised") ?: "supervised" },
-                                    { generation == displayGeneration }, ::refresh)
+                                    { generation == displayGeneration }, ::refresh, githubToken = githubToken)
                                 DevelopmentArtifactWorkbench.attach(activity, panel, inbox, job, githubToken)
                                 if (job.getBoolean("sourceVerified")) panel.addView(button("Review this verified commit on GitHub") {
                                     runCatching {

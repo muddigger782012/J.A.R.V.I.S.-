@@ -26,11 +26,12 @@ internal object DevelopmentJobControlEffects {
 internal object DevelopmentJobControls {
     internal class Services(
         val accepted: (Context, DevelopmentJobInbox, JSONObject) -> Unit = DevelopmentJobControlEffects::accepted,
+        val credentials: (JSONObject, String) -> Unit = DevelopmentEngineeringCredentials::rememberForRead,
         val worker: (() -> Unit) -> Unit = { work -> thread(name = "developer-job-control", isDaemon = true) { work() }; Unit }
     )
     fun attach(activity: Activity, parent: LinearLayout, inbox: DevelopmentJobInbox, job: JSONObject,
         actions: List<DevelopmentJobInbox.LocalControl>, mode: () -> String,
-        isCurrent: () -> Boolean, changed: () -> Unit, services: Services = Services()) {
+        isCurrent: () -> Boolean, changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }) {
         if (actions.isEmpty()) return
         val status = TextView(activity).apply {
             text = "Controls stop local work and monitoring. Remote operations already submitted may finish. Source-write and installation approvals are never restored."
@@ -52,11 +53,15 @@ internal object DevelopmentJobControls {
                 if (pending || !isCurrent()) return@setOnClickListener
                 pending = true; buttons.forEach { it.isEnabled = false }
                 val selectedMode = mode()
+                val readToken = if (action in setOf(DevelopmentJobInbox.LocalControl.RESUME, DevelopmentJobInbox.LocalControl.RETRY)) githubToken() else ""
                 status.text = "Saving task control…"
                 services.worker {
                     val result = runCatching { inbox.controlLocal(job.getString("id"), job.getLong("revision"),
                         selectedMode, Wire.personalPackage(activity.packageName), action) }
-                    val scheduled = result.mapCatching { state -> services.accepted(activity.applicationContext, inbox, state) }
+                    val scheduled = result.mapCatching { state ->
+                        services.credentials(state, readToken)
+                        services.accepted(activity.applicationContext, inbox, state)
+                    }
                     activity.runOnUiThread {
                         if (activity.isFinishing || activity.isDestroyed || !isCurrent()) return@runOnUiThread
                         pending = false
