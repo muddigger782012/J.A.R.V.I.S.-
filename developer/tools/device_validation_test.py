@@ -596,6 +596,11 @@ class ContractTests(unittest.TestCase):
     def test_ime_visibility_requires_positive_observation_before_back(self):
         self.assertTrue(validation.ime_shown("mInputShown=true mIsInputViewShown=true"))
         self.assertFalse(validation.ime_shown("mInputShown=false"))
+        self.assertFalse(validation.ime_shown("mInputShown=true mImeWindowVis=0x1"))
+        self.assertTrue(validation.ime_shown("mInputShown=false mImeWindowVis=3"))
+        self.assertFalse(validation.ime_shown("mInputShown=true mIsInputViewShown=false"))
+        with self.assertRaisesRegex(validation.ValidationError, "ime_visibility_ambiguous"):
+            validation.ime_shown("mImeWindowVis=0x1 mImeWindowVis=0x3")
         with self.assertRaises(validation.ValidationError):
             validation.ime_shown("No active keyboard information")
 

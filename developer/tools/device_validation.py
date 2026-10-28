@@ -464,6 +464,18 @@ def filled_field_proof(node, sentinel):
 
 
 def ime_shown(text):
+    # mInputShown describes the input-method session and can stay true with a
+    # hardware keyboard. Prefer the actual IME window's VISIBLE bit (0x2), then
+    # the input view, before falling back to older service-only diagnostics.
+    windows = re.findall(r"\bmImeWindowVis=(0x[0-9a-fA-F]+|[0-9]+)\b", text)
+    if windows:
+        visibility = {bool(int(value, 16 if value.startswith("0x") else 10) & 2) for value in windows}
+        require(len(visibility) == 1, "ime_visibility_ambiguous")
+        return visibility.pop()
+    views = re.findall(r"\bmIsInputViewShown=(true|false)\b", text)
+    if views:
+        require(len(set(views)) == 1, "ime_visibility_ambiguous")
+        return views[0] == "true"
     values = re.findall(r"\b(?:mInputShown|mIsInputViewShown)=(true|false)\b", text)
     require(bool(values), "ime_visibility_not_observable")
     return "true" in values
