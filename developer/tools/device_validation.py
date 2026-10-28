@@ -545,8 +545,9 @@ class HostUi:
         # can finish the Activity on emulators using a hardware keyboard.
         if ime_shown(self.adb.run("shell", "dumpsys", "input_method", max_bytes=262144).text):
             self.adb.run("shell", "input", "keyevent", "KEYCODE_BACK")
-            require(not ime_shown(self.adb.run("shell", "dumpsys", "input_method",
-                                              max_bytes=262144).text), "ime_did_not_hide")
+            wait_for(lambda: not ime_shown(self.adb.run("shell", "dumpsys", "input_method",
+                                                       max_bytes=262144).text),
+                     "ime_did_not_hide", pause=0.1, sleeper=time.sleep)
         focused = [item for item in own_nodes(self.dump(), "EditText") if item.get("focused") == "true"]
         require(len(focused) == 1 and filled_field_proof(focused[0], sentinel),
                 "prefill_not_observable_password_redaction_unsupported")

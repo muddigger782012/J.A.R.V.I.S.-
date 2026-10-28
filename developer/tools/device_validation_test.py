@@ -610,6 +610,29 @@ class ContractTests(unittest.TestCase):
         self.assertIn(("shell", "input", "text", validation.FAKE_PROVIDER), adb.commands)
         self.assertFalse(any("KEYCODE_BACK" in command for command in adb.commands))
 
+    def test_keyboard_close_waits_for_native_transition_without_sending_a_second_back(self):
+        class KeyboardAdb:
+            def __init__(self):
+                self.commands = []
+                self.states = iter(("true", "true", "false"))
+            def run(self, *args, **kwargs):
+                self.commands.append(args)
+                if args == ("shell", "dumpsys", "input_method"):
+                    return validation.Result(0, "mInputShown=" + next(self.states))
+                return validation.Result(0, "")
+        adb = KeyboardAdb()
+        ui = validation.HostUi(adb)
+        ui.navigate = lambda label: None
+        field = node("EditText", validation.PROVIDER_HINT, focused="true")
+        scroll = node("ScrollView", bounds="[0,0][320,640]")
+        ui.find = lambda _: (field, [scroll, field])
+        dumps = iter(([field], [node("EditText", "*" * len(validation.FAKE_PROVIDER), focused="true")]))
+        ui.dump = lambda: next(dumps)
+        with patch.object(validation.time, "sleep"):
+            ui.enter(validation.PROVIDER_HINT, validation.FAKE_PROVIDER)
+        self.assertEqual(1, adb.commands.count(("shell", "input", "keyevent", "KEYCODE_BACK")))
+        self.assertEqual(3, adb.commands.count(("shell", "dumpsys", "input_method")))
+
     def test_changed_focus_aborts_before_typing_any_sentinel(self):
         adb = MagicMock()
         ui = validation.HostUi(adb)
