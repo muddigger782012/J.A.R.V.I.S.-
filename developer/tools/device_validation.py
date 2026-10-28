@@ -579,6 +579,8 @@ class HostUi:
         required = {hint: False for hint in (PROVIDER_HINT, TOKEN_HINT, REVIEW_HINT)}
         gates = {label: False for label in (*GATE_BUTTONS, *GATE_CHECKBOXES)}
         health = False
+        disabled_button_counts = {}
+        gate_accessibility_matches = {label: False for label in GATE_BUTTONS}
         routes = ((), ("Settings",), ("Activity",),
                   ("Settings", "Advanced tools", "Self-development"),
                   ("Settings", "Advanced tools", "Testing and repair"),
@@ -587,8 +589,14 @@ class HostUi:
             for label in route:
                 self.navigate(label)
             nodes = self.top()
+            disabled_button_signatures = set()
             for _ in range(25):
                 for node in own_nodes(nodes):
+                    if node.get("class") == "android.widget.Button" and node.get("enabled") == "false":
+                        disabled_button_signatures.add((node.get("text", ""), node.get("content-desc", "")))
+                        for gate in GATE_BUTTONS:
+                            if node.get("content-desc") == gate:
+                                gate_accessibility_matches[gate] = True
                     text, klass = node.get("text", ""), node.get("class", "")
                     if klass == "android.widget.EditText":
                         for hint in required:
@@ -622,6 +630,7 @@ class HostUi:
                 nodes = self.dump()
                 if self.signature(nodes) == previous:
                     break
+            disabled_button_counts["/".join(route) or "Home"] = len(disabled_button_signatures)
         # Report missing names and booleans, never field values or raw UI content.
         # Distinguish an absent gate from a gate exposed with a non-exact label.
         # Only fixed expected labels are emitted; no raw hierarchy is retained.
@@ -631,6 +640,8 @@ class HostUi:
             "fresh_fields_gates_or_unconfirmed_health_not_observable"
             + "; missing_fields=" + repr(missing_fields)
             + "; missing_gates=" + repr(missing_gates)
+            + "; disabled_button_counts=" + repr(disabled_button_counts)
+            + "; gate_accessibility_matches=" + repr(sorted(label for label, found in gate_accessibility_matches.items() if found))
             + "; unconfirmed_health_visible=" + str(health)
         )
 
