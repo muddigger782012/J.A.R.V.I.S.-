@@ -109,10 +109,19 @@ class DevelopmentArtifactHandoffAndroidTest {
             var visible = false
             while (SystemClock.uptimeMillis() < deadline) {
                 opened = call("task.status.request", job = job)
-                fun hasReview(node: android.view.accessibility.AccessibilityNodeInfo): Boolean =
-                    node.contentDescription?.toString() == "Verified APK review from Assistant" && node.isVisibleToUser ||
-                        (0 until node.childCount).any { i -> node.getChild(i)?.let(::hasReview) == true }
-                visible = instrumentation.uiAutomation.rootInActiveWindow?.let(::hasReview) == true
+                val root = instrumentation.uiAutomation.rootInActiveWindow
+                visible = root?.let { window ->
+                    // API 26 can retain children from before the cross-app handoff. Query the
+                    // current application window instead of traversing its cached descendants.
+                    if (!window.refresh() || window.packageName?.toString() != Wire.DEVELOPER_PACKAGE) false else {
+                        val matches = window.findAccessibilityNodeInfosByText("Verified APK review from Assistant")
+                        try {
+                            matches.any { node -> node.refresh() &&
+                                node.contentDescription?.toString() == "Verified APK review from Assistant" && node.isVisibleToUser }
+                        } finally { matches.forEach { it.recycle() } }
+                    }
+                } == true
+                root?.recycle()
                 if (opened.optJSONObject("artifactReview")?.optBoolean("consumed") == true && visible) break
                 SystemClock.sleep(150)
             }
