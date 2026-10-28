@@ -26,8 +26,11 @@ import kotlin.concurrent.thread
 object DevelopmentInboxWorkbench {
     internal class Services(
         val inbox: (Activity) -> DevelopmentJobInbox = { DevelopmentJobInbox(java.io.File(it.noBackupFilesDir.canonicalFile, "development-inbox")) },
-        val worker: (() -> Unit) -> Unit = { work -> thread(name = "developer-inbox-read", isDaemon = true) { work() }; Unit }
+        val worker: (() -> Unit) -> Unit = { work -> thread(name = "developer-inbox-read", isDaemon = true) { work() }; Unit },
+        val drafts: (Activity) -> DevelopmentJobDrafts = { DevelopmentJobDrafts(java.io.File(it.noBackupFilesDir.canonicalFile, "development-inbox")) }
     )
+    private data class Editor(val paths: List<String>, val goal: String,
+        val controls: List<DevelopmentJobInbox.LocalControl>, val draft: Result<DevelopmentJobDrafts.Snapshot>?)
     class Handle internal constructor(val view: LinearLayout, private val select: (String) -> Unit,
         private val state: () -> Bundle) {
         fun focus(job: String) = select(job)
@@ -50,7 +53,7 @@ object DevelopmentInboxWorkbench {
         var restoredScroll = runCatching { restoredState?.getInt("scrollY", -1)?.takeIf { it >= 0 }?.coerceAtMost(1_000_000) }.getOrNull()
         var refreshAction: () -> Unit = {}
         lateinit var inboxSection: LinearLayout
-        val taskDrafts = mutableMapOf<String, Pair<String, String>>()
+        val taskDrafts = mutableMapOf<DevelopmentJobDrafts.Key, Pair<String, String>>()
         fun label(text: String) = TextView(activity).apply {
             this.text = text; setTextColor(activity.getColor(R.color.developer_secondary)); textSize = 15f
             setPadding(8, 12, 8, 12)
@@ -144,8 +147,9 @@ object DevelopmentInboxWorkbench {
                         val scope = if (job.getString("state") in setOf("REVIEW_READY", "AWAITING_APPROVAL"))
                             runCatching { inbox.engineeringPaths(job.getString("id")) to inbox.engineeringGoal(job.getString("id")) }
                                 .getOrDefault(emptyList<String>() to "") else emptyList<String>() to ""
-                        job.getString("id") to Triple(scope.first, scope.second,
-                            inbox.localControls(job.getString("id"), job.getLong("revision"), selectedMode, personal))
+                        job.getString("id") to Editor(scope.first, scope.second,
+                            inbox.localControls(job.getString("id"), job.getLong("revision"), selectedMode, personal),
+                            if (scope.first.isEmpty()) null else runCatching { services.drafts(activity).read(DevelopmentJobDrafts.key(job)) })
                     }
                 }
                 activity.runOnUiThread {
@@ -187,7 +191,7 @@ object DevelopmentInboxWorkbench {
                                 reports[job.getString("id")]?.let { report -> card.addView(button("Open verified-source analysis (partial context)") {
                                     openReview(report)
                                 }) }
-                                val (paths, savedGoal, controls) = scopes.getValue(job.getString("id"))
+                                val (paths, savedGoal, controls, savedDraft) = scopes.getValue(job.getString("id"))
                                 DevelopmentJobControls.attach(activity, card, inbox, job, controls,
                                     { preferences.getString("mode", "supervised") ?: "supervised" },
                                     { generation == displayGeneration }, ::refresh, githubToken = githubToken)
@@ -221,27 +225,31 @@ object DevelopmentInboxWorkbench {
                                     card.addView(resultLabel)
                                 }
                                 if (patch != null && paths.isNotEmpty()) {
+                                    val draftKey = DevelopmentJobDrafts.key(job)
                                     val goal = EditText(activity).apply {
                                         hint = "Describe the change you want Developer to make"
                                         contentDescription = "Requested engineering change"
-                                        setText(taskDrafts[job.getString("id")]?.first ?: savedGoal)
+                                        setText(taskDrafts[draftKey]?.first ?: savedGoal)
                                         minLines = 2
                                     }
                                     val scope = EditText(activity).apply {
                                         hint = "Exact analyzed paths for this task (one per line)"
                                         contentDescription = "Engineering task source scope"
-                                        setText(taskDrafts[job.getString("id")]?.second ?: paths.joinToString("\n")); minLines = 2
+                                        setText(taskDrafts[draftKey]?.second ?: paths.joinToString("\n")); minLines = 2
                                     }
                                     val rememberDraft = object : TextWatcher {
                                         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                                         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
                                         override fun afterTextChanged(s: Editable?) {
-                                            taskDrafts[job.getString("id")] = goal.text.toString().take(12_000) to scope.text.toString().take(12_000)
+                                            taskDrafts[draftKey] = goal.text.toString().take(12_000) to scope.text.toString().take(12_000)
                                         }
                                     }
                                     goal.addTextChangedListener(rememberDraft); scope.addTextChangedListener(rememberDraft)
                                     val outcome = label("Staging does not grant approval. Review every proposed change in the existing coding engine.")
                                     card.addView(goal); card.addView(scope)
+                                    DevelopmentJobDraftWorkbench.attach(activity, card, services.drafts(activity), draftKey,
+                                        requireNotNull(savedDraft), goal, scope, taskDrafts.containsKey(draftKey),
+                                        { generation == displayGeneration }, services.worker, ::button, ::label)
                                     card.addView(button("Prepare this job for exact diff review") {
                                         val result = runCatching {
                                             val selected = scope.text.toString().lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()

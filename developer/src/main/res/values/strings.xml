@@ -2,4 +2,16 @@
 <resources>
     <string name="development_history_reading">Reading development history…</string>
     <string name="development_history_read_failed">History could not be read. Refresh to try again.</string>
+    <string name="development_draft_save">Save task draft on this device</string>
+    <string name="development_draft_forget">Forget saved task draft</string>
+    <string name="development_draft_unavailable">Saved drafts could not be read. Refresh history to retry. You can still edit and review this task.</string>
+    <string name="development_draft_stale">The saved draft belongs to an earlier task state and has not been applied. Save the current text or forget the older copy.</string>
+    <string name="development_draft_restored">Unsent draft recovered from this device. Review the instructions and analyzed paths again; no approval was restored.</string>
+    <string name="development_draft_unsaved">Save this draft to keep these instructions and paths after reopening. Saving grants no approval.</string>
+    <string name="development_draft_saving">Updating the local draft…</string>
+    <string name="development_draft_forgotten">Saved copy removed. Current text remains editable here; source and approvals are unchanged.</string>
+    <string name="development_draft_changed_while_saving">Earlier edits were saved. Your current changes are still unsaved.</string>
+    <string name="development_draft_redacted">Draft saved with recognized credentials omitted. Current text is unchanged; no source change was approved.</string>
+    <string name="development_draft_saved">Draft saved on this device. Reopening does not restore source approval.</string>
+    <string name="development_draft_save_failed">The draft changed elsewhere or storage is unavailable. Current text is unchanged. Refresh history before retrying.</string>
 </resources>
