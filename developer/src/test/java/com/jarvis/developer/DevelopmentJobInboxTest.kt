@@ -7,6 +7,19 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class DevelopmentJobInboxTest {
+    @Test fun localTaskNamesAreReadOnlyAndNeverAddedToTheExternalStatusProtocol() {
+        val inbox = DevelopmentJobInbox(directory.root)
+        val request = Wire.Request("named", "diagnostics.review.request", "Inspect the application startup")
+        val job = inbox.handle(caller, true, request)
+        val before = directory.root.resolve("development-inbox.bin").readBytes()
+        assertEquals(request.body, inbox.localSnapshot().single().getString("summary"))
+        assertEquals(request.kind, inbox.localSnapshot().single().getString("kind"))
+        val status = inbox.handle(caller, true, Wire.Request("status", "task.status.request", jobId = job.getString("id")))
+        assertFalse(status.has("summary")); assertFalse(status.has("kind"))
+        val listed = inbox.handle(caller, true, Wire.Request("list", "task.list.request")).getJSONArray("jobs").getJSONObject(0)
+        assertFalse(listed.has("summary"))
+        assertArrayEquals(before, directory.root.resolve("development-inbox.bin").readBytes())
+    }
     @get:Rule val directory = TemporaryFolder()
     private val caller = "com.assistant.core"
     private fun request(id: String = "review") = Wire.Request(id, "diagnostics.review.request", "Unverified microphone observation")

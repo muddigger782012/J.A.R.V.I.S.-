@@ -28,6 +28,7 @@ class DevelopmentInboxRefreshTest {
         val parent = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(activity).apply { addView(parent) }
         activity.setContentView(scroll)
+        controller.visible()
         val inbox = DevelopmentJobInbox(directory)
         val request = Wire.Request(UUID.randomUUID().toString(), "source.developer.analysis.request", "Improve conversation tone")
         val path = "developer/src/main/java/com/jarvis/developer/ConversationTone.kt"
@@ -62,11 +63,24 @@ class DevelopmentInboxRefreshTest {
             refresh(); awaitFields()
             field("Describe the change you want Developer to make").setText("Keep my revised instructions")
             field("Exact analyzed paths for this task (one per line)").setText(path + "\n")
+            val editor = field("Describe the change you want Developer to make")
+            editor.requestFocus()
+            assertSame(editor, activity.window.decorView.findFocus())
+            // Robolectric keeps Activity.currentFocus separately from the real view tree.
+            shadowOf(activity).setCurrentFocus(editor)
+            assertSame("The history editor must own focus before refresh", editor, activity.currentFocus)
+            assertNotNull("An attached editor must have a window token", editor.windowToken)
+            val input = activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            input.showSoftInput(editor, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
+            assertTrue(shadowOf(input).isSoftInputVisible)
             layout(); scroll.scrollTo(0, 80); assertEquals(80, scroll.scrollY)
-            refresh(); layout(); awaitFields()
+            refresh()
+            assertFalse("Refresh must dismiss the keyboard before replacing focused inputs", shadowOf(input).isSoftInputVisible)
+            layout(); awaitFields()
             assertEquals("Keep my revised instructions", field("Describe the change you want Developer to make").text.toString())
             assertEquals(path + "\n", field("Exact analyzed paths for this task (one per line)").text.toString())
             assertEquals(80, scroll.scrollY)
+            assertFalse(shadowOf(input).isSoftInputVisible)
         } finally {
             controller.pause().stop().destroy()
             directory.deleteRecursively()

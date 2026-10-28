@@ -11,6 +11,13 @@ import java.security.MessageDigest
 import java.util.UUID
 
 class DevelopmentEngineeringTest {
+    @Test fun theLocalTaskTitleUsesTheOwnersStagedGoalWithoutGrantingApproval() {
+        val job = analyzed()
+        inbox().stageEngineering(job, status(job).getLong("revision"), listOf(path), true, "Clarify this task's conversation tone")
+        assertEquals("Clarify this task's conversation tone", inbox().localSnapshot().single().getString("summary"))
+        assertFalse(status(job).getJSONObject("engineering").getBoolean("approvalConsumed"))
+        assertFalse(status(job).getBoolean("sourceVerified"))
+    }
     private fun installedCheck(job: String, mode: String = "supervised") = Wire.Request(UUID.randomUUID().toString(),
         Wire.INSTALLED_APK_CHECK, mode = mode, jobId = job, expectedRevision = status(job).getLong("revision"))
     private fun installedReport(at: Long = System.currentTimeMillis()) = InstalledApkCheck.Report(34, at, 17,

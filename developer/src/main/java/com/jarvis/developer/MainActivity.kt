@@ -39,6 +39,7 @@ class MainActivity : Activity() {
     private var selectPage: ((Int) -> Unit)? = null
     private var artifactReviewIntent: ((Intent) -> Unit)? = null
     private var artifactReviewJob: String? = null
+    private var developmentHistory: DevelopmentInboxWorkbench.Handle? = null
     private var artifactReviewGeneration = 0L
     private var artifactInstallWhenFocused: (() -> Unit)? = null
     private var pendingArtifactInstall: Pair<Long, String>? = null
@@ -52,6 +53,7 @@ class MainActivity : Activity() {
         outState.putString("developer_active_project", activeProject)
         uiRoot?.let { outState.putBundle("developer_drafts", DeveloperUiState.save(it)) }
         artifactReviewJob?.let { outState.putString("developer_artifact_review_job", it) }
+        developmentHistory?.let { outState.putBundle("developer_job_history", it.saveState()) }
         super.onSaveInstanceState(outState)
     }
 
@@ -776,7 +778,9 @@ class MainActivity : Activity() {
             "Describe a change on Home to ask Jarvis for help. Here you can review code, check builds, and use advanced development tools.")
         sectionIntro(settings, "Connect your AI",
             "Choose Gemini or OpenAI, enter your API key, then tap Save connection. The key is encrypted on this device.")
-        val developmentInbox = DevelopmentInboxWorkbench.attach(this, activityPage, settings, patchWorkbench, { githubToken.text.toString().trim() }) { review ->
+        val developmentInbox = DevelopmentInboxWorkbench.attach(this, activityPage, settings, patchWorkbench,
+            { githubToken.text.toString().trim() }, savedInstanceState?.getBundle("developer_job_history"),
+            { artifactReviewJob = null }) { review ->
             // Preserve the validated legacy diagnostic format for PersonalRepair.parse.
             // The text watcher invalidates any previously staged proposal before loading it.
             prompt.setText(review)
@@ -784,6 +788,7 @@ class MainActivity : Activity() {
             status.text = "Unapproved diagnostic review loaded."
             selectPage?.invoke(0)
         }
+        developmentHistory = developmentInbox
         // Keep updates discoverable in Settings instead of hiding them under developer tools.
         (updates.parent as? android.view.ViewGroup)?.removeView(updates)
         settings.addView(TextView(this).apply {
