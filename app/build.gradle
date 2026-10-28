@@ -11,6 +11,7 @@ android {
         applicationId "com.assistant.core"
         minSdk 26
         targetSdk 34
+        manifestPlaceholders.personalReminderEnabled = "true"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // CI supplies monotonically increasing values from the GitHub Actions run number.
         // Local builds retain a safe baseline above all historical versionCode 24 installs.
@@ -67,6 +68,7 @@ android {
             initWith release
             applicationIdSuffix ".beta"
             versionNameSuffix "-beta"
+            manifestPlaceholders.personalReminderEnabled = "false"
             matchingFallbacks = ["release"]
             resValue "string", "install_package", "com.assistant.core.beta"
             buildConfigField "String", "GITHUB_UPDATE_APK_PATH", "\"artifacts/beta.apk\""
@@ -88,6 +90,22 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // Harmless real-window/IPC acceptance fixtures never enter personal release or Beta APKs.
+    sourceSets {
+        main.java.srcDir(rootProject.file('integration/src/main/kotlin'))
+        if (providers.gradleProperty('jarvisDevelopmentIntegration').orElse('false').get() == 'true') {
+            androidTest.java.srcDir 'src/developmentIntegrationTest/java'
+        }
+        debug {
+            java.srcDir 'src/acceptance/java'
+            manifest.srcFile 'src/acceptance/AndroidManifest.xml'
+        }
+        voiceCheck {
+            java.srcDir 'src/acceptance/java'
+            manifest.srcFile 'src/acceptance/AndroidManifest.xml'
+        }
     }
     kotlinOptions {
         jvmTarget = '17'

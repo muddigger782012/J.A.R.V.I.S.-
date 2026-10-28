@@ -10,7 +10,7 @@ import com.assistant.core.services.VoiceConfig
 import com.assistant.core.services.VoicePreferences
 import com.google.android.material.switchmaterial.SwitchMaterial
 
-class VoiceSettingsActivity : ThemedActivity() {
+class VoiceSettingsActivity : MenuActivity("Wake word and listening", R.id.btnCloseVoiceSettings) {
 
     private lateinit var voicePreferences: VoicePreferences
 
@@ -53,6 +53,13 @@ class VoiceSettingsActivity : ThemedActivity() {
             examples.visibility = if (examples.visibility == android.view.View.VISIBLE) android.view.View.GONE else android.view.View.VISIBLE
         }
         val saveButton: Button = findViewById(R.id.btnSaveVoiceSettings)
+        val timing = getSharedPreferences("voice_settings", MODE_PRIVATE)
+        val pauseInput: EditText = findViewById(R.id.etSpeechPauseMillis)
+        val maximumInput: EditText = findViewById(R.id.etCaptureMaximumSeconds)
+        val liveIdleInput: EditText = findViewById(R.id.etLiveIdleMinutes)
+        pauseInput.setText(timing.getLong("speech_pause_millis", 2500).coerceIn(1000, 10_000).toString())
+        maximumInput.setText((timing.getLong("capture_max_millis", 180_000).coerceIn(60_000, 600_000) / 1000).toString())
+        liveIdleInput.setText((timing.getLong("live_idle_millis", 300_000).coerceIn(60_000, 1_800_000) / 60_000).toString())
 
         dedicatedSwitch.isChecked = current.enableDedicatedWakeWord
         wakeWordInput.setText(current.wakeWord)
@@ -96,6 +103,16 @@ class VoiceSettingsActivity : ThemedActivity() {
         })
 
         saveButton.setOnClickListener {
+            val pause = pauseInput.text.toString().toLongOrNull()
+            val maximum = maximumInput.text.toString().toLongOrNull()
+            val liveIdle = liveIdleInput.text.toString().toLongOrNull()
+            if (pause == null || pause !in 1000..10_000) { pauseInput.error = getString(R.string.voice_pause_range); return@setOnClickListener }
+            if (maximum == null || maximum !in 60..600) { maximumInput.error = getString(R.string.voice_capture_range); return@setOnClickListener }
+            if (liveIdle == null || liveIdle !in 1..30) { liveIdleInput.error = getString(R.string.voice_live_idle_range); return@setOnClickListener }
+            if (!timing.edit().putLong("speech_pause_millis", pause).putLong("capture_max_millis", maximum * 1000)
+                    .putLong("live_idle_millis", liveIdle * 60_000).commit()) {
+                pauseInput.error = getString(R.string.voice_timing_save_failed); return@setOnClickListener
+            }
             val config = VoiceConfig(
                 enableDedicatedWakeWord = dedicatedSwitch.isChecked,
                 wakeWord = wakeWordInput.text?.toString().orEmpty(),

@@ -1,11 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Camera and calling stay available on capable phones; neither is required to use Jarvis. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <queries>
+        <package android:name="com.jarvis.developer" />
+        <package android:name="com.jarvis.connectionmanager" />
         <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
         <intent><action android:name="android.speech.RecognitionService" /></intent>
         <package android:name="moe.shizuku.privileged.api" />
         <package android:name="rikka.shizuku" />
+        <package android:name="com.rosan.dhizuku" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -13,7 +21,10 @@
     </queries>
 
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="com.jarvis.developer.permission.DEVELOPMENT_BRIDGE_V1" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -30,13 +41,18 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <!-- User-approved Settings.ACTION_MANAGE_WRITE_SETTINGS access, checked with Settings.System.canWrite.
+         This supported special-access declaration is not an automatic system/signature grant. -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+    <!-- User-approved Settings.ACTION_USAGE_ACCESS_SETTINGS access, checked through OPSTR_GET_USAGE_STATS.
+         Keep the declaration needed by that supported AppOps flow; it grants no access by itself. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
@@ -51,7 +67,34 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.AssistantPlatform">
+        <receiver android:name=".services.ScreenTaskCancelReceiver" android:exported="false" android:process=":wake" />
+        <provider android:name=".services.ScreenAccessProvider"
+            android:authorities="${applicationId}.screen-access"
+            android:exported="false" android:grantUriPermissions="false" />
+        <provider android:name=".services.RuntimeSettingsProvider"
+            android:authorities="${applicationId}.runtime-settings"
+            android:exported="false" android:grantUriPermissions="false" />
+        <receiver android:name=".JarvisHudWidgetProvider" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/jarvis_info_widget" />
+        </receiver>
+        <receiver android:name=".JarvisReactorWidgetProvider" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/jarvis_reactor_widget" />
+        </receiver>
+        <!-- HUD opens only when explicitly selected through a HUD widget. -->
+        <activity android:name=".AssistantHudActivity" android:exported="false" android:label="J.A.R.V.I.S. HUD" />
         <activity android:name=".SearchBrowserActivity" android:exported="false" />
+        <receiver android:name=".services.PersonalReminderReceiver" android:exported="false" android:enabled="${personalReminderEnabled}">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"
@@ -102,6 +145,7 @@
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".BetaIntroductionActivity" android:exported="false" />
         <activity android:name=".VoiceProfileActivity" android:exported="false" />
+        <activity android:name=".SelfDiagnosticsActivity" android:exported="false" />
         <activity android:name=".IntelligenceActivity" android:exported="false" />
         <activity android:name=".AssistantVoiceSettingsActivity" android:exported="false" />
         <activity android:name=".LiveChatHistoryActivity" android:exported="false" />

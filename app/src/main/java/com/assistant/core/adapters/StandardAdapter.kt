@@ -83,9 +83,9 @@ class StandardAdapter(
     }
 
     private fun accessibilityGlobal(actionRequest: ActionRequest, globalAction: Int, label: String): ActionResult {
-        return accessibilityResult(actionRequest, label) { service ->
-            if (service.performGlobal(globalAction)) "$label action completed." else "$label action was not accepted by Android."
-        }
+        val service = JarvisAccessibilityService.active()
+            ?: return ActionResult(actionRequest.id, false, "ACCESSIBILITY", "J.A.R.V.I.S. Accessibility is not enabled. Enable it in Android Accessibility settings.")
+        return AccessibilityActionResult.perform(actionRequest.id, label) { service.performGlobal(globalAction) }
     }
 
     private fun accessibilityResult(actionRequest: ActionRequest, label: String, operation: (JarvisAccessibilityService) -> String): ActionResult {

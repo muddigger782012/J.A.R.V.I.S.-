@@ -11,6 +11,8 @@ import java.util.Locale
 
 data class VoicePractice(val heard: String, val intended: String, val language: String, val mode: String, val hinted: Boolean) {
     val matched get() = VoiceProfileStore.normalize(heard) == VoiceProfileStore.normalize(intended)
+    val wordErrors get() = VoiceProfileStore.wordErrors(intended, heard)
+    val referenceWords get() = VoiceProfileStore.normalize(intended).split(' ').count { it.isNotBlank() }
     fun json() = JSONObject().put("heard", heard).put("intended", intended).put("language", language)
         .put("mode", mode).put("hinted", hinted)
 }
@@ -58,6 +60,23 @@ class VoiceProfileStore(private val directory: File) {
     companion object {
         private val lock = Any()
         const val LIMIT = 200
+        /** Word-level edit distance (substitutions, insertions and deletions). */
+        fun wordErrors(reference: String, hypothesis: String): Int {
+            val expected = normalize(reference).split(' ').filter { it.isNotBlank() }
+            val actual = normalize(hypothesis).split(' ').filter { it.isNotBlank() }
+            var previous = IntArray(actual.size + 1) { it }
+            for (i in expected.indices) {
+                val current = IntArray(actual.size + 1)
+                current[0] = i + 1
+                for (j in actual.indices) {
+                    val substitution = if (expected[i] == actual[j]) 0 else 1
+                    current[j + 1] = minOf(previous[j + 1] + 1, current[j] + 1, previous[j] + substitution)
+                }
+                previous = current
+            }
+            return previous[actual.size]
+        }
+
         fun valid(text: String) = text.trim().length in 1..160 && text.none { it.isISOControl() }
         fun validLanguage(text: String) = text.matches(Regex("[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*"))
         fun normalize(text: String) = text.lowercase(Locale.ROOT).replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")

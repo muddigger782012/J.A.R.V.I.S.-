@@ -30,6 +30,7 @@ import android.view.ViewGroup
 import android.view.GestureDetector
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.LinearInterpolator
+import android.widget.ImageButton
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -104,6 +105,8 @@ class MainActivity : ThemedActivity() {
 
     private val pendingAttachments = mutableListOf<ChatAttachment>()
     private var attachmentBusy = false
+    private var attachmentAnalysisPending = false
+    private var attachmentAnalysisGeneration = 0L
     private var pendingCameraPath: String? = null
     private val photoPicker = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(AttachmentPolicy.MAX_FILES)) { uris ->
         importAttachments(uris)
@@ -227,6 +230,10 @@ class MainActivity : ThemedActivity() {
     private var runningTerminalCommand: RunningShizukuCommand? = null
     private var updateInProgress = false
     private var pendingDownloadedUpdate: File? = null
+    private lateinit var utilityNavigation: View
+    private lateinit var utilityBack: androidx.activity.OnBackPressedCallback
+    private var utilityHistory = MenuTabHistory()
+    private var updateChatBackAvailability: (Boolean) -> Unit = {}
     private var currentTabIndex = 0
     private var allowSwipeForCurrentTouch = true
     private var headerSelectionAnimator: ValueAnimator? = null
@@ -273,6 +280,9 @@ class MainActivity : ThemedActivity() {
             }
             voiceEnabled = voicePreferences.isForegroundServiceRunning()
             refreshVoiceButtonLabel()
+            intent.getStringExtra(VoiceForegroundService.EXTRA_PHASE)?.let { value ->
+                runCatching { VoiceInteractionState.valueOf(value) }.getOrNull()?.let(::updateVoiceInteractionState)
+            }
         }
     }
 
@@ -317,8 +327,84 @@ class MainActivity : ThemedActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        // Apply the contrast increase only to the seven green-bordered content panels.
+        UnifiedContentPanel.apply(findViewById(R.id.tabProjectSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabShizukuSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabStatusSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabTerminalSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabAuditSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabPermissionsSection))
+        UnifiedContentPanel.apply(findViewById(R.id.tabDhizukuSection))
+        // Preserve the original screen controls and handlers inside Settings-style sections.
+        UnifiedMenuSection.install(findViewById(R.id.tabProjectSection), "Projects", "Project actions and files", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabShizukuSection), "Device tools", "Shizuku access and diagnostics", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabStatusSection), "System", "Status and updates", R.drawable.ic_jarvis_core)
+        UnifiedMenuSection.install(findViewById(R.id.tabTerminalSection), "Terminal", "Commands and output", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabAuditSection), "Activity log", "Events and history", R.drawable.ic_composer_tools)
+        UnifiedMenuSection.install(findViewById(R.id.tabPermissionsSection), "Permissions", "Access and authorization", R.drawable.ic_tools_settings)
+        UnifiedMenuSection.install(findViewById(R.id.tabDhizukuSection), "Device administration", "Delegated access and controls", R.drawable.ic_tools_settings)
+        // Subsections reuse existing controls, IDs, and listeners without changing behavior.
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabProjectSection),
+            listOf(
+                Triple(R.id.btnCreateProject, "Project workspace", "Create and manage local projects")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabStatusSection),
+            listOf(
+                Triple(R.id.btnShowStatus, "Capability status", "Inspect system capabilities"),
+                Triple(R.id.tvStatusOutput, "Diagnostic results", "Read current system information"),
+                Triple(R.id.btnAutoUpgradeApp, "App updates", "Check and install a newer build")
+            ), R.drawable.ic_jarvis_core
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabTerminalSection),
+            listOf(
+                Triple(R.id.etTerminalCommand, "Command controls", "Run and manage commands"),
+                Triple(R.id.tvTerminalOutput, "Command output", "Review terminal results"),
+                Triple(R.id.tvTerminalHistory, "History", "Previous terminal activity")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabAuditSection),
+            listOf(
+                Triple(R.id.etAuditLimit, "Activity filters", "Choose record limit, status and adapter"),
+                Triple(R.id.btnAuditRefresh, "Log actions", "Refresh, copy and clear the view"),
+                Triple(R.id.tvAuditDebugOutput, "Recorded activity", "Inspect logged events")
+            ), R.drawable.ic_composer_tools
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabDhizukuSection),
+            listOf(
+                Triple(R.id.btnRefreshPrivileges, "Delegated access", "Inspect and request administrator scopes"),
+                Triple(R.id.switchCameraDisabled, "Device restrictions", "Manage camera, capture and application restrictions"),
+                Triple(R.id.etLockScreenMessage, "Security and lock screen", "Configure lock-screen messaging"),
+                Triple(R.id.etPolicyPackageName, "Application policy", "Manage package restrictions and device actions")
+            ), R.drawable.ic_tools_settings
+        )
+        UnifiedMenuSection.group(
+            findViewById(R.id.tabPermissionsSection),
+            listOf(
+                Triple(R.id.btnRequestAllRuntimePermissions, "Runtime permissions", "Request Android runtime access"),
+                Triple(R.id.btnRequestAllSpecialPermissions, "Special access overview", "Request elevated Android capabilities"),
+                Triple(R.id.btnOpenOverlayPermission, "Individual access controls", "Open overlay, files, usage and accessibility settings"),
+                Triple(R.id.tvSpecialPermissionsStatus, "Permission status", "Review granted permissions")
+            ), R.drawable.ic_tools_settings
+        )
+
+        // Compact utility-page buttons only; leave the chat toolbar and header unchanged.
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabProjectSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabShizukuSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabStatusSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabTerminalSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabAuditSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabPermissionsSection))
+        UnifiedMenuSection.compactActions(findViewById(R.id.tabDhizukuSection))
+
 
         initViews()
+        com.assistant.core.services.PersonalReminderRuntime.restoreAsync(applicationContext)
         com.assistant.core.services.BundledVoicePreparation.ensure(applicationContext)
         pendingCameraPath = savedInstanceState?.getString("attachment_camera_path")
         savedInstanceState?.getString("attachment_draft")?.let { restoreAttachmentDraft(it) }
@@ -331,9 +417,48 @@ class MainActivity : ThemedActivity() {
             insets
         }
         setupTabs()
-        findViewById<android.widget.Button>(R.id.btnOpenJarvisChat).setOnClickListener {
-            showTab(0, animate = true, direction = if (currentTabIndex == 0) 0 else -1)
-            commandInput.requestFocus()
+        utilityHistory = if (intent.getBooleanExtra(MenuActivity.RETURN_TO_CHAT, false)) MenuTabHistory()
+            else MenuTabHistory(savedInstanceState?.getIntArray("utility_menu_history"))
+        intent.removeExtra(MenuActivity.RETURN_TO_CHAT)
+        utilityBack = object : androidx.activity.OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                showTab(utilityHistory.back(), animate = false, direction = -1, recordHistory = false)
+            }
+        }
+        onBackPressedDispatcher.addCallback(this, utilityBack)
+        utilityNavigation = SettingsMenuViews.navigation(this, "menu",
+            back = { utilityBack.handleOnBackPressed() }, close = {
+                utilityHistory.close()
+                showTab(0, animate = false, direction = -1, recordHistory = false)
+            })
+        val titleView = findViewById<View>(R.id.tvScreenTitle)
+        val titleParent = titleView.parent as ViewGroup
+        titleParent.addView(utilityNavigation, titleParent.indexOfChild(titleView))
+        utilityNavigation.visibility = View.GONE
+        val chatMenuButton = findViewById<ImageButton>(R.id.btnOpenJarvisChat)
+        val chatHistoryShortcut = findViewById<ImageButton>(R.id.btnAssistantHistory)
+        val chatMenuBackHandler = object : androidx.activity.OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                chatHistoryShortcut.visibility = View.GONE
+                chatMenuButton.contentDescription = "Expand chat navigation"
+                isEnabled = false
+            }
+        }
+        onBackPressedDispatcher.addCallback(this, chatMenuBackHandler)
+        updateChatBackAvailability = { chatVisible ->
+            chatMenuBackHandler.isEnabled = chatVisible && chatHistoryShortcut.visibility == View.VISIBLE
+        }
+        chatMenuButton.setOnClickListener {
+            val expanded = chatHistoryShortcut.visibility != View.VISIBLE
+            chatHistoryShortcut.visibility = if (expanded) View.VISIBLE else View.GONE
+            chatMenuButton.contentDescription = if (expanded) "Collapse chat navigation" else "Expand chat navigation"
+            chatMenuBackHandler.isEnabled = expanded
+        }
+        chatHistoryShortcut.setOnClickListener {
+            chatHistoryShortcut.visibility = View.GONE
+            chatMenuButton.contentDescription = "Expand chat navigation"
+            chatMenuBackHandler.isEnabled = false
+            showConversationHistory()
         }
 
         val database = Database(this)
@@ -390,6 +515,8 @@ class MainActivity : ThemedActivity() {
         )
         voiceService = VoiceAssistantService(
             context = this,
+            onWakeState = { state -> voiceSession.wakeState(state == VoiceAssistantService.WakeState.LISTENING) },
+            onCapturePhase = { phase -> if (phase == VoiceInteractionState.TRANSCRIBING) voiceSession.transcribing() },
             onStatus = { status ->
                 runOnUiThread {
                     appendOutput("[WAKE] $status")
@@ -408,8 +535,9 @@ class MainActivity : ThemedActivity() {
             onCommandDetected = { recognition ->
                 voiceSession.transcriptReady(recognition.transcript)
             },
+            onCaptureFinished = { voiceSession.captureFinished(keepArmed = voiceEnabled) },
             onSpeechStarted = { voiceSession.speaking() },
-            onSpeechFinished = { voiceSession.responseFinished(keepArmed = voiceEnabled) }
+            onSpeechFinished = { voiceSession.responseFinished(keepArmed = voiceEnabled); voiceService.rearmAfterResponse() }
         )
 
         bindUiListeners()
@@ -422,6 +550,7 @@ class MainActivity : ThemedActivity() {
         updateMicrophonePermissionUi()
         if (!BetaIntroductionActivity.shouldShow(this)) promptForMicrophonePermissionOnFirstLaunch()
 
+        if (utilityHistory.current != 0) showTab(utilityHistory.current, animate = false, direction = 0, recordHistory = false)
         statusOutput.text = systemService.buildStatusSummary(capabilityState)
         refreshAuditDebugSection()
         if (savedInstanceState == null && BetaIntroductionActivity.shouldShow(this)) {
@@ -432,7 +561,11 @@ class MainActivity : ThemedActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleAssistantFeatureIntent(intent)
+        if (intent.getBooleanExtra(MenuActivity.RETURN_TO_CHAT, false)) {
+            intent.removeExtra(MenuActivity.RETURN_TO_CHAT)
+            utilityHistory.close()
+            showTab(0, animate = false, direction = -1, recordHistory = false)
+        } else handleAssistantFeatureIntent(intent)
     }
 
     private fun handleAssistantFeatureIntent(intent: Intent) {
@@ -554,13 +687,36 @@ class MainActivity : ThemedActivity() {
         showTab(0, animate = false, direction = 0)
     }
 
-    private fun showTab(index: Int, animate: Boolean, direction: Int) {
+    private fun showTab(index: Int, animate: Boolean, direction: Int, recordHistory: Boolean = true) {
         if (index !in tabSections.indices) return
-        if (index == currentTabIndex && tabSections[index].visibility == View.VISIBLE) {
+        if (index == currentTabIndex && tabSections[index].visibility == View.VISIBLE &&
+            tabSections[index].translationX == 0f && tabSections[index].alpha == 1f) {
             updateHeaderSelection(index)
             return
         }
         val previousIndex = currentTabIndex
+        if (previousIndex != 0) {
+            tabSections[previousIndex].findFocus()?.clearFocus()
+            (getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+                ?.hideSoftInputFromWindow(tabSections[previousIndex].windowToken, 0)
+        }
+        if (recordHistory) utilityHistory.visit(index)
+        // Keep Chat untouched: its navigation and transitions remain on the
+        // established path until the non-Chat redesign is approved.
+        if (index == 0 || previousIndex == 0) {
+            currentTabIndex = index
+            tabSections.forEachIndexed { i, view ->
+                view.animate().cancel()
+                view.translationX = 0f
+                view.alpha = 1f
+                view.visibility = if (i == index) View.VISIBLE else View.GONE
+            }
+            updateHeaderSelection(index)
+            return
+        }
+        // A fast second tap must not leave a previously animated tab visible or
+        // allow an old animation callback to hide the newly selected page.
+        tabSections.forEach { it.animate().cancel() }
         currentTabIndex = index
         if (animate && previousIndex in tabSections.indices && previousIndex != index) {
             animateTabTransition(fromIndex = previousIndex, toIndex = index, direction = direction)
@@ -606,7 +762,7 @@ class MainActivity : ThemedActivity() {
             .setDuration(TAB_TRANSITION_DURATION_MS)
             .setInterpolator(AccelerateDecelerateInterpolator())
             .withEndAction {
-                fromView.visibility = View.GONE
+                if (currentTabIndex != fromIndex) fromView.visibility = View.GONE
                 fromView.translationX = 0f
                 fromView.alpha = 1f
             }
@@ -627,10 +783,16 @@ class MainActivity : ThemedActivity() {
 
     private fun updateHeaderSelection(index: Int) {
         headerSelectionAnimator?.cancel()
+        if (::utilityNavigation.isInitialized) utilityNavigation.visibility = if (index == 0) View.GONE else View.VISIBLE
+        if (::utilityBack.isInitialized) utilityBack.isEnabled = index != 0
+        updateChatBackAvailability(index == 0)
         val title = findViewById<TextView>(R.id.tvScreenTitle)
         title.text = listOf("", "Projects", "Device tools", "System", "Terminal", "Activity log", "Permissions", "Device administration")[index]
         title.visibility = if (index == 0) View.GONE else View.VISIBLE
-        findViewById<Button>(R.id.btnOpenJarvisChat).setTextColor(ThemePreferences.color(this, if (index == 0) R.color.jarvis_primary else R.color.jarvis_on_dark_muted))
+        findViewById<View>(R.id.conversationToolbar).visibility = if (index == 0) View.VISIBLE else View.GONE
+        findViewById<ImageButton>(R.id.btnOpenJarvisChat).imageTintList = android.content.res.ColorStateList.valueOf(
+            ThemePreferences.color(this, if (index == 0) R.color.jarvis_primary else R.color.jarvis_on_dark_muted)
+        )
         val activeColor = ThemePreferences.color(this, R.color.jarvis_neon_green)
         val inactiveColor = ThemePreferences.color(this, R.color.jarvis_on_dark)
         headerTabButtons.forEachIndexed { i, button ->
@@ -794,10 +956,14 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun bindUiListeners() {
-        findViewById<Button>(R.id.btnNewAssistantChat).setOnClickListener {
+        findViewById<ImageButton>(R.id.btnNewAssistantChat).setOnClickListener {
+            if (findViewById<View>(R.id.btnAssistantHistory).visibility == View.VISIBLE) {
+                findViewById<ImageButton>(R.id.btnOpenJarvisChat).performClick()
+            }
             if (attachmentBusy) { attachmentNotice("Wait for the attachment request to finish."); return@setOnClickListener }
             clearAttachmentDraft()
             if (liveChatStarted) endLiveChat("Live chat ended for the new conversation.")
+            cancelConversationResponse()
             archiveConversation()
             conversationSessionId = "session_" + System.currentTimeMillis()
             outputLines.clear()
@@ -807,9 +973,6 @@ class MainActivity : ThemedActivity() {
             renderConversation(forceScroll = true)
         }
 
-        findViewById<Button>(R.id.btnAssistantHistory).setOnClickListener {
-            showConversationHistory()
-        }
 
         commandInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) { runAssistantCommandFromInput(); true } else false
@@ -891,10 +1054,17 @@ class MainActivity : ThemedActivity() {
         }
 
         voiceButton.setOnClickListener {
-            // Keep the primary Talk control isolated from the background wake
-            // service. This restores the previously working push-to-talk path
-            // while the persistent Sherpa service is diagnosed separately.
             ensureMicPermissionAndPushToTalk()
+        }
+        voiceButton.setOnLongClickListener {
+            hybridAssistantService.cancelActiveResponse()
+            if (currentVoiceConfig.useForegroundServiceMode || liveChatStarted)
+                VoiceForegroundService.cancelCapture(this)
+            else {
+                voiceService.stopListening(); voiceService.stopSpeaking(); voiceSession.stop()
+                if (voiceEnabled) voiceService.startHotwordLoop()
+            }
+            true
         }
 
         findViewById<Button>(R.id.btnLiveChatControls).setOnClickListener {
@@ -948,14 +1118,18 @@ class MainActivity : ThemedActivity() {
         btnRebootFromDhizuku.setOnClickListener { rebootDevice() }
     }
 
+    private var displayedVoiceState = VoiceInteractionState.IDLE
     private fun updateVoiceInteractionState(state: VoiceInteractionState) {
+        displayedVoiceState = state
         findViewById<TextView>(R.id.tvAssistantState).text = when (state) {
             VoiceInteractionState.IDLE -> getString(R.string.ui_ready)
             VoiceInteractionState.WAKE_LISTENING -> "Say “${currentVoiceConfig.wakeWord}”"
             else -> state.userLabel()
         }
-        voiceButton.contentDescription = state.userLabel()
-        voiceButton.isEnabled = !liveChatStarted && state != VoiceInteractionState.PROCESSING
+        voiceButton.contentDescription = if (state in listOf(VoiceInteractionState.LISTENING, VoiceInteractionState.TRANSCRIBING))
+            "Finish speech; hold to cancel" else state.userLabel()
+        // The same control must remain reachable to finish speech or cancel a busy/live turn.
+        voiceButton.isEnabled = true
         findViewById<Button>(R.id.btnLiveChat).isEnabled = liveChatStarted || state in listOf(VoiceInteractionState.IDLE, VoiceInteractionState.WAKE_LISTENING)
         findViewById<ArcReactorView>(R.id.arcReactorHeader).setConversationState(state)
         findViewById<ArcReactorView>(R.id.arcReactorConversation).setConversationState(state)
@@ -1007,7 +1181,7 @@ class MainActivity : ThemedActivity() {
             weatherPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
             return
         }
-        hybridAssistantService.handleUserInputAsync(command, callback)
+        hybridAssistantService.handleUserInputAsync(command) { if (!it.cancelled) callback(it) }
     }
 
     private fun attachmentNotice(message: String) {
@@ -1229,6 +1403,7 @@ class MainActivity : ThemedActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putIntArray("utility_menu_history", utilityHistory.save())
         super.onSaveInstanceState(outState)
         val array = JSONArray()
         pendingAttachments.forEach { array.put(JSONObject().put("name", it.name).put("mime", it.mime).put("path", it.file.absolutePath)) }
@@ -1246,13 +1421,19 @@ class MainActivity : ThemedActivity() {
         }
         val question = commandInput.text?.toString()?.trim().orEmpty().ifBlank { "Describe or summarize the attached files." }
         val files = pendingAttachments.toList()
-        attachmentBusy = true
+        attachmentBusy = true; attachmentAnalysisPending = true
+        val generation = ++attachmentAnalysisGeneration
         appendOutput("You: $question\nAttachments: " + files.joinToString { it.name })
         clearSubmittedComposer()
         findViewById<TextView>(R.id.tvAssistantState).text = "Reading attachments…"
         hybridAssistantService.handleAttachmentsAsync(question, files) { reply ->
             runOnUiThread {
-                attachmentBusy = false
+                if (generation != attachmentAnalysisGeneration) return@runOnUiThread
+                attachmentBusy = false; attachmentAnalysisPending = false
+                if (reply.cancelled) {
+                    findViewById<TextView>(R.id.tvAssistantState).text = getString(R.string.ui_ready)
+                    return@runOnUiThread
+                }
                 if (isDestroyed) return@runOnUiThread
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
                 statusOutput.text = reply.text
@@ -1322,7 +1503,7 @@ class MainActivity : ThemedActivity() {
                     val search = coordinator.search(query, kind)
                     val items = search.items
                     if (items.isEmpty()) "J.A.R.V.I.S.: " + router.failureMessage(com.assistant.core.services.SearchRouter.Response(null, emptyList(), search.failures), kind)
-                    else com.assistant.core.services.ChatSearchResults.encode(query, items, search.answer, search.searchSuggestions, kind).also { rendered ->
+                    else com.assistant.core.services.ChatSearchResults.encode(query, items, search.answer, search.searchSuggestions, kind, retrievedAt = System.currentTimeMillis()).also { rendered ->
                         cache.edit().putString(cacheId, rendered)
                             .putLong(cacheId + "_at", System.currentTimeMillis()).apply()
                     }
@@ -1351,7 +1532,7 @@ class MainActivity : ThemedActivity() {
             val answer = runCatching {
                 com.assistant.core.services.SearchAiClient(this).answer(query, evidence.items)
             }.getOrNull() ?: return@Thread
-            val enriched = com.assistant.core.services.ChatSearchResults.encode(query, evidence.items, answer, kind = kind)
+            val enriched = com.assistant.core.services.ChatSearchResults.encode(query, evidence.items, answer, evidence.searchSuggestions, kind = kind, retrievedAt = evidence.retrievedAt)
             cache.edit().putString(cacheId, enriched).apply()
             runOnUiThread {
                 if (searchSession == conversationSessionId && !isDestroyed) {
@@ -1539,17 +1720,45 @@ class MainActivity : ThemedActivity() {
             })
             if (searchResults == null) card.addView(TextView(this).apply {
                 text = when { user -> line.removePrefix("You:").trimStart(); assistant -> line.removePrefix("J.A.R.V.I.S.:").trimStart().substringBefore("\nhttps://www.google.com/search?"); else -> line }
+                setTextIsSelectable(!assistant)
+                if (assistant) {
+                    val answerText = line.removePrefix("J.A.R.V.I.S.:").trimStart()
+                        .substringBefore("\nhttps://www.google.com/search?")
+                    val inline = android.text.SpannableStringBuilder(answerText).append("  \uFFFC")
+                    val start = inline.length - 1
+                    val copyDrawable = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.ic_chat_copy)?.mutate()
+                    if (copyDrawable != null) {
+                        copyDrawable.setTint(ThemePreferences.color(this@MainActivity, R.color.jarvis_primary))
+                        val iconSize = dp(20)
+                        copyDrawable.setBounds(0, 0, iconSize, iconSize)
+                        inline.setSpan(android.text.style.ImageSpan(copyDrawable, android.text.style.DynamicDrawableSpan.ALIGN_BOTTOM),
+                            start, inline.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                    inline.setSpan(object : android.text.style.ClickableSpan() {
+                        override fun onClick(widget: View) {
+                            val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Jarvis answer", answerText))
+                            android.widget.Toast.makeText(this@MainActivity, "Answer copied", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        override fun updateDrawState(ds: android.text.TextPaint) {
+                            ds.color = ThemePreferences.color(this@MainActivity, R.color.jarvis_primary)
+                            ds.isUnderlineText = false
+                        }
+                    }, start, inline.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    text = inline
+                    movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                    contentDescription = answerText + ". Copy answer button at end."
+                }
                 textSize = if (user || assistant) 16f else 12f
                 setTextColor(ThemePreferences.color(this@MainActivity, if (user || assistant) R.color.jarvis_on_dark else R.color.jarvis_on_dark_muted))
                 setLineSpacing(dp(4).toFloat(), 1f)
-                setTextIsSelectable(true)
                 if (assistant && line.startsWith("J.A.R.V.I.S.: Search results for ")) {
                     android.text.util.Linkify.addLinks(this, android.text.util.Linkify.WEB_URLS)
                     movementMethod = android.text.method.LinkMovementMethod.getInstance()
                     linksClickable = true
                 }
             })
-            if (searchResults != null) card.addView(ChatSearchResultsView.create(this, searchResults))
+            if (searchResults != null) card.addView(ChatSearchResultsView.create(this, searchResults, conversationSessionId))
             if (assistant) {
                 val searchUrl = if (listOf("Web", "Image", "Video").any { line.startsWith("J.A.R.V.I.S.: $it search ready:") } && line.contains("\nhttps://www.google.com/search?"))
                     Regex("""https://www\.google\.com/search\?[^\s<>]+""").find(line)?.value?.trimEnd('.', ',', ')', ']')
@@ -1637,6 +1846,8 @@ class MainActivity : ThemedActivity() {
         ThemedDialogBuilder(this)
             .setTitle("Conversation history")
             .setItems(labels.toTypedArray()) { _, which ->
+                if (liveChatStarted) endLiveChat("Live chat ended to open another conversation.")
+                cancelConversationResponse()
                 conversationSessionId = ids[which]
                 conversationPrefs.edit().putString("active_session", conversationSessionId).apply()
                 loadOrCreateConversation()
@@ -2068,11 +2279,30 @@ class MainActivity : ThemedActivity() {
         if (handleLiveChatControl(command)) return
         handleAssistantWithLocation(command) { reply ->
             runOnUiThread {
+                if (reply.screenContextKey != null && com.assistant.core.services.ScreenAccessClient(this).taskState().contextKey != reply.screenContextKey) {
+                    voiceSession.responseFinished(keepArmed = voiceEnabled); voiceService.rearmAfterResponse(); return@runOnUiThread
+                }
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
                 statusOutput.text = reply.actionResult?.output ?: reply.text
-                voiceService.speak(reply.text)
+                speakAssistantVoiceReply(reply)
             }
         }
+    }
+
+    private fun speakAssistantVoiceReply(reply: com.assistant.core.services.HybridAssistantReply) {
+        val scope = reply.screenContextKey
+        if (scope == null) { voiceService.speak(reply.text); return }
+        val access = com.assistant.core.services.ScreenAccessClient(this)
+        if (access.taskState().contextKey != scope) return
+        voiceSession.speaking()
+        voiceService.speak(reply.text, after = {
+            voiceSession.responseFinished(keepArmed = voiceEnabled)
+            val state = access.taskState()
+            if (!isFinishing && !isDestroyed && hasWindowFocus() && !liveChatStarted && state.awaitingInput && state.contextKey == scope) {
+                voiceSession.beginCapture(VoiceSessionController.Trigger.BACKGROUND)
+                voiceService.startFollowUpCapture(returnToWake = voiceEnabled)
+            } else voiceService.rearmAfterResponse()
+        })
     }
 
     private fun requestLiveChat() {
@@ -2088,7 +2318,7 @@ class MainActivity : ThemedActivity() {
     private fun handleLiveChatControl(command: String): Boolean {
         return when (com.assistant.core.services.LiveChatCommands.parse(command)) {
             com.assistant.core.services.LiveChatCommands.Control.START -> {
-                appendOutput("J.A.R.V.I.S.: " + if (liveChatStarted) "Live chat is already active." else "Starting live chat.")
+                appendOutput("J.A.R.V.I.S.: " + if (liveChatStarted) "Live chat is already active." else "Live chat requested. Checking microphone permission and starting the voice service; session status will confirm when it is active.")
                 if (!liveChatStarted) requestLiveChat()
                 true
             }
@@ -2122,7 +2352,7 @@ class MainActivity : ThemedActivity() {
         }
         commandInput.isEnabled = false
         findViewById<Button>(R.id.btnRunAssistantCommand).isEnabled = false
-        voiceButton.isEnabled = false
+        voiceButton.isEnabled = true
         try {
             VoiceForegroundService.startLiveChat(this, conversationSessionId, resumeWake)
         } catch (_: Exception) {
@@ -2202,11 +2432,40 @@ class MainActivity : ThemedActivity() {
 
     private fun ensureMicPermissionAndPushToTalk() {
         if (hasMicrophonePermission()) {
+            val foregroundOwnsWake = currentVoiceConfig.useForegroundServiceMode || liveChatStarted
+            if (displayedVoiceState in listOf(VoiceInteractionState.LISTENING, VoiceInteractionState.TRANSCRIBING)) {
+                if (foregroundOwnsWake) VoiceForegroundService.finishCapture(this)
+                else voiceService.finishCapture()
+                return
+            }
+            if (liveChatStarted) { VoiceForegroundService.cancelCapture(this); return }
+            hybridAssistantService.interruptActiveResponse()
+            if (attachmentAnalysisPending) {
+                attachmentAnalysisGeneration++
+                attachmentAnalysisPending = false; attachmentBusy = false
+                findViewById<TextView>(R.id.tvAssistantState).text = getString(R.string.ui_ready)
+            }
             voiceSession.beginCapture(VoiceSessionController.Trigger.PUSH_TO_TALK)
-            voiceService.startPushToTalk()
+            if (foregroundOwnsWake) {
+                // The process that owns Sherpa must release it before capturing a command.
+                voiceService.stopListening()
+                VoiceForegroundService.captureCommand(this, resumeWake = voiceEnabled || voicePreferences.isForegroundServiceRunning())
+            } else voiceService.startPushToTalk(returnToWake = voiceEnabled)
         } else {
             shouldStartVoiceAfterPermission = true
             audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun cancelConversationResponse() {
+        hybridAssistantService.cancelActiveResponse()
+        pendingClarification = null
+        voiceService.stopSpeaking()
+        voiceSession.stop()
+        if (currentVoiceConfig.useForegroundServiceMode) VoiceForegroundService.cancelCapture(this)
+        else {
+            voiceService.stopListening()
+            if (voiceEnabled) voiceService.startHotwordLoop()
         }
     }
 
@@ -2307,7 +2566,7 @@ class MainActivity : ThemedActivity() {
             try {
                 VoiceForegroundService.start(this, announce = true)
                 voiceEnabled = true
-                updateVoiceInteractionState(VoiceInteractionState.WAKE_LISTENING)
+                updateVoiceInteractionState(VoiceInteractionState.IDLE)
                 appendOutput("[VOICE] Foreground wake service start requested.")
             } catch (t: Throwable) {
                 voiceEnabled = false
@@ -2316,7 +2575,7 @@ class MainActivity : ThemedActivity() {
             }
         } else {
             voiceEnabled = true
-            updateVoiceInteractionState(VoiceInteractionState.WAKE_LISTENING)
+            updateVoiceInteractionState(VoiceInteractionState.IDLE)
             voiceService.startWithIntroduction()
         }
         refreshVoiceButtonLabel()
@@ -2335,9 +2594,25 @@ class MainActivity : ThemedActivity() {
         refreshVoiceButtonLabel()
     }
 
+    private fun showScreenTaskControls() {
+        val client = com.assistant.core.services.ScreenAccessClient(this)
+        ThemedDialogBuilder(this).setTitle("Screen task")
+            .setMessage(client.reply("review screen task"))
+            .setNegativeButton("Close", null)
+            .setNeutralButton("Refresh") { _, _ -> showScreenTaskControls() }
+            .setPositiveButton("Cancel task") { _, _ ->
+                hybridAssistantService.cancelActiveResponse()
+                voiceService.stopSpeaking(); voiceService.stopListening(); voiceSession.stop()
+                appendOutput("J.A.R.V.I.S.: " + client.reply("cancel screen task"))
+            }.show()
+    }
+
     private fun showToolsAndSettingsMenu() {
         fun dp(value: Int) = SettingsMenuViews.dp(this, value)
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        lateinit var root: () -> Unit
+        var inGroup = false
+        val menu = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val surface = ScrollView(this).apply {
             setPadding(dp(4), dp(4), dp(4), dp(4))
             clipToOutline = true
@@ -2351,26 +2626,33 @@ class MainActivity : ThemedActivity() {
         val frame = Rect().also { settingsButton.getWindowVisibleDisplayFrame(it) }
         val location = IntArray(2).also { settingsButton.getLocationOnScreen(it) }
         val availableHeight = (frame.bottom - location[1] - settingsButton.height - dp(16)).coerceAtLeast(dp(48))
-        val popup = android.widget.PopupWindow(surface, minOf(dp(288), (frame.width() - dp(24)).coerceAtLeast(dp(160))),
+        val popup = android.widget.PopupWindow(menu, minOf(dp(288), (frame.width() - dp(24)).coerceAtLeast(dp(160))),
             minOf(dp(420), availableHeight), true).apply {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
             isOutsideTouchable = true; elevation = dp(10).toFloat()
             inputMethodMode = android.widget.PopupWindow.INPUT_METHOD_NOT_NEEDED
         }
+        menu.addView(SettingsMenuViews.navigation(this, "tools and settings", back = {
+            if (inGroup) root() else popup.dismiss()
+        }, close = {
+            popup.dismiss()
+            utilityHistory.close()
+            showTab(0, animate = false, direction = -1, recordHistory = false)
+        }))
+        menu.addView(surface, LinearLayout.LayoutParams(-1, 0, 1f))
         fun resize() {
-            surface.measure(View.MeasureSpec.makeMeasureSpec(popup.width, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(availableHeight, View.MeasureSpec.AT_MOST))
-            if (popup.isShowing) popup.update(popup.width, surface.measuredHeight)
-            else popup.height = surface.measuredHeight
+            menu.measure(View.MeasureSpec.makeMeasureSpec(popup.width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(minOf(dp(420), availableHeight), View.MeasureSpec.AT_MOST))
+            if (popup.isShowing) popup.update(popup.width, menu.measuredHeight)
+            else popup.height = menu.measuredHeight
         }
         fun row(label: String, icon: Int = R.drawable.ic_composer_tools, action: () -> Unit) {
             panel.addView(SettingsMenuViews.row(this, label, icon = icon, action = action))
         }
         fun tab(label: String, index: Int) { row(label) { popup.dismiss(); showTab(index, animate = true, direction = 1) } }
-        lateinit var root: () -> Unit
         fun group(title: String, contents: () -> Unit) {
+            inGroup = true
             panel.removeAllViews()
-            row("Back", R.drawable.ic_search_open) { root() }
             panel.addView(SettingsMenuViews.heading(this, title))
             contents()
             FontPreferences.applyTo(surface, this)
@@ -2378,6 +2660,7 @@ class MainActivity : ThemedActivity() {
             resize()
         }
         root = {
+            inGroup = false
             panel.removeAllViews()
             row("Settings", R.drawable.ic_tools_settings) {
                 popup.dismiss()
@@ -2386,6 +2669,9 @@ class MainActivity : ThemedActivity() {
                 voiceSettingsLauncher.launch(Intent(this, SettingsActivity::class.java))
             }
             row("Intelligence", R.drawable.ic_jarvis_core) { popup.dismiss(); startActivity(Intent(this, IntelligenceActivity::class.java)) }
+            if (packageName == "com.assistant.core") row("Screen task", R.drawable.ic_jarvis_core) {
+                popup.dismiss(); showScreenTaskControls()
+            }
             row("Tools") { group("Tools") {
                 tab("Projects", 1); tab("Device tools", 2); tab("Terminal", 4); tab("Device administration", 7)
             } }
@@ -2428,7 +2714,8 @@ class MainActivity : ThemedActivity() {
         } else {
             voiceEnabled = false
         }
-        if (showStatus) updateVoiceInteractionState(if (voiceEnabled) VoiceInteractionState.WAKE_LISTENING else VoiceInteractionState.IDLE)
+        if (showStatus) updateVoiceInteractionState(if (voiceService.wakeState == VoiceAssistantService.WakeState.LISTENING)
+            VoiceInteractionState.WAKE_LISTENING else VoiceInteractionState.IDLE)
         refreshVoiceButtonLabel()
         if (BetaIntroductionActivity.shouldShow(this)) {
             refreshPrivilegeCenter()
@@ -2835,12 +3122,7 @@ class MainActivity : ThemedActivity() {
     private fun registerVoiceEventReceiver() {
         if (receiverRegistered) return
         val filter = IntentFilter(VoiceForegroundService.ACTION_EVENT)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(voiceEventReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("DEPRECATION")
-            registerReceiver(voiceEventReceiver, filter)
-        }
+        ContextCompat.registerReceiver(this, voiceEventReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         receiverRegistered = true
     }
 

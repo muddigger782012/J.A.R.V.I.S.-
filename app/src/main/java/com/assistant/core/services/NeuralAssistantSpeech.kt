@@ -22,7 +22,8 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
     private var engine: OfflineTts? = null
     private val cache = NeuralSpeechCache(File(app.cacheDir, "neural-phrases"))
 
-    fun speak(text: String, voice: NeuralVoiceCatalog.Voice, done: () -> Unit, error: (String) -> Unit, cachePhrase: Boolean = false) {
+    fun speak(text: String, voice: NeuralVoiceCatalog.Voice, done: () -> Unit, error: (String) -> Unit, cachePhrase: Boolean = false,
+              onAudio: () -> Unit = {}) {
         stop()
         if (closed) return
         val token = generation.get()
@@ -59,6 +60,7 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                         if (firstAudioMs < 0) {
                             firstAudioMs = android.os.SystemClock.elapsedRealtime() - started
                             NeuralVoiceDiagnostics.record(app, source, voice.id, "audio_queued", firstAudioMs, cacheHits)
+                            main.post { if (generation.get() == token && !closed) onAudio() }
                         }
                     })
                 }
@@ -68,7 +70,7 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                 main.post { if (generation.get() == token && !closed) done() }
             } catch (failure: Throwable) {
                 if (generation.get() == token && !closed) {
-                    NeuralVoiceDiagnostics.record(app, source, voice.id, "error", firstAudioMs, cacheHits, "${failure.javaClass.simpleName}: ${failure.message.orEmpty()}")
+                    NeuralVoiceDiagnostics.record(app, source, voice.id, "error", firstAudioMs, cacheHits, failure.javaClass.simpleName)
                     terminalRecorded = true
                     main.post { if (generation.get() == token && !closed) error(failure.javaClass.simpleName) }
                 }

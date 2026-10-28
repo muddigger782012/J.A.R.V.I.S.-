@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="voice_timing_help">Speech pause is a hint to Android’s speech provider, which may ignore it. Capture limits remain bounded. Hold the microphone button to cancel the current turn; tap while listening to request final results.</string>
+    <string name="voice_pause_label">Speech pause hint (1000–10000 milliseconds)</string>
+    <string name="voice_capture_limit_label">Maximum speech capture (60–600 seconds)</string>
+    <string name="voice_live_idle_label">Live chat inactivity limit (1–30 minutes)</string>
+    <string name="voice_pause_range">Enter 1000 to 10000 milliseconds</string>
+    <string name="voice_capture_range">Enter 60 to 600 seconds</string>
+    <string name="voice_live_idle_range">Enter 1 to 30 minutes</string>
+    <string name="voice_timing_save_failed">Could not save timing settings. Please retry.</string>
     <string name="app_name">J.A.R.V.I.S.</string>
     <string name="command_hint">Type command (example: create project)</string>
     <string name="create_project">Create Project</string>
@@ -116,7 +124,7 @@
     <string name="audit_copy_logs">Copy Logs</string>
     <string name="audit_output_title">Audit Log Output</string>
     <string name="jarvis_accessibility_label">J.A.R.V.I.S. Accessibility</string>
-    <string name="jarvis_accessibility_description">Allows J.A.R.V.I.S. to understand and navigate on-screen interfaces when you explicitly enable accessibility access.</string>
+    <string name="jarvis_accessibility_description">Allows local, on-request screen reading and voice navigation, scrolling and reviewed taps. You enable this service manually; screen content is not sent to AI providers.</string>
     <string name="shortcut_voice">Voice chat</string>
     <string name="shortcut_weather">Weather settings</string>
     <string name="shortcut_connections">Assistant connections</string>

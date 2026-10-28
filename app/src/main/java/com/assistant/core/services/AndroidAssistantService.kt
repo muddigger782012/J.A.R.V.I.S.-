@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.Settings
 import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.ContactsContract
 import android.provider.CalendarContract
 import java.text.SimpleDateFormat
@@ -43,17 +44,58 @@ class AndroidAssistantService(private val context: Context) {
     fun navigate(destination: String): Boolean =
         launch(Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(destination))))
 
-    fun resolveContactPhone(name: String): String? {
-        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
-        val projection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-        val selection = ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " LIKE ?"
-        val args = arrayOf("%${name.trim()}%")
-        return context.contentResolver.query(
-            ContactsContract.CommonDataKinds.Phone.CONTENT_URI, projection, selection, args, null
-        )?.use { cursor ->
-            if (!cursor.moveToFirst()) null
-            else cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER))
+    fun resolveContactPhone(name: String): String? = resolveContact(name).number
+
+    fun contactCallPlatform() = object : ContactCallWorkflow.Platform {
+        private fun contactsAllowed() = androidx.core.content.ContextCompat.checkSelfPermission(context,
+            android.Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        private val columns get() = arrayOf(ContactsContract.CommonDataKinds.Phone._ID,
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER)
+        private fun read(uri: Uri): List<ContactCallWorkflow.Recipient> = context.contentResolver.query(uri, columns, null, null, null)?.use { cursor ->
+            val rows = mutableListOf<ContactCallWorkflow.Recipient>()
+            while (cursor.moveToNext()) {
+                check(rows.size < 1000) { "Contact lookup exceeds its review limit" }
+                rows.add(ContactCallWorkflow.Recipient(cursor.getString(0).orEmpty(), cursor.getString(1).orEmpty(), cursor.getString(2).orEmpty()))
+            }
+            rows
+        } ?: error("Contacts provider unavailable")
+        override fun lookup(query: String): ContactCallWorkflow.Lookup {
+            if (ContactCallWorkflow.phone(query) != null) return ContactCallWorkflow.Lookup(emptyList())
+            if (!contactsAllowed()) return ContactCallWorkflow.Lookup(emptyList(), false)
+            val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_FILTER_URI.buildUpon().appendPath(query).build()
+            return ContactCallWorkflow.Lookup(read(uri))
         }
+        override fun current(recipient: ContactCallWorkflow.Recipient): Boolean {
+            if (recipient.row == "number") return ContactCallWorkflow.phone(recipient.number) != null
+            if (!contactsAllowed()) return false
+            val uri = android.content.ContentUris.withAppendedId(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, recipient.row.toLong())
+            return read(uri).singleOrNull() == recipient
+        }
+        override fun canCall() = hasCallPermission()
+        override fun request(recipient: ContactCallWorkflow.Recipient, dialOnly: Boolean): Boolean {
+            val action = if (dialOnly) Intent.ACTION_DIAL else Intent.ACTION_CALL
+            context.startActivity(Intent(action, Uri.parse("tel:" + Uri.encode(recipient.number))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return true
+        }
+    }
+
+    fun resolveContact(name: String): ContactNameMatcher.MatchResult {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return ContactNameMatcher.MatchResult(ContactNameMatcher.MatchStatus.NOT_FOUND)
+        val projection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+        val candidates = context.contentResolver.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI, projection, null, null, null
+        )?.use { cursor ->
+            val numberIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            val nameIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+            buildList {
+                while (cursor.moveToNext()) {
+                    val displayName = cursor.getString(nameIndex) ?: continue
+                    val number = cursor.getString(numberIndex) ?: continue
+                    if (number.isNotBlank()) add(displayName to number)
+                }
+            }
+        }.orEmpty()
+        return ContactNameMatcher.resolve(name, candidates)
     }
 
     fun lastMissedCall(): String {
@@ -107,6 +149,9 @@ class AndroidAssistantService(private val context: Context) {
 
     /** Resolve one visible launcher app; ambiguous names never select the first match. */
     fun resolveLearnableApp(label: String): Pair<String, String>? {
+        if (context.packageName == "com.assistant.core") return runCatching {
+            InstalledApps.unique(label, AndroidInstalledApps(context).apps())?.let { it.packageName to it.label }
+        }.getOrNull()
         val pm = context.packageManager
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val candidates = pm.queryIntentActivities(launcher, 0).map {
@@ -118,7 +163,7 @@ class AndroidAssistantService(private val context: Context) {
     fun launchAppByLabel(label: String): Boolean {
         val pm = context.packageManager
         val target = label.trim().lowercase()
-        val apps = pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+        val apps = installedApplications(pm)
         val match = apps.firstOrNull { info ->
             pm.getApplicationLabel(info).toString().trim().lowercase() == target
         } ?: apps.firstOrNull { info ->
@@ -129,7 +174,7 @@ class AndroidAssistantService(private val context: Context) {
 
     fun amazonMusic(playMusic: Boolean): String {
         val pm = context.packageManager
-        val app = pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0)).firstOrNull {
+        val app = installedApplications(pm).firstOrNull {
             pm.getApplicationLabel(it).toString().trim().lowercase(java.util.Locale.ROOT) in
                 setOf("amazon music", "music amazon", "amazon prime music")
         } ?: return "I couldn't find Amazon Music installed. Install it and sign in, then try again."
@@ -146,6 +191,14 @@ class AndroidAssistantService(private val context: Context) {
             else "Opening Amazon Music."
         } else "Android couldn't open Amazon Music. Check that the app is enabled."
     }
+
+    private fun installedApplications(pm: PackageManager): List<android.content.pm.ApplicationInfo> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getInstalledApplications(0)
+        }
 
     fun playPauseMedia(): Boolean = dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
     fun nextMedia(): Boolean = dispatchMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_NEXT)
@@ -201,6 +254,14 @@ class AndroidAssistantService(private val context: Context) {
         launch(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
             putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
         })
+
+    /** The user chooses a destination and completes sharing in Android's UI. No recipient is preselected. */
+    fun reviewTextHandoff(title: String, text: String): Boolean {
+        if (title.length !in 1..100 || text.length !in 1..32_000) return false
+        val draft = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_SUBJECT, title)
+            .putExtra(Intent.EXTRA_TEXT, text)
+        return launch(Intent.createChooser(draft, "Review developer handoff"))
+    }
 
     fun openSettings(): Boolean = launch(Intent(Settings.ACTION_SETTINGS))
 

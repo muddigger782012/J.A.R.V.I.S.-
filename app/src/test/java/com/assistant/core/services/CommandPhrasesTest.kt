@@ -28,6 +28,9 @@ class CommandPhrasesTest {
         assertEquals("maps", CommandPhrases.appName("open maps for me"))
         assertEquals("maps", CommandPhrases.appName("please open maps for me please"))
         assertEquals("maps", CommandPhrases.appName("open maps"))
+        assertEquals("Google Maps", CommandPhrases.appName("Please Open Google Maps For Me Please"))
+        assertEquals("地図", CommandPhrases.appName("open 地図"))
+        assertEquals("com.google.android.apps.maps", CommandPhrases.appName("open com.google.android.apps.maps"))
         assertNull(CommandPhrases.appName("open settings"))
     }
 }

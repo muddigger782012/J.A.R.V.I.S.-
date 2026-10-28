@@ -11,6 +11,7 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.assistant.core.services.ChatSearchResults
 import com.assistant.core.services.SearchMedia
 import com.assistant.core.services.SearchRouter
 
@@ -42,9 +43,12 @@ object SearchMediaViews {
                 textSize = 12f
                 setTextColor(ThemePreferences.color(activity, R.color.jarvis_on_dark_muted))
             })
-            tile.isFocusable = true
-            tile.contentDescription = "Preview image: ${item.title}"
-            tile.setOnClickListener {
+            val validSource = ChatSearchResults.safeUrl(item.url)
+            tile.isFocusable = validSource
+            tile.isClickable = validSource
+            tile.contentDescription = if (validSource) "Preview image: ${item.title}"
+                else "Unavailable image source: ${item.title}"
+            if (validSource) tile.setOnClickListener {
                 val image = thumbnail(activity, item, 320)
                 image.scaleType = ImageView.ScaleType.FIT_CENTER
                 image.minimumHeight = dp(activity, 320)
@@ -105,6 +109,7 @@ object SearchMediaViews {
     }
 
     private fun open(activity: Activity, url: String) {
+        if (!ChatSearchResults.safeUrl(url)) return
         runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
             .onFailure { android.widget.Toast.makeText(activity, "No browser available", android.widget.Toast.LENGTH_SHORT).show() }
     }

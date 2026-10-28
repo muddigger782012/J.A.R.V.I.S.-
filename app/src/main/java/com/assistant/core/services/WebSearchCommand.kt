@@ -9,7 +9,17 @@ object WebSearchCommand {
         ).matchEntire(input.trim())?.groupValues?.get(1)
         val suffix = Regex("""^(?:please\s+)?search\s+(?:the\s+)?web\s+for\s+(.+?)\s+videos?$""", RegexOption.IGNORE_CASE)
             .matchEntire(input.trim())?.groupValues?.get(1)
-        return (direct ?: suffix ?: videoTitleRequest(input))?.trim()?.trimEnd('.', '?', '!')?.trim()?.takeIf { it.length in 2..300 }
+        return (direct ?: suffix ?: musicVideoRequest(input) ?: videoTitleRequest(input))?.trim()?.trimEnd('.', '?', '!')?.trim()?.takeIf { it.length in 2..300 }
+    }
+
+    /** Recognize conversational music-video requests before the general AI fallback. */
+    private fun musicVideoRequest(input: String): String? {
+        val match = Regex(
+            """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:find|show|get|search\s+for|locate)\s+(?:me\s+)?(?:(?:a|the)\s+)?music\s+videos?\s+(?:by|from|for|of)\s+(.+)$""",
+            RegexOption.IGNORE_CASE
+        ).matchEntire(input.trim()) ?: return null
+        val artist = match.groupValues[1].trim().trimEnd('.', '?', '!').trim()
+        return artist.takeIf { it.length in 2..260 }?.let { "$it music video" }
     }
 
     /** A play request with an explicit video target opens search results, not autoplay. */
@@ -22,6 +32,29 @@ object WebSearchCommand {
         val topic = match.groupValues[1].trim()
         return topic.takeIf { it.length in 2..300 && it.lowercase(java.util.Locale.ROOT) !in setOf("the", "this", "that", "a", "it") &&
             !Regex("(?i)^(?:a |the )?(?:link|url)\\b").containsMatchIn(it) }
+    }
+
+    /** Search a named song only when the user explicitly says song or music. */
+    fun musicQuery(input: String): String? {
+        val match = Regex(
+            """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:find|show|get|search\s+for|look\s+up)\s+(?:me\s+)?(?:(?:the|a)\s+)?(?:song|track|music)\s+(?:called|named|by|from)?\s*(.+)$""",
+            RegexOption.IGNORE_CASE
+        ).matchEntire(input.trim()) ?: return null
+        return match.groupValues[1].trim().trimEnd('.', '?', '!').trim()
+            .takeIf { it.length in 2..260 }?.let { "$it song" }
+    }
+
+    /** Artist/title phrasing identifies a music lookup without guessing from arbitrary names. */
+    fun titledMusicQuery(input: String): String? {
+        val match = Regex(
+            """^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?(?:find|show|get|search\s+for|look\s+up)\s+(?:me\s+)?(?:(?:the|a)\s+)?(.+?)\s+by\s+(.+?)\s+(?:song|track)$""",
+            RegexOption.IGNORE_CASE
+        ).matchEntire(input.trim()) ?: return null
+        val title = match.groupValues[1].trim()
+        val artist = match.groupValues[2].trim().trimEnd('.', '?', '!').trim()
+        if (title.length !in 2..120 || artist.length !in 2..120) return null
+        if (Regex("""(?i)\b(?:contact|number|phone|address|person|app|application|file|folder|document|photo|image|picture|video|clip)\b""").containsMatchIn(title)) return null
+        return "$title by $artist song"
     }
 
     fun isVideoLinkFollowup(input: String): Boolean = Regex(

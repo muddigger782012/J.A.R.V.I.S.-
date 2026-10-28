@@ -138,7 +138,9 @@ class MainActivityConfigurationAndroidTest {
         assertNotSame(state, restoredState)
         assertSame("Framework simulation retains the Application", original.application, restored.application)
         draftFields.keys.filter { it != TASK_ID }.forEach { hint ->
-            assertEquals("Draft restored for $hint", "", field(restored, hint).text.toString())
+            assertEquals("Only safe instruction draft restored for $hint",
+                if (hint == "Example: Build me an app to track equipment maintenance.") draftFields.getValue(hint) else "",
+                field(restored, hint).text.toString())
         }
         val freshTaskId = field(restored, TASK_ID).text.toString()
         assertFalse("Unreviewed task ID draft restored", freshTaskId == draftFields.getValue(TASK_ID))
@@ -180,9 +182,15 @@ class MainActivityConfigurationAndroidTest {
         idleMain()
         // Inspect the Tools page where the long, security-gated action list lives.
         // Expanding it exercises the layout most likely to overflow at large font sizes.
-        assertTrue(button(activity, "Tools").performClick())
+        assertTrue(button(activity, "Settings").performClick())
+        assertTrue(button(activity, "Advanced tools").performClick())
         idleMain()
-        assertTrue(button(activity, "Show developer controls").performClick())
+        assertTrue(button(activity, "Assistant diagnostics").performClick())
+        idleMain()
+        // Opening a collapsed section changes measured height; force a new layout pass.
+        decor.measure(View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY))
+        decor.layout(0, 0, widthPx, heightPx)
         idleMain()
         val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
         val root = scroll.getChildAt(0) as LinearLayout
@@ -198,7 +206,7 @@ class MainActivityConfigurationAndroidTest {
             assertWithinHorizontalContent(root, root.getChildAt(index))
         }
         val controls = descendants(root).filter {
-            it.visibility == View.VISIBLE && (it is Button || it is EditText || it is Spinner)
+            isEffectivelyVisible(it, root) && (it is Button || it is EditText || it is Spinner)
         }.toList()
         assertTrue("Interactive controls exist", controls.isNotEmpty())
         controls.forEach { control ->
@@ -209,11 +217,24 @@ class MainActivityConfigurationAndroidTest {
 
         assertApprovalsUnavailable(activity)
         val lastAction = button(activity, "Generate icon code, commit and check build")
-        assertTrue("Last action is inside the expanded Tools content", descendants(root).any { it === lastAction })
+        assertTrue("Final action remains inside Tools content", descendants(root).any { it === lastAction })
         scroll.isSmoothScrollingEnabled = false
         assertTrue("ScrollView can reach bottom", scroll.fullScroll(View.FOCUS_DOWN))
         idleMain()
         assertTrue("ScrollView moved down", scroll.scrollY > 0)
+        // The last action lives in a collapsed accordion section. Expand that section
+        // before checking reachability, rather than testing a hidden child at scroll bottom.
+        assertTrue(button(activity, "Release verification").performClick())
+        idleMain()
+        decor.measure(View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY))
+        decor.layout(0, 0, widthPx, heightPx)
+        idleMain()
+        assertTrue("Last action is displayed", isEffectivelyVisible(lastAction, root))
+        // Later categories remain below this action. Bring its full bounds into view instead
+        // of assuming it is the final child of the whole Advanced tools page.
+        lastAction.requestRectangleOnScreen(Rect(0, 0, lastAction.width, lastAction.height), true)
+        idleMain()
         val actionBounds = Rect(0, 0, lastAction.width, lastAction.height)
         scroll.offsetDescendantRectToMyCoords(lastAction, actionBounds)
         val viewportTop = scroll.scrollY + scroll.paddingTop
@@ -221,6 +242,18 @@ class MainActivityConfigurationAndroidTest {
         assertTrue("Last action top is reachable", actionBounds.top >= viewportTop)
         assertTrue("Last action bottom is reachable", actionBounds.bottom <= viewportBottom)
         assertApprovalsUnavailable(activity)
+    }
+
+    // A child can report VISIBLE while an ancestor section is GONE.
+    // Only assert geometry for controls actually displayed in the selected section.
+    private fun isEffectivelyVisible(view: View, root: View): Boolean {
+        var current: View? = view
+        while (current != null) {
+            if (current.visibility != View.VISIBLE) return false
+            if (current === root) return true
+            current = current.parent as? View
+        }
+        return false
     }
 
     private fun assertWithinHorizontalContent(root: LinearLayout, view: View) {
@@ -238,9 +271,10 @@ class MainActivityConfigurationAndroidTest {
     }
 
     private fun openTools(activity: Activity) {
-        assertTrue(button(activity, "Tools").performClick())
+        assertTrue(button(activity, "Settings").performClick())
+        assertTrue(button(activity, "Advanced tools").performClick())
         idleMain()
-        assertTrue(button(activity, "Show developer controls").performClick())
+        assertTrue(button(activity, "Release verification").performClick())
         idleMain()
     }
 
@@ -282,7 +316,10 @@ class MainActivityConfigurationAndroidTest {
     private fun application(): Application = RuntimeEnvironment.getApplication()
     private fun idleMain() = shadowOf(Looper.getMainLooper()).idle()
     private fun button(activity: Activity, text: String): Button =
-        views<Button>(activity).single { it.text.toString() == text }
+        views<Button>(activity).single {
+            val label = it.text.toString()
+            label == text || label == "$text  ▼" || label == "$text  ▲"
+        }
     private fun field(activity: Activity, hint: String): EditText =
         views<EditText>(activity).single { it.hint?.toString() == hint }
     private inline fun <reified T : View> views(activity: Activity): List<T> =

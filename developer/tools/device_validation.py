@@ -33,7 +33,7 @@ TEST_CLASS = PACKAGE + ".DeveloperConfigurationDeviceTest"
 TEST_METHOD = "appliedHostConfigurationKeepsNativeControlsContainedAndLastActionReachable"
 RUNNER = TEST_PACKAGE + "/androidx.test.runner.AndroidJUnitRunner"
 UI_PATH = "/data/local/tmp/jarvis-developer-validation.xml"
-PROVIDER_HINT = "Selected provider API key (not saved)"
+PROVIDER_HINT = "Paste your API key here (not a model name)"
 TOKEN_HINT = "GitHub fine-grained token (not saved)"
 REVIEW_HINT = "Enter exact eligible review SHA-256"
 FAKE_PROVIDER = "JARVISFAKEPROVIDERKEYNOTREAL123456"
@@ -276,6 +276,14 @@ def validate_installed_targets(adb, evidence):
     evidence["runnerAvailable"] = True
 
 
+def snapshot_mismatches(actual, saved):
+    # Android's configuration observer can recreate an unset font_scale as its
+    # canonical 1.0 default. This restores the same display preference; explicit
+    # non-default overrides and every other setting still require exact equality.
+    return [key for key in saved if actual[key] != saved[key] and not
+            (key == "font_scale" and saved[key] == "null" and actual[key] in ("1", "1.0"))]
+
+
 def restore(adb, saved):
     failures = []
     # Attempt every restoration even if an earlier command fails.
@@ -290,10 +298,12 @@ def restore(adb, saved):
         except ValidationError:
             failures.append("configuration_restore_command_failed")
     try:
-        require(snapshot(adb) == saved, "configuration_restore_mismatch")
+        actual = snapshot(adb)
+        require(not snapshot_mismatches(actual, saved), "configuration_restore_mismatch")
     except ValidationError:
         failures.append("configuration_restore_not_verified")
     require(not failures, "configuration_restore_failed")
+    return actual["font_scale"] != saved["font_scale"]
 
 
 def parse_instrumentation(text):
@@ -350,6 +360,7 @@ def run_profiles(adb, results=None):
             arguments += ["-e", key, value]
         arguments.append(RUNNER)
         record["stage"] = "native_case"
+        result = None
         try:
             result = adb.run(*arguments, timeout=120, max_bytes=262144)
             record["instrumentationOutputSha256"] = output_digest(result)
@@ -362,6 +373,14 @@ def run_profiles(adb, results=None):
             raise
         except ValidationError as error:
             record["failureClassification"] = str(error)
+            if result is not None:
+                # Only a line in our fixed public test class is retained. Raw assertions,
+                # stack traces, device text and credential representations remain omitted.
+                match = re.search(r"\bat " + re.escape(TEST_CLASS) +
+                                  r"\.[A-Za-z0-9_]+\(DeveloperConfigurationDeviceTest\.kt:([1-9][0-9]{0,3})\)",
+                                  result.text)
+                if match:
+                    record["failureTestLine"] = int(match.group(1))
             raise
         record.update(passed=True, stage="complete")
     return results
@@ -376,12 +395,19 @@ def parse_pid(text):
 def parse_task(text):
     records = []
     for line in text.splitlines():
-        if "ActivityRecord{" in line and re.search(
+        # dumpsys also includes last-paused/destroyed records from earlier profile
+        # scenarios. Only the live task history can establish launcher continuity.
+        if re.search(r"^\s*\*\s*(?:Hist #[0-9]+:\s*)?ActivityRecord\{", line) and re.search(
                 r"(?<![A-Za-z0-9_.])com\.jarvis\.developer/(?:\.MainActivity|com\.jarvis\.developer\.MainActivity)(?:\s|\})", line):
             match = re.search(r"\bt([1-9][0-9]{0,8})\b", line)
             require(match is not None, "unsupported_launcher_task_record")
             records.append(match.group(1))
     require(len(set(records)) == 1, "ambiguous_or_missing_launcher_task")
+    for line in text.splitlines():
+        if ("mResumedActivity" in line or "topResumedActivity" in line) and re.search(
+                r"(?<![A-Za-z0-9_.])com\.jarvis\.developer/(?:\.MainActivity|com\.jarvis\.developer\.MainActivity)(?:\s|\})", line):
+            match = re.search(r"\bt([1-9][0-9]{0,8})\b", line)
+            require(match is not None and match.group(1) == records[0], "ambiguous_or_missing_launcher_task")
     return records[0]
 
 
@@ -438,6 +464,18 @@ def filled_field_proof(node, sentinel):
 
 
 def ime_shown(text):
+    # mInputShown describes the input-method session and can stay true with a
+    # hardware keyboard. Prefer the actual IME window's VISIBLE bit (0x2), then
+    # the input view, before falling back to older service-only diagnostics.
+    windows = re.findall(r"\bmImeWindowVis=(0x[0-9a-fA-F]+|[0-9]+)\b", text)
+    if windows:
+        visibility = {bool(int(value, 16 if value.startswith("0x") else 10) & 2) for value in windows}
+        require(len(visibility) == 1, "ime_visibility_ambiguous")
+        return visibility.pop()
+    views = re.findall(r"\bmIsInputViewShown=(true|false)\b", text)
+    if views:
+        require(len(set(views)) == 1, "ime_visibility_ambiguous")
+        return views[0] == "true"
     values = re.findall(r"\b(?:mInputShown|mIsInputViewShown)=(true|false)\b", text)
     require(bool(values), "ime_visibility_not_observable")
     return "true" in values
@@ -492,9 +530,22 @@ class HostUi:
                 break
         raise ValidationError("required_ui_target_not_observable")
 
+    def navigate(self, label):
+        require(label in ("Settings", "Activity", "Advanced tools", "Self-development", "Testing and repair", "Release verification"),
+                "navigation_action_not_allowlisted")
+        node, _ = self.find(lambda item: item.get("class") == "android.widget.Button"
+                            and item.get("text", "").removesuffix("  ▼").removesuffix("  ▲") == label)
+        require(node.get("enabled") == "true", "navigation_action_disabled")
+        if node.get("content-desc", "").startswith("Close "):
+            return  # This safe accordion is already open.
+        left, top, right, bottom = bounds(node)
+        self.adb.run("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+
     def enter(self, hint, sentinel):
         require((hint, sentinel) in ((PROVIDER_HINT, FAKE_PROVIDER), (TOKEN_HINT, FAKE_TOKEN),
                                      (REVIEW_HINT, FAKE_REVIEW)), "field_input_not_allowlisted")
+        for label in (("Settings", "Advanced tools", "Self-development") if hint == REVIEW_HINT else ("Settings",)):
+            self.navigate(label)
         node, nodes = self.find(lambda item: item.get("class") == "android.widget.EditText"
                                and exact_hint(item, hint))
         require(node.get("enabled") == "true", "input_field_disabled")
@@ -509,17 +560,18 @@ class HostUi:
         focused = [item for item in own_nodes(self.dump(), "EditText") if item.get("focused") == "true"]
         require(len(focused) == 1 and exact_hint(focused[0], hint), "focused_field_identity_mismatch")
         self.adb.run("shell", "input", "text", sentinel)
-        # BACK is safe only with positively observed IME visibility; a blind BACK
-        # can finish the Activity on emulators using a hardware keyboard.
-        if ime_shown(self.adb.run("shell", "dumpsys", "input_method", max_bytes=262144).text):
-            self.adb.run("shell", "input", "keyevent", "KEYCODE_BACK")
-            require(not ime_shown(self.adb.run("shell", "dumpsys", "input_method",
-                                              max_bytes=262144).text), "ime_did_not_hide")
+        # Establish the actual typed value while the positively identified editor
+        # still has focus. Closing an IME may correctly move focus to the page.
         focused = [item for item in own_nodes(self.dump(), "EditText") if item.get("focused") == "true"]
         require(len(focused) == 1 and filled_field_proof(focused[0], sentinel),
                 "prefill_not_observable_password_redaction_unsupported")
         if hint == REVIEW_HINT:
             require(focused[0].get("text") == FAKE_REVIEW, "review_fingerprint_prefill_not_exact")
+        # Do not send BACK or infer keyboard closure from service bookkeeping.
+        # This scenario proves process/task recovery and cleared authority. Actual
+        # keyboard/Back behavior is covered by DeveloperGuidedUxDeviceTest with
+        # native WindowInsets and real Back key events. The next allowlisted page
+        # control remains usable without changing or clearing this entered text.
 
     def assert_fresh(self):
         # Scan once from top to bottom and retain only presence booleans. No UI
@@ -527,47 +579,82 @@ class HostUi:
         required = {hint: False for hint in (PROVIDER_HINT, TOKEN_HINT, REVIEW_HINT)}
         gates = {label: False for label in (*GATE_BUTTONS, *GATE_CHECKBOXES)}
         health = False
-        nodes = self.top()
-        for _ in range(25):
-            for node in own_nodes(nodes):
-                text, klass = node.get("text", ""), node.get("class", "")
-                if klass == "android.widget.EditText":
-                    for hint in required:
-                        if exact_hint(node, hint):
-                            # The exact visible hint, rather than empty redacted
-                            # text with hint metadata, is the required empty proof.
-                            require(text == hint, "empty_field_not_observable_password_redaction_unsupported")
-                            required[hint] = True
-                    require(not filled_field_proof(node, FAKE_PROVIDER)
-                            and not filled_field_proof(node, FAKE_TOKEN)
-                            and text != FAKE_REVIEW, "sentinel_survived_process_death")
-                if text in gates:
-                    expected = "android.widget.CheckBox" if text in GATE_CHECKBOXES else "android.widget.Button"
-                    require(klass == expected and node.get("enabled") == "false", "approval_gate_not_disabled")
-                    if text in GATE_CHECKBOXES:
-                        require(node.get("checked") == "false", "approval_checkbox_not_cleared")
-                    gates[text] = True
-                if klass == "android.widget.TextView":
-                    if re.fullmatch(r"Version [1-9][0-9]* is awaiting your health confirmation\.", text):
-                        health = True
-                    elif re.fullmatch(r"WARNING: [0-9]+ rapid launches on unconfirmed version [1-9][0-9]*\. "
-                                      r"This may be normal relaunching, not necessarily a crash\. "
-                                      r"Review recovery before coding or updating\.", text):
-                        health = True
-                    require(not re.search(r"confirmed working (?:locally|on this device)", text),
-                            "health_was_confirmed")
-            if all(required.values()) and all(gates.values()) and health:
-                return
-            previous = self.signature(nodes)
-            self.swipe(nodes, downward=False)
-            nodes = self.dump()
-            if self.signature(nodes) == previous:
-                break
-        raise ValidationError("fresh_fields_gates_or_unconfirmed_health_not_observable")
+        disabled_button_counts = {}
+        gate_accessibility_matches = {label: False for label in GATE_BUTTONS}
+        routes = ((), ("Settings",), ("Activity",),
+                  ("Settings", "Advanced tools", "Self-development"),
+                  ("Settings", "Advanced tools", "Testing and repair"),
+                   ("Settings", "Advanced tools", "Release verification"))
+        for route in routes:
+            for label in route:
+                self.navigate(label)
+            nodes = self.top()
+            disabled_button_signatures = set()
+            for _ in range(25):
+                for node in own_nodes(nodes):
+                    if node.get("class") == "android.widget.Button" and node.get("enabled") == "false":
+                        disabled_button_signatures.add((node.get("text", ""), node.get("content-desc", "")))
+                        for gate in GATE_BUTTONS:
+                            if node.get("content-desc") == gate:
+                                gate_accessibility_matches[gate] = True
+                    text, klass = node.get("text", ""), node.get("class", "")
+                    if klass == "android.widget.EditText":
+                        for hint in required:
+                            if exact_hint(node, hint):
+                                # The exact visible hint, rather than empty redacted
+                                # text with hint metadata, is the required empty proof.
+                                require(text == hint, "empty_field_not_observable_password_redaction_unsupported")
+                                required[hint] = True
+                        require(not filled_field_proof(node, FAKE_PROVIDER)
+                                and not filled_field_proof(node, FAKE_TOKEN)
+                                and text != FAKE_REVIEW, "sentinel_survived_process_death")
+                    if text in gates:
+                        expected = "android.widget.CheckBox" if text in GATE_CHECKBOXES else "android.widget.Button"
+                        require(klass == expected and node.get("enabled") == "false", "approval_gate_not_disabled")
+                        if text in GATE_CHECKBOXES:
+                            require(node.get("checked") == "false", "approval_checkbox_not_cleared")
+                        gates[text] = True
+                    if klass == "android.widget.TextView":
+                        if re.fullmatch(r"Version [1-9][0-9]* is awaiting your health confirmation\.", text):
+                            health = True
+                        elif re.fullmatch(r"WARNING: [0-9]+ rapid launches on unconfirmed version [1-9][0-9]*\. "
+                                          r"This may be normal relaunching, not necessarily a crash\. "
+                                          r"Review recovery before coding or updating\.", text):
+                            health = True
+                        require(not re.search(r"confirmed working (?:locally|on this device)", text),
+                                "health_was_confirmed")
+                if all(required.values()) and all(gates.values()) and health:
+                    return
+                previous = self.signature(nodes)
+                self.swipe(nodes, downward=False)
+                nodes = self.dump()
+                if self.signature(nodes) == previous:
+                    break
+            disabled_button_counts["/".join(route) or "Home"] = len(disabled_button_signatures)
+        # Report missing names and booleans, never field values or raw UI content.
+        # Distinguish an absent gate from a gate exposed with a non-exact label.
+        # Only fixed expected labels are emitted; no raw hierarchy is retained.
+        missing_fields = sorted(hint for hint, observed in required.items() if not observed)
+        missing_gates = sorted(label for label, observed in gates.items() if not observed)
+        raise ValidationError(
+            "fresh_fields_gates_or_unconfirmed_health_not_observable"
+            + "; missing_fields=" + repr(missing_fields)
+            + "; missing_gates=" + repr(missing_gates)
+            + "; disabled_button_counts=" + repr(disabled_button_counts)
+            + "; gate_accessibility_matches=" + repr(sorted(label for label, found in gate_accessibility_matches.items() if found))
+            + "; unconfirmed_health_visible=" + str(health)
+        )
 
 
 def package_pid(adb):
     return parse_pid(adb.run("shell", "pidof", PACKAGE, allow_empty=True).text)
+
+
+def package_uid(adb):
+    text = adb.run("shell", "pm", "list", "packages", "-U", PACKAGE, max_bytes=32768).text
+    matches = re.findall(r"(?m)^package:" + re.escape(PACKAGE) + r"\s+uid:([1-9][0-9]{0,8})\s*$", text)
+    require(len(matches) == 1 and int(matches[0]) >= 10000, "developer_uid_not_observable")
+    return matches[0]
 
 
 def activity_state(adb):
@@ -596,6 +683,7 @@ def run_process_death(adb, ui=None, sleeper=time.sleep):
     launcher(adb)
     old_pid = package_pid(adb)
     require(old_pid is not None, "launcher_pid_missing")
+    uid = package_uid(adb)
     task, foreground = activity_state(adb)
     require(foreground, "launcher_not_foreground")
     for hint, sentinel in ((PROVIDER_HINT, FAKE_PROVIDER), (TOKEN_HINT, FAKE_TOKEN),
@@ -612,6 +700,20 @@ def run_process_death(adb, ui=None, sleeper=time.sleep):
 
     wait_for(background, "launcher_did_not_background", sleeper=sleeper)
     require(package_pid(adb) == old_pid, "process_died_before_am_kill")
+    # A recently hidden Activity can still have foreground/transient importance.
+    # am kill deliberately leaves those processes alive. Observe a stable eligible
+    # background state instead of force-stopping or pretending the kill succeeded.
+    stable = 0
+    def eligible_background():
+        nonlocal stable
+        require(package_pid(adb) == old_pid, "process_died_before_am_kill")
+        state = adb.run("shell", "am", "get-uid-state", uid, max_bytes=32768).text.strip()
+        match = re.fullmatch(r"[0-9]{1,2}\s+\(([A-Z_]+)\)", state)
+        require(match is not None, "developer_uid_state_not_observable")
+        eligible = match.group(1) in ("LAST_ACTIVITY", "CACHED_ACTIVITY", "CACHED_ACTIVITY_CLIENT", "CACHED_RECENT", "CACHED_EMPTY")
+        stable = stable + 1 if eligible else 0
+        return stable >= 2
+    wait_for(eligible_background, "background_uid_not_killable", attempts=100, pause=0.2, sleeper=sleeper)
     # This is an Android background-process kill. Never substitute force-stop:
     # that destroys task-restoration semantics and cannot prove process death.
     adb.run("shell", "am", "kill", "--user", "current", PACKAGE)
@@ -657,7 +759,7 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
         evidence["phase"] = "native_profiles"
         run_profiles(adb, evidence["profiles"])
         evidence["phase"] = "restore_before_process_death"
-        restore(adb, saved)
+        evidence["fontScaleDefaultNormalized"] = restore(adb, saved)
         evidence["configurationRestored"] = True
         adb.deadline = clock() + 360
         evidence["phase"] = "process_death"
@@ -674,10 +776,17 @@ def execute(adb, source_sha, clock=time.monotonic, process_runner=run_process_de
         adb.deadline = clock() + 90
         if saved is not None:
             try:
-                restore(adb, saved)
+                evidence["fontScaleDefaultNormalized"] = restore(adb, saved) or evidence.get("fontScaleDefaultNormalized", False)
                 evidence["configurationRestored"] = True
             except ValidationError:
                 evidence["configurationRestored"] = False
+                if failure:
+                    evidence["primaryFailureReason"] = failure
+                try:
+                    actual = snapshot(adb)
+                    evidence["restoreMismatchFields"] = snapshot_mismatches(actual, saved)
+                except ValidationError:
+                    evidence["restoreReadbackUnavailable"] = True
                 failure = "configuration_restore_failed"
             try:
                 adb.run("shell", "rm", "-f", UI_PATH)

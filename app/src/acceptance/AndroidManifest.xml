@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Lint 31.5 inspects this source-set overlay instead of the merged service declarations.
+             Repeat the actual production service type; the IPC probe is not a foreground service. -->
+        <service android:name=".services.VoiceForegroundService" android:foregroundServiceType="microphone" />
+        <activity android:name=".ScreenControlFixtureActivity" android:exported="false" />
+        <service android:name=".ScreenControlProbeService" android:exported="false" android:process=":screenprobe" />
+    </application>
+</manifest>

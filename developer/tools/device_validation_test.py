@@ -128,6 +128,10 @@ class ProcessAdb:
                 if not self.retain_task:
                     self.task = "6"
             return validation.Result(0, "Status: ok\nActivity: com.jarvis.developer/.MainActivity\n")
+        if args == ("shell", "pm", "list", "packages", "-U", validation.PACKAGE):
+            return validation.Result(0, "package:com.jarvis.developer uid:10123\npackage:com.jarvis.developer.test uid:10124\n")
+        if args == ("shell", "am", "get-uid-state", "10123"):
+            return validation.Result(0, "16 (CACHED_ACTIVITY)")
         if args == ("shell", "pidof", validation.PACKAGE):
             return validation.Result(0 if self.pid else 1, self.pid or "")
         if args == ("shell", "dumpsys", "activity", "activities"):
@@ -197,6 +201,21 @@ class ContractTests(unittest.TestCase):
         for text in corruptions:
             with self.subTest(kind=text[:50]), self.assertRaises(validation.ValidationError):
                 validation.parse_instrumentation(text)
+
+    def test_native_failure_reports_only_public_test_line_not_private_assertion_text(self):
+        adb = ConfigurationAdb()
+        original = adb.run
+        def failing(*args, **kwargs):
+            if args[:3] == ("shell", "am", "instrument"):
+                return validation.Result(0, "INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: owner-private-details\n"
+                    "at com.jarvis.developer.DeveloperConfigurationDeviceTest.assertEffectiveConfiguration(DeveloperConfigurationDeviceTest.kt:129)\n")
+            return original(*args, **kwargs)
+        adb.run = failing
+        records = []
+        with self.assertRaisesRegex(validation.ValidationError, "native_case_failed"):
+            validation.run_profiles(adb, records)
+        self.assertEqual(129, records[0]["failureTestLine"])
+        self.assertNotIn("owner-private", json.dumps(records))
 
     def test_malformed_settings_are_rejected_before_mutation(self):
         for name, text in (("font_scale", "1; reboot"), ("font_scale", "10"),
@@ -393,6 +412,23 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(any(token in {"install", "install-multiple", "force-stop", "pull", "push", "curl", "wget"}
                              for args in adb.commands for token in args))
 
+    def test_android_recreated_default_font_is_reported_without_accepting_changed_overrides(self):
+        class DefaultFontAdb(ConfigurationAdb):
+            def run(self, *args, **kwargs):
+                result = super().run(*args, **kwargs)
+                if args == ("shell", "settings", "delete", "system", "font_scale"):
+                    self.settings["font_scale"] = "1.0"
+                return result
+        adb = DefaultFontAdb()
+        evidence = validation.execute(adb, SHA, process_runner=lambda _: {"passed": True})
+        self.assertTrue(evidence["passed"])
+        self.assertTrue(evidence["configurationRestored"])
+        self.assertTrue(evidence["fontScaleDefaultNormalized"])
+        self.assertEqual([], validation.snapshot_mismatches({"font_scale": "1.0"}, {"font_scale": "null"}))
+        self.assertEqual(["font_scale"], validation.snapshot_mismatches({"font_scale": "2.0"}, {"font_scale": "null"}))
+        self.assertEqual(["font_scale"], validation.snapshot_mismatches({"font_scale": "1.0"}, {"font_scale": "2.0"}))
+        self.assertEqual(["user_rotation"], validation.snapshot_mismatches({"user_rotation": "0"}, {"user_rotation": "null"}))
+
     def test_native_timeout_still_restores_every_snapshot(self):
         adb = ConfigurationAdb(fail_instrument=True)
         called = []
@@ -459,6 +495,30 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(any("force-stop" in args for args in adb.commands))
         self.assertEqual(2, sum(args[:3] == ("shell", "am", "start") for args in adb.commands))
 
+    def test_background_kill_waits_for_a_stable_eligible_uid_state(self):
+        class SettlingAdb(ProcessAdb):
+            def __init__(self):
+                super().__init__()
+                self.states = iter(("8 (TRANSIENT_BACKGROUND)", "8 (TRANSIENT_BACKGROUND)",
+                                    "15 (LAST_ACTIVITY)", "15 (LAST_ACTIVITY)"))
+            def run(self, *args, **kwargs):
+                if args == ("shell", "am", "get-uid-state", "10123"):
+                    self.commands.append(args)
+                    return validation.Result(0, next(self.states))
+                return super().run(*args, **kwargs)
+        adb = SettlingAdb()
+        result = validation.run_process_death(adb, FakeUi(), sleeper=lambda _: None)
+        self.assertTrue(result["passed"])
+        kill = adb.commands.index(("shell", "am", "kill", "--user", "current", validation.PACKAGE))
+        self.assertEqual(4, adb.commands[:kill].count(("shell", "am", "get-uid-state", "10123")))
+
+    def test_uid_probe_requires_the_exact_installed_developer_package(self):
+        self.assertEqual("10123", validation.package_uid(ProcessAdb()))
+        adb = MagicMock()
+        adb.run.return_value = validation.Result(0, "package:com.jarvis.developer.test uid:10123")
+        with self.assertRaisesRegex(validation.ValidationError, "developer_uid_not_observable"):
+            validation.package_uid(adb)
+
     def test_kill_failure_never_falls_back_to_force_stop(self):
         adb, ui = ProcessAdb(kill_works=False), FakeUi()
         with self.assertRaisesRegex(validation.ValidationError, "background_process_not_killed"):
@@ -510,6 +570,18 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(validation.ValidationError):
             validation.parse_task("ActivityRecord{a u0 malicious.com.jarvis.developer/.MainActivity t5}")
 
+    def test_launcher_identity_uses_live_history_and_rejects_conflicting_live_or_resumed_tasks(self):
+        live = "* Hist #0: ActivityRecord{a u0 com.jarvis.developer/.MainActivity t5}\n"
+        stale = "mLastPausedActivity: ActivityRecord{b u0 com.jarvis.developer/.MainActivity t8}\n"
+        resumed = "topResumedActivity=ActivityRecord{a u0 com.jarvis.developer/.MainActivity t5}\n"
+        self.assertEqual("5", validation.parse_task(live + stale + resumed))
+        with self.assertRaisesRegex(validation.ValidationError, "ambiguous_or_missing_launcher_task"):
+            validation.parse_task(live + live.replace("t5", "t8"))
+        with self.assertRaisesRegex(validation.ValidationError, "ambiguous_or_missing_launcher_task"):
+            validation.parse_task(live + resumed.replace("t5", "t8"))
+        with self.assertRaisesRegex(validation.ValidationError, "ambiguous_or_missing_launcher_task"):
+            validation.parse_task(stale)
+
     def test_password_prefill_requires_exact_raw_or_exact_length_mask(self):
         sentinel = validation.FAKE_PROVIDER
         for text in (sentinel, "\u2022" * len(sentinel), "*" * len(sentinel)):
@@ -552,6 +624,11 @@ class ContractTests(unittest.TestCase):
     def test_ime_visibility_requires_positive_observation_before_back(self):
         self.assertTrue(validation.ime_shown("mInputShown=true mIsInputViewShown=true"))
         self.assertFalse(validation.ime_shown("mInputShown=false"))
+        self.assertFalse(validation.ime_shown("mInputShown=true mImeWindowVis=0x1"))
+        self.assertTrue(validation.ime_shown("mInputShown=false mImeWindowVis=3"))
+        self.assertFalse(validation.ime_shown("mInputShown=true mIsInputViewShown=false"))
+        with self.assertRaisesRegex(validation.ValidationError, "ime_visibility_ambiguous"):
+            validation.ime_shown("mImeWindowVis=0x1 mImeWindowVis=0x3")
         with self.assertRaises(validation.ValidationError):
             validation.ime_shown("No active keyboard information")
 
@@ -568,6 +645,7 @@ class ContractTests(unittest.TestCase):
 
         adb = InputAdb()
         ui = validation.HostUi(adb)
+        ui.navigate = lambda label: None
         field = node("EditText", validation.PROVIDER_HINT, focused="true")
         scroll = node("ScrollView", bounds="[0,0][320,640]")
         ui.find = lambda _: (field, [scroll, field])
@@ -577,9 +655,34 @@ class ContractTests(unittest.TestCase):
         self.assertIn(("shell", "input", "text", validation.FAKE_PROVIDER), adb.commands)
         self.assertFalse(any("KEYCODE_BACK" in command for command in adb.commands))
 
+    def test_field_proof_does_not_inject_back_or_depend_on_stale_keyboard_service_state(self):
+        class KeyboardAdb:
+            def __init__(self):
+                self.commands = []
+                self.states = iter(("true", "true", "false"))
+            def run(self, *args, **kwargs):
+                self.commands.append(args)
+                if args == ("shell", "dumpsys", "input_method"):
+                    return validation.Result(0, "mInputShown=" + next(self.states))
+                return validation.Result(0, "")
+        adb = KeyboardAdb()
+        ui = validation.HostUi(adb)
+        ui.navigate = lambda label: None
+        field = node("EditText", validation.PROVIDER_HINT, focused="true")
+        scroll = node("ScrollView", bounds="[0,0][320,640]")
+        ui.find = lambda _: (field, [scroll, field])
+        dumps = iter(([field], [node("EditText", "*" * len(validation.FAKE_PROVIDER), focused="true")]))
+        ui.dump = lambda: next(dumps)
+        with patch.object(validation.time, "sleep"):
+            ui.enter(validation.PROVIDER_HINT, validation.FAKE_PROVIDER)
+        self.assertEqual(0, adb.commands.count(("shell", "input", "keyevent", "KEYCODE_BACK")))
+        self.assertEqual(0, adb.commands.count(("shell", "dumpsys", "input_method")))
+        self.assertIn(("shell", "input", "text", validation.FAKE_PROVIDER), adb.commands)
+
     def test_changed_focus_aborts_before_typing_any_sentinel(self):
         adb = MagicMock()
         ui = validation.HostUi(adb)
+        ui.navigate = lambda label: None
         field = node("EditText", validation.PROVIDER_HINT)
         scroll = node("ScrollView", bounds="[0,0][320,640]")
         ui.find = lambda _: (field, [scroll, field])
@@ -587,6 +690,21 @@ class ContractTests(unittest.TestCase):
         with self.assertRaisesRegex(validation.ValidationError, "focused_field_identity_mismatch"):
             ui.enter(validation.PROVIDER_HINT, validation.FAKE_PROVIDER)
         self.assertFalse(any(call.args[:3] == ("shell", "input", "text") for call in adb.run.call_args_list))
+
+    def test_navigation_rejects_engineering_actions_and_accepts_only_read_only_destinations(self):
+        adb = MagicMock()
+        ui = validation.HostUi(adb)
+        with self.assertRaisesRegex(validation.ValidationError, "navigation_action_not_allowlisted"):
+            ui.navigate("Create task branch and commit approved files (writes)")
+        adb.run.assert_not_called()
+        target = node("Button", "Self-development  ▼")
+        ui.find = lambda predicate: (target, [target]) if predicate(target) else self.fail("Route identity mismatch")
+        ui.navigate("Self-development")
+        self.assertEqual(adb.run.call_args.args[:3], ("shell", "input", "tap"))
+        adb.reset_mock()
+        target.set("content-desc", "Close Self-development tools")
+        ui.navigate("Self-development")
+        adb.run.assert_not_called()
 
     def test_subprocess_output_limit_is_enforced_without_exposing_output(self):
         process, selector = MagicMock(), MagicMock()

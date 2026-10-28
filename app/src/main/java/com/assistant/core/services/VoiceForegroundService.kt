@@ -7,9 +7,11 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.assistant.core.MainActivity
 import com.assistant.core.R
@@ -49,6 +51,23 @@ class VoiceForegroundService : Service() {
     private var resumeAfterPractice = false
     private val practiceTimeout = Runnable { releasePracticeMicrophone(practiceToken.orEmpty()) }
     private var pipelineStarted = false
+    private var commandSessionActive = false
+    private var responseGeneration = 0L
+    private var spokenScreenContext: String? = null
+    private var followUpScreen = false
+    private val screenAccess by lazy { ScreenAccessClient(this) }
+    private val screenChanges = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val scope = spokenScreenContext ?: return
+            if (screenAccess.taskState().contextKey == scope) return
+            spokenScreenContext = null; followUpScreen = false; responseGeneration++
+            if (::hybridAssistantService.isInitialized) hybridAssistantService.cancelActiveResponse()
+            if (::voiceService.isInitialized) {
+                voiceService.stopSpeaking()
+                if (!liveChatActive && pipelineStarted) { voiceService.stopListening(); voiceService.startHotwordLoop() }
+            }
+        }
+    }
     private var appliedVoiceConfig: VoiceConfig? = null
     private var liveChatActive = false
     private var resumeWakeAfterLive = false
@@ -63,13 +82,22 @@ class VoiceForegroundService : Service() {
     private val liveCapture by lazy { LiveSpeechCapture(this) }
     private var liveMessage = ""
     private var livePhase = VoiceInteractionState.IDLE
+    private var voicePhase = VoiceInteractionState.IDLE
+    private var liveFailures = 0
     private val heartbeat = object : Runnable {
         override fun run() {
             if (!liveChatActive) return
             LiveChatStore.state(this@VoiceForegroundService, true, livePhase, liveMessage)
+            if (::voiceService.isInitialized) VoiceRuntimeObservation.write(this@VoiceForegroundService,
+                VoiceRuntimeObservation.Owner.FOREGROUND, voiceService.wakeState, livePhase)
             dialogueOverlay.refresh(true)
             liveHandler.postDelayed(this, 30000L)
         }
+    }
+
+    private fun startVoiceForeground(message: String) {
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(message),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0)
     }
 
     override fun onCreate() {
@@ -79,11 +107,55 @@ class VoiceForegroundService : Service() {
         // crash containment entirely.
         voicePreferences = VoicePreferences(this)
         ContextCompat.registerReceiver(this, responseOptionsReceiver, android.content.IntentFilter(VoiceResponsePreferences.ACTION_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(this, screenChanges, android.content.IntentFilter(ScreenTaskNotifications.CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
         createNotificationChannel()
+        PersonalReminderRuntime.restoreAsync(applicationContext)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_PUSH_TO_TALK -> {
+                if (liveChatActive || practiceToken != null) return START_NOT_STICKY
+                startVoiceForeground("Starting command capture…")
+                try {
+                    if (!::voiceService.isInitialized) { initializeEngine(); initializeVoice() }
+                    hybridAssistantService.interruptActiveResponse()
+                    responseGeneration++
+                    spokenScreenContext = null; followUpScreen = false
+                    currentConfig = voicePreferences.load()
+                    voiceService.updateConfig(currentConfig)
+                    pipelineStarted = pipelineStarted || intent.getBooleanExtra("resume_wake", false)
+                    commandSessionActive = true
+                    voiceSession.beginCapture(VoiceSessionController.Trigger.PUSH_TO_TALK)
+                    voiceService.startPushToTalk(returnToWake = pipelineStarted)
+                } catch (_: Exception) {
+                    commandSessionActive = false
+                    if (::voiceSession.isInitialized) voiceSession.stop()
+                    publishEvent("Command capture could not initialize. No speech was submitted.")
+                    if (!pipelineStarted) stopSelf()
+                }
+                return START_NOT_STICKY
+            }
+            ACTION_FINISH_CAPTURE -> {
+                if (liveChatActive) liveCapture.finish() else if (::voiceService.isInitialized) voiceService.finishCapture()
+                return START_NOT_STICKY
+            }
+            ACTION_CANCEL_CAPTURE -> {
+                if (liveChatActive) {
+                    hybridAssistantService.cancelActiveResponse()
+                    liveCapture.stop(); voiceService.stopSpeaking()
+                    liveHandler.removeCallbacksAndMessages(null)
+                    if (liveSession.interrupt()) {
+                        liveStatus(VoiceInteractionState.IDLE, "Turn cancelled. Live chat remains active; listening again…")
+                        liveHandler.post(heartbeat); nextLiveTurn(300L)
+                    }
+                    return START_NOT_STICKY
+                }
+                val resume = pipelineStarted
+                if (::voiceService.isInitialized) stopVoicePipeline()
+                if (resume) startVoicePipeline() else stopSelf()
+                return START_NOT_STICKY
+            }
             ACTION_PRACTICE_PAUSE -> {
                 val token = intent.getStringExtra("token").orEmpty()
                 if (token.isBlank()) return START_NOT_STICKY
@@ -104,7 +176,7 @@ class VoiceForegroundService : Service() {
             }
             ACTION_LIVE_START -> {
                 if (practiceToken != null) return START_NOT_STICKY
-                startForeground(NOTIFICATION_ID, buildNotification("Starting live chat…"))
+                startVoiceForeground("Starting live chat…")
                 if (!liveChatActive) {
                     try {
                         resumeWakeAfterLive = pipelineStarted || intent.getBooleanExtra("resume_wake", false)
@@ -119,6 +191,8 @@ class VoiceForegroundService : Service() {
                         currentConfig = voicePreferences.load()
                         voiceService.updateConfig(currentConfig)
                         liveChatActive = true
+                        liveSession.configureIdleTimeout(RuntimeSettings.read(this, "voice_settings")
+                            .getLong("live_idle_millis", 300_000))
                         liveSession.start()
                         liveStatus(VoiceInteractionState.LISTENING, "Starting live chat…")
                         liveHandler.post(heartbeat)
@@ -147,7 +221,7 @@ class VoiceForegroundService : Service() {
             }
             else -> {
                 if (liveChatActive || practiceToken != null) return START_NOT_STICKY
-                startForeground(NOTIFICATION_ID, buildNotification("Voice service is active"))
+                startVoiceForeground("Voice service is active")
                 persistStage("entered-start-command")
                 publishEvent("Foreground service entered start command.")
                 // Android may deliver repeated startService intents (activity resume,
@@ -168,9 +242,9 @@ class VoiceForegroundService : Service() {
                         persistStage("pipeline-started")
                     } catch (t: Throwable) {
                         pipelineStarted = false
-                        persistStage("failed-" + t.javaClass.simpleName + "-" + (t.message ?: "unknown"))
+                        persistStage("foreground-pipeline-failed")
                         voicePreferences.setForegroundServiceRunning(false)
-                        publishEvent("Foreground wake pipeline failed: " + t.javaClass.simpleName + ": " + (t.message ?: "unknown error"))
+                        publishEvent("Foreground wake pipeline initialization failed. Review microphone permission, wake models and voice diagnostics.")
                     }
                 } else {
                     val updatedConfig = voicePreferences.load()
@@ -180,7 +254,11 @@ class VoiceForegroundService : Service() {
                         voiceService.updateConfig(updatedConfig)
                         publishEvent("Voice settings applied; wake sensitivity updated.")
                     } else {
-                        publishEvent("Foreground voice service already active; keeping wake listener armed.")
+                        if (voiceService.wakeState in setOf(VoiceAssistantService.WakeState.FAILED, VoiceAssistantService.WakeState.STOPPED) &&
+                            !commandSessionActive && !voiceService.isCapturing() && voicePhase !in setOf(VoiceInteractionState.PROCESSING, VoiceInteractionState.SPEAKING)) {
+                            voiceService.startHotwordLoop()
+                            publishEvent("Wake standby recovery requested; readiness awaits the actual engine callback.")
+                        } else publishEvent("Foreground service already active. Current voice state: ${voicePhase.userLabel()}.")
                     }
                 }
                 return START_NOT_STICKY
@@ -189,6 +267,7 @@ class VoiceForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(screenChanges) }
         runCatching { unregisterReceiver(responseOptionsReceiver) }
         dialogueOverlay.hide()
         liveHandler.removeCallbacksAndMessages(null)
@@ -214,6 +293,7 @@ class VoiceForegroundService : Service() {
     private fun liveStatus(phase: VoiceInteractionState, message: String) {
         livePhase = phase
         liveMessage = message
+        if (::voiceService.isInitialized) VoiceRuntimeObservation.write(this, VoiceRuntimeObservation.Owner.FOREGROUND, voiceService.wakeState, phase)
         LiveChatStore.state(this, liveChatActive, phase, message)
         dialogueOverlay.refresh(liveChatActive)
         updateNotification(message)
@@ -233,21 +313,38 @@ class VoiceForegroundService : Service() {
         val audible = VoiceResponsePreferences.load(this).liveSpeech
         liveStatus(if (audible) VoiceInteractionState.SPEAKING else VoiceInteractionState.IDLE,
             if (audible) "Speaking…" else "Reply ready. Listening again…")
-        voiceService.speak(text, SpeechChannel.LIVE_CHAT)
+        val turn = liveSession.token
+        voiceService.speak(text, SpeechChannel.LIVE_CHAT, after = {
+            if (liveChatActive && liveSession.speechFinished(turn)) nextLiveTurn(650L)
+        })
     }
 
     private fun nextLiveTurn(delay: Long) {
         val token = liveSession.token
         liveHandler.postDelayed({
             if (!liveChatActive || liveSession.token != token) return@postDelayed
-            val turn = liveSession.listen() ?: return@postDelayed
-            liveStatus(VoiceInteractionState.LISTENING, "Listening. Say “end live chat” to finish.")
+            val turn = liveSession.listen() ?: run {
+                if (liveSession.expired()) finishLiveChat("Live chat reached your configured inactivity limit.")
+                return@postDelayed
+            }
+            liveStatus(VoiceInteractionState.IDLE, "Starting speech capture; waiting for the recognizer.")
+            val captureScope = if (packageName == "com.assistant.core") screenAccess.voiceScope() else ""
+            val developmentScope = DevelopmentInstallConsent.voiceScope()
             liveCapture.listen(currentConfig.preferOfflineCommandRecognition,
                 onPartial = { /* Partial transcripts stay transient; only complete turns enter chat. */ },
                 onResult = { text ->
                     if (liveChatActive && liveSession.transcript(turn)) {
+                        liveFailures = 0
                         liveLine("You: $text")
-                        if (LiveChatCommands.parse(text) == LiveChatCommands.Control.STOP) {
+                        if (packageName == "com.assistant.core" && !VoiceDevelopmentApprovalScope.valid(text, developmentScope, DevelopmentInstallConsent.voiceScope())) {
+                            liveSession.response(turn)
+                            val message = "The APK review changed while you were speaking. Review the latest APK and repeat the specific approval; no installation approval was sent."
+                            liveLine("J.A.R.V.I.S.: $message"); speakLiveReply(message)
+                        } else if (packageName == "com.assistant.core" && !VoiceScreenApprovalScope.valid(text, captureScope, screenAccess.voiceScope())) {
+                            liveSession.response(turn)
+                            val message = "The screen review changed during voice capture. Review the current target and confirm again; nothing was tapped."
+                            liveLine("J.A.R.V.I.S.: $message"); speakLiveReply(message)
+                        } else if (LiveChatCommands.parse(text) == LiveChatCommands.Control.STOP) {
                             finishLiveChat("Live chat ended.")
                         } else if (LiveChatCommands.parse(text) == LiveChatCommands.Control.START) {
                             liveSession.response(turn)
@@ -255,28 +352,43 @@ class VoiceForegroundService : Service() {
                             speakLiveReply("Live chat is already active.")
                         } else {
                             liveStatus(VoiceInteractionState.PROCESSING, "Thinking…")
-                            hybridAssistantService.handleUserInputAsync(text) { reply ->
+                            askAssistant(text) { reply ->
                                 liveHandler.post {
                                     if (liveChatActive && liveSession.response(turn)) {
+                                        if (reply.screenContextKey != null && screenAccess.taskState().contextKey != reply.screenContextKey) {
+                                            liveSession.speechFinished(); nextLiveTurn(650L); return@post
+                                        }
                                         liveLine("J.A.R.V.I.S.: ${reply.text}")
                                         speakLiveReply(reply.text)
                                     }
                                 }
                             }
                             liveHandler.postDelayed({
-                                if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.THINKING)
-                                    finishLiveChat("The reply took too long. Start live chat again to retry.")
+                                if (liveChatActive) when (liveSession.responseTimedOut(turn)) {
+                                    LiveChatSession.ReplyRecovery.RETRY -> {
+                                        hybridAssistantService.cancelActiveResponse()
+                                        liveStatus(VoiceInteractionState.IDLE, "The reply timed out. Live chat is still active; ask again.")
+                                        nextLiveTurn(1000L)
+                                    }
+                                    LiveChatSession.ReplyRecovery.EXPIRED -> finishLiveChat("Live chat reached your configured inactivity limit.")
+                                    LiveChatSession.ReplyRecovery.STALE -> Unit
+                                }
                             }, 60000L)
                         }
                     }
                 },
-                onError = { error -> liveCaptureError(turn, error) })
-            liveHandler.postDelayed({
-                if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING) {
-                    liveCapture.stop()
-                    liveCaptureError(turn, android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
+                onError = { error -> liveCaptureError(turn, error) },
+                onEngine = { engine ->
+                    if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING) {
+                        val source = if (engine == SpeechCaptureRouting.Engine.ON_DEVICE) "Listening on device."
+                            else "Listening with the system speech recognizer; it may use a network connection."
+                        liveStatus(VoiceInteractionState.IDLE, "$source Waiting for microphone readiness.")
+                    }
+                }, onPhase = { phase ->
+                    if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING)
+                        liveStatus(phase, phase.userLabel())
                 }
-            }, 25000L)
+            )
         }, delay)
     }
 
@@ -284,9 +396,9 @@ class VoiceForegroundService : Service() {
         if (!liveChatActive || liveSession.token != turn || liveSession.phase != LiveChatSession.Phase.LISTENING) return
         if (error == android.speech.SpeechRecognizer.ERROR_NO_MATCH || error == android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
             if (liveSession.silence(turn)) {
-                liveStatus(VoiceInteractionState.LISTENING, "No speech heard. Listening again…")
+                liveStatus(VoiceInteractionState.IDLE, "No final speech result. Live chat remains active; listening again…")
                 nextLiveTurn(1000L)
-            } else finishLiveChat("Live chat ended after no speech was heard.")
+            } else finishLiveChat("Live chat reached your configured inactivity limit.")
         } else {
             val message = when (error) {
                 android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Allow microphone permission to use live chat."
@@ -294,11 +406,17 @@ class VoiceForegroundService : Service() {
                 android.speech.SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "The microphone is busy."
                 else -> "Speech recognition stopped ($error)."
             }
-            finishLiveChat(message)
+            if (error != android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS && liveSession.recover(turn)) {
+                liveFailures++
+                liveStatus(VoiceInteractionState.IDLE, "$message Retrying capture; live chat is still active.")
+                nextLiveTurn((1000L * liveFailures).coerceAtMost(10_000L))
+            } else finishLiveChat(message)
         }
     }
 
     private fun finishLiveChat(message: String) {
+        if (::hybridAssistantService.isInitialized) hybridAssistantService.cancelActiveResponse()
+        responseGeneration++; spokenScreenContext = null; followUpScreen = false
         dialogueOverlay.hide()
         liveChatActive = false
         liveSession.stop()
@@ -358,13 +476,15 @@ class VoiceForegroundService : Service() {
 
     private fun initializeVoice() {
         voiceSession = VoiceSessionController(
-            onStateChanged = { state -> publishEvent("Voice state: ${state.userLabel()}") },
+            onStateChanged = { state -> voicePhase = state; publishEvent("Voice state: ${state.userLabel()}") },
             onTranscript = { transcript -> processTranscript(transcript) },
             onError = { failure -> publishEvent("Voice error: ${failure.message}") }
         )
         voiceService = VoiceAssistantService(
             context = this,
             onStatus = { status -> publishEvent(status) },
+            onWakeState = { state -> voiceSession.wakeState(state == VoiceAssistantService.WakeState.LISTENING) },
+            onCapturePhase = { phase -> if (phase == VoiceInteractionState.TRANSCRIBING) voiceSession.transcribing() },
             onHotwordDetected = {
                 publishEvent("Voice diagnostic: wake word detected; requesting command capture.")
                 voiceSession.beginCapture(VoiceSessionController.Trigger.WAKE_WORD)
@@ -378,6 +498,11 @@ class VoiceForegroundService : Service() {
                     voiceSession.transcriptReady(heard)
                 }
             },
+            onCaptureFinished = { if (!liveChatActive) {
+                voiceSession.captureFinished(keepArmed = pipelineStarted)
+                commandSessionActive = false
+                if (!pipelineStarted) stopSelf()
+            } },
             onSpeechStarted = {
                 publishEvent("Voice diagnostic: spoken response playback started.")
                 voiceSession.speaking()
@@ -387,8 +512,16 @@ class VoiceForegroundService : Service() {
                 if (liveChatActive) {
                     if (liveSession.speechFinished()) nextLiveTurn(650L)
                 } else {
+                    val state = if (packageName == "com.assistant.core") screenAccess.taskState() else ScreenAccessClient.TaskState()
+                    val follow = followUpScreen && state.awaitingInput && state.contextKey == spokenScreenContext
+                    followUpScreen = false
                     voiceSession.responseFinished(keepArmed = true)
-                    voiceService.rearmAfterResponse()
+                    if (follow && pipelineStarted) {
+                        voiceSession.beginCapture(VoiceSessionController.Trigger.BACKGROUND)
+                        voiceService.startFollowUpCapture()
+                    } else voiceService.rearmAfterResponse()
+                    commandSessionActive = false
+                    if (!pipelineStarted) stopSelf()
                 }
             }
         )
@@ -411,7 +544,6 @@ class VoiceForegroundService : Service() {
         currentConfig = voicePreferences.load()
         appliedVoiceConfig = currentConfig
         voiceService.updateConfig(currentConfig)
-        voiceSession.arm()
         if (announce) voiceService.startWithIntroduction() else voiceService.startHotwordLoop()
         pipelineStarted = true
         voicePreferences.setForegroundServiceRunning(true)
@@ -419,6 +551,10 @@ class VoiceForegroundService : Service() {
     }
 
     private fun stopVoicePipeline() {
+        responseGeneration++; spokenScreenContext = null; followUpScreen = false
+        if (::hybridAssistantService.isInitialized) hybridAssistantService.cancelActiveResponse()
+        if (packageName == "com.assistant.core") screenAccess.discard()
+        voiceService.stopSpeaking()
         voiceService.stopListening()
         pipelineStarted = false
         voiceSession.stop()
@@ -427,7 +563,14 @@ class VoiceForegroundService : Service() {
         publishEvent("Foreground voice service stopped.")
     }
 
+    private fun askAssistant(text: String, callback: (HybridAssistantReply) -> Unit) {
+        hybridAssistantService.handleUserInputAsync(text) { if (!it.cancelled) callback(it) }
+    }
+
     private fun processTranscript(transcript: String) {
+        val generation = ++responseGeneration
+        spokenScreenContext = null; followUpScreen = false
+        voiceService.stopSpeaking()
         currentConfig = voicePreferences.load()
         publishEvent("You: $transcript")
         when (LiveChatCommands.parse(transcript)) {
@@ -468,8 +611,15 @@ class VoiceForegroundService : Service() {
         // central assistant pipeline as typed input. Legacy parser routing is
         // retained below only until the remaining migration is complete.
         publishEvent("Voice diagnostic: live transcript submitted to assistant.")
-        hybridAssistantService.handleUserInputAsync(transcript) { reply ->
+        askAssistant(transcript) { reply ->
             liveHandler.post {
+                if (generation != responseGeneration || (!pipelineStarted && !commandSessionActive) || practiceToken != null || liveChatActive) return@post
+                val scope = reply.screenContextKey
+                if (scope != null && screenAccess.taskState().contextKey != scope) {
+                    voiceSession.responseFinished(keepArmed = true); voiceService.rearmAfterResponse(); return@post
+                }
+                spokenScreenContext = scope
+                followUpScreen = scope != null && scope.isNotBlank()
                 publishEvent("Voice diagnostic: live assistant response received (${reply.text.length} characters).")
                 publishEvent("J.A.R.V.I.S.: ${reply.text}")
                 speakResponse(reply.text)
@@ -544,7 +694,7 @@ class VoiceForegroundService : Service() {
                 // Bypassing it through the legacy ActionRequest parser caused
                 // learned routines and local aliases to behave differently.
                 publishEvent("Voice diagnostic: assistant processing started.")
-                hybridAssistantService.handleUserInputAsync(
+                askAssistant(
                     parsed.fallbackTextCommand ?: command
                 ) { reply ->
                     liveHandler.post {
@@ -574,6 +724,7 @@ class VoiceForegroundService : Service() {
             Intent(ACTION_EVENT).apply {
                 setPackage(packageName)
                 putExtra(EXTRA_EVENT_MESSAGE, message)
+                putExtra(EXTRA_PHASE, voicePhase.name)
             }
         )
     }
@@ -645,6 +796,16 @@ class VoiceForegroundService : Service() {
         private const val ACTION_LIVE_START = "com.assistant.core.action.START_LIVE_CHAT"
         private const val ACTION_LIVE_STOP = "com.assistant.core.action.STOP_LIVE_CHAT"
         const val EXTRA_EVENT_MESSAGE = "event_message"
+        const val EXTRA_PHASE = "voice_phase"
+        private const val ACTION_PUSH_TO_TALK = "com.assistant.core.action.CAPTURE_VOICE_COMMAND"
+        private const val ACTION_FINISH_CAPTURE = "com.assistant.core.action.FINISH_VOICE_COMMAND"
+        private const val ACTION_CANCEL_CAPTURE = "com.assistant.core.action.CANCEL_VOICE_COMMAND"
+        fun captureCommand(context: Context, resumeWake: Boolean) {
+            ContextCompat.startForegroundService(context, Intent(context, VoiceForegroundService::class.java)
+                .setAction(ACTION_PUSH_TO_TALK).putExtra("resume_wake", resumeWake))
+        }
+        fun finishCapture(context: Context) { context.startService(Intent(context, VoiceForegroundService::class.java).setAction(ACTION_FINISH_CAPTURE)) }
+        fun cancelCapture(context: Context) { context.startService(Intent(context, VoiceForegroundService::class.java).setAction(ACTION_CANCEL_CAPTURE)) }
 
         private const val CHANNEL_ID = "jarvis_voice_service"
         private const val NOTIFICATION_ID = 42001

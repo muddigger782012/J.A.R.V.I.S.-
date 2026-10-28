@@ -7,6 +7,12 @@ import org.json.JSONObject
 
 /** Read on each turn, including from the foreground voice process. */
 object AssistantPersonalityPreferences {
+    fun instructions(context: Context): String = load(context).instructions(solutionFirst = isPersonal(context.packageName))
+
+    fun behaviorProfile(context: Context): JSONObject = load(context).toJson().put("solution_first", isPersonal(context.packageName))
+
+    internal fun isPersonal(packageName: String) = packageName == "com.assistant.core"
+
     fun load(context: Context) = runCatching {
         AssistantPersonality.fromJson(JSONObject(String(AtomicFile(File(context.filesDir, "assistant-personality.json")).readFully(), Charsets.UTF_8)))
     }.getOrDefault(AssistantPersonality())

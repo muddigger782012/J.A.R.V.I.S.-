@@ -1,0 +1,24 @@
+apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
+android {
+    namespace 'com.jarvis.integration.fixture'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.jarvis.integration.fixture'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName 'test-only'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+    sourceSets { main.java.srcDir(rootProject.file('integration/src/main/kotlin')) }
+}
+dependencies {
+    androidTestImplementation 'androidx.test:runner:1.5.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+}

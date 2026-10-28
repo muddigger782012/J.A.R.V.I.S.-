@@ -1,0 +1,97 @@
+name: Assistant Developer bridge acceptance
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'developer/**'
+      - 'integration/**'
+      - 'settings.gradle'
+      - 'scripts/development_bridge_acceptance.sh'
+      - '.github/workflows/development-bridge-checks.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: development-bridge-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v4
+      - name: Prepare SDK and existing native runtime
+        run: |
+          sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
+          mkdir -p app/libs
+          curl --fail --location --retry 3 --output app/libs/sherpa-onnx-1.13.8.aar https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
+      - name: Verify shared policy, durable queues, existing Developer regressions and APKs
+        run: >-
+          bash gradlew --no-daemon -PjarvisDeveloper=true -PjarvisDevelopmentIntegration=true
+          :app:testDebugUnitTest :app:lintDebug :developer:testDebugUnitTest :developer:lintDebug
+          :app:assembleDebug :app:assembleDebugAndroidTest :developer:assembleDebug :developer:assembleDebugAndroidTest
+          :bridge-test-peer:assembleDebug :bridge-test-peer:assembleDebugAndroidTest
+          :bridge-commercial-test-peer:assembleDebug :bridge-commercial-test-peer:assembleDebugAndroidTest
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: development-bridge-build-evidence
+          path: |
+            app/build/test-results/**
+            app/build/reports/lint-results-debug.*
+            developer/build/test-results/**
+            developer/build/reports/lint-results-debug.*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: development-bridge-emulator-apks
+          if-no-files-found: error
+          path: |
+            app/build/outputs/apk/debug/app-x86_64-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            developer/build/outputs/apk/debug/developer-debug.apk
+            developer/build/outputs/apk/androidTest/debug/developer-debug-androidTest.apk
+            integration/test-peer/build/outputs/apk/debug/bridge-test-peer-debug.apk
+            integration/test-peer/build/outputs/apk/androidTest/debug/bridge-test-peer-debug-androidTest.apk
+            integration/commercial-test-peer/build/outputs/apk/debug/bridge-commercial-test-peer-debug.apk
+            integration/commercial-test-peer/build/outputs/apk/androidTest/debug/bridge-commercial-test-peer-debug-androidTest.apk
+  installed-apps:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [26, 34]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@v4
+        with:
+          name: development-bridge-emulator-apks
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: bash scripts/development_bridge_acceptance.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: development-bridge-android-${{ matrix.api }}
+          path: development-bridge-results/

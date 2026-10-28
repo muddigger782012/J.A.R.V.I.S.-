@@ -203,10 +203,13 @@ class RepositoryIntelligenceTest {
             "developer/src/main/kotlin/com/jarvis/developer/Feature.kt",
             "app/src/main/kotlin/com/assistant/core/Feature.kt",
             "app/src/main/res/layout/activity_appearances.xml", "app/src/main/AndroidManifest.xml",
-            "developer/DEVELOPMENT_ROADMAP.md", "docs/UI_THEMING.md", "developer/build.gradle")
+            "developer/DEVELOPMENT_ROADMAP.md", "docs/UI_THEMING.md", "developer/build.gradle",
+            "integration/src/main/kotlin/com/jarvis/integration/DevelopmentBridgeContract.kt")
         val denied = listOf("developer/local.properties", "developer/src/main/res/values/secrets.xml",
             "app/google-services.json", ".github/workflows/release.yml", "gradle.properties",
-            "developer/src/main/res/drawable/icon.png", "other/src/main/Unsafe.kt")
+            "developer/src/main/res/drawable/icon.png", "other/src/main/Unsafe.kt",
+            "integration/src/main/kotlin/com/jarvis/integration/credentials/Config.kt",
+            "integration/test-peer/build.gradle")
         val fake = fixture(safePaths.map { node(it) } + denied.map { node(it) } +
             listOf(node("developer/src/main/java/Link.kt", mode = "120000"),
                 node("developer/src/main/java/Large.kt").put("size", 200_001),

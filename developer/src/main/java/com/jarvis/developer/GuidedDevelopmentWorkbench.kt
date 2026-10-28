@@ -12,9 +12,7 @@ import kotlin.concurrent.thread
 internal object GuidedDevelopmentWorkbench {
     internal class Services(
         val analyze: (String, PatchEngine.Target, PatchPreviewCancellation) -> RepositoryAnalysis.AnalysisPlan = { task, target, cancellation ->
-            require(target == PatchEngine.Target.DEVELOPER) { "Guided Personal analysis is not available yet" }
-            cancellation.check()
-            RepositoryIntelligence.analyzeSnapshot("", task).second.also { cancellation.check() }
+            RepositoryIntelligence.analyzeAuthorizedSource(task, target, cancellation).second
         },
         val worker: (() -> Unit) -> Unit = { work -> thread(name = "DeveloperGuidedAnalysis") { work() }; Unit }
     )
@@ -99,10 +97,6 @@ internal object GuidedDevelopmentWorkbench {
             val ticket = generation
             val cancellation = PatchPreviewCancellation().also { request = it }
             val product = if (selected == 1) PatchEngine.Target.PERSONAL else PatchEngine.Target.DEVELOPER
-            if (product != PatchEngine.Target.DEVELOPER) {
-                feedback.text = "Personal repair analysis is not yet connected in this integration. Choose Developer or use the existing Personal repair tools."
-                return@setOnClickListener
-            }
             analyze.isEnabled = false; cancel.isEnabled = true
             feedback.text = "Analyzing pinned source and suggesting a review scope…"
             services.worker {
