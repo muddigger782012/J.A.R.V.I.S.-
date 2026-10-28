@@ -35,7 +35,7 @@ class DevelopmentHistoryUiTest {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val parent = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(activity).apply { addView(parent) }
+        val scroll = ScrollView(activity).apply { addView(this@Screen.parent) }
         val pending = mutableListOf<() -> Unit>()
         var clearedFocus = 0
         val handle = DevelopmentInboxWorkbench.attach(activity, parent, LinearLayout(activity),
