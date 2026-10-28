@@ -23,6 +23,7 @@ internal object DevelopmentJobDraftWorkbench {
             initial.isFailure -> R.string.development_draft_unavailable
             snapshot?.matches == false -> R.string.development_draft_stale
             restored -> R.string.development_draft_restored
+            snapshot?.text == DevelopmentJobDrafts.Text(goal.text.toString(), paths.text.toString()) -> R.string.development_draft_saved
             else -> R.string.development_draft_unsaved
         })).apply { contentDescription = "Task draft status" }
         lateinit var save: Button
@@ -30,11 +31,11 @@ internal object DevelopmentJobDraftWorkbench {
         fun alive() = !activity.isFinishing && !activity.isDestroyed && current()
         fun controls() {
             save.isEnabled = !busy && snapshot != null
-            forget.isEnabled = !busy && snapshot != null && snapshot!!.sequence > 0
+            forget.isEnabled = !busy && snapshot?.present == true
         }
         fun submit(remove: Boolean) {
             val before = snapshot ?: return
-            if (busy || !alive()) return
+            if (busy || !alive() || (remove && !before.present)) return
             val text = DevelopmentJobDrafts.Text(goal.text.toString(), paths.text.toString())
             busy = true; controls(); status.setText(R.string.development_draft_saving)
             val work: () -> Unit = {
@@ -67,7 +68,9 @@ internal object DevelopmentJobDraftWorkbench {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(s: Editable?) {
-                if (!busy && snapshot != null) status.setText(R.string.development_draft_unsaved)
+                if (!busy && snapshot != null) status.setText(if (snapshot?.text ==
+                    DevelopmentJobDrafts.Text(goal.text.toString(), paths.text.toString())) R.string.development_draft_saved
+                    else R.string.development_draft_unsaved)
             }
         }
         goal.addTextChangedListener(watcher); paths.addTextChangedListener(watcher)

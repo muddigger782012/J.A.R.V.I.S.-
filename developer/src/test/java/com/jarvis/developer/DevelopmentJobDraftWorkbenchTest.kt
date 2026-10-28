@@ -55,6 +55,7 @@ class DevelopmentJobDraftWorkbenchTest {
             assertEquals(s.activity.getString(R.string.development_draft_restored), s.status())
             s.button(R.string.development_draft_forget).performClick(); s.complete()
             assertEquals("My unfinished task", s.goal.text.toString()); assertNull(store().read(key).text)
+            assertFalse(s.button(R.string.development_draft_forget).isEnabled)
         }
         Screen().use { s -> assertEquals("Current goal", s.goal.text.toString()) }
     }

@@ -18,7 +18,7 @@ internal class DevelopmentJobDrafts(directory: File, atomicReplace: ((Path, Path
         }
     }
     data class Text(val goal: String, val paths: String)
-    data class Snapshot(val sequence: Long, val text: Text?, val matches: Boolean)
+    data class Snapshot(val sequence: Long, val text: Text?, val matches: Boolean, val present: Boolean)
     private data class Entry(val key: Key, val sequence: Long, val text: Text?)
     private val checkpoint = if (atomicReplace == null) PrivateCheckpointFile(directory, FILE, 32, MAX_BYTES)
         else PrivateCheckpointFile(directory, FILE, 32, MAX_BYTES, atomicReplace)
@@ -52,7 +52,7 @@ internal class DevelopmentJobDrafts(directory: File, atomicReplace: ((Path, Path
     }
 
     private fun snapshot(entry: Entry?, key: Key) = Snapshot(entry?.sequence ?: 0,
-        entry?.text?.takeIf { entry.key == key }, entry == null || entry.key == key)
+        entry?.text?.takeIf { entry.key == key }, entry == null || entry.text == null || entry.key == key, entry?.text != null)
 
     private fun load(): List<Entry> {
         val bytes = checkpoint.read() ?: return emptyList()
