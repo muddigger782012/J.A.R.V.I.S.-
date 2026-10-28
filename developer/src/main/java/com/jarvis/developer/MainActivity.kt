@@ -378,7 +378,7 @@ class MainActivity : Activity() {
         projectGeneration = ProjectGenerationWorkbench.attach(this, send, cancelGeneration, provider, key, model,
             prompt, output, status, { guidedTarget?.selectedItemPosition ?: 0 }, { guidedTarget },
             { activeProject }, { activeProject = it }, ProjectGenerationStore(projectPrefs),
-            { refreshSavedProjectsAfterChange?.invoke() })
+            { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

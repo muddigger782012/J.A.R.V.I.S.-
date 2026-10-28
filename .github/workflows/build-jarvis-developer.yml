@@ -111,7 +111,7 @@ jobs:
                   cases.append(dict(suite=suite.attrib['name'], name=case.attrib['name'], result=state))
           summary = dict(sourceCommit=os.environ['GITHUB_SHA'], totals=totals, suites=suites, cases=cases)
           encoded = json.dumps(summary, separators=(',', ':'))
-          assert len(encoded.encode()) <= 100_000, 'JUnit summary exceeds log budget'
+          assert len(encoded.encode()) <= 128_000, 'JUnit summary exceeds log budget'
           print('JARVIS_JUNIT_SUMMARY=' + encoded)
           evidence = pathlib.Path('developer/build/reports/phase3-acceptance/two-session-evidence.json')
           assert evidence.is_file() and evidence.stat().st_size <= 64_000, 'Expected bounded Phase 3 evidence'

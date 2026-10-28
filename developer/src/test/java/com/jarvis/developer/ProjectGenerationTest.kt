@@ -41,7 +41,10 @@ class ProjectGenerationTest {
         val handle = ProjectGenerationWorkbench.attach(activity, send, cancel, provider, key, model, prompt, output, status,
             { target.selectedItemPosition }, { target }, { selected }, { selected = it }, store, {},
             ProjectGenerationWorkbench.Services(worker = { if (launchFails) error("private launch fixture") else pending.add(it) },
-                ask = ask ?: { _, _, _, task, _ -> if (failure != null) throw failure else "Reply for $task" }))
+                ask = { providerName, apiKey, modelName, task, cancellation, _ ->
+                    ask?.invoke(providerName, apiKey, modelName, task, cancellation)
+                        ?: if (failure != null) throw failure else "Reply for $task"
+                }, context = { task, product, _, _, _ -> RepositoryCodingContext.unavailable(task, product) }))
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
@@ -89,7 +92,8 @@ class ProjectGenerationTest {
             s.complete(); assertFalse(s.send.isEnabled); assertTrue(s.cancel.isEnabled)
             assertEquals("Previous display", s.output.text.toString()); assertEquals("generating", s.record().getString("state"))
             s.complete(); assertTrue(s.send.isEnabled); assertFalse(s.cancel.isEnabled)
-            assertEquals("Reply for Second request", s.output.text.toString()); assertEquals("generated", s.record().getString("state"))
+            assertTrue(s.output.text.toString().endsWith("Reply for Second request"))
+            assertTrue(s.output.text.toString().contains("Repository context unavailable")); assertEquals("generated", s.record().getString("state"))
         }
     }
     @Test fun cancellingAnActiveProviderSignalsCleanupWithoutWaitingForItsReturn() {
