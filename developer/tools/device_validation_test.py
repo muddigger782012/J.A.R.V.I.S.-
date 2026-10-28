@@ -627,7 +627,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn(("shell", "input", "text", validation.FAKE_PROVIDER), adb.commands)
         self.assertFalse(any("KEYCODE_BACK" in command for command in adb.commands))
 
-    def test_keyboard_close_waits_for_native_transition_without_sending_a_second_back(self):
+    def test_field_proof_does_not_inject_back_or_depend_on_stale_keyboard_service_state(self):
         class KeyboardAdb:
             def __init__(self):
                 self.commands = []
@@ -647,8 +647,9 @@ class ContractTests(unittest.TestCase):
         ui.dump = lambda: next(dumps)
         with patch.object(validation.time, "sleep"):
             ui.enter(validation.PROVIDER_HINT, validation.FAKE_PROVIDER)
-        self.assertEqual(1, adb.commands.count(("shell", "input", "keyevent", "KEYCODE_BACK")))
-        self.assertEqual(3, adb.commands.count(("shell", "dumpsys", "input_method")))
+        self.assertEqual(0, adb.commands.count(("shell", "input", "keyevent", "KEYCODE_BACK")))
+        self.assertEqual(0, adb.commands.count(("shell", "dumpsys", "input_method")))
+        self.assertIn(("shell", "input", "text", validation.FAKE_PROVIDER), adb.commands)
 
     def test_changed_focus_aborts_before_typing_any_sentinel(self):
         adb = MagicMock()

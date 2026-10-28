@@ -941,6 +941,7 @@ class MainActivity : Activity() {
         val shell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             isFocusableInTouchMode = true
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             setBackgroundColor(getColor(R.color.developer_background))
         }
         val navigation = LinearLayout(this).apply {
@@ -1239,9 +1240,12 @@ class MainActivity : Activity() {
 
     private fun dismissKeyboard() {
         val token = currentFocus?.windowToken ?: window.decorView.windowToken
+        if (token != null) {
+            // Ask while the editor still owns the input connection.
+            (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                .hideSoftInputFromWindow(token, 0)
+        }
         uiRoot?.requestFocus()
-        (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
-            .hideSoftInputFromWindow(token, 0)
     }
 
     override fun onNewIntent(intent: Intent) {

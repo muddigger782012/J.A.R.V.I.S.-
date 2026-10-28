@@ -567,13 +567,11 @@ class HostUi:
                 "prefill_not_observable_password_redaction_unsupported")
         if hint == REVIEW_HINT:
             require(focused[0].get("text") == FAKE_REVIEW, "review_fingerprint_prefill_not_exact")
-        # BACK is safe only with positively observed IME visibility; a blind BACK
-        # can finish the Activity on emulators using a hardware keyboard.
-        if ime_shown(self.adb.run("shell", "dumpsys", "input_method", max_bytes=262144).text):
-            self.adb.run("shell", "input", "keyevent", "KEYCODE_BACK")
-            wait_for(lambda: not ime_shown(self.adb.run("shell", "dumpsys", "input_method",
-                                                       max_bytes=262144).text),
-                     "ime_did_not_hide", pause=0.1, sleeper=time.sleep)
+        # Do not send BACK or infer keyboard closure from service bookkeeping.
+        # This scenario proves process/task recovery and cleared authority. Actual
+        # keyboard/Back behavior is covered by DeveloperGuidedUxDeviceTest with
+        # native WindowInsets and real Back key events. The next allowlisted page
+        # control remains usable without changing or clearing this entered text.
 
     def assert_fresh(self):
         # Scan once from top to bottom and retain only presence booleans. No UI

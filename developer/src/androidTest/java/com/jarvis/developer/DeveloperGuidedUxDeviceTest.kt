@@ -33,7 +33,7 @@ class DeveloperGuidedUxDeviceTest {
         do {
             instrumentation.waitForIdleSync()
             var ready = false
-            scenario.onActivity { val view = scroll(it); ready = view.isLaidOut && !view.isLayoutRequested && view.height > 0 }
+            scenario.onActivity { val view = scroll(it); ready = it.hasWindowFocus() && view.isLaidOut && !view.isLayoutRequested && view.height > 0 }
             if (ready) return
             SystemClock.sleep(50)
         } while (SystemClock.elapsedRealtime() < end)
