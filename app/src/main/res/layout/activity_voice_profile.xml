@@ -26,6 +26,19 @@
             </LinearLayout>
             <Button android:id="@+id/voiceProfileNext" style="@style/Widget.AssistantPlatform.QuietButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Next phrase" android:minHeight="48dp" />
             <TextView android:id="@+id/voiceProfileScore" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginVertical="12dp" android:textColor="?attr/jarvis_on_dark" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp"
+                android:text="Wake-word practice (manual)" android:textStyle="bold" android:textSize="18sp" android:textColor="?attr/jarvis_on_dark" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="With normal Hey Jarvis listening enabled, say the wake phrase once. Return here and mark whether Jarvis responded. These are manually reported results, not verified detector logs. No audio is saved."
+                android:textColor="?attr/jarvis_on_dark_muted" />
+            <TextView android:id="@+id/voiceWakePracticeScore" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginVertical="8dp" android:textColor="?attr/jarvis_on_dark" />
+            <Button android:id="@+id/voiceWakeDetected" style="@style/Widget.AssistantPlatform.QuietButton"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Wake detected" android:minHeight="48dp" />
+            <Button android:id="@+id/voiceWakeMissed" style="@style/Widget.AssistantPlatform.QuietButton"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Wake missed" android:minHeight="48dp" />
+            <Button android:id="@+id/voiceWakeReset" style="@style/Widget.AssistantPlatform.QuietButton"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Reset wake practice" android:minHeight="48dp" />
             <Button android:id="@+id/voiceProfileRetest" style="@style/Widget.AssistantPlatform.QuietButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Restart practice" android:minHeight="48dp" />
             <Button android:id="@+id/voiceProfileManage" style="@style/Widget.AssistantPlatform.QuietButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Review approved phrases" android:minHeight="48dp" />
             <LinearLayout android:id="@+id/voiceProfileEntries" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone" />

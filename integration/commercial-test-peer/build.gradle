@@ -1,0 +1,6 @@
+// Uses the same minimal fixture build; only the installed application identity differs.
+apply from: rootProject.file('integration/test-peer/build.gradle')
+android {
+    namespace 'com.jarvis.integration.commercialfixture'
+    defaultConfig { applicationId 'com.assistant.core.beta' }
+}

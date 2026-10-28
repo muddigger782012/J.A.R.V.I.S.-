@@ -22,8 +22,8 @@ object CommandPhrases {
         return match.groupValues[1].trim().takeIf { it.isNotBlank() }
     }
     fun appName(text: String): String? {
-        val cleaned = text.trim().removePrefix("please ")
-        if (!cleaned.startsWith("open ") || cleaned in setOf("open settings", "open voice settings")) return null
-        return cleaned.removePrefix("open ").removeSuffix(" please").removeSuffix(" for me").trim().takeIf { it.isNotBlank() }
+        var name = Regex("(?i)^(?:please\\s+)?open\\s+(.+)$").matchEntire(text.trim())?.groupValues?.get(1) ?: return null
+        repeat(2) { name = name.replace(Regex("(?i)\\s+(?:please|for\\s+me)$"), "").trim() }
+        return name.takeIf { it.isNotBlank() && it.lowercase(java.util.Locale.ROOT) !in setOf("settings", "voice settings") }
     }
 }

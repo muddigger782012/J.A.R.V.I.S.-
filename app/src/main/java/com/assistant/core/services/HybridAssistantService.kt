@@ -2,8 +2,16 @@ package com.assistant.core.services
 
 import com.assistant.core.engine.ActionRegistry
 import com.assistant.core.engine.AssistantEngine
+import com.assistant.core.engine.IntentClassifier
 import com.assistant.core.models.ActionResult
 import com.assistant.core.models.CapabilityState
+import com.assistant.core.workflow.RoutineExecutionCoordinator
+import com.assistant.core.workflow.LocalRoutineWorkflowAccess
+import com.assistant.core.workflow.RoutineWorkflowCheckpoint
+import com.assistant.core.workflow.RoutineWorkflowStatus
+import com.assistant.core.workflow.RoutineStepStatus
+import com.assistant.core.workflow.RoutineStepOutcome
+import com.assistant.core.workflow.RoutineOutcomeObservation
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -14,7 +22,10 @@ import androidx.core.content.ContextCompat
 
 data class HybridAssistantReply(
     val text: String,
-    val actionResult: ActionResult? = null
+    val actionResult: ActionResult? = null,
+    val needsInterpretation: Boolean = false,
+    val screenContextKey: String? = null,
+    val cancelled: Boolean = false
 )
 
 private enum class PendingPrompt {
@@ -28,10 +39,24 @@ class HybridAssistantService(
     private val assistantEngine: AssistantEngine,
     private val actionRegistry: ActionRegistry,
     private val systemService: SystemService,
-    private val capabilityProvider: () -> CapabilityState
+    private val capabilityProvider: () -> CapabilityState,
+    private val researchFetch: ((String) -> SearchRouter.Response)? = null
 ) {
 
     private var pendingPrompt: PendingPrompt = PendingPrompt.NONE
+    private val personalAssistant = systemService.context().packageName == "com.assistant.core"
+    private val conversationMemory = if (personalAssistant) ConversationMemory(systemService.context()) else null
+    private val goalPlans = if (personalAssistant) GoalPlanStore(systemService.context()) else null
+    @Volatile private var reviewedGoalKey: String? = null
+    private val improvementEvaluation = if (personalAssistant) ImprovementEvaluation(systemService.context()) else null
+    private val workflowDiagnostics by lazy { WorkflowDiagnostics(systemService.context()) }
+    private val taskHistory = TaskHistoryCommands({ routineCoordinator })
+    private val personalReminders by lazy { PersonalReminderRuntime.manager(systemService.context()) }
+    private val reminderCommands = ReminderCommands(research = { researchBriefs.snapshot() }) { personalReminders }
+    private val contactCalls by lazy { ContactCallWorkflow(PersonalStateFile(systemService.context(), "contact-call.json"), androidAssistant.contactCallPlatform(),
+        observe = workflowDiagnostics::observe) }
+    private val contactCallCommands = ContactCallCommands { contactCalls }
+    private val researchBriefs by lazy { ResearchBriefs(PersonalStateFile(systemService.context(), "research-brief.json"), observe = workflowDiagnostics::observe) }
     private var pendingLearningReset: Boolean = false
     private val routineConfirmations = RoutineConfirmationStore(systemService.context())
     private val routineRegistry = com.assistant.core.learning.ApprovedRoutineRegistry(systemService.context())
@@ -39,22 +64,176 @@ class HybridAssistantService(
     private var lastContactTarget: String? = null
     private var personalityTurn = 0
     private val history = ArrayDeque<Pair<String, String>>()
+    private var lastResearchQuery: String? = null
     private val androidAssistant = AndroidAssistantService(systemService.context())
+    private val screenAccess = ScreenAccessClient(systemService.context())
+    private val appDiscovery by lazy { AppDiscovery(AndroidInstalledApps(systemService.context()),
+        open = { action -> requestContextAction("open selected installed app", action) }) }
     private val learningStore = IntentLearningStore(systemService.context())
     private val directOnlineClient = DirectOnlineClient(systemService.context())
     private val assistantConnections = AssistantConnections(systemService.context())
     private val fallbackAiClient = FallbackAiClient(systemService.context())
+    private val responseTurns = AssistantResponseTurns()
+    private val developmentInstallConsent = DevelopmentInstallConsent()
+    private val intelligencePrefs get() = RuntimeSettings.read(systemService.context(), "jarvis_cloud_ai")
     private val volumeConfirmations = VolumeConfirmationStore(systemService.context())
     private val deviceLearningSession = DeviceLearningSession(systemService.context())
     private val assistantMemory = AssistantMemory(systemService.context())
     private val trialEvidence = CapabilityTrialEvidence(systemService.context().filesDir)
     private val resultHistory = IntelligenceResultHistory(systemService.context())
     private val preferenceConfirmations = PreferenceConfirmationStore(systemService.context())
+    @Volatile private var sessionRoutineId: String? = null
+    private val routineCoordinator: RoutineExecutionCoordinator by lazy {
+        RoutineExecutionCoordinator(access = LocalRoutineWorkflowAccess(systemService.context()), approvedRoutine = { key ->
+            val goal = goalPlans?.find(key)
+            val routine = routineRegistry.find(key)
+            if (goal != null && routine != null) null else goal ?: routine
+        },
+            execute = { checkpoint, step ->
+                RoutineStepOutcome.fromRoutineStatus(executeRoutineStep(checkpoint.phrase, step.actionId, step.target))
+            }, resolvePreferred = assistantMemory::preferred, canLaunchApp = androidAssistant::canLaunchApp,
+            observe = { id, observation -> if (personalAssistant) workflowDiagnostics.observeTask(id, observation) })
+    }
+
+    private fun handleScreenInput(request: ScreenAccessClient.Prepared): HybridAssistantReply {
+        appDiscovery.discard()
+        clearPendingActionPrompts()
+        taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+        reviewedGoalKey = null
+        runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+        val response = screenAccess.replyWithContext(request)
+        return HybridAssistantReply(response.text, screenContextKey = response.contextKey)
+    }
+
+    private fun hostInformation(input: String): HybridAssistantReply? {
+        if (!personalAssistant) return null
+        // Preserve existing explicit diagnostic controls and their no-learning/no-memory contracts.
+        if (ScreenControls.parse(input)?.kind in setOf(ScreenControls.Kind.DIAGNOSTICS, ScreenControls.Kind.STATUS,
+                ScreenControls.Kind.HELP, ScreenControls.Kind.SETUP) || IntelligenceRouting.isStatus(input) ||
+            DeviceReport.command(input) != null) return null
+        val topic = LiveCapabilityRegistry.topic(input, conversationTurns().lastOrNull()?.first) ?: return null
+        clearPendingActionPrompts()
+        screenAccess.discard(); appDiscovery.discard()
+        val snapshot = LiveCapabilityRegistry.snapshot(systemService.context())
+        val response = LiveCapabilityRegistry.render(topic, snapshot)
+        remember(input, response)
+        return HybridAssistantReply(response)
+    }
 
     fun handleUserInput(rawInput: String): HybridAssistantReply {
+        if (responseTurns.bound()) return handleUserInputWithinCurrentTurn(rawInput)
+        val turn = responseTurns.begin()
+        return responseTurns.inTurn(turn) { handleUserInputWithinCurrentTurn(rawInput) }
+    }
+
+    private fun handleUserInputWithinCurrentTurn(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
+        handleDevelopmentInput(userInput, developmentInstallConsent.take())?.let { return HybridAssistantReply(it) }
+        hostInformation(userInput)?.let { return it }
+        if (personalAssistant) {
+            if (screenAccess.accepts(userInput)) return handleScreenInput(screenAccess.prepare(userInput))
+            screenAccess.discard()
+            if (IntelligenceRouting.isStatus(userInput)) {
+                clearPendingActionPrompts()
+                return HybridAssistantReply(IntelligenceRouting.status(
+                    IntelligenceRouting.selected(intelligencePrefs.getString("primary_provider", "gemini")),
+                    intelligencePrefs.getBoolean("provider_fallback", true), directOnlineClient.hasGeminiKey(),
+                    fallbackAiClient.isConfigured(), intelligencePrefs.getString("gemini_model", GeminiModelDiscovery.DEFAULT_MODEL).orEmpty()))
+            }
+            ConnectionAssistance.parse(userInput)?.let { command ->
+                clearPendingActionPrompts()
+                taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+                if (command != ConnectionAssistance.Kind.MANAGER) appDiscovery.discard()
+                return HybridAssistantReply(ConnectionAssistance.reply(command,
+                    AndroidConnectionAssistance(systemService.context()) { appDiscovery.find(ConnectionAssistance.MANAGER_PACKAGE) }))
+            }
+            val appCommand = AppDiscovery.parse(userInput)
+            if (appCommand != null) {
+                clearPendingActionPrompts()
+                taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+                reviewedGoalKey = null
+                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+                return HybridAssistantReply(appDiscovery.reply(appCommand))
+            }
+            appDiscovery.discard()
+            DeviceReport.command(userInput)?.let { command ->
+                clearPendingActionPrompts()
+                taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+                reviewedGoalKey = null
+                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+                return HybridAssistantReply(DeviceReport.render(command, AndroidDeviceReport(systemService.context())))
+            }
+            WorkflowDiagnostics.command(userInput)?.let { command ->
+                clearPendingActionPrompts()
+                taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+                return HybridAssistantReply(runCatching {
+                    if (command.action == WorkflowDiagnostics.Action.SHARE) {
+                        val brief = workflowDiagnostics.handoff(command.family!!)
+                        if (brief == null) "Prepare an active workflow improvement brief for ${command.family.label} before sharing. Nothing was shared."
+                        else if (androidAssistant.reviewTextHandoff("Jarvis workflow improvement", brief))
+                            "Requested Android's share chooser for the saved workflow brief. Review it and choose a destination there; no submission, pull request or deployment is verified."
+                        else "The share chooser could not be opened. Review the saved workflow improvement brief for a developer handoff."
+                    } else workflowDiagnostics.reply(command)
+                }.getOrElse { "Workflow diagnostics storage could not be confirmed. No workflow was run or shared. Review local storage access, or explicitly clear workflow diagnostics to reset this optional dataset." })
+            }
+            ResearchBriefCommands.parse(userInput)?.let { input ->
+                clearPendingActionPrompts()
+                taskHistory.discardReview()
+                contactCallCommands.discardReview()
+                reminderCommands.discardReview()
+                runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+                return HybridAssistantReply(runCatching { ResearchBriefCommands.local(input, researchBriefs) }
+                    .getOrElse { "Research storage could not be read safely. No automatic lookup or reset was attempted; review local storage access before retrying." })
+            }
+            val contactInput = ContactCallCommands.parse(userInput)
+            val contactReply = if (contactInput != null) runCatching { contactCallCommands.reply(contactInput) }
+                .getOrElse { "Contact-call storage or Android access could not be confirmed. Check the Phone app before retrying; no automatic call retry is allowed." }
+            else runCatching { contactCallCommands.confirmation(userInput) }.getOrNull()
+            if (contactReply != null) {
+                clearPendingActionPrompts()
+                taskHistory.discardReview()
+                reminderCommands.discardReview()
+                runCatching { personalReminders.discardPending(); goalPlans?.discardPending() }
+                // Recipient details remain in local review storage, outside provider dialogue memory.
+                return HybridAssistantReply(contactReply)
+            }
+            contactCallCommands.discardReview()
+            runCatching { contactCalls.discardReview() }
+            val reminderInput = ReminderCommands.parse(userInput) ?: ReminderCommands.contextualEdit(userInput)?.takeIf {
+                runCatching { personalReminders.pending() != null }.getOrDefault(false)
+            }
+            val reminderReply = if (reminderInput != null) runCatching {
+                clearPendingActionPrompts()
+                goalPlans?.discardPending()
+                reminderCommands.reply(reminderInput)
+            }.getOrElse { "Reminder storage or Android delivery could not be accessed safely. Review reminders and notification settings before retrying; no automatic duplicate is allowed." }
+            else runCatching { reminderCommands.confirmation(userInput) }.getOrNull()
+            if (reminderReply != null) {
+                taskHistory.discardReview()
+                clearPendingActionPrompts()
+                runCatching { goalPlans?.discardPending() }
+                // Reminder titles and attached research remain outside provider dialogue memory.
+                return HybridAssistantReply(reminderReply)
+            }
+            reminderCommands.discardReview()
+            if (userInput.lowercase(Locale.ROOT).trimEnd('.', '?', '!') !in setOf("notification settings", "open notification settings", "manage notifications"))
+                runCatching { personalReminders.discardPending() }
+        }
+        val taskHistoryCommand = if (personalAssistant) TaskHistoryCommands.parse(userInput) else null
+        if (taskHistoryCommand == null) taskHistory.discardReview()
+        if (personalAssistant && TaskHistoryCommands.isManagementInput(userInput)) {
+            clearPendingActionPrompts()
+            runCatching { goalPlans?.discardPending() }
+            return HybridAssistantReply(if (taskHistoryCommand == null) "Use 'review task history', then 'clear reviewed task history' to remove only reviewed completed records. Nothing was changed."
+                else runCatching { taskHistory.reply(taskHistoryCommand) }.getOrElse {
+                "Task history could not be accessed. No history was cleared or action started. Restore local storage access and review again."
+            })
+        }
         val geminiFailure = GeminiFailureMemory(systemService.context())
         if (geminiFailure.shouldAnswer(userInput)) {
+            runCatching { goalPlans?.discardPending() }
             routineConfirmations.consume("")
             volumeConfirmations.consume("")
             deviceLearningSession.consume(userInput)
@@ -67,6 +246,7 @@ class HybridAssistantService(
         // Run before pending prompts, learned aliases, permissive local parsers or AI.
         // A misheard control must not execute the timer/app embedded in its description.
         if (CapabilityDiscovery.needsClarification(userInput)) {
+            runCatching { goalPlans?.discardPending() }
             routineConfirmations.consume("")
             volumeConfirmations.consume("")
             deviceLearningSession.consume("")
@@ -77,6 +257,77 @@ class HybridAssistantService(
             return HybridAssistantReply(CapabilityDiscovery.clarification())
         }
         val normalized = normalize(userInput)
+        val engineIntent = IntentClassifier().classify(userInput)
+        if (personalAssistant) {
+            ConversationMemoryCommands.parse(userInput)?.let { command ->
+                runCatching { goalPlans?.discardPending() }
+                routineConfirmations.consume("")
+                volumeConfirmations.consume("")
+                deviceLearningSession.consume("")
+                preferenceConfirmations.consume("")
+                pendingPrompt = PendingPrompt.NONE
+                pendingShellCommand = null
+                pendingLearningReset = false
+                val response = ConversationMemoryCommands.reply(userInput, conversationMemory!!)!!
+                if (command == ConversationMemoryCommands.Command.CLEAR) synchronized(this) { history.clear() }
+                return HybridAssistantReply(response)
+            }
+            SupervisedImprovement.parseCommand(userInput)?.let { command ->
+                runCatching { goalPlans?.discardPending() }
+                routineConfirmations.consume("")
+                volumeConfirmations.consume("")
+                deviceLearningSession.consume("")
+                preferenceConfirmations.consume("")
+                pendingPrompt = PendingPrompt.NONE
+                pendingShellCommand = null
+                pendingLearningReset = false
+                val report = SupervisedImprovement.render(SupervisedImprovement.generate(resultHistory.snapshot()), command)
+                // Keep existing journal-derived suggestions alongside the saved, opt-in briefs.
+                val savedBriefs = if (command == SupervisedImprovement.Command.REVIEW_PROPOSALS) runCatching {
+                    improvementEvaluation!!.reply(ImprovementEvaluation.Command(ImprovementEvaluation.Action.PROPOSALS))
+                }.getOrElse { "Saved improvement briefs could not be read. No reports were changed." } else null
+                val workflowBriefs = if (command == SupervisedImprovement.Command.REVIEW_PROPOSALS) runCatching {
+                    workflowDiagnostics.reply(WorkflowDiagnostics.Command(WorkflowDiagnostics.Action.IMPROVEMENTS)) +
+                        "\nOptional workflow diagnostics are separately off by default. Use 'review workflow diagnostics' to inspect the setting or 'enable workflow diagnostics' to record future categorical checkpoints."
+                }.getOrElse { "Optional workflow diagnostics could not be read. Existing workflows and manual evaluation remain separate." } else null
+                return HybridAssistantReply(report + (savedBriefs?.let { "\n\n$it" } ?: "") + (workflowBriefs?.let { "\n\n$it" } ?: ""))
+            }
+            if (ImprovementEvaluation.isManagementInput(userInput)) {
+                clearPendingActionPrompts()
+                runCatching { goalPlans?.discardPending() }
+                val command = ImprovementEvaluation.command(userInput)
+                return HybridAssistantReply(if (command == null)
+                    "Use an exact evaluation control: 'review improvement evaluation' for manual scenarios, or 'run local foundation checks' for isolated logic checks. Nothing was changed."
+                    else runCatching {
+                        if (command.action == ImprovementEvaluation.Action.SHARE_PROPOSAL) {
+                            val text = improvementEvaluation!!.handoff(command)
+                            if (text == null) "Review improvement proposals and choose an active saved brief before sharing. No handoff was opened."
+                            else if (androidAssistant.reviewTextHandoff("Jarvis improvement brief", text))
+                                "Requested Android's share chooser for the saved improvement brief. Review its evidence and choose a destination there; no submission, pull request or deployment is verified."
+                            else "Android's share chooser could not be opened. Review the saved improvement proposal and copy its brief for a developer handoff."
+                        } else improvementEvaluation!!.reply(command)
+                    }.getOrElse {
+                        "Improvement evaluation storage could not be accessed. Review local storage access or explicitly clear improvement evaluation to reset it. No test or code change was performed."
+                    })
+            }
+            PersonalRoutineCommands.parse(userInput)?.let { command ->
+                runCatching { goalPlans?.discardPending() }
+                routineConfirmations.consume("")
+                volumeConfirmations.consume("")
+                deviceLearningSession.consume("")
+                preferenceConfirmations.consume("")
+                pendingPrompt = PendingPrompt.NONE
+                pendingShellCommand = null
+                pendingLearningReset = false
+                return HybridAssistantReply(controlRoutineExecution(command))
+            }
+            handleGoalInput(userInput)?.let {
+                // A goal is the current conversation topic, not an older provider offer.
+                // Dialogue remains untrusted; only the separate exact review can authorize it.
+                remember(userInput, it)
+                return HybridAssistantReply(it)
+            }
+        }
         routineConfirmations.consume(userInput)?.let { resolution ->
             pendingPrompt = PendingPrompt.NONE
             pendingShellCommand = null
@@ -104,7 +355,7 @@ class HybridAssistantService(
             deviceLearningSession.consume("")
             preferenceConfirmations.consume("")
             // Names and requested steps are data, never an immediate device command.
-            return HybridAssistantReply("I don't understand that locally yet. This routine creation request needs a supported AI proposal and explicit review. Nothing was saved or run.")
+            return HybridAssistantReply("I can help prepare a routine from supported actions. Its exact steps need review before saving; nothing has run.", needsInterpretation = true)
         }
         if (userInput.isBlank()) {
             val result = assistantEngine.executeAction(actionRegistry.showStatusRequest())
@@ -187,6 +438,7 @@ class HybridAssistantService(
                     else "The pending outcome check is for ${pending.action.description()}, from '${pending.phrase}'. Check the result, then say 'it worked' or 'it failed'. I'm keeping this check pending; nothing was learned or marked failed."
                 }
                 !resolution.accepted -> {
+                    if (pending.awaitingOutcome) settleTrackedRoutine(pending, success = false)
                     if (pending.replayed && pending.awaitingOutcome) {
                         val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
                         val paused = VerifiedFailureFeedback.pause(resolution, memory)
@@ -204,9 +456,10 @@ class HybridAssistantService(
                     }
                 }
                 pending.awaitingOutcome -> {
+                    settleTrackedRoutine(pending, success = true)
                     val trialSaved = pending.requestId == null || trialEvidence.record(pending.requestId, pending.action, CapabilityTrialEvidence.Outcome.USER_CONFIRMED)
                     val contextSaved = assistantMemory.recordConfirmed(pending.action)
-                    val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
+                    val prefs = RuntimeSettings.read(systemService.context(), "jarvis_cloud_ai")
                     val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
                     val learned = pending.shouldLearn(prefs.getBoolean("automatic_command_learning", true)) &&
                         memory.recordSuccess(pending.phrase, pending.contextual?.capabilityId ?: pending.action.capabilityId, LearnableDeviceAction.capabilities + ContextualAction.capabilities, pending.contextual?.parameters ?: pending.action.parameters)
@@ -243,7 +496,7 @@ class HybridAssistantService(
                 pending.slot == "clear" -> if (assistantMemory.clear()) "Cleared saved assistant preferences and recent-action context on this device." else "Could not clear assistant memory."
                 pending.action != null -> {
                     val action = pending.action
-                    val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
+                    val prefs = RuntimeSettings.read(systemService.context(), "jarvis_cloud_ai")
                     val outcome = PreferenceLearning.commit(pending, prefs.getBoolean("automatic_command_learning", true),
                         installed = { androidAssistant.resolveLearnableApp(it.parameters.getValue("label"))?.first == it.parameters.getValue("package") },
                         save = assistantMemory::savePreference, read = assistantMemory::preferred,
@@ -273,7 +526,7 @@ class HybridAssistantService(
         }
         if (ConfirmationWords.isConfirmation(userInput)) {
             pendingLearningReset = false
-            return HybridAssistantReply("No action is awaiting yes/no approval. State the action you want, such as 'open Chrome'. Nothing was changed.")
+            return HybridAssistantReply("No device action is awaiting approval. What would you like to continue with?", needsInterpretation = true)
         }
         // Discovery controls are local. Requested features never enter AI history or learning.
         if (CapabilityDiscovery.isHelp(userInput)) return HybridAssistantReply(CapabilityDiscovery.help())
@@ -389,9 +642,8 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
         if (deviceMemory.isPaused(userInput)) {
-            val response = "I don't understand that locally yet. This learned phrase is paused after an unsuccessful result. A verified successful lesson is needed before it can be reused."
-            remember(userInput, response)
-            return HybridAssistantReply(response)
+            val response = "This learned phrase is paused after an unsuccessful result. I can help review its meaning; a new successful, verified lesson is needed before reuse."
+            return HybridAssistantReply(response, needsInterpretation = true)
         }
         deviceMemory.match(userInput, LearnablePreference.capabilities)?.let { learned ->
             val preference = LearnablePreference.fromParameters(learned.parameters)
@@ -452,34 +704,16 @@ class HybridAssistantService(
             }
         }
         routineRegistry.find(userInput)?.let { routine ->
+            if (personalAssistant) {
+                val response = runTrackedRoutine(routine.phrase)
+                remember(userInput, response)
+                return HybridAssistantReply(response)
+            }
             var requestedTarget: LearnableDeviceAction? = null
             val outcome = RoutineExecution.runWithPreferred(routine.actions, assistantMemory, androidAssistant::canLaunchApp) { step, preferred ->
                 val target = preferred ?: RoutineSteps.timerAction(step)
-                if (target != null) {
-                    requestedTarget = target
-                    when (deviceLearningSession.requestAndTrack(routine.phrase, target) { requestDeviceAction(target) }) {
-                        DeviceLearningSession.RequestResult.FAILED -> RoutineExecution.Status.FAILED
-                        DeviceLearningSession.RequestResult.AWAITING_OUTCOME -> RoutineExecution.Status.AWAITING_OUTCOME
-                        DeviceLearningSession.RequestResult.REQUESTED_WITHOUT_TRACKING -> RoutineExecution.Status.REQUESTED_WITHOUT_TRACKING
-                    }
-                } else if (RoutineSteps.volumePercent(step) != null) {
-                    val verified = androidAssistant.setMediaVolumePercent(RoutineSteps.volumePercent(step)!!)
-                    resultHistory.record(routine.phrase, RoutineProposal.describe(step),
-                        if (verified) IntelligenceResultHistory.Outcome.DEVICE_VERIFIED else IntelligenceResultHistory.Outcome.NOT_VERIFIED,
-                        "Approved routine volume step. " + (if (verified) "Nearest supported target level verified." else "Target level could not be verified; remaining steps stopped.") + " No single-action phrase learned.")
-                    if (verified) RoutineExecution.Status.VERIFIED else RoutineExecution.Status.FAILED
-                } else when (step) {
-                    "volume_up", "volume_down" -> if (androidAssistant.adjustVolume(
-                        if (step == "volume_up") android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER))
-                        RoutineExecution.Status.VERIFIED else RoutineExecution.Status.FAILED
-                    "app_update" -> if (runCatching {
-                        val context = systemService.context()
-                        context.startActivity(android.content.Intent(context, com.assistant.core.MainActivity::class.java)
-                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                            .putExtra("jarvis_feature", "app_update"))
-                    }.isSuccess) RoutineExecution.Status.REQUESTED else RoutineExecution.Status.FAILED
-                    else -> RoutineExecution.Status.FAILED
-                }
+                if (target != null) requestedTarget = target
+                executeRoutineStep(routine.phrase, step, target)
             }
             if (outcome.unavailableApp)
                 return HybridAssistantReply("The routine's approved app is no longer launchable. No routine steps were run. Restore the app, or forget and recreate the routine for a different target.")
@@ -552,10 +786,11 @@ class HybridAssistantService(
                 normalize(userInput).substringAfterLast(" is the same as ", "")
             }.trimEnd('?', '.', '!')
             val capability = if (target.endsWith("up") || target.startsWith("increase ")) "volume_up" else "volume_down"
+            val exactConflict = ExactVolumeLearning.relativeConflictGuidance(phrase, capability)
             val reserved = LearnedCommandReviewCommands.isReserved(phrase) || phrase.startsWith("teach ", ignoreCase = true) ||
                 normalize(phrase).matches(Regex(".*\\b(?:call|text|message|delete|reset|reboot|pay|purchase|send)\\b.*")) ||
                 normalize(phrase) in setOf("learning status", "clear local learning", "confirm learning reset", "cancel learning reset")
-            val response = if (reserved) {
+            val response = if (exactConflict != null) exactConflict else if (reserved) {
                 "That phrase is reserved and cannot be learned."
             } else {
                 val direction = if (capability == "volume_up") android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER
@@ -717,7 +952,7 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        if (containsAny(normalized, "what can you do", "help", "capabilities", "features")) {
+        if (normalized in setOf("what can you do", "help", "capabilities", "features", "show help", "show capabilities", "show features", "what are your capabilities", "what are your features")) {
             val response = buildString {
                 appendLine("I can help with:")
                 appendLine("- Call a number or contact with Phone permission")
@@ -815,12 +1050,13 @@ class HybridAssistantService(
         parseCallTarget(normalized)?.let { rawTarget ->
             val target = cleanContactTarget(resolveConversationContact(rawTarget))
             lastContactTarget = target
-            val directNumber = target.filter { it.isDigit() || it == '+' }.takeIf { it.any(Char::isDigit) }
+            val directNumber = ContactCallWorkflow.phone(target)
             if (directNumber == null && !hasContactsPermission()) {
                 val response = "I need Contacts permission before I can look up $target. Please allow Contacts access for J.A.R.V.I.S., then try again."
                 remember(userInput, response); return HybridAssistantReply(response)
             }
-            val number = directNumber ?: androidAssistant.resolveContactPhone(target)
+            val contactResult = if (directNumber == null) androidAssistant.resolveContact(target) else null
+            val number = directNumber ?: contactResult?.number
             val dialOnly = normalized.startsWith("dial ")
             if (!dialOnly && number != null && !androidAssistant.hasCallPermission()) {
                 val response = "Phone permission is required to place calls. Open J.A.R.V.I.S. Permissions, grant Phone access, then say call $target again."
@@ -830,7 +1066,8 @@ class HybridAssistantService(
             val ok = number?.let { if (dialOnly) androidAssistant.dial(it) else androidAssistant.call(it) } ?: false
             val response = when {
                 ok && dialOnly -> "Opening the dialer for $target."
-                ok -> "Starting the call to $target."
+                ok -> "Requested the call to $target. Connection or completion is not verified."
+                number == null && contactResult?.status == ContactNameMatcher.MatchStatus.AMBIGUOUS -> "I found more than one possible phone number or contact for $target. Please specify the exact contact and number in your Contacts app before calling."
                 number == null -> "I couldn't find $target in your contacts with a phone number."
                 else -> "Android couldn't start the call. Check Phone permission and your phone app."
             }
@@ -839,7 +1076,7 @@ class HybridAssistantService(
         parseMessageRequest(userInput)?.let { (rawTarget, body) ->
             val target = resolveConversationContact(rawTarget)
             lastContactTarget = target
-            val number = target.filter { it.isDigit() || it == '+' }.takeIf { it.any(Char::isDigit) }
+            val number = ContactCallWorkflow.phone(target)
                 ?: androidAssistant.resolveContactPhone(target)
             val ok = number?.let { androidAssistant.composeSms(it, body) } ?: false
             val response = if (ok) "Opening your messaging app with the message ready for $target." else "I couldn't find a phone number for $target. Contact access may be required."
@@ -847,7 +1084,7 @@ class HybridAssistantService(
         }
         parseAlarm(normalized)?.let { (hour, minute) ->
             val ok = androidAssistant.setAlarm(hour, minute)
-            val response = if (ok) "Alarm set." else "I couldn't open the Android alarm service."
+            val response = if (ok) "Requested the alarm in Android's Clock app. Check the time there." else "I couldn't open the Android alarm service. Check that a Clock app is installed."
             remember(userInput, response); return HybridAssistantReply(response)
         }
 
@@ -856,10 +1093,13 @@ class HybridAssistantService(
             remember(userInput, response); return HybridAssistantReply(response)
         }
 
-        parseAppName(normalized)?.let { appName ->
+        parseAppName(if (personalAssistant) userInput else normalized)?.let { appName ->
             val target = androidAssistant.resolveLearnableApp(appName)
-            val response = if (target != null) requestContextAction(userInput, LearnableDeviceAction("open_app", mapOf("package" to target.first, "label" to target.second)))
-                else "I don't understand that locally yet. No unique installed app matched $appName."
+            if (target == null) {
+                if (personalAssistant) return HybridAssistantReply(appDiscovery.find(appName))
+                return HybridAssistantReply("No unique installed app matched $appName. I can help identify the app or another way to reach your objective.", needsInterpretation = true)
+            }
+            val response = requestContextAction(userInput, LearnableDeviceAction("open_app", mapOf("package" to target.first, "label" to target.second)))
             remember(userInput, response); return HybridAssistantReply(response)
         }
         if (normalized in setOf("play", "pause", "play music", "pause music", "play pause", "resume music")) {
@@ -893,7 +1133,7 @@ class HybridAssistantService(
         if (normalized in setOf("show recent apps", "recent apps", "recents")) {
             return replyFromResult(userInput, "Opening recent apps.", assistantEngine.executeAction(actionRegistry.accessibilityGlobalRequest(ActionRegistry.ACCESSIBILITY_RECENTS)))
         }
-        if (containsAny(normalized, "what is on my screen", "whats on my screen", "read my screen", "read screen", "screen context")) {
+        if (ConversationPolicy.isScreenQuery(userInput)) {
             return replyFromResult(userInput, "Reading the current screen.", assistantEngine.executeAction(actionRegistry.readScreenRequest()))
         }
 
@@ -901,7 +1141,7 @@ class HybridAssistantService(
         // by opening another activity. The user opens the embedded browser by
         // tapping the card; the same response works for voice and text input.
         (WebSearchCommand.videoQuery(userInput)
-            ?: WebSearchCommand.videoFollowupQuery(userInput, history.lastOrNull()?.first))?.let { query ->
+            ?: WebSearchCommand.videoFollowupQuery(userInput, conversationTurns().lastOrNull()?.first))?.let { query ->
             val url = android.net.Uri.parse("https://www.google.com/search").buildUpon()
                 .appendQueryParameter("tbm", "vid").appendQueryParameter("q", query).build()
             val response = "Video search ready: $query\n$url"
@@ -922,8 +1162,8 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        (WebSearchCommand.query(userInput) ?: WebSearchCommand.currentInfoQuery(userInput)
-            ?: WebSearchCommand.downloadFollowupQuery(userInput, history.lastOrNull()?.first))?.let { query ->
+        (WebSearchCommand.query(userInput) ?: WebSearchCommand.musicQuery(userInput) ?: WebSearchCommand.titledMusicQuery(userInput) ?: WebSearchCommand.currentInfoQuery(userInput)
+            ?: WebSearchCommand.downloadFollowupQuery(userInput, conversationTurns().lastOrNull()?.first))?.let { query ->
             val url = android.net.Uri.parse("https://www.google.com/search")
                 .buildUpon().appendQueryParameter("q", query).build()
             val response = "Web search ready: $query\\n$url".replace("\\n", "\n")
@@ -937,7 +1177,7 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        if (containsAny(normalized, "create project", "new project", "generate project", "make project")) {
+        if (engineIntent == ActionRegistry.CREATE_PROJECT) {
             val extracted = extractProjectName(normalized)
             if (extracted == null) {
                 pendingPrompt = PendingPrompt.PROJECT_NAME
@@ -953,7 +1193,7 @@ class HybridAssistantService(
             )
         }
 
-        if (containsAny(normalized, "run shell", "execute shell", "run command")) {
+        if (engineIntent == ActionRegistry.RUN_SHELL) {
             val command = extractShellCommand(userInput)
             pendingShellCommand = command
             pendingPrompt = PendingPrompt.SHELL_CONFIRMATION
@@ -962,7 +1202,7 @@ class HybridAssistantService(
             return HybridAssistantReply(response)
         }
 
-        if (containsAny(normalized, "status", "system status", "show status")) {
+        if (engineIntent == ActionRegistry.SHOW_STATUS) {
             val result = assistantEngine.executeAction(actionRegistry.showStatusRequest())
             return replyFromResult(
                 userText = userInput,
@@ -971,7 +1211,7 @@ class HybridAssistantService(
             )
         }
 
-        if (containsAny(normalized, "reboot", "restart device")) {
+        if (engineIntent == ActionRegistry.REBOOT_DEVICE) {
             pendingPrompt = PendingPrompt.REBOOT_CONFIRMATION
             val response = "Reboot is a high-risk action. Confirm by saying \"yes\" or \"confirm reboot\"."
             remember(userInput, response)
@@ -984,13 +1224,9 @@ class HybridAssistantService(
 
         val fallback = assistantEngine.handleUserCommand(userInput)
         if (!fallback.success && fallback.adapterUsed == "ENGINE") {
-            val response = buildString {
-                appendLine("I don't understand that locally yet.")
-                appendLine("This request is eligible for fallback-AI interpretation and validated local learning.")
-                append("Local learned examples: ${learningStore.count()}")
-            }
-            remember(userInput, response)
-            return HybridAssistantReply(response, fallback)
+            // This is routing state, not a user-visible refusal or a completed conversation turn.
+            return HybridAssistantReply("I can help work through that objective using the available tools and conversation.",
+                needsInterpretation = true)
         }
         return replyFromResult(
             userText = userInput,
@@ -1002,38 +1238,280 @@ class HybridAssistantService(
     fun canAnalyzeAttachments(): Boolean = directOnlineClient.hasGeminiKey()
 
     fun handleAttachmentsAsync(question: String, attachments: List<ChatAttachment>, callback: (HybridAssistantReply) -> Unit) {
+        val turn = responseTurns.begin()
+        if (personalAssistant) screenAccess.discard()
+        if (personalAssistant) appDiscovery.discard()
         routineConfirmations.consume("")
-        Thread {
+        responseThread(turn, callback) {
             val response = directOnlineClient.gemini(question, getConversationSnapshot(), attachments)
             remember(question + "\nAttachments: " + attachments.joinToString { it.name }, response)
-            callback(HybridAssistantReply(response))
+            callback(responseTurns.delivery(turn, HybridAssistantReply(response)))
         }.start()
     }
 
+    /** Cancelling speech also invalidates late cloud interpretations and their proposed approvals. */
+    fun cancelActiveResponse() = responseTurns.cancel { clearPendingActionPrompts() }
+    /** Microphone interruption may be the user's response to an already delivered approval. */
+    fun interruptActiveResponse() = responseTurns.cancel()
+
+    private fun responseThread(turn: Long, callback: (HybridAssistantReply) -> Unit, block: () -> Unit) = Thread {
+        responseTurns.inTurn(turn) {
+            if (responseTurns.current()) block()
+            else callback(responseTurns.delivery(turn, HybridAssistantReply("")))
+        }
+    }
+
     fun handleUserInputAsync(rawInput: String, callback: (HybridAssistantReply) -> Unit) {
+        val turn = responseTurns.begin()
+        responseTurns.inTurn(turn) {
+            handleUserInputWithinTurn(rawInput, turn) { reply ->
+                callback(responseTurns.delivery(turn, reply))
+            }
+        }
+    }
+
+    private fun handleUserInputWithinTurn(rawInput: String, turn: Long, callback: (HybridAssistantReply) -> Unit) {
+        val installationOffer = developmentInstallConsent.take()
+        if (DevelopmentCommands.parse(rawInput) != null || installationOffer != null && ConfirmationWords.isConfirmation(rawInput)) {
+            responseThread(turn, callback) {
+                callback(HybridAssistantReply(requireNotNull(handleDevelopmentInput(rawInput, installationOffer))))
+            }.start()
+            return
+        }
+        hostInformation(rawInput)?.let { callback(it); return }
+        val weatherInput = ForecastDates.contextual(rawInput, conversationTurns().map { it.first })
+        if (weatherInput != null && !RoutineProposal.isCreationRequest(rawInput)) {
+            clearPendingActionPrompts()
+            if (personalAssistant) { screenAccess.discard(); appDiscovery.discard() }
+            responseThread(turn, callback) {
+                val response = directOnlineClient.weather(weatherInput)
+                remember(rawInput, response)
+                callback(HybridAssistantReply(response))
+            }.start()
+            return
+        }
+        if (personalAssistant && screenAccess.accepts(rawInput)) {
+            // Freeze the accepted screen route: a delayed contextual yes must never fall into another action's approval.
+            val request = screenAccess.prepare(rawInput)
+            responseThread(turn, callback) { callback(handleScreenInput(request)) }.start(); return
+        }
+        if (personalAssistant) screenAccess.discard()
+        if (personalAssistant && AppDiscovery.parse(rawInput) == null) appDiscovery.discard()
+        if (personalAssistant && (IntelligenceRouting.isStatus(rawInput) || ConnectionAssistance.parse(rawInput) != null || DeviceReport.command(rawInput) != null || AppDiscovery.parse(rawInput) != null)) {
+            callback(handleUserInput(rawInput)); return
+        }
+        if (personalAssistant && GoalAppCorrections.contextual(rawInput) != null &&
+            runCatching { goalPlans?.pending() != null }.getOrDefault(false)) {
+            callback(handleUserInput(rawInput)); return
+        }
+        if (personalAssistant && ReminderCommands.contextualEdit(rawInput) != null &&
+            runCatching { personalReminders.pending() != null }.getOrDefault(false)) {
+            callback(handleUserInput(rawInput)); return
+        }
+        if (personalAssistant && GoalPlanning.isReviewReply(rawInput) && runCatching { goalPlans?.pending() != null }.getOrDefault(false)) {
+            callback(handleUserInput(rawInput)); return
+        }
+        if (personalAssistant && ConfirmationWords.isConfirmation(rawInput) &&
+            runCatching { contactCalls.pending() != null || personalReminders.pending() != null }.getOrDefault(false)) {
+            callback(handleUserInput(rawInput)); return
+        }
+        val research = if (personalAssistant) ResearchBriefCommands.parse(rawInput) else null
+        if (research != null) {
+            if (research.command !in setOf(ResearchBriefCommands.Command.START, ResearchBriefCommands.Command.RETRY)) {
+                callback(handleUserInput(rawInput)); return
+            }
+            clearPendingActionPrompts()
+            taskHistory.discardReview()
+            contactCallCommands.discardReview()
+            reminderCommands.discardReview()
+            runCatching { contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending() }
+            val ticket = try {
+                if (research.command == ResearchBriefCommands.Command.RETRY) researchBriefs.retry()
+                else researchBriefs.start(research.query.orEmpty())
+            } catch (_: Exception) {
+                callback(HybridAssistantReply("The research query or its storage could not be validated. Use a topic of 2–300 characters and check local storage access. No lookup was started."))
+                return
+            }
+            if (ticket == null) { callback(HybridAssistantReply("No research query is saved to retry. Request a topic first.")); return }
+            responseThread(turn, callback) {
+                val response = runCatching { researchBriefs.run(ticket) { query ->
+                    researchFetch?.invoke(query) ?: run {
+                        val context = systemService.context()
+                        val tavily = runCatching { ApiKeyStore(context, "tavily_search").read() }.getOrDefault("")
+                        val brave = runCatching { ApiKeyStore(context, "brave_search").read() }.getOrDefault("")
+                        val router = SearchRouter.configured(tavily, brave, "web")
+                        val coordinator = SearchCoordinator({ q, kind -> if (directOnlineClient.hasGeminiKey()) directOnlineClient.groundedSearch(q, kind) else null }, router)
+                        val result = coordinator.search(query, "web")
+                        SearchRouter.Response(null, result.items, result.failures)
+                    }
+                } }.getOrElse { "Research results could not be confirmed or saved. Review research status before explicitly retrying; no automatic retry or claim of a completed brief is made." }
+                callback(HybridAssistantReply(response))
+            }.start()
+            return
+        }
+        // Local evaluation/correction controls must not be reinterpreted as a manual search
+        // when malformed trailing text happens to mention documentation or a provider.
+        if (personalAssistant && (WorkflowDiagnostics.command(rawInput) != null || ImprovementEvaluation.isManagementInput(rawInput) ||
+                TaskHistoryCommands.isManagementInput(rawInput) || GoalPlanning.isManagementInput(rawInput) || GoalPlanning.edit(rawInput) != null || ReminderCommands.parse(rawInput) != null ||
+                ContactCallCommands.parse(rawInput) != null)) {
+            callback(handleUserInput(rawInput))
+            return
+        }
         if (CapabilityDiscovery.needsClarification(rawInput)) {
             callback(handleUserInput(rawInput))
             return
         }
         AssistantConnectionProtocol.parse(rawInput)?.let { request ->
             routineConfirmations.consume("")
-            Thread {
+            responseThread(turn, callback) {
                 val response = assistantConnections.ask(request)
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
             }.start()
             return
         }
-        val local = handleUserInput(rawInput)
-        val unresolved = local.text.startsWith("I don't understand that locally yet.")
-        if (unresolved && !RoutineProposal.isCreationRequest(rawInput) && OnlineAnswers.isWeather(rawInput)) {
-            Thread {
-                val response = directOnlineClient.weather(rawInput)
+        // Resolve a short affirmative reply against an immediately preceding manual-verification offer.
+        // Never infer a serial number or an equipment-specific procedure from the offer.
+        val priorTurn = conversationTurns().lastOrNull()
+        // Local goal replies may contain arbitrary app labels. They are never network/manual
+        // offers, including after their review expires, is cancelled or is replaced.
+        val priorGoalTurn = personalAssistant && priorTurn?.let {
+            GoalPlanning.isManagementInput(it.first) || GoalPlanning.edit(it.first) != null || GoalAppCorrections.contextual(it.first) != null ||
+                (GoalPlanning.isReviewReply(it.first) && it.second.contains("Use the exact approval phrase for this plan"))
+        } == true
+        val affirmativeFollowup = rawInput.trim().lowercase(Locale.ROOT).trimEnd('.', '!', '?') in
+            setOf("yes", "yes please", "please", "sure", "go ahead", "please do", "do it")
+        val offeredNetworkSettings = !priorGoalTurn && priorTurn?.second?.let { reply ->
+            reply.contains("network settings", ignoreCase = true) &&
+                (reply.contains("would you like", ignoreCase = true) ||
+                    reply.contains("shall i", ignoreCase = true) ||
+                    reply.contains("want me to", ignoreCase = true))
+        } == true
+        if (affirmativeFollowup && offeredNetworkSettings) {
+            val response = try {
+                val intent = android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                systemService.context().startActivity(intent)
+                "Opened Android network settings. I have not changed any settings or verified internet reachability."
+            } catch (_: Exception) {
+                "I could not open network settings automatically. Open Android Settings, then Connections, to inspect Wi-Fi and mobile data."
+            }
+            remember(rawInput, response)
+            callback(HybridAssistantReply(response))
+            return
+        }
+        val manualConfirmation = !priorGoalTurn && rawInput.trim().lowercase() in setOf(
+            "yes", "yes please", "please", "sure", "go ahead", "please do", "do it"
+        ) && priorTurn?.second?.let { reply ->
+            reply.contains("shall i verify", ignoreCase = true) &&
+                reply.contains("manual", ignoreCase = true)
+        } == true
+        // Report observed network capability rather than inventing provider connectivity.
+        val capabilityQuestion = rawInput.trim().lowercase(Locale.ROOT).trimEnd('.', '?', '!')
+        val connectionQuestion = capabilityQuestion in setOf(
+            "are you online", "are you still offline", "do you have internet access",
+            "do you have online access", "so you're telling me you don't have online access still"
+        )
+        if (connectionQuestion) {
+            val network = systemService.context().getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val capabilities = network.getNetworkCapabilities(network.activeNetwork)
+            val internetCapable = capabilities?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            val networkStatus = if (internetCapable)
+                "Android reports an internet-capable network, but website and provider reachability have not been verified."
+            else "Android does not currently report an internet-capable active network."
+            val geminiStatus = if (directOnlineClient.hasGeminiKey()) "Gemini has a configured key, but its availability has not been tested." else "Gemini has no configured key."
+            val response = "$networkStatus Jarvis supports independent web search without Gemini. $geminiStatus"
+            remember(rawInput, response)
+            callback(HybridAssistantReply(response))
+            return
+        }
+        // Explicit diagnostics perform an actual HTTPS reachability check; do not
+        // equate an Android network flag or a configured AI key with connectivity.
+        val diagnosticPhrase = rawInput.trim().lowercase(Locale.ROOT).trimEnd('.', '?', '!')
+            .replace(Regex("\\s+"), " ")
+        if (diagnosticPhrase in setOf(
+                "test internet connection", "test internet connections",
+                "test my internet connection", "test my internet connections",
+                "check internet connection", "check internet connections",
+                "diagnose internet connection", "diagnose internet connections",
+                "check online connectivity", "run connectivity diagnostics",
+                "test search connection", "check search connection",
+                "test network connection", "test network connections",
+                "test my network connection", "test my network connections"
+            )) {
+            responseThread(turn, callback) {
+                val response = try {
+                    val connection = java.net.URL("https://www.google.com/generate_204").openConnection() as java.net.HttpURLConnection
+                    try {
+                        connection.connectTimeout = 5000
+                        connection.readTimeout = 5000
+                        connection.instanceFollowRedirects = false
+                        val status = connection.responseCode
+                        if (status == 204)
+                            "Internet probe succeeded (HTTPS 204). This confirms one endpoint is reachable, not that search or Gemini is available."
+                        else "Internet probe returned HTTP $status. Internet and search availability remain unverified."
+                    } finally {
+                        connection.disconnect()
+                    }
+                } catch (_: java.io.IOException) {
+                    "Internet probe failed. This does not prove the device is offline; check DNS, network filtering, and connectivity."
+                } catch (_: Exception) {
+                    "Internet probe could not complete. Connectivity remains unverified."
+                }
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
             }.start()
             return
         }
+        val resolvedInput = if (manualConfirmation) {
+            "Find and verify the official service manual for the equipment in the preceding conversation. " +
+                "Check any serial-number applicability against official documentation; if no serial number was provided, ask for it. " +
+                "Do not invent manual links or equipment-specific service procedures."
+        } else rawInput
+        // Dispatch explicit retrieval before the synchronous local handler returns
+        // a browser-link acknowledgement. Search requires no cloud AI credentials.
+        run {
+            val videoQuery = WebSearchCommand.videoQuery(resolvedInput)
+            val imageQuery = WebSearchCommand.imageQueryNatural(resolvedInput)
+            val webQuery = WebSearchCommand.query(resolvedInput)
+                ?: WebSearchCommand.currentInfoQuery(resolvedInput)
+                ?: WebSearchCommand.musicQuery(resolvedInput)
+                ?: WebSearchCommand.titledMusicQuery(resolvedInput)
+            val kind = when {
+                videoQuery != null -> "video"
+                imageQuery != null -> "image"
+                webQuery != null -> "web"
+                else -> null
+            }
+            val query = videoQuery ?: imageQuery ?: webQuery
+            if (kind != null && query != null) {
+                responseThread(turn, callback) {
+                    val router = SearchRouter.configured("", "", kind)
+                    val retrieved = router.search(query)
+                    val response = if (retrieved.items.isNotEmpty()) {
+                        ChatSearchResults.encode(rawInput, retrieved.items,
+                            "Retrieved links are not AI-verified. Check the original sources.",
+                            kind = kind, retrievedAt = System.currentTimeMillis())
+                    } else {
+                        router.failureMessage(retrieved, kind)
+                    }
+                    remember(rawInput, response)
+                    callback(HybridAssistantReply(response))
+                }.start()
+                return
+            }
+        }
+        val local = handleUserInput(resolvedInput)
+        val manualRetrieval = Regex(
+            "(?i)\\b(?:technical|service|repair|shop|workshop|operator|operators|operator[’']s)\\s+manual\\b|technical documentation|service documentation"
+        ).containsMatchIn(rawInput) && listOf("pull up", "find", "locate", "get me", "show me", "look up", "search", "retrieve").any {
+            rawInput.contains(it, ignoreCase = true)
+        }
+        val unsupportedManualReply = manualRetrieval &&
+            local.actionResult == null &&
+            (local.text.contains("cannot access", ignoreCase = true) ||
+                local.text.contains("cannot retrieve", ignoreCase = true))
+        val unresolved = local.needsInterpretation || unsupportedManualReply || manualConfirmation || (manualRetrieval && local.actionResult == null)
         if (!unresolved) {
             callback(local)
             return
@@ -1045,14 +1523,81 @@ class HybridAssistantService(
                 "AI routine proposals require an online connection and configured AI provider. Existing approved routines still run offline. Nothing was saved or run."
             else if (com.assistant.core.learning.ValidatedCommandMemory(systemService.context()).isPaused(rawInput))
                 "You're offline. This learned phrase is paused after an unsuccessful result. Go online and complete a verified successful lesson, or use 'forget learned command' followed by the phrase before teaching a different meaning."
-            else "You're offline, and this phrase isn't saved as a local command yet. Go online, repeat the original request, and confirm it. It must execute successfully before it can be learned for offline use."
+            else "Android does not currently report an internet-capable active network to J.A.R.V.I.S. Online AI was not contacted for this request. Check network access, then retry; local commands remain available."
             remember(rawInput, response)
             callback(HybridAssistantReply(response, local.actionResult))
             return
         }
+        if (manualRetrieval && !directOnlineClient.hasGeminiKey()) {
+            responseThread(turn, callback) {
+                val retrieved = SearchRouter.configured("", "", "web").search(resolvedInput.take(300))
+                val response = if (retrieved.items.isNotEmpty())
+                    ChatSearchResults.encode(rawInput, retrieved.items,
+                        "Web results are unverified. Confirm the publisher, model, and serial-number applicability before using any manual.",
+                        retrievedAt = System.currentTimeMillis())
+                else SearchRouter.configured("", "", "web").failureMessage(retrieved, "web")
+                remember(rawInput, response)
+                callback(HybridAssistantReply(response))
+            }.start()
+            return
+        }
         if (directOnlineClient.hasGeminiKey()) {
-            Thread {
-                val cloud = directOnlineClient.assistant(rawInput, getConversationSnapshot(), ContextualAction.aiContext(assistantMemory))
+            val previousResearch = synchronized(this) { lastResearchQuery }
+            val researchDecision = ConversationalResearchPolicy.decide(resolvedInput, online = true,
+                previousResearchQuery = previousResearch)
+            if (researchDecision == ConversationalResearchPolicy.Decision.RESEARCH &&
+                !RoutineProposal.isCreationRequest(rawInput)) {
+                responseThread(turn, callback) {
+                    val isManualRequest = Regex(
+                        "(?i)\\b(?:technical|service|repair|shop|workshop|operator|operators|operator[’']s)\\s+manual\\b|technical documentation|service documentation"
+                    ).containsMatchIn(resolvedInput)
+                    val recentContext = if (isManualRequest && (previousResearch == null || manualConfirmation))
+                        getConversationSnapshot(limit = 5).take(1200) else ""
+                    val contextualQuery = when {
+                        isManualRequest && recentContext.isNotBlank() ->
+                            "Using the conversation context below, identify the equipment and find its official technical manual or authorized documentation. Provide verifiable links; do not invent procedures or claim access to restricted manuals.\n$recentContext\nRequest: $resolvedInput"
+                        previousResearch != null && resolvedInput.length < 100 &&
+                            !resolvedInput.contains("look up", ignoreCase = true) &&
+                            !resolvedInput.contains("search for", ignoreCase = true) ->
+                            "$previousResearch. Follow-up question: $resolvedInput"
+                        else -> resolvedInput
+                    }
+                    val searchAttempt = runCatching { directOnlineClient.groundedSearch(contextualQuery, "web") }
+                    val grounded = searchAttempt.getOrNull()
+                    val valid = grounded?.takeIf { result ->
+                        result.query == contextualQuery && !result.answer.isNullOrBlank() &&
+                            result.items.any { item -> item.title.isNotBlank() && ChatSearchResults.safeUrl(item.url) }
+                    }
+                    if (valid != null) {
+                        val answer = valid.answer.orEmpty()
+                        remember(rawInput, answer)
+                        synchronized(this) { lastResearchQuery = contextualQuery.take(300) }
+                        callback(HybridAssistantReply(ChatSearchResults.encode(rawInput, valid.items,
+                            answer, valid.searchSuggestions, retrievedAt = System.currentTimeMillis())))
+                    } else {
+                        if (isManualRequest) {
+                            val diagnostic = when ((searchAttempt.exceptionOrNull() as? SearchProviderFailure)?.kind) {
+                                SearchProviderFailure.Kind.RATE_LIMIT -> "The search provider reported a rate or quota limit."
+                                SearchProviderFailure.Kind.AUTHENTICATION -> "The search provider rejected authentication. Check the Gemini API key."
+                                SearchProviderFailure.Kind.UNAVAILABLE -> "The search provider is unavailable or rejected the configured model. Check the selected Gemini model."
+                                null -> if (searchAttempt.isFailure) "The online search request failed. Check network access and Gemini settings."
+                                    else "The search returned no verifiable source citations. Try a different Gemini model or a more specific manual search."
+                            }
+                            val response = "$diagnostic I won't invent a manual link or equipment-specific procedure."
+                            remember(rawInput, response)
+                            callback(HybridAssistantReply(response))
+                            return@responseThread
+                        }
+                        val cloud = onlineInterpretation(rawInput)
+                        val response = proposeCloudAction(rawInput, cloud.lessonJson) ?: cloud.reply
+                        remember(rawInput, response)
+                        callback(HybridAssistantReply(response))
+                    }
+                }.start()
+                return
+            }
+            responseThread(turn, callback) {
+                val cloud = onlineInterpretation(rawInput)
                 val response = proposeCloudAction(rawInput, cloud.lessonJson) ?: cloud.reply
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
@@ -1060,18 +1605,20 @@ class HybridAssistantService(
             return
         }
         if (!fallbackAiClient.isConfigured()) {
-            val response = "I don't understand that locally yet. AI fallback needs configuration. Enter your Gemini API key in Voice Settings → Weather and AI."
+            val response = ConversationPolicy.fallback(rawInput, ConversationPolicy.Obstacle.NOT_CONFIGURED)
             remember(rawInput, response)
             callback(HybridAssistantReply(response, local.actionResult))
             return
         }
-        Thread {
-            val cloud = fallbackAiClient.ask(rawInput, capabilityContext = ContextualAction.aiContext(assistantMemory), conversation = conversationTurns())
-            if (cloud == null) {
-                val response = "I don't understand that locally yet. Cloud fallback failed or returned no usable reply. Check your connection and AI settings."
+        responseThread(turn, callback) {
+            val cloud = if (personalAssistant) onlineInterpretation(rawInput) else
+                fallbackAiClient.ask(rawInput, capabilityContext = ContextualAction.aiContext(assistantMemory), conversation = conversationTurns())
+            if (cloud == null || cloud.providerFailed) {
+                val response = cloud?.reply?.takeIf(String::isNotBlank)
+                    ?: ConversationPolicy.fallback(rawInput, ConversationPolicy.Obstacle.PROVIDER_FAILED)
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response, local.actionResult))
-                return@Thread
+                return@responseThread
             }
             // A plausible cloud interpretation is not proof of a successful action.
             // Do not train device-action intents from unverified cloud replies.
@@ -1083,7 +1630,328 @@ class HybridAssistantService(
         }.start()
     }
 
-    private fun proposeCloudAction(userText: String, lessonJson: String?): String? {
+    private fun onlineInterpretation(userText: String): FallbackAiResult {
+        val result = if (personalAssistant) {
+            val configured = buildSet {
+                if (directOnlineClient.hasGeminiKey()) add(IntelligenceRouting.Provider.GEMINI)
+                if (fallbackAiClient.isConfigured()) add(IntelligenceRouting.Provider.GATEWAY)
+            }
+            IntelligenceRouting.ask(IntelligenceRouting.selected(intelligencePrefs.getString("primary_provider", "gemini")),
+                intelligencePrefs.getBoolean("provider_fallback", true), configured, responseTurns::current) { provider ->
+                when (provider) {
+                    IntelligenceRouting.Provider.GEMINI -> directOnlineClient.assistant(userText, getConversationSnapshot(), ContextualAction.aiContext(assistantMemory))
+                    IntelligenceRouting.Provider.GATEWAY -> fallbackAiClient.ask(userText,
+                        capabilityContext = ContextualAction.aiContext(assistantMemory), conversation = conversationTurns())
+                }
+            }.answer
+        } else InterpretationFallback.ask({ directOnlineClient.assistant(userText, getConversationSnapshot(), ContextualAction.aiContext(assistantMemory)) })
+        return if (result.providerFailed) result.copy(reply = result.reply + " " +
+            ConversationPolicy.fallback(userText, ConversationPolicy.Obstacle.PROVIDER_FAILED), lessonJson = null)
+        else result
+    }
+
+    private fun runTrackedRoutine(phrase: String): String =
+        runCatching {
+            val result = routineCoordinator.invoke(phrase, java.util.UUID.randomUUID().toString())
+            if (!result.busy) sessionRoutineId = result.checkpoint?.id
+            renderRoutineControl(result)
+        }.getOrElse { "This routine could not start safely. Check its saved apps and preferences, then review 'routine execution status'. If task history is full, say 'review task history' to review completed records for cleanup. No automatic retry was made." }
+
+    private fun clearPendingActionPrompts() {
+        developmentInstallConsent.discard()
+        pendingPrompt = PendingPrompt.NONE
+        pendingShellCommand = null
+        pendingLearningReset = false
+        routineConfirmations.consume("")
+        volumeConfirmations.consume("")
+        deviceLearningSession.consume("")
+        preferenceConfirmations.consume("")
+    }
+
+    private fun handleDevelopmentInput(input: String, offered: DevelopmentInstallConsent.Offer?): String? {
+        val command = DevelopmentCommands.parse(input)
+        val generalReply = offered != null && ConfirmationWords.isConfirmation(input)
+        if (command == null && !generalReply) return null
+        if (responseTurns.mutate { clearPendingActionPrompts(); true } != true) return "The earlier development request was cancelled."
+        val operations = DeveloperBridgeOperations(systemService.context())
+        val current = { responseTurns.current() }
+        val reply = runCatching {
+            if (generalReply && command == null) {
+                operations.cancelInstallation(current)
+                return@runCatching if (ConfirmationWords.approves(input))
+                    "A general yes does not approve an APK installation. The pending request was cancelled. Ask to install Developer's APK again, then use the specific approval phrase."
+                else "The APK installation request was cancelled. No installation approval was sent."
+            }
+            when (requireNotNull(command)) {
+                DevelopmentCommands.Kind.INSTALL_APK -> {
+                    if (responseTurns.mutate { if (personalAssistant) {
+                        screenAccess.discard(); appDiscovery.discard()
+                        contactCalls.discardReview(); personalReminders.discardPending(); goalPlans?.discardPending()
+                        taskHistory.discardReview(); contactCallCommands.discardReview(); reminderCommands.discardReview()
+                    }; true } != true) throw com.jarvis.integration.DevelopmentBridgeContract.Rejected("CANCELLED")
+                    try {
+                        val offer = operations.prepareInstallation(current)
+                        if (responseTurns.mutate { developmentInstallConsent.propose(offer) } != true) throw com.jarvis.integration.DevelopmentBridgeContract.Rejected("CANCELLED")
+                        offer.prompt()
+                    } catch (failure: com.jarvis.integration.DevelopmentBridgeContract.Rejected) {
+                        if (failure.code != "UNSUPPORTED_OPERATION") throw failure
+                        operations.reviewApk(current) + " This Developer version requires approval in its APK review page."
+                    }
+                }
+                DevelopmentCommands.Kind.APPROVE_INSTALL_APK -> if (offered == null)
+                    "No current APK installation review is awaiting approval. Ask to install the APK Developer built, then review its exact application and build."
+                    else operations.approveInstallation(offered, current)
+                DevelopmentCommands.Kind.CANCEL_INSTALL_APK -> operations.cancelInstallation(current)
+                DevelopmentCommands.Kind.CHECK_INSTALLED_APK -> operations.checkInstalledApk(current)
+                DevelopmentCommands.Kind.CAPABILITIES -> operations.capabilities()
+                DevelopmentCommands.Kind.STATUS -> operations.status()
+                DevelopmentCommands.Kind.LIST -> operations.list()
+                DevelopmentCommands.Kind.REVIEW_APK -> operations.reviewApk(current)
+                DevelopmentCommands.Kind.REVIEW_RUNTIME -> operations.submit(OperationalDiagnostics.render(LiveCapabilityRegistry.snapshot(systemService.context())))
+                DevelopmentCommands.Kind.CANCEL -> operations.control("task.cancel.request")
+                DevelopmentCommands.Kind.PAUSE -> operations.control("task.pause.request")
+                DevelopmentCommands.Kind.RESUME -> operations.control("task.resume.request")
+                DevelopmentCommands.Kind.RETRY -> operations.control("task.retry.request")
+                DevelopmentCommands.Kind.RETRY_PENDING -> operations.retryPending()
+                DevelopmentCommands.Kind.ANALYZE_PERSONAL -> operations.analyzeSource(true)
+                DevelopmentCommands.Kind.ANALYZE_DEVELOPER -> operations.analyzeSource(false)
+            }
+        }.getOrElse(DeveloperBridgeOperations::failure)
+        remember(input, reply)
+        return reply
+    }
+
+    private fun reviewGoalPlan(plan: GoalPlanning.Plan): String {
+        reviewedGoalKey = plan.key
+        return GoalPlanning.review(plan)
+    }
+
+    private fun handleGoalInput(input: String): String? {
+        val plans = goalPlans ?: return null
+        val appEdit = GoalAppCorrections.explicit(input) ?: GoalAppCorrections.contextual(input)
+            ?.takeIf { runCatching { plans.pending() != null }.getOrDefault(false) }
+        if (appEdit != null) {
+            reviewedGoalKey = null
+            return runCatching {
+                clearPendingActionPrompts()
+                val pending = plans.pending() ?: return@runCatching "No pending goal review is available to change. Prepare a goal first; an app correction cannot change an approved or running task."
+                val revised = GoalAppCorrections.revise(pending, appEdit, assistantMemory::preferred,
+                    androidAssistant::resolveLearnableApp, androidAssistant::canLaunchApp)
+                if (!plans.replacePending(pending, revised))
+                    return@runCatching "The goal review changed or expired before this app correction was saved. Say 'review goal plan' to inspect the current proposal; no steps ran."
+                if (revised == null) return@runCatching "I discarded the previous pending review because that app change could not be bound safely. Prepare the goal again with one exact installed app or a saved preferred app. For several apps, identify its numbered app step; keep each app distinct and leave volume/timer steps as they are. No steps ran and no preference changed."
+                reviewGoalPlan(revised) + " This replaces the earlier pending review; approve only these revised steps. Your saved app preferences are unchanged."
+            }.getOrElse { "The app correction could not be saved safely. Review 'goal plan status' before approving anything; no steps ran for this correction." }
+        }
+        GoalPlanning.edit(input)?.let { edit ->
+            reviewedGoalKey = null
+            return runCatching {
+                clearPendingActionPrompts()
+                val pending = plans.pending() ?: return@runCatching "No pending goal review is available to change. Request a focus, music or navigation plan first. A correction cannot alter a running task."
+                val revised = GoalPlanning.revise(pending, edit)
+                val available = revised?.actions?.mapNotNull(RoutineSteps::appAction)?.all {
+                    androidAssistant.canLaunchApp(it.parameters.getValue("package"))
+                } ?: true
+                if (!plans.replacePending(pending, revised?.takeIf { available }))
+                    return@runCatching "The pending goal changed or expired before this correction was saved. Say 'review goal plan' to inspect the current proposal; no steps ran."
+                if (revised == null) return@runCatching "I discarded the previous pending review because that correction could not be applied safely. Change an existing timer from one second to 24 hours or an existing volume step from 0 to 100 percent; otherwise request a new task with those steps. No steps ran for this correction."
+                if (!available) return@runCatching "The proposed app is no longer launchable, so I discarded the pending review. Restore it or request a new plan using an available app. No steps ran for this correction."
+                reviewGoalPlan(revised) + " This replaces the earlier pending review; approval must refer to these revised steps."
+            }.getOrElse { "The correction could not be saved safely. Review 'goal plan status' before approving anything; no steps were run by this correction." }
+        }
+        if (GoalPlanning.isReviewReply(input)) {
+            val pending = runCatching { plans.pending() }.getOrNull()
+            if (pending != null) return runCatching {
+                clearPendingActionPrompts()
+                if (ConfirmationWords.cancels(input)) {
+                    check(plans.discardPending())
+                    "Discarded the pending goal plan. No steps were run for that proposal."
+                } else reviewGoalPlan(pending) + " Use the exact approval phrase for this plan; this reply has not executed it."
+            }.getOrElse { "The pending goal review could not be accessed safely. Nothing was approved or automatically retried." }
+        }
+        GoalPlanning.command(input)?.let { command ->
+            return runCatching {
+                clearPendingActionPrompts()
+                val pending = plans.pending()
+                when (command) {
+                    GoalPlanning.Command.REVIEW, GoalPlanning.Command.STATUS -> if (pending != null) reviewGoalPlan(pending)
+                        else if (plans.durationDraft() != null) "How long should the focus session last? Give a duration such as '25 minutes'; I will show the proposed steps before execution."
+                        else renderCurrentGoal()
+                    GoalPlanning.Command.APPROVE -> {
+                        if (pending != null && reviewedGoalKey != pending.key)
+                            return@runCatching reviewGoalPlan(pending) + " This is the current goal plan. Review these steps before approving again."
+                        val result = if (pending != null) routineCoordinator.invokePrepared(pending.key, java.util.UUID.randomUUID().toString()) { plans.approve(pending) }
+                        else {
+                            val checkpoint = routineCoordinator.status().checkpoint
+                            val canApprove = checkpoint != null && (checkpoint.status == RoutineWorkflowStatus.AWAITING_APPROVAL ||
+                                (checkpoint.status == RoutineWorkflowStatus.FAILED && !checkpoint.approved && !checkpoint.cancellationRequested && checkpoint.steps.all { it.attempts == 0 }))
+                            if (checkpoint == null || plans.find(checkpoint.phrase) == null || !canApprove)
+                                return@runCatching "No current goal plan is awaiting approval. Ask for a focus, music or navigation session and review its exact steps first."
+                            if (reviewedGoalKey != checkpoint.phrase) {
+                                reviewedGoalKey = checkpoint.phrase
+                                return@runCatching renderRoutineExecution(checkpoint) + " Review these steps before approving again."
+                            }
+                            routineCoordinator.approvePrepared(checkpoint.id, checkpoint.steps.map { it.step })
+                        }
+                        if (!result.busy) sessionRoutineId = result.checkpoint?.id
+                        renderRoutineControl(result)
+                    }
+                    GoalPlanning.Command.CANCEL -> if (pending != null || plans.durationDraft() != null) {
+                        if (plans.discardPending()) "Discarded the pending goal plan. No steps were run for that proposal."
+                        else "Could not discard the goal proposal; do not approve it until its status is checked."
+                    } else controlCurrentGoal(PersonalRoutineCommands.Command.CANCEL)
+                    GoalPlanning.Command.RESUME -> controlCurrentGoal(PersonalRoutineCommands.Command.RESUME)
+                    GoalPlanning.Command.WORKED -> controlCurrentGoal(PersonalRoutineCommands.Command.WORKED)
+                    GoalPlanning.Command.FAILED -> controlCurrentGoal(PersonalRoutineCommands.Command.FAILED)
+                }
+            }.getOrElse { "The goal plan could not be accessed or approved safely. Review 'goal plan status' and local storage access. No automatic retry was made." }
+        }
+        val request = GoalPlanning.parse(input) ?: SpokenTimerDuration.seconds(input)?.let { seconds ->
+            runCatching { plans.durationDraft()?.copy(seconds = seconds) }.getOrNull()
+        }
+        if (request == null) {
+            reviewedGoalKey = null
+            // A new topic invalidates a pending review; an unrelated yes cannot revive it.
+            runCatching { plans.discardPending() }
+            if (GoalPlanning.isManagementInput(input)) {
+                clearPendingActionPrompts()
+                return "Use an exact goal control such as 'review goal plan', 'approve goal plan' or 'cancel goal plan'. No steps ran for this input; the previous pending review was discarded."
+            }
+            return null
+        }
+        return runCatching {
+            clearPendingActionPrompts()
+            check(plans.discardPending()) { "The previous goal review could not be invalidated." }
+            reviewedGoalKey = null
+            if (request.composition?.valid == false) return@runCatching "I can prepare up to three explicit steps using media volume, installed apps and a final timer. Try 'plan a task to set media volume to twenty percent then open my music app then open my maps app'. Every step must be supported before I save a review; nothing has run."
+            if (request.volume !in 0..100) return@runCatching "Choose a media-volume percentage from 0 to 100 for this goal. Nothing has run."
+            if (request.kind == GoalPlanning.Kind.FOCUS && (request.seconds == null || request.invalidDuration)) {
+                if (!plans.askDuration(request)) return@runCatching "Could not retain this focus request. Restate its duration and volume when local storage is available."
+                return@runCatching "How long should the focus session last? Give a duration from one second to 24 hours, such as '25 minutes'. I propose media volume ${request.volume}%; the exact steps still need review and approval."
+            }
+            val plan = GoalPlanning.plan(request, assistantMemory::preferred, androidAssistant::resolveLearnableApp, androidAssistant::canLaunchApp)
+                ?: return@runCatching if (request.kind in setOf(GoalPlanning.Kind.COMPOSED, GoalPlanning.Kind.DRIVE))
+                    "I need every app to resolve to one launchable target before preparing this task. Save the requested preferred music/maps/browser apps, or use their exact installed names. Put one volume step first and any timer last; use each app once, with at most three steps. No partial plan was saved and nothing has run."
+                else "I can prepare the volume step and app launch once one launchable target is available. Save a preferred ${if (request.kind == GoalPlanning.Kind.MUSIC) "music" else "maps"} app, or repeat this goal using its exact installed app name. Nothing has run."
+            if (plans.propose(plan)) reviewGoalPlan(plan) else "Could not retain this goal for review. Nothing has run."
+        }.getOrElse { "This goal could not be prepared safely. Check its duration, installed app or saved preference and local storage, then request the plan again. Nothing has run." }
+    }
+
+    private fun renderCurrentGoal(): String {
+        val result = routineCoordinator.status()
+        val checkpoint = result.checkpoint
+        return if (checkpoint != null && goalPlans?.find(checkpoint.phrase) != null) renderRoutineControl(result)
+        else "No goal execution is tracked. Try 'help me focus for 25 minutes', 'prepare my drive' or 'plan a task to open my music app then open my maps app'. I will propose exact steps before requesting approval."
+    }
+
+    private fun controlCurrentGoal(command: PersonalRoutineCommands.Command): String {
+        val current = routineCoordinator.status().checkpoint
+        if (current == null || goalPlans?.find(current.phrase) == null) return "No goal execution is tracked. Review a proposed goal plan first."
+        val result = when (command) {
+            PersonalRoutineCommands.Command.CANCEL -> routineCoordinator.cancel(current.id)
+            PersonalRoutineCommands.Command.RESUME -> routineCoordinator.resume(current.id)
+            PersonalRoutineCommands.Command.WORKED -> routineCoordinator.report(RoutineOutcomeObservation.USER_CONFIRMED, current.id)
+            PersonalRoutineCommands.Command.FAILED -> routineCoordinator.report(RoutineOutcomeObservation.FAILED, current.id)
+            PersonalRoutineCommands.Command.STATUS -> routineCoordinator.status()
+        }
+        return renderRoutineControl(result)
+    }
+
+    private fun controlRoutineExecution(command: PersonalRoutineCommands.Command): String {
+        return runCatching {
+            val result = when (command) {
+                PersonalRoutineCommands.Command.STATUS -> routineCoordinator.status()
+                PersonalRoutineCommands.Command.RESUME -> routineCoordinator.resume()
+                PersonalRoutineCommands.Command.CANCEL -> routineCoordinator.cancel()
+                PersonalRoutineCommands.Command.WORKED -> routineCoordinator.report(RoutineOutcomeObservation.USER_CONFIRMED)
+                PersonalRoutineCommands.Command.FAILED -> routineCoordinator.report(RoutineOutcomeObservation.FAILED)
+            }
+            renderRoutineControl(result)
+        }.getOrElse { "Routine checkpoints could not be accessed safely. No automatic retry was made. Restore local storage access and review 'routine execution status'." }
+    }
+
+    private fun renderRoutineControl(result: RoutineExecutionCoordinator.Result): String {
+        val status = result.checkpoint?.let(::renderRoutineExecution)
+            ?: "No routine execution is tracked on this device. Invoke a saved, approved routine first."
+        return listOf(status, result.message).filter { it.isNotBlank() }.joinToString(" ")
+    }
+
+    private fun renderRoutineExecution(checkpoint: RoutineWorkflowCheckpoint): String {
+        val goal = runCatching { goalPlans?.current()?.takeIf { it.key == checkpoint.phrase } }.getOrNull()
+        if (goal != null) reviewedGoalKey = goal.key
+        val resumeCommand = if (goal == null) "resume routine execution" else "resume goal plan"
+        val outcomeCommand = if (goal == null) "the routine" else "the goal step"
+        val steps = checkpoint.steps.joinToString("; ") { state ->
+            val description = state.step.target?.description() ?: RoutineProposal.describe(state.step.actionId)
+            description + ": " + when (state.status) {
+                RoutineStepStatus.VERIFIED -> "device result verified"
+                RoutineStepStatus.USER_CONFIRMED -> "you confirmed the result"
+                RoutineStepStatus.REQUESTED, RoutineStepStatus.AWAITING_OUTCOME -> "requested; outcome not yet verified"
+                RoutineStepStatus.REQUESTED_WITHOUT_TRACKING -> "requested; outcome tracking unavailable"
+                RoutineStepStatus.AMBIGUOUS -> "effect uncertain; will not repeat automatically"
+                RoutineStepStatus.FAILED -> "not applied; remaining steps stopped"
+                RoutineStepStatus.RUNNING -> "dispatch in progress"
+                RoutineStepStatus.PENDING -> "pending"
+            }
+        }
+        val next = when (checkpoint.status) {
+            RoutineWorkflowStatus.AWAITING_APPROVAL -> if (goal != null) " Review this goal's exact steps, then say 'approve goal plan' to authorize them. Nothing has run."
+                else " Invoke the saved routine by name to authorize its reviewed steps. Nothing has run."
+            RoutineWorkflowStatus.READY -> " Say '$resumeCommand' to run the pending steps. Nothing resumes automatically."
+            RoutineWorkflowStatus.AWAITING_OUTCOME -> " Check the current requested step, then say '$outcomeCommand worked' or '$outcomeCommand failed'. This reports that step only; it does not start the remaining steps or verify the whole objective."
+            RoutineWorkflowStatus.PAUSED -> " Say '$resumeCommand' to continue pending steps. Completed steps will not repeat; nothing resumes automatically."
+            RoutineWorkflowStatus.FAILED -> if (goal != null && !checkpoint.approved && checkpoint.steps.all { it.attempts == 0 })
+                " Restore storage access, review the exact steps, then say 'approve goal plan' to approve again or 'cancel goal plan' to stop. No step has run."
+                else " Review the cause before saying '$resumeCommand'. Completed steps will not repeat."
+            RoutineWorkflowStatus.AMBIGUOUS -> " Inspect the device result before any new request; this workflow will not retry an uncertain effect. Report a checked result with '$outcomeCommand worked' or '$outcomeCommand failed'."
+            RoutineWorkflowStatus.CANCELLED, RoutineWorkflowStatus.CANCELLING -> " Subsequent steps are cancelled. Already requested actions are not undone."
+            else -> ""
+        }
+        val title = if (goal != null) "Goal '${goal.kind.title}'" else if (GoalPlanning.isKey(checkpoint.phrase)) "Goal execution"
+            else "Routine '${checkpoint.phrase}'"
+        return "$title: $steps. ${checkpoint.detail}$next".trim()
+    }
+
+    private fun settleTrackedRoutine(pending: DeviceLearningSession.Pending, success: Boolean) {
+        if (!personalAssistant) return
+        val id = sessionRoutineId ?: return
+        runCatching {
+            routineCoordinator.reportFor(id, pending.phrase, pending.action,
+                if (success) RoutineOutcomeObservation.USER_CONFIRMED else RoutineOutcomeObservation.FAILED)
+        }
+    }
+
+    private fun executeRoutineStep(phrase: String, step: String, target: LearnableDeviceAction?): RoutineExecution.Status {
+        if (target != null) return when (deviceLearningSession.requestAndTrack(phrase, target) { requestDeviceAction(target) }) {
+            DeviceLearningSession.RequestResult.FAILED -> RoutineExecution.Status.FAILED
+            DeviceLearningSession.RequestResult.AWAITING_OUTCOME -> RoutineExecution.Status.AWAITING_OUTCOME
+            DeviceLearningSession.RequestResult.REQUESTED_WITHOUT_TRACKING -> RoutineExecution.Status.REQUESTED_WITHOUT_TRACKING
+        }
+        RoutineSteps.volumePercent(step)?.let { percent ->
+            val verified = androidAssistant.setMediaVolumePercent(percent)
+            resultHistory.record(phrase, RoutineProposal.describe(step),
+                if (verified) IntelligenceResultHistory.Outcome.DEVICE_VERIFIED else IntelligenceResultHistory.Outcome.NOT_VERIFIED,
+                "Approved routine volume step. " + (if (verified) "Nearest supported target level verified." else "Target level could not be verified; remaining steps stopped.") + " No single-action phrase learned.")
+            return if (verified) RoutineExecution.Status.VERIFIED else RoutineExecution.Status.FAILED
+        }
+        return when (step) {
+            "volume_up", "volume_down" -> if (androidAssistant.adjustVolume(
+                if (step == "volume_up") android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER))
+                RoutineExecution.Status.VERIFIED else RoutineExecution.Status.FAILED
+            "app_update" -> if (runCatching {
+                val context = systemService.context()
+                context.startActivity(android.content.Intent(context, com.assistant.core.MainActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra("jarvis_feature", "app_update"))
+            }.isSuccess) RoutineExecution.Status.REQUESTED else RoutineExecution.Status.FAILED
+            else -> RoutineExecution.Status.FAILED
+        }
+    }
+
+    private fun proposeCloudAction(userText: String, lessonJson: String?): String? =
+        responseTurns.mutate { proposeCurrentCloudAction(userText, lessonJson) }
+
+    private fun proposeCurrentCloudAction(userText: String, lessonJson: String?): String? {
         if (CapabilityDiscovery.isManagementText(userText)) return CapabilityDiscovery.clarification()
         val lesson = lessonJson?.let(FallbackIntentLesson::fromJson)
         if (RoutineProposal.isCreationRequest(userText)) {
@@ -1103,6 +1971,7 @@ class HybridAssistantService(
             return "Would you like me to set media volume to $percent%, using the nearest supported level? Say yes to confirm or no to cancel."
         }
         val capability = VerifiedVolumeLearning.capability(lesson) ?: return null
+        ExactVolumeLearning.relativeConflictGuidance(userText, capability)?.let { return it }
         if (!volumeConfirmations.propose(userText, lesson)) return "I couldn't retain this volume request for confirmation. Nothing was changed or learned. Please repeat it."
         return "Would you like me to ${if (capability == "volume_up") "raise" else "lower"} the media volume? Say yes to confirm or no to cancel."
     }
@@ -1215,11 +2084,14 @@ class HybridAssistantService(
 
     private fun executeConfirmedVolume(userText: String, lesson: FallbackIntentLesson, explicitTeaching: Boolean = false, requestId: String? = null): String {
         ExactVolumeLearning.fromLesson(lesson)?.let { percent ->
-            val enabled = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
+            val enabled = RuntimeSettings.read(systemService.context(), "jarvis_cloud_ai")
                 .getBoolean("automatic_command_learning", true)
             return executeExactVolume(userText, percent, learn = (explicitTeaching || enabled) && lesson.canTeachLocally(), requestId = requestId)
         }
-        val prefs = systemService.context().getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
+        VerifiedVolumeLearning.capability(lesson)?.let { capability ->
+            ExactVolumeLearning.relativeConflictGuidance(userText, capability)?.let { return it }
+        }
+        val prefs = RuntimeSettings.read(systemService.context(), "jarvis_cloud_ai")
         val memory = com.assistant.core.learning.ValidatedCommandMemory(systemService.context())
         val outcome = VerifiedVolumeLearning.execute(
             userText, lesson, prefs.getBoolean("automatic_command_learning", true),
@@ -1243,7 +2115,10 @@ class HybridAssistantService(
      * high-confidence lessons are persisted; execution remains behind normal
      * JARVIS capability/policy routing.
      */
-    fun acceptFallbackLesson(userText: String, lessonJson: String): Boolean {
+    fun acceptFallbackLesson(userText: String, lessonJson: String): Boolean =
+        responseTurns.mutate { acceptCurrentFallbackLesson(userText, lessonJson) } ?: false
+
+    private fun acceptCurrentFallbackLesson(userText: String, lessonJson: String): Boolean {
         if (CapabilityDiscovery.isControl(userText)) return false
         val lesson = FallbackIntentLesson.fromJson(lessonJson) ?: return false
         if (!LearningAdmissionPolicy.canRecordWithoutActionResult(lesson)) return false
@@ -1261,19 +2136,18 @@ class HybridAssistantService(
 
     @Synchronized
     fun getConversationSnapshot(limit: Int = 8): String {
-        return history.filterNot { it.second.startsWith("I don’t understand that locally yet.") || it.second.startsWith("I don't understand that locally yet.") }.takeLast(limit).joinToString(separator = "\n\n") { (user, assistant) ->
+        return conversationTurns(limit.coerceIn(0, 30)).joinToString(separator = "\n\n") { (user, assistant) ->
             "You: $user\nJ.A.R.V.I.S.: $assistant"
         }
     }
 
     @Synchronized
-    private fun conversationTurns(): List<Pair<String, String>> = history.filterNot {
-        it.second.startsWith("I don't understand that locally yet.") || it.second.startsWith("I don’t understand that locally yet.")
-    }.takeLast(8)
+    private fun conversationTurns(limit: Int = 8): List<Pair<String, String>> =
+        conversationMemory?.snapshot(limit) ?: history.takeLast(limit.coerceIn(0, 30))
 
     private fun replyFromResult(userText: String, preface: String, result: ActionResult): HybridAssistantReply {
         val reply = buildString {
-            appendLine(preface)
+            appendLine(if (result.success) preface else "I couldn't complete that action.")
             appendLine(result.message)
             result.output?.let {
                 appendLine()
@@ -1295,35 +2169,33 @@ class HybridAssistantService(
         return HybridAssistantReply(reply, result)
     }
 
-    @Synchronized
     private fun remember(userText: String, assistantText: String) {
+        responseTurns.mutate { rememberCurrent(userText, assistantText) }
+    }
+
+    @Synchronized
+    private fun rememberCurrent(userText: String, assistantText: String) {
+        conversationMemory?.record(userText, assistantText)
         history.addLast(userText to assistantText)
         while (history.size > 30) {
             history.removeFirst()
         }
     }
 
-    private fun isTimeRequest(text: String): Boolean {
-        val cleaned = text
-            .replace(Regex("\\b(?:hey\\s+)?jarvis\\b[,:]?\\s*"), "")
-            .trim()
-        if (cleaned in setOf(
-                "time", "what time", "what time is it", "whats the time",
-                "tell me the time", "current time", "what is the time"
-            )) return true
-        return Regex("\\b(?:what|whats|what is|tell me)\\b.*\\btime\\b").containsMatchIn(cleaned)
-    }
+    private fun isTimeRequest(text: String): Boolean = ConversationPolicy.isTimeQuery(text)
 
     private fun calendarRangeFor(text: String): Pair<Long, Long>? {
-        val asksCalendar = listOf(
-            "calendar", "appointment", "appointments", "schedule",
-            "what do i have", "whats on my", "what is on my", "next event"
-        ).any { text.contains(it) }
-        if (!asksCalendar) return null
+        if (!ConversationPolicy.isCalendarQuery(text)) return null
 
         val start = Calendar.getInstance()
         val end = Calendar.getInstance()
         when {
+            text.contains("next week") -> {
+                start.add(Calendar.DAY_OF_YEAR, 7)
+                start.set(Calendar.HOUR_OF_DAY, 0); start.set(Calendar.MINUTE, 0); start.set(Calendar.SECOND, 0); start.set(Calendar.MILLISECOND, 0)
+                end.timeInMillis = start.timeInMillis
+                end.add(Calendar.DAY_OF_YEAR, 7)
+            }
             text.contains("tomorrow") -> {
                 start.add(Calendar.DAY_OF_YEAR, 1)
                 start.set(Calendar.HOUR_OF_DAY, 0); start.set(Calendar.MINUTE, 0); start.set(Calendar.SECOND, 0); start.set(Calendar.MILLISECOND, 0)
@@ -1440,14 +2312,8 @@ class HybridAssistantService(
     }
 
     private fun extractShellCommand(rawInput: String): String {
-        val normalized = normalize(rawInput)
-        return when {
-            normalized.contains(".rish") -> rawInput.trim()
-            normalized.contains("run shell") -> rawInput.substringAfter("run shell", "").trim().ifBlank { "id" }
-            normalized.contains("execute shell") -> rawInput.substringAfter("execute shell", "").trim().ifBlank { "id" }
-            normalized.contains("run command") -> rawInput.substringAfter("run command", "").trim().ifBlank { "id" }
-            else -> "id"
-        }
+        return Regex("(?i)\\b(?:run shell|execute shell|run command)\\b(.*)$")
+            .find(rawInput)?.groupValues?.get(1)?.trim().orEmpty().ifBlank { "id" }
     }
 
     private fun looksLikeYes(normalized: String): Boolean {

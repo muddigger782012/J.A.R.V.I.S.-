@@ -3,6 +3,7 @@ package com.jarvis.developer
 import android.app.Activity
 import android.content.Context
 import android.content.res.Configuration
+import android.content.pm.ActivityInfo
 import android.graphics.Rect
 import android.os.Bundle
 import android.os.SystemClock
@@ -50,10 +51,23 @@ class DeveloperConfigurationDeviceTest {
     @Test
     fun appliedHostConfigurationKeepsNativeControlsContainedAndLastActionReachable() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            // Headless emulators can retain the launcher's rotation lock despite a changed
+            // user_rotation setting. Request the actual Activity posture and wait for the
+            // resulting native configuration; never substitute simulated window bounds.
+            scenario.onActivity { activity ->
+                activity.requestedOrientation = if (profile.orientation == Configuration.ORIENTATION_LANDSCAPE)
+                    ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
+            awaitNativeLayout(scenario)
+            scenario.onActivity { activity ->
+                button(activity, "Settings").performClick()
+                button(activity, "Advanced tools").performClick()
+                button(activity, "Release verification").performClick()
+            }
             awaitNativeLayout(scenario)
             scenario.onActivity { activity ->
                 assertEffectiveConfiguration(activity)
-                val scroll = views<ScrollView>(activity).single()
+                val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
                 val root = scroll.getChildAt(0) as LinearLayout
                 assertTrue("Content must require vertical scrolling", root.height > scroll.height)
                 assertTrue("Content must fit the actual viewport horizontally",
@@ -64,7 +78,7 @@ class DeveloperConfigurationDeviceTest {
                     assertWithinHorizontalContent(root, root.getChildAt(index))
                 }
                 val controls = descendants(root).filter {
-                    it.visibility == View.VISIBLE && (it is Button || it is EditText || it is Spinner)
+                    it.isShown && (it is Button || it is EditText || it is Spinner)
                 }.toList()
                 assertTrue("Visible interactive controls must exist", controls.isNotEmpty())
                 controls.forEach { control ->
@@ -74,8 +88,8 @@ class DeveloperConfigurationDeviceTest {
                 }
                 assertCredentialsEmptyAndApprovalsUnavailable(activity)
                 val lastAction = button(activity, LAST_ACTION)
-                assertTrue("Icon action must remain the final content child",
-                    root.getChildAt(root.childCount - 1) === lastAction)
+                assertTrue("Icon action remains reachable through release verification",
+                    descendants(root).any { it === lastAction })
                 scroll.isSmoothScrollingEnabled = false
                 assertTrue("Native ScrollView must scroll toward its final action",
                     scroll.fullScroll(View.FOCUS_DOWN))
@@ -84,8 +98,9 @@ class DeveloperConfigurationDeviceTest {
             awaitNativeLayout(scenario)
             scenario.onActivity { activity ->
                 assertEffectiveConfiguration(activity)
-                val scroll = views<ScrollView>(activity).single()
+                val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
                 val lastAction = button(activity, LAST_ACTION)
+                lastAction.requestRectangleOnScreen(Rect(0, 0, lastAction.width, lastAction.height), true)
                 assertTrue("Native ScrollView must have moved downward", scroll.scrollY > 0)
                 val actionBounds = Rect(0, 0, lastAction.width, lastAction.height)
                 scroll.offsetDescendantRectToMyCoords(lastAction, actionBounds)
@@ -137,9 +152,14 @@ class DeveloperConfigurationDeviceTest {
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             var laidOut = false
             scenario.onActivity { activity ->
-                val scroll = views<ScrollView>(activity).single()
+                val scroll = views<ScrollView>(activity).single { it.visibility == View.VISIBLE }
                 val content = scroll.getChildAt(0)
-                laidOut = scroll.isLaidOut && !scroll.isLayoutRequested &&
+                val display = DisplayMetrics()
+                activity.windowManager.defaultDisplay.getRealMetrics(display)
+                laidOut = activity.resources.configuration.orientation == profile.orientation &&
+                    display.widthPixels == profile.displayWidthDp * HOST_DENSITY_DPI / 160 &&
+                    display.heightPixels == profile.displayHeightDp * HOST_DENSITY_DPI / 160 &&
+                    scroll.isLaidOut && !scroll.isLayoutRequested &&
                     scroll.width > 0 && scroll.height > 0 &&
                     content.isLaidOut && !content.isLayoutRequested &&
                     content.width > 0 && content.height > 0
@@ -185,7 +205,7 @@ class DeveloperConfigurationDeviceTest {
         else -> ""
     }
     private fun button(activity: Activity, text: String): Button =
-        views<Button>(activity).single { it.text.toString() == text }
+        views<Button>(activity).single { it.text.toString().removeSuffix("  ▼").removeSuffix("  ▲") == text }
     private fun field(activity: Activity, hint: String): EditText =
         views<EditText>(activity).single { it.hint?.toString() == hint }
     private inline fun <reified T : View> views(activity: Activity): List<T> =
@@ -238,7 +258,7 @@ class DeveloperConfigurationDeviceTest {
     }
 
     companion object {
-        private const val PROVIDER_KEY = "Selected provider API key (not saved)"
+        private const val PROVIDER_KEY = "Paste your API key here (not a model name)"
         private const val GITHUB_TOKEN = "GitHub fine-grained token (not saved)"
         private const val LAST_ACTION = "Generate icon code, commit and check build"
         private const val MAX_SYSTEM_BAR_DP = 100

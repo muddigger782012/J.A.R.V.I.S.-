@@ -8,7 +8,9 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: jarvis-main-apk-publisher
+  # Only main publishes shared updater assets. Isolated personal candidates can
+  # build in parallel without waiting for unrelated Beta packaging on main.
+  group: ${{ github.ref == 'refs/heads/main' && 'jarvis-main-apk-publisher' || format('jarvis-personal-candidate-{0}', github.ref) }}
   cancel-in-progress: false
 jobs:
   build:
@@ -107,7 +109,7 @@ jobs:
         if: steps.signing.outputs.configured == 'true'
         env:
           JARVIS_VERSION_CODE: ${{ github.run_number }}
-          JARVIS_VERSION_NAME: 3.5.${{ github.run_number }}
+          JARVIS_VERSION_NAME: 3.6.${{ github.run_number }}
           JARVIS_SIGNING_STORE_FILE: ${{ runner.temp }}/jarvis-release.jks
           JARVIS_SIGNING_STORE_PASSWORD: ${{ secrets.JARVIS_SIGNING_STORE_PASSWORD }}
           JARVIS_SIGNING_KEY_ALIAS: ${{ secrets.JARVIS_SIGNING_KEY_ALIAS }}
@@ -116,7 +118,7 @@ jobs:
           chmod +x ./gradlew
           ./gradlew --no-daemon assembleRelease
       - name: Compile Beta from the same source revision
-        if: steps.signing.outputs.configured == 'true'
+        if: steps.signing.outputs.configured == 'true' && github.ref == 'refs/heads/main'
         env:
           JARVIS_BETA_GEMINI_API_KEY: ${{ secrets.JARVIS_BETA_GEMINI_API_KEY }}
           JARVIS_VERSION_CODE: ${{ github.run_number }}
@@ -161,6 +163,29 @@ jobs:
           done
           test "$found" -eq 1
 
+      - name: Generate verified Personal release manifest and checksums
+        if: steps.signing.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir personal-apks
+          cp app/build/outputs/apk/release/*.apk personal-apks/
+          python3 scripts/personal_release.py prepare \
+            --apks personal-apks \
+            --baseline artifacts/app-debug.apk \
+            --version '3.6.${{ github.run_number }}' \
+            --run '${{ github.run_id }}' --commit "$GITHUB_SHA" \
+            --output personal-release
+      - name: Upload verified Personal release metadata
+        if: steps.signing.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-personal-release-metadata
+          path: personal-release/
+          if-no-files-found: error
+      - name: Bind Personal APK source provenance
+        if: steps.signing.outputs.configured == 'true'
+        run: python3 scripts/job_apk_evidence.py --directory personal-apks --target PERSONAL --signing production
       - name: Upload APK artifact
         if: steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
@@ -168,8 +193,15 @@ jobs:
           name: Jarvis-release-APK
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
-      - name: Upload Beta APK artifact
+      - name: Upload separate Personal job APK provenance bundle
         if: steps.signing.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-personal-job-APK
+          path: personal-apks/
+          if-no-files-found: error
+      - name: Upload Beta APK artifact
+        if: steps.signing.outputs.configured == 'true' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: Beta-release-APK
@@ -178,7 +210,7 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
       - name: Publish complete Beta APK as a release download
-        if: steps.signing.outputs.configured == 'true'
+        if: steps.signing.outputs.configured == 'true' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -194,23 +226,6 @@ jobs:
           fi
           gh release upload beta-latest "$RUNNER_TEMP/Beta.apk" --repo "$GITHUB_REPOSITORY" --clobber
           gh release edit beta-latest --repo "$GITHUB_REPOSITORY" --notes "Signed Beta from commit $GITHUB_SHA, version 3.5.${{ github.run_number }}-beta. Includes the verified Kokoro voice pack and first-launch setup."
-      - name: Publish ARM64 APK for the normal app updater
-        if: steps.signing.outputs.configured == 'true'
-        shell: bash
-        run: |
-          APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*arm64-v8a*.apk' -print -quit)"
-          test -n "$APK"
-          cp "$APK" /tmp/jarvis-arm64-latest.apk
-          git fetch origin main
-          git reset --hard origin/main
-          mkdir -p artifacts
-          cp /tmp/jarvis-arm64-latest.apk artifacts/app-debug.apk
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add artifacts/app-debug.apk
-          if git diff --cached --quiet; then
-            echo "Updater APK is already current."
-          else
-            git commit -m "Publish JARVIS updater APK [skip ci]"
-            git push origin HEAD:main
-          fi
+      # The separate Personal publisher waits for source-equivalent unit,
+      # gateway, real Accessibility and theme checks before updating the APK.
+      # Beta's existing signing, packaging and distribution remain independent.

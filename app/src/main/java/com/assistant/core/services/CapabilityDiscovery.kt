@@ -39,12 +39,17 @@ object CapabilityDiscovery {
     fun help(): String = """Available local learning workflows:
         |• Media volume: set media volume to 25%; exact levels use device readback.
         |• Timers: start a timer for 5 minutes; results need your outcome confirmation.
-        |• Apps: open Chrome using a uniquely named installed launcher app.
+        |• Apps: open Chrome using one installed launcher identity. Maps and Google Maps recognize the Google Maps package even with a localized label. To discover alternatives: find installed app maps, then open app choice 1. App details Maps reads its installed version; choices remain local and expire.
+        |• Voice screen control: enable Jarvis in Android Accessibility settings yourself, then show screen controls, tap screen item one, confirm screen action; scroll down/up; read my screen; Back/Home/Recents; open notifications or quick settings. Tap reviews expire on screen changes or after 30 seconds. Screen data stays local; screen control help explains supported controls.
+        |• Device health: device report reads current battery, app-data storage, RAM, network flags and Android thermal status locally. Device capabilities checks permissions, Accessibility and Shizuku/Dhizuku readiness; installed Jarvis version reads Android's package record. Nothing is uploaded, changed or granted by these reports.
         |• Preferences: remember Chrome as my preferred browser; asks approval. Browser/maps/music slots are supported.
         |• Repeat: do that again; uses the most recent confirmed app or timer and asks approval.
         |• Teach: teach Jarvis that short break means start a timer for 5 minutes; approve, check, then say 'it worked'.
         |• Routines: saved approved routines can compose existing volume, timer and app actions.
+        |• Goal plans: prepare my drive using saved music/maps apps, or plan a task to set media volume to twenty percent then open my music app then open my maps app. Before approval, change goal step two to open my browser app, or use my maps app instead when the plan has just one app. Review before approval; check each requested app result before explicitly resuming.
         |• Review: show saved commands; show assistant memory; show capability requests. To assess a saved idea: review capability request followed by its exact description.
+        |• Research follow-up: research solar panels and summarize; remind me about this research in ten minutes. To review before scheduling: prepare a research reminder in ten minutes, then approve reminder. Review reminders lists the saved sources command for each linked reminder; those copies remain available offline after newer research replaces the main brief.
+        |• Reminder corrections: during a pending reminder review, actually make that five minutes. For an approved reminder, review reminders, then change reminder one to five minutes; approve reminder changes only the reviewed alarm time. Cancel reminder plan keeps its existing approved time.
         |• Try: try capability request followed by its exact saved description or number 1 from the current list; supported timers, apps and exact volume levels ask approval before execution. Review also accepts number 1. This does not create a learned alias or mark the request complete.
         |• Name a saved action: teach capability request number one as work break; review, approve and verify before the alias is learned.
         |

@@ -23,3 +23,93 @@
 -keep,allowoptimization class com.assistant.core.FontPreferences { public *; }
 -keep,allowoptimization class com.assistant.core.ThemePreferences { public *; }
 -keep,allowoptimization class com.assistant.core.SettingsMenuViews { public *; }
+# Foundation instrumentation constructs these APIs from the separate test APK.
+# Preserve its entry points while optimizing bodies; release/Beta rules are unchanged.
+-keep,allowoptimization class com.assistant.core.services.HybridAssistantService** { public *; }
+-keep,allowoptimization class com.assistant.core.services.HybridAssistantReply** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ConversationMemory** { public *; }
+-keep,allowoptimization class com.assistant.core.services.SystemService** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AuditService** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.ActionRegistry** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.IntentClassifier** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.PolicyGate** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.CapabilityBroker** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.CapabilityRouting** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.ActionExecutor** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.AssistantEngine** { public *; }
+-keep,allowoptimization class com.assistant.core.models.ActionResult** { public *; }
+-keep,allowoptimization class com.assistant.core.models.CapabilityState** { public *; }
+-keep,allowoptimization class com.assistant.core.storage.Database** { public *; }
+-keep,allowoptimization class com.assistant.core.storage.ActionRepository** { public *; }
+-keep,allowoptimization class com.assistant.core.storage.AuditRepository** { public *; }
+# Durable routine acceptance uses these APIs from the separate instrumentation APK.
+-keep,allowoptimization class com.assistant.core.workflow.** { public *; }
+-keep,allowoptimization class com.assistant.core.learning.ApprovedRoutineRegistry** { public *; }
+# Goal/evaluation acceptance APIs used from the separately compiled test APK.
+-keep,allowoptimization class com.assistant.core.services.GoalPlanning** { public *; }
+-keep,allowoptimization class com.assistant.core.services.GoalPlanStore** { public *; }
+-keep,allowoptimization class com.assistant.core.services.PersonalStateFile** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ImprovementEvaluation** { public *; }
+-keep,allowoptimization class com.assistant.core.services.LocalFoundationChecks** { public *; }
+-keep,allowoptimization class com.assistant.core.services.PersonalReminders** { public *; }
+-keep,allowoptimization class com.assistant.core.services.PersonalReminderRuntime** { public *; }
+-keep,allowoptimization class com.assistant.core.services.PersonalReminderReceiver** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ContactCallWorkflow** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ResearchBriefs** { public *; }
+-keep,allowoptimization class com.assistant.core.services.WorkflowDiagnostics** { public *; }
+-keep,allowoptimization class com.assistant.core.services.DeviceReport** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AndroidDeviceReport** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.PrivilegedAccess** { public *; }
+-keep,allowoptimization class com.assistant.core.engine.CapabilityDetector { public *; }
+-keep,allowoptimization class com.assistant.core.engine.PolicyDecision { public *; }
+-keep,allowoptimization class com.assistant.core.adapters.DhizukuAdapter { public *; }
+-keep,allowoptimization class com.assistant.core.services.ComposableGoalPlanning** { public *; }
+# Staged-goal fixtures save synthetic preferences and inspect intercepted launcher bindings.
+-keep,allowoptimization class com.assistant.core.services.AssistantMemory** { public *; }
+-keep,allowoptimization class com.assistant.core.services.LearnableDeviceAction** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AndroidAssistantService** { public *; }
+-keep,allowoptimization class com.assistant.core.services.RoutineSteps** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ChatSearchResults** { public *; }
+-keep,allowoptimization class com.assistant.core.services.SearchRouter** { public *; }
+
+# Local installed-app identity and numbered-choice acceptance APIs.
+-keep,allowoptimization class com.assistant.core.services.InstalledApps** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AppDiscovery** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AndroidInstalledApps** { public *; }
+
+# Explicit screen-controller and same-UID bridge acceptance.
+-keep,allowoptimization class com.assistant.core.services.ScreenControls** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ScreenAccessClient** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AndroidScreenPlatform** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ScreenReadDiagnostics** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ScreenReadFailure** { public *; }
+-keep,allowoptimization class com.assistant.core.services.JarvisAccessibilityService** { public *; }
+
+# Debug/optimized-host-only real-window and separate-process acceptance fixtures.
+-keep,allowoptimization class com.assistant.core.ScreenControlFixtureActivity** { public *; }
+-keep,allowoptimization class com.assistant.core.ScreenControlProbeService** { public *; }
+
+# Screen semantics and task notification APIs used by the separate acceptance APK.
+-keep,allowoptimization class com.assistant.core.services.ScreenSemantics** { public *; }
+-keep,allowoptimization class com.assistant.core.services.ScreenTaskNotifications** { public *; }
+
+# Connectivity bridge acceptance uses standard Android API observations and reviewed app choices.
+-keep,allowoptimization class com.assistant.core.services.ConnectionAssistance** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AndroidConnectionAssistance** { public *; }
+
+# Separately compiled capture acceptance uses controlled recognizers, never production hooks.
+-keep,allowoptimization class com.assistant.core.services.LiveSpeechCapture** { public *; }
+-keep,allowoptimization class com.assistant.core.services.SpeechCapturePlatform** { public *; }
+-keep,allowoptimization class com.assistant.core.services.AndroidSpeechCapturePlatform** { public *; }
+-keep,allowoptimization class com.assistant.core.services.SpeechCaptureRouting** { public *; }
+-keep,allowoptimization class com.assistant.core.services.SpeechRecognitionCandidates** { public *; }
+# New callback/IPC acceptance APIs and private UI state inspected by instrumentation only.
+-keep,allowoptimization class com.assistant.core.services.VoiceSessionDiagnostics** { public *; }
+-keep,allowoptimization class com.assistant.core.services.VoiceRuntimeObservation** { public *; }
+-keep,allowoptimization class com.assistant.core.services.VoiceAssistantService$WakeState { public *; }
+-keep,allowoptimization class com.assistant.core.services.VoiceInteractionState** { public *; }
+-keep,allowoptimization class com.assistant.core.services.RuntimeSettings** { public *; }
+-keepclassmembers,allowoptimization class com.assistant.core.MainActivity {
+    boolean liveChatStarted;
+    void updateVoiceInteractionState(com.assistant.core.services.VoiceInteractionState);
+}

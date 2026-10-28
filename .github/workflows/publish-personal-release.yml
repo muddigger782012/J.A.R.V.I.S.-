@@ -1,0 +1,62 @@
+name: Publish verified personal release
+on:
+  workflow_run:
+    workflows: [Build Jarvis APK]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Completed production build run (manifest is generated automatically)
+        required: false
+        type: string
+      version:
+        description: Optional historical version with a reviewed artifacts/personal-VERSION.json
+        required: false
+        type: string
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: personal-versioned-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - run: sdkmanager 'build-tools;34.0.0'
+      - name: Verify, prepare and publish the Personal release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN: ${{ github.event.workflow_run.id || inputs.build_run_id }}
+          REVIEWED_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          arguments=()
+          if [ -n "$BUILD_RUN" ]; then
+            [[ "$BUILD_RUN" =~ ^[1-9][0-9]*$ ]] || { echo 'Invalid build run.'; exit 1; }
+            arguments+=(--run "$BUILD_RUN")
+          fi
+          if [ -n "$REVIEWED_VERSION" ]; then
+            arguments+=(--version "$REVIEWED_VERSION")
+          fi
+          python3 scripts/personal_release.py publish "${arguments[@]}"
+      - name: Retain the verified publication receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Personal-publication-receipt
+          path: personal-publication-receipt.json
+          if-no-files-found: ignore

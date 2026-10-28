@@ -9,9 +9,14 @@ data class IntelligenceOverview(
 ) {
     companion object {
         fun build(commands: List<ValidatedCommandMemory.SavedPhrase>, intents: List<IntentLearningStore.SavedExample>,
-            routines: Int, geminiConfigured: Boolean, gatewayConfigured: Boolean, automaticLearning: Boolean) = IntelligenceOverview(
+            routines: Int, geminiConfigured: Boolean, gatewayConfigured: Boolean, automaticLearning: Boolean,
+            primaryProvider: IntelligenceRouting.Provider? = null) = IntelligenceOverview(
             commands.size, commands.count { it.failures > 0 }, intents.size, routines.coerceAtLeast(0),
-            when { geminiConfigured -> "Gemini"; gatewayConfigured -> "Gateway"; else -> "Not configured" }, automaticLearning)
+            when (primaryProvider) {
+                IntelligenceRouting.Provider.GEMINI -> if (geminiConfigured) "Gemini" else "Not configured"
+                IntelligenceRouting.Provider.GATEWAY -> if (gatewayConfigured) "Gateway" else "Not configured"
+                null -> when { geminiConfigured -> "Gemini"; gatewayConfigured -> "Gateway"; else -> "Not configured" }
+            }, automaticLearning)
     }
 }
 

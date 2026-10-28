@@ -2,14 +2,17 @@ name: Build Jarvis Developer (isolated)
 on:
   workflow_dispatch:
   push:
-    branches: [feature/jarvis-developer, 'feature/jarvis-developer-task/**', 'fix/developer-gemini-diagnostics-135']
+    branches: [feature/jarvis-developer, feature/developer-four-tab-guided-ux, 'feature/jarvis-developer-task/**', 'fix/developer-gemini-diagnostics-135']
     paths:
       - 'developer/**'
+      - 'integration/**'
       - 'settings.gradle'
       - 'build.gradle'
       - '.github/workflows/build-jarvis-developer.yml'
       - '.github/workflows/local-knowledge-checks.yml'
       - 'scripts/ui_layout_smoke.py'
+      - 'scripts/job_apk_evidence.py'
+      - 'scripts/tests/test_job_apk_evidence.py'
 permissions:
   contents: read
 jobs:
@@ -69,6 +72,7 @@ jobs:
           python3 -m unittest discover -s developer/tools -p 'developer_backup_test.py' -v
           python3 -m unittest discover -s developer/tools -p 'device_validation_test.py' -v
           python3 -m unittest discover -s developer/tools -p 'scaffold_build_evidence_test.py' -v
+          python3 -m unittest discover -s scripts/tests -p 'test_job_apk_evidence.py' -v
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -225,10 +229,15 @@ jobs:
           name: Jarvis-Developer-phase5-self-development-evidence
           path: developer/build/reports/phase5-acceptance/
           if-no-files-found: warn
+      - name: Bind the existing debug APK to its actual source and workflow
+        run: |
+          mkdir -p developer/build/reports/job-artifact
+          cp developer/build/outputs/apk/debug/developer-debug.apk developer/build/reports/job-artifact/
+          python3 scripts/job_apk_evidence.py --directory developer/build/reports/job-artifact --target DEVELOPER --signing debug
       - uses: actions/upload-artifact@v4
         with:
           name: Jarvis-Developer-debug-APK
-          path: developer/build/outputs/apk/debug/*.apk
+          path: developer/build/reports/job-artifact/
           if-no-files-found: error
       - name: Upload compiled device tests without installing
         uses: actions/upload-artifact@v4

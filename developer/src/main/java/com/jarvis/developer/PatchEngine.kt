@@ -69,7 +69,7 @@ object PatchEngine {
     private val identifier = Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,47}")
     private val safePath = Regex("[A-Za-z0-9_./-]+")
     private val protectedName = Regex(
-        "(?i)(?:agent|patch|github|repository|taskplan|privatecheckpoint|repairhistory|buildfeedback|builddiagnostic|repairengine|repairworkbench|personalrepair|candidateevaluation|candidatefeedback|selfdevelopment|model|provider|transport|credential|secret|token|password|signing|keystore|updat|release|recovery|approval|publish|mainactivity|buildconfig|apikey|api_key|networksecurity)"
+        "(?i)(?:agent|patch|github|repository|taskplan|privatecheckpoint|repairhistory|buildfeedback|builddiagnostic|repairengine|repairworkbench|personalrepair|candidateevaluation|candidatefeedback|selfdevelopment|developmentbridge|developerbridge|developmentjob|developmentinbox|developmentanalysis|developmentartifact|developmentinstall|installer|engineering|model|provider|transport|credential|secret|token|password|signing|keystore|updat|release|recovery|approval|publish|mainactivity|buildconfig|apikey|api_key|networksecurity)"
     )
     private val knownSecret = Regex("\\b(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}|AIza[A-Za-z0-9_-]{20,})\\b|-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----")
     private val namedSecret = Regex("(?i)(?<![A-Za-z0-9_])(?:[A-Za-z0-9_]{0,120}(?:api[_-]?key|token|password|secret|authorization))[\"']?\\s*+(?::\\s*+[A-Za-z?]++)?\\s*+[=:]\\s*+[\"'][^\"'\\r\\n]++[\"']")

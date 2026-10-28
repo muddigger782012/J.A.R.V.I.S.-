@@ -25,6 +25,7 @@ object VerifiedVolumeLearning {
         record: (String, String) -> Boolean
     ): Result? {
         val capability = capability(lesson) ?: return null
+        if (ExactVolumeLearning.conflictsWithRelative(utterance, capability)) return null
         val executed = runCatching { adjust(capability) }.getOrDefault(false)
         val learned = executed && learningEnabled && lesson.canTeachLocally() &&
             runCatching { record(utterance, capability) }.getOrDefault(false)

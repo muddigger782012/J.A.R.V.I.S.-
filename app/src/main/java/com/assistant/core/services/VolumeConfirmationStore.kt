@@ -31,6 +31,7 @@ class VolumeConfirmationStore internal constructor(
     data class Resolution(val pending: Pending, val approved: Boolean)
 
     fun propose(phrase: String, lesson: FallbackIntentLesson, explicitTeaching: Boolean = false, requestId: String? = null): Boolean = synchronized(lock) {
+        VerifiedVolumeLearning.capability(lesson)?.let { if (ExactVolumeLearning.conflictsWithRelative(phrase, it)) return@synchronized false }
         if (requestId != null && (!CapabilityRequestStore.validId(requestId) || ExactVolumeLearning.fromLesson(lesson) == null)) return@synchronized false
         if (explicitTeaching && (ExactVolumeLearning.fromLesson(lesson) == null || !lesson.canTeachLocally())) return@synchronized false
         if (phrase.isBlank() || phrase.length > 240 || ConfirmationWords.isConfirmation(phrase) || (VerifiedVolumeLearning.capability(lesson) == null && ExactVolumeLearning.fromLesson(lesson) == null)) return@synchronized false

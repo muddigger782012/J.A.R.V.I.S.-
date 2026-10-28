@@ -122,7 +122,7 @@ object BuildFeedback {
 
     private class HttpFailure(val status: Int) : IllegalStateException()
 
-    private fun http(cancellation: PatchPreviewCancellation? = null) = Transport { url, token, timeoutMillis ->
+    internal fun http(cancellation: PatchPreviewCancellation? = null) = Transport { url, token, timeoutMillis ->
         if (token == null) requireStorageUrl(url) else requireApiUrl(url)
         require(timeoutMillis in 1..MAX_MILLIS) { "Invalid feedback transport budget" }
         val connection = URL(url).openConnection() as HttpURLConnection
@@ -385,6 +385,8 @@ object BuildFeedback {
             uri.rawFragment == null && value.startsWith(API)) { "Build feedback must use the approved GitHub origin" }
         val path = value.removePrefix(API)
         val fixed = path.matches(Regex("/actions/runs/[1-9][0-9]{0,18}")) ||
+            path.matches(Regex("/actions/runs/[1-9][0-9]{0,18}/artifacts\\?per_page=30")) ||
+            path.matches(Regex("/actions/artifacts/[1-9][0-9]{0,18}/zip")) ||
             path.matches(Regex("/actions/runs/[1-9][0-9]{0,18}/attempts/[1-9][0-9]{0,9}/jobs\\?per_page=10")) ||
             path.matches(Regex("/actions/jobs/[1-9][0-9]{0,18}/logs"))
         val list = PatchEngine.Target.values().any { target ->

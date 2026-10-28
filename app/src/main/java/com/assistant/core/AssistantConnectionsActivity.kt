@@ -6,7 +6,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.assistant.core.services.ApiKeyStore
 import com.assistant.core.services.AssistantConnectionProtocol
 
-class AssistantConnectionsActivity : ThemedActivity() {
+class AssistantConnectionsActivity : MenuActivity("Assistant connections") {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         supportActionBar?.title = "Assistant connections"

@@ -22,4 +22,6 @@
     <color name="jarvis_output_surface">#5013223A</color>
     <color name="jarvis_button_fill">#6630A7D9</color>
     <color name="jarvis_button_fill_pressed">#9954D9FF</color>
+    <color name="jarvis_pulse_default_tint">#225DFF99</color>
+    <color name="jarvis_pulse_end">#0013223A</color>
 </resources>

@@ -6,7 +6,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 
 /** Settings is a destination list; each editor returns here rather than opening sibling hubs. */
-class SettingsActivity : ThemedActivity() {
+class SettingsActivity : MenuActivity("Settings") {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         supportActionBar?.title = "Settings"
@@ -16,11 +16,12 @@ class SettingsActivity : ThemedActivity() {
             setBackgroundResource(R.drawable.glass_panel_surface)
             setPadding(SettingsMenuViews.dp(this@SettingsActivity, 12), 0, SettingsMenuViews.dp(this@SettingsActivity, 12), SettingsMenuViews.dp(this@SettingsActivity, 24))
         }
+        UnifiedContentPanel.apply(panel)
         fun section(title: String) { panel.addView(SettingsMenuViews.heading(this, title)) }
         fun destination(title: String, detail: String, icon: Int, target: Class<*>) {
             panel.addView(SettingsMenuViews.row(this, title, detail, icon) { startActivity(Intent(this, target)) })
         }
-        panel.addView(SettingsMenuViews.row(this, "Back to chat", icon = R.drawable.ic_search_open) { finish() })
+        panel.addView(SettingsMenuViews.row(this, "Back to chat", icon = R.drawable.ic_search_open) { MenuActivity.closeMenus(this) })
         panel.addView(SettingsMenuViews.heading(this, "Settings").apply { textSize = 24f })
         section("Voice")
         destination("Wake word and listening", "Activation, sensitivity and command recognition", R.drawable.ic_composer_mic, VoiceSettingsActivity::class.java)
@@ -30,6 +31,7 @@ class SettingsActivity : ThemedActivity() {
         destination("Appearance", "Themes, fonts and chat contrast", R.drawable.ic_tools_settings, AppearanceSettingsActivity::class.java)
         section("Intelligence and connections")
         destination("Learning and memory", "Commands, routines, outcomes and local learning", R.drawable.ic_jarvis_core, IntelligenceActivity::class.java)
+        if (BuildConfig.BUILD_TYPE != "beta") destination("Self Diagnostics & Improvements", "Read-only source findings and Developer review drafts", R.drawable.ic_jarvis_core, SelfDiagnosticsActivity::class.java)
         panel.addView(SettingsMenuViews.row(this, "AI and weather", "Provider credentials and weather location", R.drawable.ic_composer_tools) { AiConnectionSettings.show(this) })
         destination("Assistant connections", "Optional assistant integrations", R.drawable.ic_composer_tools, AssistantConnectionsActivity::class.java)
         setContentView(ScrollView(this).apply {

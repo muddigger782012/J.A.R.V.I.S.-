@@ -18,6 +18,7 @@ import com.k2fsa.sherpa.onnx.OnlineModelConfig
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import kotlin.concurrent.thread
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 class SherpaWakeWordEngine(
     private val context: Context,
@@ -25,7 +26,8 @@ class SherpaWakeWordEngine(
     private val sensitivity: Float,
     private val onDetected: () -> Unit,
     private val onStatus: (String) -> Unit,
-    private val onFailure: () -> Unit = {}
+    private val onFailure: () -> Unit = {},
+    private val onListening: () -> Unit = {}
 ) {
     companion object {
         private const val SAMPLE_RATE = 16000
@@ -34,6 +36,7 @@ class SherpaWakeWordEngine(
 
     @Volatile private var running = false
     @Volatile private var stalled = false
+    private var lastDecodeDurationMs = 0L
     private val watchdog = Handler(Looper.getMainLooper())
 
     fun hasLiveWorker(): Boolean = worker?.isAlive == true
@@ -142,7 +145,7 @@ class SherpaWakeWordEngine(
             worker?.start()
             true
         } catch (t: Throwable) {
-            onStatus("Sherpa wake engine failed: ${t.message ?: t.javaClass.simpleName}")
+            onStatus("Sherpa wake engine initialization failed. Check microphone permission and the installed wake model.")
             stop()
             false
         }
@@ -178,6 +181,7 @@ class SherpaWakeWordEngine(
         } finally {
             watchdog.removeCallbacks(timeout)
         }
+        lastDecodeDurationMs = SystemClock.elapsedRealtime() - started
         if (stalled) error("Native decode returned after timeout")
         if (label == "self-test") {
             onStatus("Sherpa native decode self-test passed in ${SystemClock.elapsedRealtime() - started} ms.")
@@ -188,7 +192,11 @@ class SherpaWakeWordEngine(
         val buffer = ShortArray(1600)
         var chunks = 0
         var peakSinceReport = 0
-        var lastReportAt = System.currentTimeMillis()
+        var sumSquaresSinceReport = 0.0
+        var samplesSinceReport = 0L
+        var lowSignalReports = 0
+        var lastReportAt = SystemClock.elapsedRealtime()
+        var emptyReads = 0
         var totalChunks = 0
         var detected = false
         try {
@@ -203,20 +211,44 @@ class SherpaWakeWordEngine(
             audio.startRecording()
             check(audio.recordingState == AudioRecord.RECORDSTATE_RECORDING) { "Microphone did not enter recording state" }
             stage("sherpa-mic-recording")
-            onStatus("Sherpa microphone active at 16 kHz; listening for '$wakePhrase'.")
+            onStatus("Sherpa microphone recording initialized; waiting for the first audio buffer.")
             while (running) {
                 if (totalChunks == 0) {
                     stage("sherpa-worker-before-read")
                     onStatus("Sherpa audio worker started; waiting for microphone samples.")
                 }
-                val n = audio.read(buffer, 0, buffer.size)
+                val timeout = Runnable {
+                    if (running) {
+                        running = false
+                        stage("sherpa-audio-read-timeout")
+                        runCatching { audio.stop() }
+                        onStatus("Wake-word audio capture stopped delivering buffers. Standby is unavailable; checking recovery.")
+                        onFailure()
+                    }
+                }
+                watchdog.postDelayed(timeout, 15_000L)
+                val n = try { audio.read(buffer, 0, buffer.size) } finally { watchdog.removeCallbacks(timeout) }
+                if (!running) return
                 if (n < 0) {
                     onStatus("Sherpa microphone read failed ($n).")
                     error("Microphone read failed ($n)")
                 }
-                if (n == 0) continue
-                if (totalChunks == 0) onStatus("Sherpa received first microphone audio buffer.")
+                if (n == 0) {
+                    check(++emptyReads <= 50) { "No microphone buffer progress" }
+                    Thread.sleep(20)
+                    continue
+                }
+                emptyReads = 0
+                if (totalChunks == 0) {
+                    onListening()
+                    onStatus("Sherpa received its first microphone audio buffer; wake detection is listening.")
+                }
                 var peak = 0
+                for (i in 0 until n) {
+                    val normalized = buffer[i].toDouble() / 32768.0
+                    sumSquaresSinceReport += normalized * normalized
+                }
+                samplesSinceReport += n
                 for (i in 0 until n) {
                     val level = abs(buffer[i].toInt())
                     if (level > peak) peak = level
@@ -224,12 +256,18 @@ class SherpaWakeWordEngine(
                 if (peak > peakSinceReport) peakSinceReport = peak
                 chunks += 1
                 totalChunks += 1
-                val now = System.currentTimeMillis()
+                val now = SystemClock.elapsedRealtime()
                 if (now - lastReportAt >= 3000L) {
                     val pct = (peakSinceReport * 100 / 32767).coerceIn(0, 100)
-                    stage("sherpa-audio-running-peak-$pct")
-                    onStatus("Sherpa audio active: peak $pct%, chunks $chunks; waiting for '$wakePhrase'.")
+                    val rmsPct = if (samplesSinceReport == 0L) 0 else
+                        (sqrt(sumSquaresSinceReport / samplesSinceReport) * 100).toInt().coerceIn(0, 100)
+                    lowSignalReports = if (pct < 2) lowSignalReports + 1 else 0
+                    stage("sherpa-audio-running-peak-$pct-rms-$rmsPct")
+                    val warning = if (lowSignalReports >= 3) " Low microphone signal for 9+ seconds; check microphone access and distance." else ""
+                    onStatus("Sherpa audio active: peak $pct%, RMS $rmsPct%, chunks $chunks, last decode ${lastDecodeDurationMs}ms; waiting for '$wakePhrase'." + warning)
                     peakSinceReport = 0
+                    sumSquaresSinceReport = 0.0
+                    samplesSinceReport = 0L
                     chunks = 0
                     lastReportAt = now
                 }
@@ -256,7 +294,7 @@ class SherpaWakeWordEngine(
                     if (totalChunks <= 20) onStatus("Sherpa native decode completed at chunk $totalChunks.")
                     val keyword = kws.getResult(onlineStream).keyword
                     if (keyword.isNotBlank()) {
-                        onStatus("Sherpa detected keyword '$keyword'.")
+                        onStatus("Sherpa detected keyword '$keyword' after $totalChunks audio buffers (last decode ${lastDecodeDurationMs}ms).")
                         running = false
                         detected = true
                         return
@@ -265,9 +303,9 @@ class SherpaWakeWordEngine(
                 }
             }
         } catch (t: Throwable) {
-            stage("sherpa-worker-failed-" + t.javaClass.simpleName + "-" + (t.message ?: "unknown"))
+            stage("sherpa-worker-failed")
             if (running) {
-                onStatus("Wake word unavailable: ${t.message ?: t.javaClass.simpleName}")
+                onStatus("Wake-word capture or decoding failed. Standby is unavailable until recovery.")
                 onFailure()
             }
         } finally {

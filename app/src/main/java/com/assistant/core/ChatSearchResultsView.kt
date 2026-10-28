@@ -26,7 +26,7 @@ import com.assistant.core.services.SearchRouter
 
 /** Answer-first search presentation. Source numbering follows the stored evidence order. */
 object ChatSearchResultsView {
-    fun create(activity: Activity, message: ChatSearchResults.Message): View {
+    fun create(activity: Activity, message: ChatSearchResults.Message, session: String): View {
         fun dp(value: Int) = (value * activity.resources.displayMetrics.density).toInt()
         val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         val actions = LinearLayout(activity).apply {
@@ -67,12 +67,34 @@ object ChatSearchResultsView {
             setOnClickListener { block() }
         }
         fun open(item: SearchRouter.Result) {
+            if (!ChatSearchResults.safeUrl(item.url)) return
             if (item.kind == "video") SearchMediaViews.play(activity, item)
             else if (ChatSearchResults.safeUrl(item.url)) activity.startActivity(Intent(activity, SearchBrowserActivity::class.java)
                 .putExtra(SearchBrowserActivity.EXTRA_URL, item.url))
         }
         val sources = message.items.filter { it.kind != "image" }
-        root.addView(label(message.query, 12f, true).apply { setPadding(0, 0, 0, dp(10)) })
+        root.addView(label(
+            when (message.kind) {
+                "image" -> "IMAGE RESULTS"
+                "video" -> "VIDEO RESULTS"
+                else -> "WEB RESEARCH"
+            }, 11f, true
+        ).apply {
+            setTypeface(typeface, Typeface.BOLD)
+            letterSpacing = 0.08f
+            setPadding(0, 0, 0, dp(4))
+        })
+        root.addView(label(message.query, 12f, true).apply {
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, 0, 0, dp(10))
+        })
+        com.assistant.core.services.SearchCardPresentation.freshness(message.retrievedAt)?.let { value ->
+            root.addView(label(value, 12f, true).apply {
+                contentDescription = "$value. This is the retrieval time, not the source publication date."
+                setPadding(0, 0, 0, dp(8))
+            })
+        }
         val formatted = message.answer?.let(SearchReadableText::format)
         if (formatted != null) {
             val text = SpannableString(formatted.text)
@@ -80,7 +102,8 @@ object ChatSearchResultsView {
                 text.setSpan(StyleSpan(Typeface.BOLD), it.start, it.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
             Regex("\\[(\\d+)]").findAll(formatted.text).forEach { match ->
-                val source = match.groupValues[1].toIntOrNull()?.let { sources.take(5).getOrNull(it - 1) } ?: return@forEach
+                val source = match.groupValues[1].toIntOrNull()?.let { sources.getOrNull(it - 1) } ?: return@forEach
+                if (!ChatSearchResults.safeUrl(source.url)) return@forEach
                 text.setSpan(object : ClickableSpan() {
                     override fun onClick(widget: View) { open(source) }
                     override fun updateDrawState(ds: TextPaint) {
@@ -99,12 +122,14 @@ object ChatSearchResultsView {
                 Toast.makeText(activity, "Answer copied", Toast.LENGTH_SHORT).show()
             })
         }
-        if (message.kind == "image") {
+        if (message.items.any { it.kind == "image" }) {
             val images = message.items.filter { it.kind == "image" }
             if (images.isNotEmpty()) root.addView(SearchMediaViews.images(activity, images))
         }
         if (sources.isNotEmpty()) {
-            var expanded = message.kind == "video" || formatted == null
+            val state = activity.getSharedPreferences("jarvis_search_card_ui", Context.MODE_PRIVATE)
+            val stateKey = com.assistant.core.services.SearchCardPresentation.stateKey(session, message)
+            var expanded = state.getBoolean(stateKey, message.kind == "video" || formatted == null)
             val rows = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 visibility = if (expanded) View.VISIBLE else View.GONE
@@ -116,25 +141,51 @@ object ChatSearchResultsView {
                     setPadding(dp(10), dp(8), dp(10), dp(8)); minimumHeight = dp(48)
                     layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }
                     addView(label("${index + 1}  •  ${Uri.parse(item.url).host?.removePrefix("www.")}  ↗", 12f, true))
-                    if (message.kind == "video" && item.thumbnail != null) addView(SearchMediaViews.thumbnail(activity, item, 140))
+                    if (item.kind == "video" && item.thumbnail != null) addView(SearchMediaViews.thumbnail(activity, item, 140))
                     addView(label(SearchReadableText.format(item.title).text, 15f).apply {
                         setTypeface(typeface, Typeface.BOLD); maxLines = 2; ellipsize = TextUtils.TruncateAt.END
                         setPadding(0, dp(4), 0, dp(4))
                     })
                     val excerpt = SearchReadableText.excerpt(item.description)
                     if (excerpt.isNotBlank()) addView(label(excerpt, 13f, true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
-                    isFocusable = true; isClickable = true
-                    contentDescription = "Open source ${index + 1}: ${item.title}"
-                    setOnClickListener { open(item) }
+                    val validSource = ChatSearchResults.safeUrl(item.url)
+                    isFocusable = validSource; isClickable = validSource
+                    contentDescription = if (validSource) "Open source ${index + 1}: ${item.title}" else "Unavailable source ${index + 1}: ${item.title}"
+                    if (validSource) setOnClickListener { open(item) }
                 })
             }
-            val toggle = action("Sources · ${sources.size} ${if (expanded) "▴" else "▾"}", "Show or hide ${sources.size} search sources") { }
+            val toggle = action("Sources · ${sources.size} ${if (expanded) "▴" else "▾"}",
+                "Show or hide ${sources.size} search sources") { }
+            val preview = label(sources.take(2).joinToString("  •  ") {
+                Uri.parse(it.url).host?.removePrefix("www.").orEmpty()
+            }, 12f, true).apply {
+                maxLines = 2
+                ellipsize = TextUtils.TruncateAt.END
+                setPadding(0, dp(2), 0, dp(4))
+                isClickable = true
+                isFocusable = true
+                contentDescription = "Expand search sources"
+            }
+            fun updateSourcesVisibility() {
+                rows.visibility = if (expanded) View.VISIBLE else View.GONE
+                preview.visibility = if (expanded) View.GONE else View.VISIBLE
+                toggle.text = "Sources · ${sources.size} ${if (expanded) "▴" else "▾"}"
+                toggle.contentDescription = (if (expanded) "Hide" else "Show") +
+                    " ${sources.size} search sources"
+                preview.contentDescription = "Show ${sources.size} search sources"
+            }
             toggle.setOnClickListener {
                 expanded = !expanded
-                rows.visibility = if (expanded) View.VISIBLE else View.GONE
-                toggle.text = "Sources · ${sources.size} ${if (expanded) "▴" else "▾"}"
-                toggle.contentDescription = (if (expanded) "Hide" else "Show") + " ${sources.size} search sources"
+                state.edit().putBoolean(stateKey, expanded).apply()
+                updateSourcesVisibility()
             }
+            preview.setOnClickListener {
+                expanded = true
+                state.edit().putBoolean(stateKey, true).apply()
+                updateSourcesVisibility()
+            }
+            updateSourcesVisibility()
+            root.addView(preview)
             root.addView(toggle)
             root.addView(rows)
         }

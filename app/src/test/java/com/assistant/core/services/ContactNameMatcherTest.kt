@@ -1,0 +1,60 @@
+package com.assistant.core.services
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class ContactNameMatcherTest {
+    @Test fun spokenKeyDogMatchesSavedKeydawg() {
+        assertEquals(ContactNameMatcher.normalize("Keydawg"), ContactNameMatcher.normalize("Key Dog"))
+        assertEquals(ContactNameMatcher.normalize("Keydawg"), ContactNameMatcher.normalize("key dawg"))
+    }
+
+    @Test fun punctuationAndCaseAreNormalized() {
+        assertEquals("mary jane", ContactNameMatcher.normalize("MARY-JANE"))
+    }
+
+    @Test fun refusesMultiplePhoneNumbersForSameContact() {
+        assertNull(ContactNameMatcher.uniquePhoneFor("Key Dog", listOf(
+            "Keydawg" to "555-0101",
+            "Keydawg" to "555-0102"
+        )))
+    }
+
+    @Test fun acceptsDuplicateRowsWithSameNumber() {
+        assertEquals("555-0101", ContactNameMatcher.uniquePhoneFor("Key Dog", listOf(
+            "Keydawg" to "555-0101",
+            "Keydawg" to "(555) 0101"
+        )))
+    }
+
+    @Test fun refusesAmbiguousPartialName() {
+        assertNull(ContactNameMatcher.uniquePhoneFor("Alex", listOf(
+            "Alex Smith" to "555-0101",
+            "Alex Jones" to "555-0102"
+        )))
+    }
+
+    @Test fun reportsAmbiguousInsteadOfMissing() {
+        val result = ContactNameMatcher.resolve("Key Dog", listOf(
+            "Keydawg" to "555-0101",
+            "Keydawg" to "555-0102"
+        ))
+        assertEquals(ContactNameMatcher.MatchStatus.AMBIGUOUS, result.status)
+        assertNull(result.number)
+    }
+
+    @Test fun reportsMissingNameSeparately() {
+        val result = ContactNameMatcher.resolve("Key Dog", listOf("Other" to "555-0101"))
+        assertEquals(ContactNameMatcher.MatchStatus.NOT_FOUND, result.status)
+    }
+
+    @Test fun spokenFreddyMatchesSavedFreddie() {
+        assertEquals(ContactNameMatcher.normalize("Freddie"), ContactNameMatcher.normalize("Freddy"))
+        assertEquals("555-0101", ContactNameMatcher.uniquePhoneFor("Freddy", listOf("Freddie" to "555-0101")))
+    }
+
+    @Test fun fredIsNotSilentlyAssumedToBeFreddie() {
+        assertNull(ContactNameMatcher.uniquePhoneFor("Fred", listOf("Freddie" to "555-0101")))
+    }
+}

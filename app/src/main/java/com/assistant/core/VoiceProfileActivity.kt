@@ -19,15 +19,23 @@ import com.assistant.core.services.LiveSpeechCapture
 import com.assistant.core.services.VoiceForegroundService
 import com.assistant.core.services.VoicePracticeMicrophone
 import com.assistant.core.services.VoiceProfileStore
+import com.assistant.core.services.WakeCalibrationMetrics
+import com.assistant.core.services.SpeechCaptureRouting
 import com.google.android.material.switchmaterial.SwitchMaterial
 import java.util.Locale
 import java.util.UUID
 
 /** Calibration results stay here. Nothing is sent to the assistant or action engine. */
-class VoiceProfileActivity : ThemedActivity() {
+class VoiceProfileActivity : MenuActivity("My voice profile", R.id.voiceProfileBack) {
     private val handler = Handler(Looper.getMainLooper())
     private val store by lazy { VoiceProfileStore(filesDir) }
     private val capture by lazy { LiveSpeechCapture(this) }
+    private val wakeMetrics = WakeCalibrationMetrics()
+    private val wakePreferences by lazy { getSharedPreferences("wake-practice", MODE_PRIVATE) }
+    private fun saveWakeScore() {
+        val result = wakeMetrics.snapshot()
+        wakePreferences.edit().putInt("detected", result.detected).putInt("missed", result.missed).apply()
+    }
     private var phraseIndex = 0
     private var token: String? = null
     private var heard = ""
@@ -80,6 +88,17 @@ class VoiceProfileActivity : ThemedActivity() {
                     else status("Unable to reset the profile. Please retry.")
                 }.show()
         }
+        wakeMetrics.restore(wakePreferences.getInt("detected", 0).coerceAtLeast(0), wakePreferences.getInt("missed", 0).coerceAtLeast(0))
+        label(R.id.voiceWakeDetected).setOnClickListener {
+            wakeMetrics.recordAttempt(true); saveWakeScore(); refreshWakeScore()
+        }
+        label(R.id.voiceWakeMissed).setOnClickListener {
+            wakeMetrics.recordAttempt(false); saveWakeScore(); refreshWakeScore()
+        }
+        label(R.id.voiceWakeReset).setOnClickListener {
+            wakeMetrics.reset(); saveWakeScore(); refreshWakeScore()
+        }
+        refreshWakeScore()
         showPhrase(); refreshScore(); status("Tap Record phrase and speak naturally. Wake listening pauses only during each attempt.")
     }
     override fun onStart() { super.onStart(); visible = true }
@@ -129,14 +148,21 @@ class VoiceProfileActivity : ThemedActivity() {
                         true -> {
                             status("Listening. Say: $expected")
                             handler.postDelayed({ if (token == current) endCapture("No result arrived. Try again in a quiet place.") }, 20000L)
+                            var hypotheses = emptyList<Pair<String, Float>>()
                             capture.listen(true, { partial -> status("Hearing: $partial") }, { result ->
                                 endCapture("")
                                 heard = result
-                                label(R.id.voiceProfileHeard).text = "Heard: $result"
+                                val alternatives = hypotheses.drop(1).take(4).joinToString("\n") { (text, score) ->
+                                    "Alternative: $text" + if (score >= 0f) " (confidence ${"%.2f".format(Locale.US, score)})" else ""
+                                }
+                                label(R.id.voiceProfileHeard).text = "Heard: $result" +
+                                    if (alternatives.isBlank()) "" else "\n$alternatives"
                                 field(R.id.voiceProfileIntended).setText(expected)
                                 findViewById<View>(R.id.voiceProfileReview).visibility = View.VISIBLE
                                 status("Review the intended wording before approving. Nothing has been saved or run.")
-                            }, { error -> endCapture(errorMessage(error)) }, onDeviceOnly = device, useProfileHints = attemptHinted)
+                            }, { error -> endCapture(errorMessage(error)) }, onDeviceOnly = device, useProfileHints = attemptHinted,
+                                onHypotheses = { hypotheses = it },
+                                requestedEngine = if (device) SpeechCaptureRouting.Engine.ON_DEVICE else SpeechCaptureRouting.Engine.SYSTEM)
                         }
                         false -> endCapture("The microphone is in use. End live chat or other practice before retrying.")
                         null -> if (++polls >= 30) endCapture("Wake listening did not release the microphone. Retry shortly.") else handler.postDelayed(this, 100L)
@@ -157,12 +183,24 @@ class VoiceProfileActivity : ThemedActivity() {
         busy(false)
         if (message.isNotBlank()) status(message)
     }
+    private fun refreshWakeScore() {
+        val result = wakeMetrics.snapshot()
+        val rate = result.detectionRatePercent?.let { "%.1f".format(Locale.US, it) + "%" } ?: "not measured"
+        label(R.id.voiceWakePracticeScore).text =
+            "Saved on this device: ${result.detected} detected / ${result.missed} missed; detection rate $rate. Results are manually reported, not verified wake detections."
+    }
     private fun refreshScore() {
         val entries = store.entries()
         val groups = entries.groupBy { "${it.language} • ${if (it.mode == "device") "on device" else "default"} • ${if (it.hinted) "hints supplied" else "no hints"}" }
         label(R.id.voiceProfileScore).text = if (entries.isEmpty()) "No approved practice yet." else
             "Approved attempts: ${entries.size} (most recent ${VoiceProfileStore.LIMIT} retained). Exact matches ignore case and punctuation. These are practice scores, not overall command accuracy.\n\n" +
-            groups.entries.joinToString("\n") { (group, trials) -> "$group: ${trials.count { it.matched }}/${trials.size} matched" }
+            groups.entries.joinToString("\n") { (group, trials) ->
+                val words = trials.sumOf { it.referenceWords }
+                val errors = trials.sumOf { it.wordErrors }
+                val wer = if (words == 0) 0.0 else 100.0 * errors / words
+                "$group: ${trials.count { it.matched }}/${trials.size} matched; " +
+                    "word error rate ${"%.1f".format(Locale.US, wer)}% ($errors edits / $words reference words)"
+            }
         refreshEntries()
     }
     private fun refreshEntries() {

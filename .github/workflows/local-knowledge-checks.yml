@@ -2,7 +2,9 @@ name: Local assistant checks
 on:
   pull_request:
   push:
-    branches: ['fix/local-date-math']
+    branches: [main, 'fix/local-date-math', 'feature/jarvis-personal-repair/**']
+    paths-ignore:
+      - 'artifacts/**'
 permissions:
   contents: read
 # A new PR revision supersedes its older emulator run; avoid a backlog of
@@ -43,13 +45,27 @@ jobs:
         run: |
           python3 -m pip install --quiet sherpa-onnx==1.13.8 numpy
           timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json --smoke
-      # Root task selectors also build the independent Developer module, whose
-      # generated artwork belongs to its own pipeline. Keep these checks on Personal.
-      - run: bash gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
+      - name: Verify release automation and APK archive checks
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+      - run: bash gradlew --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug
+      - name: Record private Personal JUnit evidence
+        if: always()
+        run: python3 scripts/personal_test_evidence.py --source "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-lint-report
+          path: app/build/reports/lint-results-debug.*
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: layout-smoke-apk
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-compatibility-tests
+          path: app/build/outputs/apk/androidTest/debug/*.apk
           if-no-files-found: error
   gateway:
     runs-on: ubuntu-latest
@@ -64,7 +80,7 @@ jobs:
         run: python -m py_compile scripts/ui_layout_smoke.py
 
   ui-layout:
-    # UI behavior must be verified on the emulator before review or delivery.
+    # Validate UI layout on the Android emulator before release.
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 12
@@ -97,6 +113,49 @@ jobs:
           name: jarvis-ui-review
           path: ui-review/
 
+  android-compatibility:
+    name: android-compatibility (${{ matrix.api }})
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [26, 34]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@v4
+        with:
+          name: layout-smoke-apk
+          path: app/build/outputs/apk/debug
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-compatibility-tests
+          path: app/build/outputs/apk/androidTest/debug
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          emulator-boot-timeout: 300
+          profile: pixel_2
+          disable-animations: true
+          script: bash scripts/android_compatibility_acceptance.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-compatibility-${{ matrix.api }}
+          path: android-compatibility-results.txt
+
   voice-playback:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -121,6 +180,13 @@ jobs:
           timeout 600s python3 scripts/prepare_neural_voice.py --directory /tmp/jarvis-kokoro --metadata app/src/main/assets/neural-voice-pack.json
       - name: Compile optimized voice target before launching emulator
         run: timeout 480s bash gradlew --no-daemon assembleVoiceCheck assembleVoiceCheckAndroidTest
+      - name: Check out the separate Connection Manager for integration acceptance
+        uses: actions/checkout@v4
+        with:
+          ref: 246c82a00f116dad328d213db3fcc805e25a0c5a
+          path: .acceptance/connection-manager
+      - name: Build the independent Connection Manager reference APK
+        run: timeout 300s bash gradlew --no-daemon -p .acceptance/connection-manager :connection-manager:assembleDebug
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -142,3 +208,4 @@ jobs:
             app/build/reports/androidTests/connected/**
             voice-regression-logcat.txt
             voice-regression-results.txt
+            voice-screen-preflight.txt

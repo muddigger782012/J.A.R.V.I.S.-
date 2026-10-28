@@ -34,6 +34,8 @@ object PatchWorkbench {
         val followUpSource: (String, PatchPublisher.CommitResult, BuildDiagnostics.Report, String, PatchPreviewCancellation) -> PersonalRepair.Review =
             RepositoryIntelligence::personalFollowUp,
         val history: RepairHistoryWorkbench.Services = RepairHistoryWorkbench.Services(),
+        val inbox: (Activity) -> DevelopmentJobInbox = { DevelopmentJobInbox(java.io.File(it.noBackupFilesDir.canonicalFile, "development-inbox")) },
+        val engineeringRecovery: (Activity) -> Unit = DevelopmentEngineeringScheduler::recover,
         val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit }
     )
 
@@ -49,7 +51,9 @@ object PatchWorkbench {
         private val invalidateAction: () -> Boolean,
         private val personalAction: (PersonalRepair.Review) -> Boolean = { false },
         private val cancelPreviewAction: () -> Unit = {},
-        private val disposeAction: () -> Unit = cancelPreviewAction
+        private val disposeAction: () -> Unit = cancelPreviewAction,
+        private val engineeringAction: (DevelopmentEngineering.Draft) -> Boolean = { false },
+        private val guidedAction: (String, String, List<String>, String, PatchEngine.Target) -> Boolean = { _, _, _, _, _ -> false }
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
@@ -59,6 +63,9 @@ object PatchWorkbench {
         fun preparePersonal(review: PersonalRepair.Review): Boolean = personalAction(review)
         fun cancelPreview() = cancelPreviewAction()
         fun dispose() = disposeAction()
+        internal fun prepareEngineering(draft: DevelopmentEngineering.Draft) = engineeringAction(draft)
+        internal fun prepareGuided(id: String, task: String, paths: List<String>, base: String, target: PatchEngine.Target) =
+            guidedAction(id, task, paths, base, target)
     }
 
     fun attach(
@@ -175,6 +182,8 @@ object PatchWorkbench {
         var plannedBaseBranch = "feature/jarvis-developer"
         var plannedTarget = PatchEngine.Target.DEVELOPER
         var activeRepair: Pair<RepairEngine.Ticket, RepairObserver>? = null
+        var activeEngineering: DevelopmentEngineering.Draft? = null
+        var interruptedEngineering: DevelopmentEngineering.Write? = null
         var queuedContextNeedsRefresh = false
         var settingQueuedInputs = false
         var proposal: PatchEngine.Proposal? = null
@@ -300,6 +309,7 @@ object PatchWorkbench {
             override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(text: Editable?) {
+                if (changesScope && !settingQueuedInputs) activeEngineering = null
                 if (!settingQueuedInputs) failRepair(activeRepair, "approval")
                 if (changesScope && plannedBaseCommitSha != null && !settingQueuedInputs) {
                     queuedContextNeedsRefresh = true
@@ -331,6 +341,7 @@ object PatchWorkbench {
         }
         approve.setOnCheckedChangeListener { _, _ -> refresh() }
         fun clearQueuedSource() {
+            activeEngineering = null
             failRepair(activeRepair, "approval")
             plannedBaseCommitSha = null
             plannedBaseBranch = "feature/jarvis-developer"
@@ -385,7 +396,7 @@ object PatchWorkbench {
                 frozen.allowedPaths.distinct().size != frozen.allowedPaths.size ->
                     "Remove duplicate source paths from the allowlist."
                 !frozen.allowedPaths.all { PatchEngine.allowedPath(it, frozen.target) } ->
-                    "The allowlist contains a protected or unsupported path for this product. Personal repairs require an explicitly staged source review."
+                    "The allowlist contains a protected or unsupported path for this product. Use Home analysis to select ordinary logic, or open repository issues for a supervised pull request covering protected controllers. No source request or approval was made."
                 else -> null
             }
             if (invalid != null) {
@@ -516,11 +527,16 @@ object PatchWorkbench {
                 status.text = "Enter an in-memory GitHub token with repository contents-write access."
                 return@setOnClickListener
             }
+            var engineeringWrite: DevelopmentEngineering.Write? = null
             val approved = try {
                 // Approval binds the current checkbox, frozen inputs and complete fingerprint.
                 check(metadata() == frozen && review.text.toString() == proposalReport)
                 PatchEngine.approve(selected, selected.id).also { approval ->
                     activeRepair?.first?.claimCommit(approval, System.currentTimeMillis())
+                    activeEngineering?.let { draft -> engineeringWrite = services.inbox(activity).claimEngineering(draft, approval,
+                        com.jarvis.integration.DevelopmentBridgeContract.personalPackage(activity.packageName))
+                        DevelopmentEngineeringCredentials.remember(draft.job, token)
+                    }
                 }
             } catch (_: Exception) {
                 failRepair(activeRepair, "approval")
@@ -529,6 +545,8 @@ object PatchWorkbench {
                 return@setOnClickListener
             }
             val repair = activeRepair
+            activeEngineering = null
+            interruptedEngineering = engineeringWrite
             attemptedProposalIds.add(selected.id)
             interruptedAttempt = selected
             lastCommit = null
@@ -544,11 +562,17 @@ object PatchWorkbench {
                 try {
                     val result = services.commit(token, approved)
                     PatchPublisher.validateOutcome(selected, result)
+                    // Persist real outcomes even when Back/recreation has destroyed the UI.
+                    engineeringWrite?.let { write ->
+                        check(services.inbox(activity).finishEngineering(write, result))
+                        services.engineeringRecovery(activity)
+                    }
                     val report = renderCommit(result, null)
                     activity.runOnUiThread {
                         if (alive()) {
                             lastCommit = result
                             interruptedAttempt = null
+                            interruptedEngineering = null
                             review.text = report
                             output.text = commitAudit(result) + "\nCI has not been checked."
                             status.text = "Task branch committed; CI status is unverified"
@@ -562,6 +586,10 @@ object PatchWorkbench {
                         }
                     }
                 } catch (failure: Exception) {
+                    engineeringWrite?.let { write ->
+                        runCatching { services.inbox(activity).uncertainEngineering(write) }
+                        runCatching { services.engineeringRecovery(activity) }
+                    }
                     // Publisher failures have fixed stage/outcome text; never display raw HTTP bodies.
                     val detail = failure.message?.takeIf {
                         it.startsWith("Scoped commit stopped during ") && it.length <= 512 &&
@@ -602,6 +630,10 @@ object PatchWorkbench {
                 try {
                     val result = services.inspectOutcome(token, selected)
                     if (result != null) PatchPublisher.validateOutcome(selected, result)
+                    if (result != null) interruptedEngineering?.let { write ->
+                        check(services.inbox(activity).finishEngineering(write, result))
+                        services.engineeringRecovery(activity)
+                    }
                     activity.runOnUiThread {
                         if (alive()) {
                             if (result == null) {
@@ -610,6 +642,7 @@ object PatchWorkbench {
                             } else {
                                 lastCommit = result
                                 interruptedAttempt = null
+                                interruptedEngineering = null
                                 setFeedbackContext(null)
                                 review.text = renderCommit(result, null) +
                                     "\n\nInterrupted commit verified against the exact proposal. No write was retried and no approval was restored. A prior repair session is not resumed; read CI and review its result explicitly."
@@ -797,6 +830,7 @@ object PatchWorkbench {
                             (char < ' ' && char !in "\n\r\t") }
                 }
             if (busy || !alive() || !safe) return false
+            activeEngineering = null
             failRepair(activeRepair, "approval")
             invalidate()
             settingQueuedInputs = true
@@ -873,6 +907,15 @@ object PatchWorkbench {
             disposed = true
             githubToken.removeTextChangedListener(readCredentialChanges)
             disposeHistory()
+        }, guidedAction = { id, description, paths, base, target ->
+            prepareInputs(id, description, paths, base,
+                if (target == PatchEngine.Target.PERSONAL) "main" else "feature/jarvis-developer", target)
+        }, engineeringAction = { draft ->
+            if (prepareInputs(draft.taskId, draft.task, draft.paths, draft.base, draft.branch, draft.target)) {
+                activeEngineering = draft
+                status.text = "Assistant job staged. Generate and approve its exact diff; progress will be recorded in the development inbox."
+                true
+            } else false
         })
     }
 

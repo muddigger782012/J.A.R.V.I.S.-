@@ -36,7 +36,7 @@ object SpokenTimerDuration {
         }
         return total.toInt().takeIf { it in 1..86400 }
     }
-    private fun number(text: String): Int? {
+    internal fun number(text: String): Int? {
         if (Regex("[0-9]{1,6}").matches(text)) return text.toIntOrNull()
         if (text == "a" || text == "an") return 1
         val words = text.split(' ')

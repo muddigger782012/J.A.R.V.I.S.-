@@ -58,6 +58,17 @@ class WebSearchCommandTest {
         assertNull(WebSearchCommand.downloadFollowupQuery("Can you install it?", previous))
     }
 
+    @Test fun naturalMusicVideoRequestsRouteToSearch() {
+        assertEquals("Saving Abel music video",
+            WebSearchCommand.videoQuery("Find me the music video by Saving Abel"))
+        assertEquals("Saving Abel music video",
+            WebSearchCommand.videoQuery("Could you show me a music video from Saving Abel?"))
+        assertEquals("Saving Abel music video",
+            WebSearchCommand.videoQuery("Search for music videos by Saving Abel"))
+        assertNull(WebSearchCommand.videoQuery("Tell me about the music video by Saving Abel"))
+        assertNull(WebSearchCommand.videoQuery("Find me the music video by"))
+    }
+
     @Test fun videoTitlesAndLinkFollowupsUseOnlyThePreviousExplicitTarget() {
         val previous = "Play diesel repair video"
         assertEquals("diesel repair", WebSearchCommand.videoQuery(previous))
@@ -75,4 +86,19 @@ class WebSearchCommandTest {
         assertNull(WebSearchCommand.videoFollowupQuery("Install it instead", previous))
         assertNull(WebSearchCommand.videoQuery("Play " + "x".repeat(301) + " video"))
     }
+    @Test fun explicitMusicLookupRoutesToSearchWithoutCapturingContacts() {
+        assertEquals("Saving Abel Addicted song", WebSearchCommand.musicQuery("Find me the song Saving Abel Addicted"))
+        assertEquals("Saving Abel song", WebSearchCommand.musicQuery("Find music by Saving Abel"))
+        assertNull(WebSearchCommand.musicQuery("Find me Saving Abel Addicted"))
+        assertNull(WebSearchCommand.musicQuery("Call Freddie"))
+        assertNull(WebSearchCommand.musicQuery("Find me the song"))
+    }
+
+    @Test fun titledMusicSuffixDoesNotInterceptGeneralFindCommands() {
+        assertEquals("Addicted by Saving Abel song", WebSearchCommand.titledMusicQuery("Find me Addicted by Saving Abel song"))
+        assertNull(WebSearchCommand.titledMusicQuery("Find me Saving Abel Addicted"))
+        assertNull(WebSearchCommand.titledMusicQuery("Find me a contact by Freddie"))
+        assertNull(WebSearchCommand.titledMusicQuery("Find me a repair manual by Ford"))
+    }
+
 }

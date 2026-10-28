@@ -11,7 +11,7 @@ import com.assistant.core.services.AssistantSpeechVoice
 import com.assistant.core.services.AssistantVoicePreferences
 import com.assistant.core.services.AssistantVoiceProfile
 
-class AssistantVoiceSettingsActivity : ThemedActivity() {
+class AssistantVoiceSettingsActivity : MenuActivity("Assistant voice", R.id.btnCloseAssistantVoice) {
     private lateinit var speech: TextToSpeech
     private lateinit var preferences: AssistantVoicePreferences
     private var ready = false

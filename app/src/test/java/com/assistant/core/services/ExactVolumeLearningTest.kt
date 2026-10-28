@@ -8,6 +8,73 @@ class ExactVolumeLearningTest {
     private fun lesson(percent: String = "25") = FallbackIntentLesson("DEVICE_SETTING", .95,
         mapOf("setting" to "media_volume", "percent" to percent), learnable = true)
 
+    @Test fun naturalMediaLevelsUnderstandPolitenessWakeWordsAndSpokenPercentages() {
+        val requests = mapOf(
+            "Hey Jarvis, could you please set my music volume to twenty five percent please?" to 25,
+            "Can you put the sound at thirty-five per cent?" to 35,
+            "Please set media sound to zero percent" to 0,
+            "Jarvis, turn music to eleven percent!" to 11,
+            "Set volume to nineteen percent" to 19,
+            "Set volume to twenty one percent" to 21,
+            "Set volume to ninety nine percent" to 99,
+            "Would you set the music volume to one hundred percent?" to 100,
+            "Set volume to a hundred percent" to 100,
+            "Set music to 40%" to 40)
+        requests.forEach { (phrase, expected) -> assertEquals(phrase, expected, ExactVolumeLearning.parse(phrase)) }
+        // Every spoken integer is accepted; word arithmetic outside this range is not.
+        val small = listOf("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+            "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen")
+        for (value in 0..100) {
+            val word = when {
+                value < 20 -> small[value]
+                value == 100 -> "one hundred"
+                else -> listOf("twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety")[value / 10 - 2] +
+                    if (value % 10 == 0) "" else " " + small[value % 10]
+            }
+            assertEquals(word, value, ExactVolumeLearning.parse("set music volume to $word percent"))
+        }
+    }
+
+    @Test fun fractionsAndAllTheWayRequestsSpecifyAnAbsoluteMediaLevel() {
+        mapOf("Set music volume to half" to 50, "Could you set the sound at a half please?" to 50,
+            "Put the music at halfway" to 50, "Set media volume to half way" to 50,
+            "Set volume to one quarter" to 25, "Put my music at a quarter volume" to 25,
+            "Set music volume to three quarters" to 75, "Turn sound to three-quarters" to 75,
+            "Boost the sound all the way up" to 100, "Raise the music up all the way" to 100,
+            "Please turn music all way down" to 0, "Bring the sound down all the way" to 0,
+            "Set music to full volume" to 100, "Put the sound at minimum" to 0)
+            .forEach { (phrase, expected) -> assertEquals(phrase, expected, ExactVolumeLearning.parse(phrase)) }
+    }
+
+    @Test fun naturalLevelParserDoesNotInferLevelsFromQuestionsNegationOrOtherStreams() {
+        for (phrase in listOf("Could you not set music volume to half?", "Please don't set volume to twenty percent",
+            "How do I set music to half?", "If I ask, set volume to half", "Set alarm volume to half",
+            "Set ring volume to twenty percent", "Set notification volume to half", "Set your voice to half",
+            "Set it to half", "Set volume to half and open Chrome", "Lower music volume by twenty percent",
+            "Make music half as loud", "Set music to 25", "Set music to -25%", "Set music to 025%",
+            "Set music to 101%", "Set music to 25.5%", "Set music to one hundred and one percent",
+            "Set music to two hundred percent", "Set music to twenty ten percent", "Set music to twenty zero percent",
+            "Set music to twenty--five percent", "Set volume to " + "one ".repeat(100) + "percent"))
+            assertNull(phrase, ExactVolumeLearning.parse(phrase))
+    }
+
+    @Test fun newlySupportedExactLevelsIgnoreOldRelativeAliasesWithoutRewritingStoredData() {
+        for ((phrase, percent) in mapOf("set music volume to half" to 50,
+            "set music volume to twenty five percent" to 25, "boost the sound all the way up" to 100)) {
+            val saved = """[{"phrase":"$phrase","capabilityId":"volume_up","parameters":{},"successes":1}]"""
+            val memory = ValidatedCommandMemory({ saved }, { fail("Must preserve existing settings and aliases"); false })
+            assertNull(memory.match(phrase, VerifiedVolumeLearning.capabilities))
+            assertFalse(memory.recordSuccess(phrase, "volume_up", VerifiedVolumeLearning.capabilities))
+            val review = LearnedCommandReview.render(1, memory, AssistantMemory({ "{}" }, { false }), emptyList())
+            assertTrue(review, review.contains("local command sets media volume to $percent%"))
+            assertTrue(review, review.contains("older one-step meaning is ignored"))
+            val guidance = ExactVolumeLearning.relativeConflictGuidance(phrase, "volume_up")!!
+            assertTrue(guidance.contains("Nothing was changed or learned."))
+            assertTrue(guidance.contains("$percent%"))
+        }
+        assertNull(ExactVolumeLearning.relativeConflictGuidance("less racket", "volume_down"))
+    }
+
     @Test fun onlyBoundMediaPercentageAndExplicitLocalCommandsAreAccepted() {
         assertEquals(25, ExactVolumeLearning.fromLesson(lesson()))
         assertEquals(0, ExactVolumeLearning.parse("set media volume to 0%"))

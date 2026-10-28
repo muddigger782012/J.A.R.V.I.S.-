@@ -82,14 +82,18 @@ object BuildDiagnostics {
             val line = timestamp.replace(ansi.replace(raw, ""), "").trim()
             if (line.startsWith(MARKER)) {
                 markerCount++
-                if (target == PatchEngine.Target.PERSONAL) {
-                    limitations.add("Personal test names and complete inventories are omitted from log-only diagnostics")
-                    continue
-                }
-                if (line.length > MAX_SUMMARY || line.toByteArray(Charsets.UTF_8).size > MAX_SUMMARY) {
-                    limitations.add("JUnit summary exceeded its 100 KiB budget")
+                val summaryLimit = if (target == PatchEngine.Target.PERSONAL) 300_000 else MAX_SUMMARY
+                if (line.length > summaryLimit || line.toByteArray(Charsets.UTF_8).size > summaryLimit) {
+                    limitations.add(if (target == PatchEngine.Target.PERSONAL) "Private JUnit summary exceeded its 300 KiB budget"
+                        else "JUnit summary exceeded its 100 KiB budget")
                 } else if (markerCount == 1) {
-                    try { summary = readSummary(line.substring(MARKER.length), commitSha) }
+                    try {
+                        val parsed = readSummary(line.substring(MARKER.length), commitSha)
+                        if (target == PatchEngine.Target.PERSONAL && parsed.tests.keys.any {
+                                !it.matches(Regex("PersonalJUnitEvidence#[a-f0-9]{64}"))
+                            }) limitations.add("Personal test names and complete inventories are omitted from log-only diagnostics")
+                        else summary = parsed
+                    }
                     catch (_: Exception) { limitations.add("JUnit summary was malformed or did not match this source") }
                 }
                 continue

@@ -12,14 +12,19 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
+import androidx.core.view.doOnPreDraw
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.tabs.TabLayout
 
-class AppearanceSettingsActivity : ThemedActivity() {
+class AppearanceSettingsActivity : MenuActivity("Appearance", R.id.btnCloseAppearances) {
     private var selectedTab = 0
+    private val tabContents = mutableMapOf<Int, View>()
+    private val tabScroll = intArrayOf(0, 0)
+    private var renderGeneration = 0
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        selectedTab = savedInstanceState?.getInt("appearance_tab") ?: 0
+        selectedTab = (savedInstanceState?.getInt("appearance_tab") ?: 0).coerceIn(0, 1)
+        savedInstanceState?.getIntArray("appearance_scroll")?.takeIf { it.size == 2 }?.copyInto(tabScroll)
         setContentView(R.layout.activity_appearances)
         findViewById<Button>(R.id.btnCloseAppearances).setOnClickListener { finish() }
         bindChatDarkness()
@@ -29,7 +34,12 @@ class AppearanceSettingsActivity : ThemedActivity() {
         tabs.addTab(tabs.newTab().setText("Themes"), selectedTab == 0)
         tabs.addTab(tabs.newTab().setText("Fonts"), selectedTab == 1)
         tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
-            override fun onTabSelected(tab: TabLayout.Tab) { selectedTab = tab.position; showTab() }
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                if (selectedTab == tab.position) return
+                tabScroll[selectedTab] = findViewById<ScrollView>(R.id.appearanceScroll).scrollY
+                selectedTab = tab.position
+                showTab()
+            }
             override fun onTabUnselected(tab: TabLayout.Tab) = Unit
             override fun onTabReselected(tab: TabLayout.Tab) = Unit
         })
@@ -38,6 +48,8 @@ class AppearanceSettingsActivity : ThemedActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("appearance_tab", selectedTab)
+        tabScroll[selectedTab] = findViewById<ScrollView>(R.id.appearanceScroll).scrollY
+        outState.putIntArray("appearance_scroll", tabScroll)
         super.onSaveInstanceState(outState)
     }
 
@@ -87,12 +99,30 @@ class AppearanceSettingsActivity : ThemedActivity() {
     private fun showTab() {
         val host = findViewById<FrameLayout>(R.id.appearanceContent)
         host.removeAllViews()
-        if (selectedTab == 0) {
+        val content = tabContents.getOrPut(selectedTab) { if (selectedTab == 0) {
             val themes = layoutInflater.inflate(R.layout.activity_themes, host, false)
             themes.findViewById<View>(R.id.btnCloseThemes).visibility = View.GONE
             ThemeSettingsActivity.bindThemes(this, themes)
-            host.addView(themes)
-        } else host.addView(fontControls())
+            themes
+        } else fontControls() }
+        // Appearance owns one scrolling surface. Keeping the original controls
+        // preserves listeners and unfinished edits when switching tabs.
+        val body = if (content is ScrollView) content.getChildAt(0).also { content.removeView(it) } else content
+        tabContents[selectedTab] = body
+        host.addView(body)
+        UnifiedMenuSection.compactActions(body)
+        val generation = ++renderGeneration
+        val page = selectedTab
+        val scroll = findViewById<ScrollView>(R.id.appearanceScroll)
+        scroll.doOnPreDraw {
+            if (generation == renderGeneration && page == selectedTab) scroll.scrollTo(0, tabScroll[page])
+        }
+    }
+
+    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
+        super.onRestoreInstanceState(savedInstanceState)
+        val scroll = findViewById<ScrollView>(R.id.appearanceScroll)
+        scroll.doOnPreDraw { scroll.scrollTo(0, tabScroll[selectedTab]) }
     }
 
     private fun fontControls(): View {
@@ -115,11 +145,13 @@ class AppearanceSettingsActivity : ThemedActivity() {
         label("Fonts", 22f)
         label("Adjust chat and interface text. Size is relative to your phone’s font setting. Changes apply after saving.", 14f)
         val sizeLabel = label("Font size: ${FontPreferences.percent(this)}%")
-        val slider = SeekBar(this).apply { max = 15; progress = (FontPreferences.percent(this@AppearanceSettingsActivity) - 75) / 5 }
+        val slider = SeekBar(this).apply { id = R.id.appearanceFontSlider; isSaveEnabled = false; max = 15; progress = (FontPreferences.percent(this@AppearanceSettingsActivity) - 75) / 5 }
         panel.addView(slider)
         label("Text color")
         label("Leave blank to use each theme’s original text colors, or enter #RRGGBB.", 14f)
         val colorInput = EditText(this).apply {
+            id = R.id.appearanceFontColor
+            isSaveEnabled = false
             setSingleLine(true)
             hint = "Theme default or #RRGGBB"
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS

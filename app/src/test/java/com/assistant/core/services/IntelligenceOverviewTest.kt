@@ -47,6 +47,14 @@ class IntelligenceOverviewTest {
         assertEquals(-76.0, normal.getDouble("longitude"), 0.0)
     }
 
+    @Test fun personalPrimarySelectionIsPreservedEvenWhenAnotherProviderIsConfigured() {
+        fun report(primary: IntelligenceRouting.Provider, gemini: Boolean = true, gateway: Boolean = true) =
+            IntelligenceOverview.build(emptyList(), emptyList(), 0, gemini, gateway, true, primary)
+        assertEquals("Gateway", report(IntelligenceRouting.Provider.GATEWAY).primaryAi)
+        assertEquals("Gemini", report(IntelligenceRouting.Provider.GEMINI).primaryAi)
+        assertEquals("Not configured", report(IntelligenceRouting.Provider.GATEWAY, gateway = false).primaryAi)
+    }
+
     @Test fun availableRoutineInventoryExcludesConflictingOrUnsupportedStoredDefinitions() {
         val saved = """[{"phrase":"quiet time","actions":["volume_down"]},{"phrase":"quiet time","actions":["volume_up"]},{"phrase":"old routine","actions":["shell"]},{"phrase":"focus time","actions":["timer:300"]}]"""
         val registry = ApprovedRoutineRegistry({ saved }, { error("inventory must not write") })
