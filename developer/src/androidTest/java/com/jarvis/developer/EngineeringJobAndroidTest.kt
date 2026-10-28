@@ -55,8 +55,9 @@ class EngineeringJobAndroidTest {
             assertEquals("temporary-github-token", DevelopmentEngineeringCredentials.token(job))
             DevelopmentEngineeringCredentials.rememberForRead(JSONObject().put("id", job).put("state", "PAUSED"), "not-for-a-paused-task")
             assertEquals("temporary-github-token", DevelopmentEngineeringCredentials.token(job))
-            DevelopmentEngineeringCredentials.rememberForRead(JSONObject().put("id", job).put("state", "VERIFYING"), "temporary-github-token")
-            assertEquals("temporary-github-token", DevelopmentEngineeringCredentials.token(job))
+            DevelopmentEngineeringCredentials.rememberForRead(JSONObject().put("id", job).put("state", "VERIFYING"), "resumed-read-token")
+            assertEquals("resumed-read-token", DevelopmentEngineeringCredentials.token(job))
+            DevelopmentEngineeringCredentials.remember(job, "temporary-github-token")
             assertThrows(IllegalArgumentException::class.java) {
                 DevelopmentEngineeringCredentials.remember(job, "unsafe\ncredential")
             }
