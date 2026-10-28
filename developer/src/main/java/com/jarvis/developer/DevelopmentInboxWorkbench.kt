@@ -10,6 +10,11 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.ScrollView
+import android.view.View
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.ViewTreeObserver
 import com.jarvis.integration.DevelopmentBridgeContract as Wire
 import org.json.JSONArray
 import org.json.JSONObject
@@ -25,6 +30,7 @@ object DevelopmentInboxWorkbench {
         val panel = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         var focusedJob: String? = null
         var displayGeneration = 0L
+        val taskDrafts = mutableMapOf<String, Pair<String, String>>()
         fun label(text: String) = TextView(activity).apply {
             this.text = text; setTextColor(activity.getColor(R.color.developer_secondary)); textSize = 15f
             setPadding(8, 12, 8, 12)
@@ -59,6 +65,9 @@ object DevelopmentInboxWorkbench {
         fun refresh() {
             val generation = ++displayGeneration
             val focus = focusedJob
+            val scroll = generateSequence(parent as View?) { it.parent as? View }.filterIsInstance<ScrollView>().firstOrNull()
+            val scrollY = scroll?.scrollY ?: 0
+            val selectedMode = preferences.getString("mode", "supervised") ?: "supervised"
             panel.removeAllViews(); panel.addView(label("Assistant development reviews — checking private queue"))
             thread(name = "developer-inbox-read", isDaemon = true) {
                 val inbox = DevelopmentJobInbox(java.io.File(activity.noBackupFilesDir.canonicalFile, "development-inbox"))
@@ -68,10 +77,13 @@ object DevelopmentInboxWorkbench {
                     require(focus == null || shown.size == 1)
                     Triple(jobs, inbox.pendingReviews().toMap(), shown.mapNotNull { job ->
                         inbox.localAnalysisReport(job.getString("id"))?.let { job.getString("id") to it }
-                    }.toMap()) to shown.associate { job -> job.getString("id") to
-                        if (job.getString("state") in setOf("REVIEW_READY", "AWAITING_APPROVAL"))
+                    }.toMap()) to shown.associate { job ->
+                        val scope = if (job.getString("state") in setOf("REVIEW_READY", "AWAITING_APPROVAL"))
                             runCatching { inbox.engineeringPaths(job.getString("id")) to inbox.engineeringGoal(job.getString("id")) }
-                                .getOrDefault(emptyList<String>() to "") else emptyList<String>() to "" }
+                                .getOrDefault(emptyList<String>() to "") else emptyList<String>() to ""
+                        job.getString("id") to Triple(scope.first, scope.second,
+                            inbox.localControls(job.getString("id"), job.getLong("revision"), selectedMode, personal))
+                    }
                 }
                 activity.runOnUiThread {
                     if (activity.isFinishing || activity.isDestroyed || generation != displayGeneration) return@runOnUiThread
@@ -86,7 +98,7 @@ object DevelopmentInboxWorkbench {
                             val shown = if (focus == null) jobs.takeLast(8) else jobs.filter { it.getString("id") == focus }
                             shown.forEachIndexed { index, job ->
                                 val stages = job.getJSONObject("verification")
-                                panel.addView(label("Review ${index + 1}: ${job.getString("state")} · ${Wire.modeLabel(job.getString("mode"))}\n" +
+                                panel.addView(label("Review ${index + 1}: ${job.getString("state")} · ${Wire.modeLabel(job.getString("mode"))}\nAttempt ${job.getInt("attempts")} of 3\n" +
                                     Wire.Stage.values().joinToString("\n") { "${it.name.replace('_', ' ')}: ${stages.getString(it.name)}" }))
                                 drafts[job.getString("id")]?.let { draft -> panel.addView(button("Open this unapproved review") {
                                     openReview(draft.lines().joinToString("\n", transform = RepositoryRedaction::line))
@@ -94,7 +106,10 @@ object DevelopmentInboxWorkbench {
                                 reports[job.getString("id")]?.let { report -> panel.addView(button("Open verified-source analysis (partial context)") {
                                     openReview(report)
                                 }) }
-                                val (paths, savedGoal) = scopes[job.getString("id")] ?: (emptyList<String>() to "")
+                                val (paths, savedGoal, controls) = scopes.getValue(job.getString("id"))
+                                DevelopmentJobControls.attach(activity, panel, inbox, job, controls,
+                                    { preferences.getString("mode", "supervised") ?: "supervised" },
+                                    { generation == displayGeneration }, ::refresh, githubToken = githubToken)
                                 DevelopmentArtifactWorkbench.attach(activity, panel, inbox, job, githubToken)
                                 if (job.getBoolean("sourceVerified")) panel.addView(button("Review this verified commit on GitHub") {
                                     runCatching {
@@ -111,7 +126,7 @@ object DevelopmentInboxWorkbench {
                                             "Recorded diagnostics are unavailable. Refresh or recheck this job; no approval was granted.", android.widget.Toast.LENGTH_LONG).show() }
                                     })
                                 if (job.optJSONObject("engineering")?.optBoolean("approvalConsumed") == true &&
-                                    job.getString("state") in setOf("READY_FOR_REVIEW", "REVIEW_REQUIRED", "OUTCOME_UNKNOWN")) {
+                                    job.getString("state") in setOf("READY_FOR_REVIEW", "REVIEW_REQUIRED", "OUTCOME_UNKNOWN", "CANCELLED")) {
                                     val resultLabel = label("Build checks use your current in-memory GitHub connection when available; approvals are never restored.")
                                     panel.addView(button("Recheck this job's outcome and build (read only)") {
                                         val checked = runCatching {
@@ -128,14 +143,22 @@ object DevelopmentInboxWorkbench {
                                     val goal = EditText(activity).apply {
                                         hint = "Describe the change you want Developer to make"
                                         contentDescription = "Requested engineering change"
-                                        setText(savedGoal)
+                                        setText(taskDrafts[job.getString("id")]?.first ?: savedGoal)
                                         minLines = 2
                                     }
                                     val scope = EditText(activity).apply {
                                         hint = "Exact analyzed paths for this task (one per line)"
                                         contentDescription = "Engineering task source scope"
-                                        setText(paths.joinToString("\n")); minLines = 2
+                                        setText(taskDrafts[job.getString("id")]?.second ?: paths.joinToString("\n")); minLines = 2
                                     }
+                                    val rememberDraft = object : TextWatcher {
+                                        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                                        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                                        override fun afterTextChanged(s: Editable?) {
+                                            taskDrafts[job.getString("id")] = goal.text.toString().take(12_000) to scope.text.toString().take(12_000)
+                                        }
+                                    }
+                                    goal.addTextChangedListener(rememberDraft); scope.addTextChangedListener(rememberDraft)
                                     val outcome = label("Staging does not grant approval. Review every proposed change in the existing coding engine.")
                                     panel.addView(goal); panel.addView(scope)
                                     panel.addView(button("Prepare this job for exact diff review") {
@@ -152,6 +175,14 @@ object DevelopmentInboxWorkbench {
                                 }
                             }
                         }
+                    val observer = panel.viewTreeObserver
+                    observer.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+                        override fun onGlobalLayout() {
+                            if (observer.isAlive) observer.removeOnGlobalLayoutListener(this)
+                            if (generation == displayGeneration && !activity.isFinishing && !activity.isDestroyed)
+                                scroll?.scrollTo(0, scrollY)
+                        }
+                    })
                 }
             }
         }

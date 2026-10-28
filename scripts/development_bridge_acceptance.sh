@@ -50,7 +50,7 @@ run_suite com.assistant.core.test com.assistant.core.services.DevelopmentBridgeA
 run_suite com.jarvis.integration.fixture.test com.jarvis.integration.fixture.UnauthorizedPeerTest 1 development-bridge-results/unknown-peer.txt
 run_suite com.assistant.core.beta.test com.jarvis.integration.commercialfixture.CommercialPeerTest 1 development-bridge-results/commercial-peer.txt
 run_suite com.jarvis.developer.test com.jarvis.developer.RepositoryAnalysisRuntimeTest 1 development-bridge-results/source-memory.txt
-run_suite com.jarvis.developer.test com.jarvis.developer.EngineeringJobAndroidTest 4 development-bridge-results/engineering-jobs.txt
+run_suite com.jarvis.developer.test com.jarvis.developer.EngineeringJobAndroidTest 5 development-bridge-results/engineering-jobs.txt
 run_suite com.assistant.core.test com.assistant.core.services.DevelopmentSourceWorkerAndroidTest 1 development-bridge-results/source-worker.txt 240
 run_suite com.jarvis.developer.test com.jarvis.developer.ArtifactInstallationAndroidTest 4 development-bridge-results/artifact-installation.txt 180
 adb shell am force-stop com.jarvis.developer

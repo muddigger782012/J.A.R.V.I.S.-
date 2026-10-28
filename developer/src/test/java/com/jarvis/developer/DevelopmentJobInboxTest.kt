@@ -10,6 +10,61 @@ class DevelopmentJobInboxTest {
     @get:Rule val directory = TemporaryFolder()
     private val caller = "com.assistant.core"
     private fun request(id: String = "review") = Wire.Request(id, "diagnostics.review.request", "Unverified microphone observation")
+    @Test fun ownerControlsPersistAcrossReconstructionAndRejectStaleClicks() {
+        fun inbox() = DevelopmentJobInbox(directory.root)
+        val id = inbox().handle(caller, true, request()).getString("id")
+        assertEquals(listOf(DevelopmentJobInbox.LocalControl.PAUSE, DevelopmentJobInbox.LocalControl.CANCEL),
+            inbox().localControls(id, 0, "supervised", true))
+        val paused = inbox().controlLocal(id, 0, "supervised", true, DevelopmentJobInbox.LocalControl.PAUSE)
+        assertEquals("PAUSED", paused.getString("state"))
+        assertTrue(inbox().localControls(id, 0, "supervised", true).isEmpty())
+        assertThrows(Wire.Rejected::class.java) { inbox().controlLocal(id, 0, "supervised", true, DevelopmentJobInbox.LocalControl.CANCEL) }
+        val resumed = inbox().controlLocal(id, 1, "supervised", true, DevelopmentJobInbox.LocalControl.RESUME)
+        assertEquals("QUEUED", resumed.getString("state"))
+        assertEquals(1, resumed.getInt("attempts"))
+        Wire.Stage.values().forEach { assertEquals("PENDING", resumed.getJSONObject("verification").getString(it.name)) }
+        assertTrue(directory.root.resolve("development-inbox.bin").readText().contains("developer_ui"))
+    }
+    @Test fun ownerControlsRetainCommercialRestrictionsAndTheOriginalResumeMode() {
+        val inbox = DevelopmentJobInbox(directory.root)
+        val id = inbox.handle(caller, true, request().copy(mode = "owner_development")).getString("id")
+        inbox.controlLocal(id, 0, "supervised", true, DevelopmentJobInbox.LocalControl.PAUSE)
+        assertFalse(DevelopmentJobInbox.LocalControl.RESUME in inbox.localControls(id, 1, "supervised", true))
+        assertThrows(Wire.Rejected::class.java) { inbox.controlLocal(id, 1, "supervised", true, DevelopmentJobInbox.LocalControl.RESUME) }
+        assertThrows(Wire.Rejected::class.java) { inbox.controlLocal(id, 1, "owner_development", false, DevelopmentJobInbox.LocalControl.RESUME) }
+        assertTrue(inbox.localControls(id, 1, "owner_development", false).isEmpty())
+        assertEquals("QUEUED", inbox.controlLocal(id, 1, "owner_development", true,
+            DevelopmentJobInbox.LocalControl.RESUME).getString("state"))
+    }
+    @Test fun localReadOnlyRetriesStopAtTheExistingAttemptLimit() {
+        val inbox = DevelopmentJobInbox(directory.root)
+        val id = inbox.handle(caller, true, request()).getString("id")
+        var revision = 0L
+        repeat(2) {
+            inbox.controlLocal(id, revision++, "supervised", true, DevelopmentJobInbox.LocalControl.CANCEL)
+            inbox.controlLocal(id, revision++, "supervised", true, DevelopmentJobInbox.LocalControl.RETRY)
+        }
+        inbox.controlLocal(id, revision++, "supervised", true, DevelopmentJobInbox.LocalControl.CANCEL)
+        assertTrue(inbox.localControls(id, revision, "supervised", true).isEmpty())
+        assertThrows(Wire.Rejected::class.java) { inbox.controlLocal(id, revision, "supervised", true, DevelopmentJobInbox.LocalControl.RETRY) }
+        assertEquals(3, inbox.localSnapshot().single().getInt("attempts"))
+        assertFalse(inbox.localSnapshot().single().getBoolean("sourceVerified"))
+    }
+    @Test fun concurrentOwnerControlsCannotApplyTheSameSnapshotTwice() {
+        val inbox = DevelopmentJobInbox(directory.root)
+        val id = inbox.handle(caller, true, request()).getString("id")
+        val successes = java.util.concurrent.atomic.AtomicInteger()
+        val failures = java.util.concurrent.atomic.AtomicInteger()
+        val threads = listOf(DevelopmentJobInbox.LocalControl.PAUSE, DevelopmentJobInbox.LocalControl.CANCEL).map { action ->
+            Thread {
+                try { DevelopmentJobInbox(directory.root).controlLocal(id, 0, "supervised", true, action); successes.incrementAndGet() }
+                catch (_: Wire.Rejected) { failures.incrementAndGet() }
+            }.apply { start() }
+        }
+        threads.forEach { it.join(5_000); assertFalse(it.isAlive) }
+        assertEquals(1, successes.get()); assertEquals(1, failures.get())
+        assertEquals(1L, inbox.localSnapshot().single().getLong("revision"))
+    }
     @Test fun resolvingTheFrameworkAliasDoesNotAllowLinksInsideTheInbox() {
         val data = directory.newFolder("data")
         val alias = directory.root.resolve("framework-storage")
