@@ -595,7 +595,7 @@ class DevelopmentJobInbox(directory: File, private val now: () -> Long = System:
         engineeringPolicy(job, personal)
         val e = job.getJSONObject("engineering")
         require(job.getLong("revision") == revision && e.has("receipt") &&
-            job.getString("state") in setOf("READY_FOR_REVIEW", "REVIEW_REQUIRED", "OUTCOME_UNKNOWN"))
+            job.getString("state") in setOf("READY_FOR_REVIEW", "REVIEW_REQUIRED", "OUTCOME_UNKNOWN", "CANCELLED"))
         require(e.optJSONObject("artifact")?.optJSONObject("installation")?.optString("status") !in DevelopmentArtifact.activeInstalls)
         e.remove("artifact")
         job.getJSONObject("verification").put("SIGNED_APK", "PENDING").put("DEVICE_INSTALLED", "PENDING")

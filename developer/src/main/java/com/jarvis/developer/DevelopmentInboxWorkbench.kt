@@ -14,6 +14,7 @@ import android.widget.ScrollView
 import android.view.View
 import android.text.Editable
 import android.text.TextWatcher
+import androidx.core.view.doOnLayout
 import com.jarvis.integration.DevelopmentBridgeContract as Wire
 import org.json.JSONArray
 import org.json.JSONObject
@@ -125,7 +126,7 @@ object DevelopmentInboxWorkbench {
                                             "Recorded diagnostics are unavailable. Refresh or recheck this job; no approval was granted.", android.widget.Toast.LENGTH_LONG).show() }
                                     })
                                 if (job.optJSONObject("engineering")?.optBoolean("approvalConsumed") == true &&
-                                    job.getString("state") in setOf("READY_FOR_REVIEW", "REVIEW_REQUIRED", "OUTCOME_UNKNOWN")) {
+                                    job.getString("state") in setOf("READY_FOR_REVIEW", "REVIEW_REQUIRED", "OUTCOME_UNKNOWN", "CANCELLED")) {
                                     val resultLabel = label("Build checks use your current in-memory GitHub connection when available; approvals are never restored.")
                                     panel.addView(button("Recheck this job's outcome and build (read only)") {
                                         val checked = runCatching {
@@ -174,7 +175,7 @@ object DevelopmentInboxWorkbench {
                                 }
                             }
                         }
-                    scroll?.post { if (generation == displayGeneration && !activity.isDestroyed) scroll.scrollTo(0, scrollY) }
+                    panel.doOnLayout { if (generation == displayGeneration && !activity.isDestroyed) scroll?.scrollTo(0, scrollY) }
                 }
             }
         }

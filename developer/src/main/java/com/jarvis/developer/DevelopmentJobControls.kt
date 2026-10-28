@@ -33,7 +33,7 @@ internal object DevelopmentJobControls {
         isCurrent: () -> Boolean, changed: () -> Unit, services: Services = Services()) {
         if (actions.isEmpty()) return
         val status = TextView(activity).apply {
-            text = "Task controls preserve completed work. Resuming or retrying never restores source-write or installation approval."
+            text = "Controls stop local work and monitoring. Remote operations already submitted may finish. Source-write and installation approvals are never restored."
             contentDescription = "Task control status"
             setTextColor(activity.getColor(R.color.developer_secondary))
             setPadding(8, 12, 8, 12)
@@ -62,9 +62,9 @@ internal object DevelopmentJobControls {
                         pending = false
                         result.onSuccess {
                             status.text = when (action) {
-                                DevelopmentJobInbox.LocalControl.PAUSE -> "Task paused. Recorded source outcomes are retained."
+                                DevelopmentJobInbox.LocalControl.PAUSE -> "Task paused locally. Remote commits or builds already submitted may finish."
                                 DevelopmentJobInbox.LocalControl.RESUME -> "Task resumed. Source changes still require a fresh exact-diff approval."
-                                DevelopmentJobInbox.LocalControl.CANCEL -> "Task cancelled. Completed remote changes are retained."
+                                DevelopmentJobInbox.LocalControl.CANCEL -> "Task cancelled locally. Use the read-only recheck to inspect remote work already submitted."
                                 DevelopmentJobInbox.LocalControl.RETRY -> "Read-only work queued. No source write or installation was approved."
                             }
                             if (scheduled.isFailure) status.text = "Task state saved. Background recovery could not be scheduled; refresh this task."
