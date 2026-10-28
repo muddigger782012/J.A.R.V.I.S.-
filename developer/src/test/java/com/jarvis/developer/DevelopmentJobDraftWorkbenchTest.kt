@@ -22,7 +22,8 @@ class DevelopmentJobDraftWorkbenchTest {
     @get:Rule val directory = TemporaryFolder()
     private val key = DevelopmentJobDrafts.Key("job_" + "a".repeat(64), 2, PatchEngine.Target.DEVELOPER, "b".repeat(40))
     private fun store() = DevelopmentJobDrafts(directory.root)
-    private inner class Screen(val selected: DevelopmentJobDrafts.Key = key, preferCurrent: Boolean = false) : AutoCloseable {
+    private inner class Screen(val selected: DevelopmentJobDrafts.Key = key, preferCurrent: Boolean = false,
+        workerFails: Boolean = false) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val parent = LinearLayout(activity)
@@ -33,7 +34,7 @@ class DevelopmentJobDraftWorkbenchTest {
         init {
             parent.addView(goal); parent.addView(paths); activity.setContentView(parent)
             DevelopmentJobDraftWorkbench.attach(activity, parent, store(), selected, runCatching { store().read(selected) },
-                goal, paths, preferCurrent, { current }, { pending.add(it) },
+                goal, paths, preferCurrent, { current }, { if (workerFails) error("private worker fixture") else pending.add(it) },
                 { text, action -> Button(activity).apply { this.text = text; setOnClickListener { action() } } },
                 { text -> TextView(activity).apply { this.text = text } })
         }
@@ -89,13 +90,21 @@ class DevelopmentJobDraftWorkbenchTest {
             assertFalse(second.button(R.string.development_draft_save).isEnabled)
         } }
     }
-    @Test fun missingStorageNeverBlocksTheExistingEditableFields() {
+    @Test fun storageOrWorkerFailuresAreInlineAndLeaveFieldsEditable() {
         java.io.File(directory.root, "development-job-drafts.bin").writeText("x".repeat(40))
         Screen().use { s ->
             s.goal.setText("I can still review this request")
             assertEquals(s.activity.getString(R.string.development_draft_unavailable), s.status())
             assertFalse(s.button(R.string.development_draft_save).isEnabled)
             assertEquals("I can still review this request", s.goal.text.toString())
+        }
+        assertTrue(java.io.File(directory.root, "development-job-drafts.bin").delete())
+        Screen(workerFails = true).use { s ->
+            s.button(R.string.development_draft_save).performClick()
+            assertEquals(s.activity.getString(R.string.development_draft_save_failed), s.status())
+            assertFalse(s.status().contains("private worker fixture"))
+            assertEquals("Current goal", s.goal.text.toString())
+            assertNull(store().read(key).text)
         }
     }
     @Test fun staleOrDestroyedCardsCannotReportAWriteAsCurrentSuccess() {
