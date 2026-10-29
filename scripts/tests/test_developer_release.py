@@ -152,6 +152,12 @@ class DeveloperReleaseTests(unittest.TestCase):
         self.assertEqual(self.manifest['apkSha256'] + '  Jarvis-Developer.apk\n', files[1].read_text())
         self.assertEqual(2, len(list(self.apks.iterdir())))
 
+    def test_unexpected_candidate_files_never_enter_the_existing_job_artifact(self):
+        (self.apks / 'unexpected.txt').write_text('private-fixture-password')
+        with self.assertRaises(release.ReleaseFailure) as caught:
+            release.make_manifest(self.apks, B, 400, 1, 18, self.root, sdk)
+        self.assertNotIn('private-fixture-password', str(caught.exception))
+
     def test_extra_fields_or_invented_test_and_device_results_are_rejected(self):
         for changed in [dict(secret='private-fixture-password'), dict(tests='PASSED'),
                         dict(deviceInstallation='PASSED'), dict(scope='VERIFIED_INSTALLATION')]:
@@ -219,6 +225,14 @@ class DeveloperReleaseTests(unittest.TestCase):
             if kind == 'stable': meta['prerelease'] = False
             with self.subTest(kind=kind), self.assertRaises(release.ReleaseFailure): self.prepare()
             self.assertEqual([], self.writes())
+
+    def test_interrupted_apk_upload_cannot_be_preserved_under_old_release_source_metadata(self):
+        # Publication's APK upload succeeded but its following metadata edit did not.
+        self.client.put(release.TAG, release.APK, apk(18))
+        self.assertEqual('Jarvis Developer 0.1.17', self.client.releases[release.TAG]['name'])
+        with self.assertRaisesRegex(release.ReleaseFailure, 'interrupted promotion'):
+            release.preserve_recovery(self.client, self.root, sdk)
+        self.assertEqual([], self.writes())
 
     def test_unavailable_previous_source_cannot_be_treated_as_recoverable(self):
         self.client.releases[release.TAG]['target_commitish'] = 'd' * 40

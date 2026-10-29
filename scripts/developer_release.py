@@ -108,6 +108,9 @@ def inspect(folder, source, run, attempt, sdk, version=None, sdk_command=sdk_out
 
 def make_manifest(folder, source, run, attempt, version, sdk, sdk_command=sdk_output):
     require(type(version) is int and version > 0, 'Invalid workflow version')
+    require(folder.is_dir() and not folder.is_symlink() and
+            {path.name for path in folder.iterdir()} == {APK, 'development-artifact.json'},
+            'Unexpected files in the existing candidate artifact contract')
     receipt = inspect(folder, source, run, attempt, sdk, version, sdk_command)
     require(read_json(folder / 'development-artifact.json') == receipt, 'Build receipt does not match APK/source/run')
     apk = receipt['apks'][0]
@@ -308,6 +311,8 @@ def baseline(client, sdk, sdk_command=sdk_output):
         checked = inspect(folder, meta['target_commitish'], 1, 1, sdk, sdk_command=sdk_command)['apks'][0]
         require(checked['bytes'] == remote['size'] and 'sha256:' + checked['sha256'] == remote['digest'],
                 'Published baseline bytes do not match GitHub metadata')
+        require(meta.get('name') == 'Jarvis Developer ' + checked['versionName'],
+                'Published version metadata is inconsistent; inspect the interrupted promotion before recovery writes')
     return dict(source=meta['target_commitish'], version=checked['versionCode'],
                 sha256=checked['sha256'], bytes=checked['bytes'])
 
