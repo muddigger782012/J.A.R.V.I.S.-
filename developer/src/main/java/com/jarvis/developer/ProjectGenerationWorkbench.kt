@@ -22,7 +22,7 @@ internal object ProjectGenerationWorkbench {
     fun attach(activity: Activity, send: Button, cancel: Button, provider: Spinner, key: EditText, model: EditText,
         prompt: EditText, output: TextView, status: TextView, target: () -> Int, targetView: () -> View?,
         selected: () -> String?, select: (String) -> Unit, store: ProjectGenerationStore,
-        changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }): Handle {
+        changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }, forget: Button? = null): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var disposed = false
@@ -30,6 +30,7 @@ internal object ProjectGenerationWorkbench {
             listOf(send, provider, key, model, prompt).forEach { it.isEnabled = enabled }
             targetView()?.isEnabled = enabled
             cancel.isEnabled = !enabled
+            forget?.isEnabled = enabled
         }
         fun alive() = !disposed && !activity.isFinishing && !activity.isDestroyed
         fun current(run: Running) = alive() && running === run && !run.cancellation.isCancelled
@@ -49,6 +50,12 @@ internal object ProjectGenerationWorkbench {
         }
         cancel.isEnabled = false
         cancel.setOnClickListener { stop(false) }
+        forget?.setOnClickListener {
+            if (!alive() || running != null) return@setOnClickListener
+            val project = selected()
+            status.setText(if (project == null || store.forgetDiscussion(project)) R.string.project_generation_discussion_cleared
+                else R.string.project_generation_discussion_clear_failed)
+        }
         send.setOnClickListener {
             if (!alive() || running != null) return@setOnClickListener
             val task = prompt.text.toString().trim()
@@ -67,6 +74,11 @@ internal object ProjectGenerationWorkbench {
                 } else status.setText(R.string.project_generation_save_failed)
                 return@setOnClickListener
             }
+            val secrets = listOf(secret, readToken)
+            val discussion = runCatching { store.discussion(project, product, secrets) }.getOrElse {
+                status.setText(R.string.project_generation_save_failed); return@setOnClickListener
+            }
+            val lookupTask = discussion.lookupTask(task)
             val ticket = store.begin(project, task, product)
             if (ticket == null) { status.setText(R.string.project_generation_save_failed); return@setOnClickListener }
             select(project); changed()
@@ -76,11 +88,13 @@ internal object ProjectGenerationWorkbench {
             val productTarget = if (product == 1) PatchEngine.Target.PERSONAL else PatchEngine.Target.DEVELOPER
             val work: () -> Unit = {
                 var sourceSummary = ""
+                var nextDiscussion: ProjectGenerationDiscussion? = null
                 val reply = runCatching {
                     run.cancellation.check()
-                    val context = try { services.context(task, productTarget, readToken, secret, run.cancellation) }
-                        catch (_: Exception) { run.cancellation.check(); RepositoryCodingContext.unavailable(task, productTarget) }
+                    val source = try { services.context(lookupTask, productTarget, readToken, secret, run.cancellation) }
+                        catch (_: Exception) { run.cancellation.check(); RepositoryCodingContext.unavailable(lookupTask, productTarget) }
                     run.cancellation.check()
+                    val context = source.withDiscussion(task, discussion)
                     require(context.target == productTarget)
                     context.data(task) // Reject a stale or mismatched fixture before any provider request.
                     sourceSummary = context.summary()
@@ -88,10 +102,12 @@ internal object ProjectGenerationWorkbench {
                         if (context.verified) R.string.project_generation_context_ready else R.string.project_generation_context_unavailable, providerName) }
                     val text = services.ask(providerName, secret, modelName, task, run.cancellation, context)
                     run.cancellation.check()
+                    nextDiscussion = discussion.append(task, text, secrets)
                     sourceSummary + "\n\n" + text
                 }
                 if (!run.cancellation.isCancelled) {
-                    val saved = store.finish(ticket, if (reply.isSuccess) "generated" else "generation_failed", reply.getOrNull())
+                    val saved = store.finish(ticket, if (reply.isSuccess) "generated" else "generation_failed", reply.getOrNull(),
+                        nextDiscussion.takeIf { reply.isSuccess })
                     activity.runOnUiThread {
                         if (!current(run)) return@runOnUiThread
                         running = null; inputs(true); changed()

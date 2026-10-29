@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="project_generation_forget_discussion">Forget coding discussion</string>
+    <string name="project_generation_discussion_cleared">Coding discussion cleared. Your next request starts a new discussion.</string>
+    <string name="project_generation_discussion_clear_failed">Coding discussion could not be cleared. Try again before sending another request.</string>
     <string name="project_generation_reading_context">Reading relevant repository source at one fixed commit… Cancel stops source reading and the AI request.</string>
     <string name="project_generation_context_ready">Verified source excerpts ready. Connecting to %1$s…</string>
-    <string name="project_generation_context_unavailable">Repository context unavailable. Connecting to %1$s with instructions only…</string>
+    <string name="project_generation_context_unavailable">Current repository source could not be verified. Connecting to %1$s…</string>
     <string name="development_history_reading">Reading development history…</string>
     <string name="development_history_read_failed">History could not be read. Refresh to try again.</string>
     <string name="development_draft_save">Save task draft on this device</string>

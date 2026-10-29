@@ -172,6 +172,13 @@ class MainActivity : Activity() {
             backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_panel))
         }
         root.addView(cancelGeneration)
+        val forgetDiscussion = Button(this).apply {
+            setText(R.string.project_generation_forget_discussion); isAllCaps = false
+            minHeight = dp(48)
+            setTextColor(getColor(R.color.developer_primary))
+            backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_panel))
+        }
+        root.addView(forgetDiscussion)
         root.removeView(status)
         root.addView(status)
         root.addView(output)
@@ -378,7 +385,7 @@ class MainActivity : Activity() {
         projectGeneration = ProjectGenerationWorkbench.attach(this, send, cancelGeneration, provider, key, model,
             prompt, output, status, { guidedTarget?.selectedItemPosition ?: 0 }, { guidedTarget },
             { activeProject }, { activeProject = it }, ProjectGenerationStore(projectPrefs),
-            { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() })
+            { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() }, forget = forgetDiscussion)
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
