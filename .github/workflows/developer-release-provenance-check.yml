@@ -25,6 +25,13 @@ on:
 permissions:
   contents: read
 jobs:
+  canonical-boundary:
+    # Same expression as the real signer, but this probe has no secrets or mutation steps.
+    if: github.repository == 'muddigger782012/J.A.R.V.I.S.-' && github.ref == 'refs/heads/feature/jarvis-developer'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Observe canonical condition without exercising the real publisher
+        run: echo 'Canonical condition matched; this read-only probe neither signs nor publishes.'
   contracts:
     runs-on: ubuntu-latest
     steps:

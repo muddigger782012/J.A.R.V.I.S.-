@@ -510,6 +510,16 @@ class DeveloperReleaseTests(unittest.TestCase):
             stage = workflow.split('      - name: ' + title + '\n', 1)[1].split('      - ', 1)[0]
             self.assertIn("github.event_name == 'workflow_dispatch'", stage)
 
+    def test_no_secret_probe_uses_the_exact_production_condition_without_invoking_the_signer(self):
+        workflows = Path(__file__).resolve().parents[2] / '.github/workflows'
+        production = (workflows / 'release-jarvis-developer.yml').read_text()
+        validation = (workflows / 'developer-release-provenance-check.yml').read_text()
+        def condition(text, job):
+            return text.split('  ' + job + ':\n', 1)[1].split('    if: ', 1)[1].splitlines()[0]
+        self.assertEqual(condition(production, 'publish'), condition(validation, 'canonical-boundary'))
+        self.assertNotIn('secrets.', validation)
+        self.assertNotIn('release-jarvis-developer.yml/dispatches', validation)
+
 
 if __name__ == '__main__':
     unittest.main()
