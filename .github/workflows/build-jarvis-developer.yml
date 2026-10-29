@@ -92,7 +92,7 @@ jobs:
           import hashlib, json, os, pathlib, xml.etree.ElementTree as ET
           results = pathlib.Path('developer/build/test-results/testDebugUnitTest')
           files = sorted(results.glob('TEST-*.xml'))
-          assert 0 < len(files) <= 50, 'Expected bounded JUnit XML evidence'
+          assert 0 < len(files) <= 64, 'Expected bounded JUnit XML evidence'
           assert sum(p.stat().st_size for p in files) <= 2_000_000, 'JUnit evidence exceeds budget'
           totals = dict.fromkeys(('tests', 'failures', 'errors', 'skipped'), 0)
           suites, cases = [], []
@@ -111,7 +111,7 @@ jobs:
                   cases.append(dict(suite=suite.attrib['name'], name=case.attrib['name'], result=state))
           summary = dict(sourceCommit=os.environ['GITHUB_SHA'], totals=totals, suites=suites, cases=cases)
           encoded = json.dumps(summary, separators=(',', ':'))
-          assert len(encoded.encode()) <= 100_000, 'JUnit summary exceeds log budget'
+          assert len(encoded.encode()) <= 128_000, 'JUnit summary exceeds log budget'
           print('JARVIS_JUNIT_SUMMARY=' + encoded)
           evidence = pathlib.Path('developer/build/reports/phase3-acceptance/two-session-evidence.json')
           assert evidence.is_file() and evidence.stat().st_size <= 64_000, 'Expected bounded Phase 3 evidence'

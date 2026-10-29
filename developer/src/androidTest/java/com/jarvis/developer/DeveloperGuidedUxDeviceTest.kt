@@ -15,7 +15,8 @@ import org.junit.runner.RunWith
 /** Real Android views/lifecycle on a disposable emulator. Provider fixtures make no live request or source write. */
 @RunWith(AndroidJUnit4::class)
 class DeveloperGuidedUxDeviceTest {
-    private fun projectFixture(activity: MainActivity, project: String, pending: MutableList<() -> Unit>, configure: Boolean = true): ProjectGenerationWorkbench.Handle {
+    private fun projectFixture(activity: MainActivity, project: String, pending: MutableList<() -> Unit>, configure: Boolean = true,
+        source: ((String, PatchEngine.Target) -> RepositoryCodingContext.Context)? = null): ProjectGenerationWorkbench.Handle {
         val owner = MainActivity::class.java.getDeclaredField("projectGeneration").apply { isAccessible = true }
         (owner.get(activity) as? ProjectGenerationWorkbench.Handle)?.dispose()
         val active = MainActivity::class.java.getDeclaredField("activeProject").apply { isAccessible = true }
@@ -34,10 +35,54 @@ class DeveloperGuidedUxDeviceTest {
             { target.selectedItemPosition }, { target }, { active.get(activity) as? String }, { active.set(activity, it) },
             ProjectGenerationStore(activity.getSharedPreferences("developer_local_projects_v1", android.content.Context.MODE_PRIVATE)),
             { button(activity, "Refresh saved projects").performClick() },
-            ProjectGenerationWorkbench.Services(worker = { pending.add(it) }, ask = { _, _, _, task, _ -> "Fixture reply for $task" }))
+            ProjectGenerationWorkbench.Services(worker = { pending.add(it) }, ask = { _, _, _, task, _, _ -> "Fixture reply for $task" },
+                context = { task, product, _, _, _ -> source?.invoke(task, product) ?: RepositoryCodingContext.unavailable(task, product) }))
         // Instance-local test transport: the real Activity destruction hook owns its cleanup.
         owner.set(activity, handle)
         return handle
+    }
+    @Test fun nativeHomeRetainsVerifiedReplyProvenanceAndLabelsInstructionsOnlyFallback() {
+        val project = "native-context-" + java.util.UUID.randomUUID()
+        val pending = mutableListOf<() -> Unit>()
+        val prefs = instrumentation.targetContext.getSharedPreferences("developer_local_projects_v1", android.content.Context.MODE_PRIVATE)
+        val commit = "a".repeat(40)
+        val path = "developer/src/main/java/com/jarvis/developer/VoiceNetwork.kt"
+        val source = "class VoiceNetwork { fun voiceLatency() = 5 }"
+        val bytes = source.toByteArray()
+        val digest = java.security.MessageDigest.getInstance("SHA-1").apply { update("blob ${bytes.size}\u0000".toByteArray()) }
+        val blob = digest.digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) }
+        var available = true
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                settle(scenario)
+                scenario.onActivity { activity ->
+                    projectFixture(activity, project, pending, source = { task, target ->
+                        if (!available) RepositoryCodingContext.unavailable(task, target) else {
+                            val inventory = RepositoryAnalysis.Inventory(listOf(RepositoryAnalysis.SourceFile(path, blob, bytes.size.toLong())), false, commit)
+                            RepositoryCodingContext.fromAnalysis(task, target, inventory,
+                                RepositoryAnalysis.analyze(task, inventory) { source }, mapOf(path to source), emptyList())
+                        }
+                    })
+                    views(activity.window.decorView).filterIsInstance<Spinner>()
+                        .single { it.contentDescription == "Application to improve" }.setSelection(0)
+                    field(activity, PROMPT).setText("Repair voice network latency")
+                    button(activity, "Ask Jarvis / save instructions").performClick(); pending.removeAt(0).invoke()
+                    var record = org.json.JSONObject(prefs.getString("project_$project", "{}")!!)
+                    assertTrue(record.getString("response").contains(commit)); assertTrue(record.getString("response").contains(path))
+                    assertFalse(record.getString("response").contains("voiceLatency")); assertFalse(record.has("approval"))
+                    assertFalse(record.toString().contains("native-provider-fixture-42"))
+                    button(activity, "Projects").performClick(); button(activity, "Home").performClick()
+                    val output = views(activity.window.decorView).filterIsInstance<TextView>().single { it.tag == "project-generation-reply" }
+                    assertTrue(output.text.toString().contains(commit)); assertTrue(button(activity, "Ask Jarvis / save instructions").isEnabled)
+                    available = false
+                    button(activity, "Ask Jarvis / save instructions").performClick(); pending.removeAt(0).invoke()
+                    record = org.json.JSONObject(prefs.getString("project_$project", "{}")!!)
+                    assertTrue(record.getString("response").startsWith("Repository context unavailable."))
+                    assertFalse(record.getString("response").contains(commit)); assertFalse(record.has("approval"))
+                    assertTrue(pending.isEmpty())
+                }
+            }
+        } finally { prefs.edit().remove("project_$project").commit() }
     }
     @Test fun nativeCancellationAndRetryKeepNewerInputsBusyAndIgnoreTheOldReply() {
         val project = "native-generation-" + java.util.UUID.randomUUID()
@@ -67,7 +112,8 @@ class DeveloperGuidedUxDeviceTest {
                 }
                 val record = org.json.JSONObject(prefs.getString("project_$project", "{}")!!)
                 assertEquals("New native instructions", record.getString("description"))
-                assertEquals("Fixture reply for New native instructions", record.getString("response"))
+                assertTrue(record.getString("response").contains("Repository context unavailable"))
+                assertTrue(record.getString("response").endsWith("Fixture reply for New native instructions"))
                 assertEquals("generated", record.getString("state")); assertFalse(record.has("approval"))
             }
         } finally { prefs.edit().remove("project_$project").commit() }

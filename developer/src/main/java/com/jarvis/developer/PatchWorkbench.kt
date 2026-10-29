@@ -204,7 +204,7 @@ object PatchWorkbench {
             val providerName = provider.selectedItem?.toString().orEmpty()
             val rawModel = model.text.toString()
             val selectedModel = rawModel.trim().ifBlank {
-                if (providerName == "Gemini") "gemini-2.5-flash" else "gpt-4.1-mini"
+                if (providerName == "Gemini") CodingAssistantProvider.DEFAULT_GEMINI_MODEL else "gpt-4.1-mini"
             }
             val rawId = taskId.text.toString()
             val rawTask = task.text.toString()

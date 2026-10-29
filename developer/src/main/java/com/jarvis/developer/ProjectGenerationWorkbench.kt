@@ -12,9 +12,8 @@ import kotlin.concurrent.thread
 internal object ProjectGenerationWorkbench {
     internal class Services(
         val worker: (() -> Unit) -> Unit = { work -> thread(name = "DeveloperCodingAssistant", isDaemon = true) { work() }; Unit },
-        val ask: (String, String, String, String, PatchPreviewCancellation) -> String = { provider, key, model, task, cancellation ->
-            CodingAssistantProvider.ask(provider, key, model, task, cancellation)
-        }
+        val ask: (String, String, String, String, PatchPreviewCancellation, RepositoryCodingContext.Context) -> String = CodingAssistantProvider::ask,
+        val context: (String, PatchEngine.Target, String, String, PatchPreviewCancellation) -> RepositoryCodingContext.Context = RepositoryIntelligence::codingContext
     )
     class Handle internal constructor(private val stop: (Boolean) -> Unit) {
         fun cancel() = stop(false)
@@ -23,7 +22,7 @@ internal object ProjectGenerationWorkbench {
     fun attach(activity: Activity, send: Button, cancel: Button, provider: Spinner, key: EditText, model: EditText,
         prompt: EditText, output: TextView, status: TextView, target: () -> Int, targetView: () -> View?,
         selected: () -> String?, select: (String) -> Unit, store: ProjectGenerationStore,
-        changed: () -> Unit, services: Services = Services()): Handle {
+        changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var disposed = false
@@ -55,7 +54,8 @@ internal object ProjectGenerationWorkbench {
             val task = prompt.text.toString().trim()
             if (task.isEmpty()) { status.setText(R.string.project_generation_describe); prompt.requestFocus(); return@setOnClickListener }
             val secret = key.text.toString().trim()
-            if (secret.isNotEmpty() && task.contains(secret)) {
+            val readToken = githubToken().trim()
+            if ((secret.isNotEmpty() && task.contains(secret)) || (readToken.isNotEmpty() && task.contains(readToken))) {
                 status.setText(R.string.project_generation_remove_key); return@setOnClickListener
             }
             val project = selected() ?: java.util.UUID.randomUUID().toString()
@@ -72,11 +72,23 @@ internal object ProjectGenerationWorkbench {
             select(project); changed()
             val run = Running(ticket, PatchPreviewCancellation()).also { running = it }
             val providerName = provider.selectedItem.toString(); val modelName = model.text.toString().trim()
-            inputs(false); status.text = activity.getString(R.string.project_generation_connecting, providerName)
+            inputs(false); status.setText(R.string.project_generation_reading_context)
+            val productTarget = if (product == 1) PatchEngine.Target.PERSONAL else PatchEngine.Target.DEVELOPER
             val work: () -> Unit = {
+                var sourceSummary = ""
                 val reply = runCatching {
                     run.cancellation.check()
-                    services.ask(providerName, secret, modelName, task, run.cancellation).also { run.cancellation.check() }
+                    val context = try { services.context(task, productTarget, readToken, secret, run.cancellation) }
+                        catch (_: Exception) { run.cancellation.check(); RepositoryCodingContext.unavailable(task, productTarget) }
+                    run.cancellation.check()
+                    require(context.target == productTarget)
+                    context.data(task) // Reject a stale or mismatched fixture before any provider request.
+                    sourceSummary = context.summary()
+                    activity.runOnUiThread { if (current(run)) status.text = activity.getString(
+                        if (context.verified) R.string.project_generation_context_ready else R.string.project_generation_context_unavailable, providerName) }
+                    val text = services.ask(providerName, secret, modelName, task, run.cancellation, context)
+                    run.cancellation.check()
+                    sourceSummary + "\n\n" + text
                 }
                 if (!run.cancellation.isCancelled) {
                     val saved = store.finish(ticket, if (reply.isSuccess) "generated" else "generation_failed", reply.getOrNull())
@@ -94,7 +106,8 @@ internal object ProjectGenerationWorkbench {
                             status.setText(R.string.project_generation_failed)
                             val reason = if (failure is CodingAssistantProvider.ProviderFailure) failure.message.orEmpty()
                                 else activity.getString(R.string.project_generation_check_connection)
-                            output.text = activity.getString(R.string.project_generation_failure_detail, reason,
+                            val detail = if (sourceSummary.isBlank()) reason else sourceSummary + "\n\n" + reason
+                            output.text = activity.getString(R.string.project_generation_failure_detail, detail,
                                 activity.getString(R.string.project_generation_description_kept))
                         }
                     }

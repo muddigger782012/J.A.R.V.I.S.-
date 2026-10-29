@@ -91,7 +91,7 @@ Relevant source context:
 ${context.take(12000)}
 """
         val raw: String = if (provider == "Gemini") {
-            val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/${model.ifBlank { "gemini-2.5-flash" }}:generateContent"
+            val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/${model.ifBlank { CodingAssistantProvider.DEFAULT_GEMINI_MODEL }}:generateContent"
             val req = JSONObject().put("contents", JSONArray().put(JSONObject()
                 .put("parts", JSONArray().put(JSONObject().put("text", instructions)))))
             val c = URL(endpoint).openConnection() as HttpURLConnection

@@ -17,6 +17,50 @@ import java.util.UUID
 
 /** Real Assistant -> authenticated Binder -> existing Developer screen. APK/source setup is the earlier explicit fixture. */
 class DevelopmentArtifactHandoffAndroidTest {
+    /** Disposable-fixture diagnostics only: geometry and known UI labels, never arbitrary field text. */
+    private fun reportReviewVisibility(instrumentation: android.app.Instrumentation) {
+        val automation = instrumentation.uiAutomation
+        val info = automation.serviceInfo
+        val previousFlags = info.flags
+        try {
+            val report = JSONObject().put("activeBefore", automation.rootInActiveWindow?.packageName?.toString())
+            info.flags = previousFlags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            automation.serviceInfo = info
+            val windows = JSONArray()
+            var inspected = 0
+            var recorded = 0
+            fun nodes(node: android.view.accessibility.AccessibilityNodeInfo, items: JSONArray) {
+                if (++inspected > 240 || recorded >= 48) return
+                val description = node.contentDescription?.toString().orEmpty()
+                val text = node.text?.toString().orEmpty()
+                val known = text in setOf("Home", "Projects", "Activity", "Settings") ||
+                    text.startsWith("Verified APK review from Assistant") || text.startsWith("Review history could not be read") ||
+                    text.startsWith("The requested review is unavailable") || description == "Development history position"
+                if (known || description == "Verified APK review from Assistant" || node.className?.toString() == "android.widget.ScrollView") {
+                    val bounds = android.graphics.Rect(); node.getBoundsInScreen(bounds)
+                    items.put(JSONObject().put("class", node.className?.toString()).put("bounds", bounds.toShortString())
+                        .put("visible", node.isVisibleToUser).put("description", description.take(100))
+                        .put("label", if (known) text.take(160) else ""))
+                    recorded++
+                }
+                for (i in 0 until node.childCount) node.getChild(i)?.let { nodes(it, items) }
+            }
+            for (window in automation.windows.take(8)) {
+                val bounds = android.graphics.Rect(); window.getBoundsInScreen(bounds)
+                val items = JSONArray(); window.root?.let { nodes(it, items) }
+                windows.put(JSONObject().put("package", window.root?.packageName?.toString()).put("type", window.type)
+                    .put("active", window.isActive).put("focused", window.isFocused).put("bounds", bounds.toShortString()).put("nodes", items))
+            }
+            report.put("windows", windows).put("activeAfter", automation.rootInActiveWindow?.packageName?.toString())
+            val encoded = report.toString()
+            check(encoded.toByteArray(Charsets.UTF_8).size <= 20_000)
+            instrumentation.sendStatus(0, android.os.Bundle().apply { putString("review_visibility_debug", encoded) })
+        } catch (_: Exception) {
+            instrumentation.sendStatus(0, android.os.Bundle().apply { putString("review_visibility_debug", "Bounded window diagnostics unavailable") })
+        } finally {
+            info.flags = previousFlags; automation.serviceInfo = info
+        }
+    }
     @Test fun actualAssistantOpensTheExactOlderJobReviewWithoutRequestingInstallation() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         check(InstrumentationRegistry.getArguments().getString("jarvisDisposable") == "true")
@@ -65,15 +109,25 @@ class DevelopmentArtifactHandoffAndroidTest {
             var visible = false
             while (SystemClock.uptimeMillis() < deadline) {
                 opened = call("task.status.request", job = job)
-                fun hasReview(node: android.view.accessibility.AccessibilityNodeInfo): Boolean =
-                    node.contentDescription?.toString() == "Verified APK review from Assistant" && node.isVisibleToUser ||
-                        (0 until node.childCount).any { i -> node.getChild(i)?.let(::hasReview) == true }
-                visible = instrumentation.uiAutomation.rootInActiveWindow?.let(::hasReview) == true
+                val root = instrumentation.uiAutomation.rootInActiveWindow
+                visible = root?.let { window ->
+                    // API 26 can retain children from before the cross-app handoff. Query the
+                    // current application window instead of traversing its cached descendants.
+                    if (!window.refresh() || window.packageName?.toString() != Wire.DEVELOPER_PACKAGE) false else {
+                        val matches = window.findAccessibilityNodeInfosByText("Verified APK review from Assistant")
+                        try {
+                            matches.any { node -> node.refresh() &&
+                                node.contentDescription?.toString() == "Verified APK review from Assistant" && node.isVisibleToUser }
+                        } finally { matches.forEach { it.recycle() } }
+                    }
+                } == true
+                root?.recycle()
                 if (opened.optJSONObject("artifactReview")?.optBoolean("consumed") == true && visible) break
                 SystemClock.sleep(150)
             }
             assertTrue("The exact job's authenticated handoff was not recorded", opened!!.getJSONObject("artifactReview").getBoolean("consumed"))
-            assertTrue("The focused APK review was not visible in Developer's preserved Tools screen", visible)
+            if (!visible) reportReviewVisibility(instrumentation)
+            assertTrue("The focused APK review was not visible in Developer's Activity screen", visible)
             assertEquals("com.jarvis.developer", instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString())
             assertEquals(before.getJSONObject("artifact").getString("installation"), opened.getJSONObject("artifact").getString("installation"))
             assertFalse(opened.getBoolean("deviceVerified"))

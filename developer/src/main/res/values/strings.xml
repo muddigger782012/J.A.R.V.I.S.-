@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="project_generation_reading_context">Reading relevant repository source at one fixed commit… Cancel stops source reading and the AI request.</string>
+    <string name="project_generation_context_ready">Verified source excerpts ready. Connecting to %1$s…</string>
+    <string name="project_generation_context_unavailable">Repository context unavailable. Connecting to %1$s with instructions only…</string>
     <string name="development_history_reading">Reading development history…</string>
     <string name="development_history_read_failed">History could not be read. Refresh to try again.</string>
     <string name="development_draft_save">Save task draft on this device</string>
@@ -23,7 +26,6 @@
     <string name="project_generation_saved_offline">Project saved locally. Connect an AI provider in Settings to generate code.</string>
     <string name="project_generation_not_started">Project saved. Your description is safe on this device; AI generation has not started.</string>
     <string name="project_generation_save_failed">Project could not be saved on this device. Your current instructions are unchanged; AI generation has not started.</string>
-    <string name="project_generation_connecting">Project saved. Connecting to %1$s…</string>
     <string name="project_generation_changed">This saved project changed while the request was running. Its reply was not applied. Refresh Projects before retrying.</string>
     <string name="project_generation_received">Project saved; response received from %1$s. No build or source change was performed.</string>
     <string name="project_generation_response_unsaved">AI response received, but could not be saved locally. Keep a copy before leaving.</string>

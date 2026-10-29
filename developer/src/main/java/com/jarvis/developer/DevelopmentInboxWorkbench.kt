@@ -156,6 +156,7 @@ object DevelopmentInboxWorkbench {
                     if (activity.isFinishing || activity.isDestroyed || generation != displayGeneration) return@runOnUiThread
                     reading = false
                     panel.removeAllViews()
+                    var focusedHeading: TextView? = null
                     result.onFailure {
                         browserStatus.setText(R.string.development_history_read_failed)
                         topNavigation.removeAllViews(); topNavigation.addView(pager(null, generation))
@@ -169,6 +170,7 @@ object DevelopmentInboxWorkbench {
                             panel.addView(label("${page.total} stored jobs. Source, build, tests, signing and installation have separate verification gates."))
                             if (focus != null && page.rows.isNotEmpty()) panel.addView(label("Verified APK review from Assistant. Installation needs your separate approval.").apply {
                                 contentDescription = "Verified APK review from Assistant"
+                                focusedHeading = this
                             })
                             page.rows.forEachIndexed { index, job ->
                                 val card = LinearLayout(activity).apply {
@@ -269,8 +271,14 @@ object DevelopmentInboxWorkbench {
                     observer.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
                         override fun onGlobalLayout() {
                             if (observer.isAlive) observer.removeOnGlobalLayoutListener(this)
-                            if (generation == displayGeneration && !activity.isFinishing && !activity.isDestroyed)
-                                scroll?.scrollTo(0, scrollY)
+                            if (generation == displayGeneration && !activity.isFinishing && !activity.isDestroyed) {
+                                val heading = focusedHeading
+                                if (heading != null) {
+                                    // Handoffs can arrive before Activity's headers are measured.
+                                    // Reveal the actual laid-out review, not its earlier section offset.
+                                    heading.requestRectangleOnScreen(android.graphics.Rect(0, 0, heading.width, heading.height), true)
+                                } else scroll?.scrollTo(0, scrollY)
+                            }
                         }
                     })
                 }

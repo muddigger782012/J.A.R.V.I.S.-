@@ -1,0 +1,10 @@
+// Explicit, opt-in live acceptance only. Ordinary unit/CI builds do not include this source set.
+gradle.beforeProject { project ->
+    if (project.path == ':developer') {
+        project.pluginManager.withPlugin('com.android.application') {
+            project.extensions.getByName('androidComponents').finalizeDsl { androidDsl ->
+                androidDsl.sourceSets.getByName('test').java.srcDir(project.file('src/liveTest/java'))
+            }
+        }
+    }
+}

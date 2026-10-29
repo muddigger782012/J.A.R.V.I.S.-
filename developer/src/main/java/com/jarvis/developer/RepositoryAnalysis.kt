@@ -16,6 +16,9 @@ object RepositoryAnalysis {
     const val MAX_SNIPPET_LINES = 7
     const val MAX_SNIPPET_CHARACTERS = 1_200
 
+    internal data class ReadBudget(val files: Int = MAX_INSPECTED_FILES,
+        val bytes: Long = MAX_TOTAL_BYTES, val relevantPathsOnly: Boolean = false)
+
     data class SourceFile(val path: String, val sha: String, val size: Long)
     data class Inventory(val files: List<SourceFile>, val truncated: Boolean, val commitSha: String)
     data class Symbol(val name: String, val kind: String, val line: Int)
@@ -110,8 +113,10 @@ object RepositoryAnalysis {
         analyzeControlled(task, inventory, {}, {}, readSource)
 
     internal fun analyzeControlled(task: String, inventory: Inventory, checkpoint: () -> Unit,
-        onPlanning: () -> Unit, readSource: (String) -> String, beforeReading: () -> Unit = {}): AnalysisPlan {
+        onPlanning: () -> Unit, readSource: (String) -> String, beforeReading: () -> Unit = {},
+        budget: ReadBudget = ReadBudget()): AnalysisPlan {
         checkpoint()
+        require(budget.files in 1..MAX_INSPECTED_FILES && budget.bytes in 1..MAX_TOTAL_BYTES)
         require(revision.matches(inventory.commitSha)) { "Analysis requires a full immutable commit SHA" }
         require(task.isNotBlank() && task.length <= 4_000) { "Task must contain 1–4,000 characters" }
         require(inventory.files.size <= 20_000) { "Inventory exceeds analysis entry limit" }
@@ -136,13 +141,14 @@ object RepositoryAnalysis {
         // and can dominate the whole session on older Android runtimes.
         val candidates = inventory.files.map { source ->
             checkpoint(); Triple(source, discoveryScore(source.path, query), sourcePriority(source.path))
-        }.sortedWith(compareByDescending<Triple<SourceFile, Double, Int>> { it.second }
+        }.filter { !budget.relevantPathsOnly || pathScore(it.first.path, query) > 0.0 }
+            .sortedWith(compareByDescending<Triple<SourceFile, Double, Int>> { it.second }
             .thenBy { it.third }.thenBy { it.first.path }).map { it.first }
         beforeReading()
         for (source in candidates) {
             checkpoint()
             if (source.size > MAX_FILE_BYTES) { oversized++; continue }
-            if (inspected.size >= MAX_INSPECTED_FILES || bytesRead + source.size > MAX_TOTAL_BYTES) { budgetSkipped++; continue }
+            if (inspected.size >= budget.files || bytesRead + source.size > budget.bytes) { budgetSkipped++; continue }
             inspected += source.path
             // Reserve the advertised size even if reading fails. Bad metadata cannot enlarge budgets.
             bytesRead += source.size
@@ -165,7 +171,7 @@ object RepositoryAnalysis {
             documents += document(source, text)
         }
         if (oversized > 0) notes += "$oversized files exceed the $MAX_FILE_BYTES-byte per-file limit and were not read."
-        if (budgetSkipped > 0) notes += "$budgetSkipped files were not read because analysis is limited to $MAX_INSPECTED_FILES reads and $MAX_TOTAL_BYTES bytes."
+        if (budgetSkipped > 0) notes += "$budgetSkipped files were not read because analysis is limited to ${budget.files} reads and ${budget.bytes} bytes."
         if (failed > 0) notes += "$failed source reads failed; no plan relies on their contents."
         onPlanning(); checkpoint()
         val ranked = documents.map { checkpoint(); it to contentScore(it, query) }

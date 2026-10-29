@@ -77,7 +77,7 @@ class CodingAssistantProviderTest {
         val fake = Fixture().apply { body(gemini()) }
         assertEquals(answer, CodingAssistantProvider.Client(fake).ask("Gemini", key, "", task))
         val sent = fake.requests.single()
-        assertEquals("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", sent.url)
+        assertEquals("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent", sent.url)
         assertEquals(mapOf("x-goog-api-key" to key), sent.headers)
         assertFalse(sent.url.contains(key))
         val serialized = String(sent.body, Charsets.UTF_8)
@@ -89,6 +89,13 @@ class CodingAssistantProviderTest {
         assertEquals(1, body.getJSONObject("generationConfig").getInt("candidateCount"))
         assertFalse(body.has("tools"))
         assertEquals(1, fake.closed)
+    }
+
+    @Test fun explicitlySelectedOlderGeminiModelIsNotRewrittenToTheDefaultAlias() {
+        val fake = Fixture().apply { body(gemini()) }
+        CodingAssistantProvider.Client(fake).ask("Gemini", key, "gemini-2.5-flash", task)
+        assertEquals("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            fake.requests.single().url)
     }
 
     @Test fun explicitModelsAreFrozenIntoTheirSelectedProvidersRequest() {

@@ -93,6 +93,25 @@ class DevelopmentHistoryUiTest {
             assertEquals(ids.asReversed().take(8), s.ids())
         }
     }
+    @Test fun focusedReviewHeadingBecomesVisibleAfterThePageFinishesLayout() {
+        val ids = seed(2)
+        Screen().use { s ->
+            // A handoff can arrive before Activity's introduction/header has its final height.
+            // The pre-layout top of the inbox must not become the final scroll destination.
+            s.parent.addView(View(s.activity).apply {
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 900)
+            }, 0)
+            s.handle.focus(ids.first()); s.complete()
+            val heading = s.views().filterIsInstance<TextView>().single {
+                it.contentDescription == "Verified APK review from Assistant"
+            }
+            val rect = android.graphics.Rect()
+            heading.getDrawingRect(rect); s.scroll.offsetDescendantRectToMyCoords(heading, rect)
+            assertTrue("The exact review heading must be inside the visible viewport after layout", rect.top >= s.scroll.scrollY)
+            assertTrue("The exact review heading must not remain below the viewport", rect.bottom <= s.scroll.scrollY + s.scroll.height)
+            assertEquals(listOf(ids.first()), s.ids())
+        }
+    }
     @Test fun anUnavailableFocusedReviewNeverShowsAnotherTasksControls() {
         seed(2)
         Screen().use { s ->
