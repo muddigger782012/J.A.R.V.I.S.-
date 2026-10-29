@@ -85,6 +85,31 @@ class CandidateEvaluationTest {
         blocked(manifest().apply { getJSONObject("recovery").put("backup", JSONObject.NULL) }, "backup is missing")
     }
 
+    @Test fun recoveryReviewExplainsImmutableBackupsWithoutChangingTheRequiredExactFacts() {
+        val ready = review()
+        assertTrue(ready.eligible)
+        assertTrue(CandidateEvaluation.render(ready).contains("immutable snapshot or legacy"))
+        val missing = review(manifest().apply { getJSONObject("recovery").put("backup", JSONObject.NULL) })
+        assertFalse(missing.eligible)
+        assertTrue(missing.blockers.any { it.contains("preserve the current published APK") })
+    }
+
+    @Test fun immutableCopyObservationCannotMakeACanonicalControllerCandidateEligible() {
+        val sameController = manifest().apply {
+            getJSONObject("source").put("branchIsolated", false).put("changedPaths", JSONArray())
+        }
+        val result = review(sameController)
+        assertFalse(result.eligible)
+        rejected { CandidateEvaluation.confirm(result, result.fingerprint, true, 1_001) }
+    }
+
+    @Test fun readOnlyRecoveryDiscoveryReportCannotBeRestoredAsCandidateOrApprovalEvidence() {
+        rejected { CandidateEvaluation.parseEvidence(JSONObject().put("schemaVersion", 1)
+            .put("scope", "READ_ONLY_RECOVERY_DISCOVERY").put("status", "PASSED")
+            .put("currentBackup", JSONObject().put("status", "VERIFIED"))
+            .put("promotionEligibility", "NOT_ASSESSED").toString(), expected) }
+    }
+
     @Test fun missingBaselineAndMissingRecoveryRebuildCannotBeDeferred() {
         blocked(manifest().apply { getJSONObject("recovery").put("baseline", JSONObject.NULL) }, "baseline source and artifact are missing")
         blocked(manifest().apply { getJSONObject("recovery").put("rebuild", JSONObject.NULL) }, "recovery rebuild is missing")
