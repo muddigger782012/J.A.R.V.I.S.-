@@ -39,7 +39,10 @@ def require(ok, message):
 
 
 def command(args):
-    result = subprocess.run([str(value) for value in args], text=True, capture_output=True)
+    try:
+        result = subprocess.run([str(value) for value in args], text=True, capture_output=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired):
+        raise ReleaseFailure('Release tool execution did not complete') from None
     require(result.returncode == 0, 'Release tool execution failed')
     require(len(result.stdout.encode()) <= 2_000_000, 'Release tool output exceeds its budget')
     return result.stdout.strip()
@@ -157,8 +160,11 @@ class GitHub:
         args = ['gh', 'api', '--method', method, 'repos/' + REPO + '/' + path]
         if body is not None:
             args += ['--input', '-']
-        result = subprocess.run(args, input=json.dumps(body) if body is not None else None,
-                                text=True, capture_output=True)
+        try:
+            result = subprocess.run(args, input=json.dumps(body) if body is not None else None,
+                                    text=True, capture_output=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired):
+            raise ReleaseFailure('GitHub release operation did not complete; inspect state before retrying writes') from None
         if result.returncode:
             if missing and re.search(r'\bHTTP 404\b', result.stderr):
                 return None
@@ -308,7 +314,10 @@ def baseline(client, sdk, sdk_command=sdk_output):
 
 def ancestry(older, newer):
     require(SHA.fullmatch(older or '') and SHA.fullmatch(newer or ''), 'Invalid ancestry inputs')
-    result = subprocess.run(['git', 'merge-base', '--is-ancestor', older, newer], capture_output=True)
+    try:
+        result = subprocess.run(['git', 'merge-base', '--is-ancestor', older, newer], capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        raise ReleaseFailure('Source ancestry check did not complete') from None
     require(result.returncode in (0, 1), 'Source ancestry could not be verified')
     return result.returncode == 0
 

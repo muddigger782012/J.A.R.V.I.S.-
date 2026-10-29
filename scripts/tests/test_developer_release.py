@@ -398,6 +398,15 @@ class DeveloperReleaseTests(unittest.TestCase):
                 with self.assertRaises(release.ReleaseFailure) as caught: operation()
                 self.assertNotIn('private-fixture-password', str(caught.exception))
 
+    def test_external_command_deadlines_fail_without_reflecting_credentials_or_retrying_writes(self):
+        timeout = subprocess.TimeoutExpired(['fixture'], 60, stderr='private-fixture-password')
+        with patch.object(release.subprocess, 'run', side_effect=timeout) as invoked:
+            for operation in [lambda: release.GitHub().api('releases', 'POST', {}),
+                              lambda: release.sdk_output(['aapt']), lambda: release.ancestry(A, B)]:
+                with self.assertRaises(release.ReleaseFailure) as caught: operation()
+                self.assertNotIn('private-fixture-password', str(caught.exception))
+            self.assertEqual(3, invoked.call_count)
+
     def test_optimized_python_cannot_bypass_the_reused_artifact_assertions(self):
         code = "import sys; sys.path.insert(0, 'scripts'); import developer_release as r; " \
                "r.inspect(__import__('pathlib').Path('.'), 'a'*40, 1, 1, __import__('pathlib').Path('.'))"
