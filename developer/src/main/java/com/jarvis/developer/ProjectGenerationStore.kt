@@ -23,7 +23,8 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
         }.getOrNull()
     }
 
-    fun finish(ticket: Ticket, state: String, response: String? = null): Result = synchronized(lock) {
+    fun finish(ticket: Ticket, state: String, response: String? = null,
+        discussion: ProjectGenerationDiscussion? = null): Result = synchronized(lock) {
         require(state in setOf("generated", "generation_failed", "generation_cancelled", "generation_interrupted"))
         require((state == "generated") == (response != null))
         runCatching {
@@ -34,13 +35,41 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
             record.remove("generation_process")
             if (response != null) record.put("response", response)
                 .put("response_description", record.getString("description")).put("response_target", record.getInt("target"))
+            if (discussion != null) {
+                require(state == "generated" && discussion.project == ticket.project && discussion.target == record.getInt("target"))
+                record.put("discussion", discussion.data())
+            }
             if (write(ticket.project, record)) Result.SAVED else Result.FAILED
         }.getOrDefault(Result.FAILED)
     }
 
+    fun discussion(id: String, target: Int, secrets: List<String>): ProjectGenerationDiscussion = synchronized(lock) {
+        runCatching {
+            val record = read(id)
+            ProjectGenerationDiscussion.read(id, target,
+                record.optJSONObject("discussion").takeIf { record.optInt("target", -1) == target }, secrets)
+        }.getOrElse { ProjectGenerationDiscussion.empty(id, target) }
+    }
+
+    fun forgetDiscussion(id: String): Boolean = synchronized(lock) {
+        runCatching {
+            val record = read(id)
+            if (record.length() == 0) return@synchronized true
+            record.remove("discussion")
+            if (record.optString("state") == "generating") {
+                record.put("state", "generation_cancelled").remove("generation_request")
+                record.remove("generation_process")
+            }
+            write(id, record)
+        }.getOrDefault(false)
+    }
+
     private fun base(id: String, task: String, target: Int): JSONObject {
         require(task.isNotBlank() && target in 0..1)
-        return read(id).apply { if (!has("response")) put("response", "") }
+        return read(id).apply {
+            if (optInt("target", target) != target) remove("discussion")
+            if (!has("response")) put("response", "")
+        }
             .put("id", id).put("description", task).put("target", target)
     }
     private fun read(id: String): JSONObject {
