@@ -1034,6 +1034,7 @@ class MainActivity : Activity() {
         fun showPage(index: Int, remember: Boolean = true) {
             val next = index.coerceIn(0, pages.lastIndex)
             if (next != activePage) {
+                DeveloperUpdater.cancel(this, report = true)
                 dismissKeyboard()
                 positions[activePage] = pages[activePage].scrollY
                 if (remember) pageHistory.add(activePage)
@@ -1234,6 +1235,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        DeveloperUpdater.cancel(this)
         projectGeneration?.dispose()
         projectGeneration = null
         artifactReviewGeneration++
