@@ -17,6 +17,7 @@ import java.util.TimerTask
 
 /** Text-only provider access. No repository, file-write, tool, build or publisher capability exists here. */
 object CodingAssistantProvider {
+    internal const val DEFAULT_GEMINI_MODEL = "gemini-flash-latest"
     internal const val MAX_REQUEST_BYTES = 64_000
     internal const val MAX_RESPONSE_BYTES = 256_000
     internal const val MAX_SESSION_MILLIS = 90_000L
@@ -251,7 +252,7 @@ object CodingAssistantProvider {
             "For unavailable context explicitly state that source could not be verified and answer from the owner request only. " +
             "Never imply that the whole repository or a newer revision was inspected. Proposed edits still require the existing complete-diff review and explicit approval."
         val contextData = context?.data(task)
-        val selectedModel = model.ifBlank { if (provider == "Gemini") "gemini-2.5-flash" else "gpt-4.1-mini" }
+        val selectedModel = model.ifBlank { if (provider == "Gemini") DEFAULT_GEMINI_MODEL else "gpt-4.1-mini" }
         val url: String
         val headers: Map<String, String>
         val body: JSONObject

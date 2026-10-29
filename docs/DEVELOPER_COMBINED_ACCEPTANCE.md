@@ -10,6 +10,8 @@ The opt-in `Live Gemini repository context acceptance` workflow uses the reposit
 
 A successful test must verify actual source bytes and receive a decoded Gemini response citing both the full source commit and an exact supplied path. The bounded evidence records metadata, hashes, outcome and elapsed time, not the source excerpts or model response. Missing credentials are **BLOCKED**, never a passing/skipped live test. Provider, network or grounding failures fail the test. Ordinary builds exclude this live source set and require no API key.
 
+Live verification found that model discovery can list an older model whose generation endpoint returns HTTP 404. Empty Gemini model selections now use the provider's `gemini-flash-latest` alias consistently in Home, patch previews and the legacy icon tool. Explicitly selected model IDs and encrypted saved settings are not migrated or rewritten. The model picker suggests the same Flash alias. This does not claim that listing a model verifies generation access; the live test requires an actual grounded response.
+
 The equivalent local command uses the explicit `developer/tools/live_gemini.init.gradle` init script and selects `com.jarvis.developer.LiveGeminiRepositoryContextTest`; configure credentials through a secure environment binding. Do not paste credentials into a terminal command or chat.
 
 ## Samsung preparation and distribution boundary

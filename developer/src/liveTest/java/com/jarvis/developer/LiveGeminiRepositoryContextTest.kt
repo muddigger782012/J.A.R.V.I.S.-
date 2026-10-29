@@ -13,7 +13,7 @@ class LiveGeminiRepositoryContextTest {
         val root = File(requireNotNull(System.getProperty("jarvis.repositoryRoot")))
         val report = File(root, "developer/build/reports/live-gemini/acceptance.json")
         report.parentFile.mkdirs()
-        val model = System.getenv("JARVIS_GEMINI_TEST_MODEL").orEmpty().ifBlank { "gemini-2.5-flash" }
+        val model = System.getenv("JARVIS_GEMINI_TEST_MODEL").orEmpty().ifBlank { CodingAssistantProvider.DEFAULT_GEMINI_MODEL }
         val evidence = JSONObject().put("schemaVersion", 1).put("status", "RUNNING")
             .put("provider", "Gemini").put("buildSourceSha", System.getProperty("jarvis.repositoryCommit", ""))
             .put("sourceVerified", false).put("providerResponseVerified", false).put("groundedResponse", false)

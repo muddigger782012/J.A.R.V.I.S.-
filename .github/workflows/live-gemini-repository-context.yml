@@ -10,7 +10,7 @@ on:
         description: Authorized Gemini model for the real, read-only context test
         type: string
         required: false
-        default: gemini-2.5-flash
+        default: gemini-flash-latest
 permissions:
   contents: read
 jobs:

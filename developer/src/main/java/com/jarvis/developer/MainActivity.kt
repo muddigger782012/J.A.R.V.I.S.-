@@ -627,7 +627,7 @@ class MainActivity : Activity() {
         // Model presets are suggestions, not a fixed list of provider entitlements.
         val modelChoices = listOf(
             "Automatic (recommended)",
-            "Gemini 2.5 Flash — fast everyday coding",
+            "Gemini Flash — fast everyday coding",
             "Gemini 2.5 Pro — complex reasoning and architecture",
             "Gemini 2.5 Flash-Lite — lightweight requests",
             "Custom model ID"
@@ -659,7 +659,7 @@ class MainActivity : Activity() {
             val choices = if (gemini) modelChoices else openAiChoices
             val selectedId = model.text.toString().trim()
             val ids = if (gemini)
-                listOf("", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite")
+                listOf("", CodingAssistantProvider.DEFAULT_GEMINI_MODEL, "gemini-2.5-pro", "gemini-2.5-flash-lite")
             else listOf("", "gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano")
             updatingModelPicker = true
             modelPicker.adapter = android.widget.ArrayAdapter(this,
@@ -680,7 +680,7 @@ class MainActivity : Activity() {
                 if (firstModelSelection) { firstModelSelection = false; refreshModelPicker(); return }
                 val gemini = provider.selectedItem.toString() == "Gemini"
                 val ids = if (gemini)
-                    listOf("", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite")
+                    listOf("", CodingAssistantProvider.DEFAULT_GEMINI_MODEL, "gemini-2.5-pro", "gemini-2.5-flash-lite")
                 else listOf("", "gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano")
                 if (position < ids.size) model.setText(ids[position])
                 modelDescription.text = when (position) {
