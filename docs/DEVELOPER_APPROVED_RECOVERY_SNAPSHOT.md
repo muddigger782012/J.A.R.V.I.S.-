@@ -44,6 +44,10 @@ the operation. It does not retry writes, delete a partial release, replace asset
 edit source tags or clean up state. Failure evidence says `BLOCKED`; an uncertain
 write records `mutationPerformed: "UNKNOWN"`, requires a fresh audit, and exits
 nonzero. The primary failure remains visible if writing local evidence also fails.
+An unexpected failure before the preservation helper returns also conservatively
+records `UNKNOWN`; it cannot establish that no mutation occurred. If preservation
+returned successfully but local receipt storage failed, the failure report retains
+the actual returned mutation result.
 An interrupted process may produce no JSON; a missing report is never success.
 
 Successful verification checks release/tag identity and downloaded bytes, then

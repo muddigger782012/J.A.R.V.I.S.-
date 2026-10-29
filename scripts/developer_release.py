@@ -615,6 +615,9 @@ def main():
             if args.operation == 'audit-recovery-plan':
                 result = recovery_plan(client, sdk)
             else:
+                # A failure before the helper returns cannot prove no write occurred
+                # (including interrupted temporary-file cleanup after readback).
+                snapshot_mutation = 'UNKNOWN'
                 result = preserve_approved_recovery(client, sdk, os.environ.get('APPROVED_SOURCE_SHA'),
                     os.environ.get('APPROVED_APK_SHA256'), os.environ.get('APPROVE_SNAPSHOT') == 'true')
                 snapshot_mutation = result['mutationPerformed']

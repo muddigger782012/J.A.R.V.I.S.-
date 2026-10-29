@@ -305,3 +305,14 @@ class ApprovedRecoverySnapshotTests(unittest.TestCase):
         self.assertEqual('BLOCKED', value['status'])
         self.assertIs(True, value['mutationPerformed'])
         self.assertNotIn('EXPLICIT_PRIVATE_FIXTURE', stdout.getvalue())
+
+    def test_unexpected_preservation_cleanup_failure_does_not_invent_a_no_write_result(self):
+        output = self.root / 'evidence'
+        with patch.object(release, 'preserve_approved_recovery', side_effect=OSError('EXPLICIT_PRIVATE_FIXTURE')), \
+             patch('sys.argv', ['developer_release.py', 'preserve-approved-recovery', '--evidence', str(output)]), \
+             patch('sys.stdout', new_callable=io.StringIO) as stdout:
+            self.assertEqual(1, release.main())
+        value = json.loads((output / 'recovery-snapshot-plan.json').read_text())
+        self.assertEqual('UNKNOWN', value['mutationPerformed'])
+        self.assertEqual('BLOCKED', value['status'])
+        self.assertNotIn('EXPLICIT_PRIVATE_FIXTURE', stdout.getvalue())
