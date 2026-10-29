@@ -1,16 +1,22 @@
-name: Publish Jarvis source for development
+name: Restore legacy Jarvis source after owner approval
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/publish-source.yml'
+    inputs:
+      confirm_archive_restore:
+        description: 'Restore the legacy v3.3 archive into the selected recovery/legacy-source-* branch for review'
+        required: true
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
   publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref_type == 'branch' && startsWith(github.ref_name, 'recovery/legacy-source-') && inputs.confirm_archive_restore == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
       - name: Unpack the working Android source
         shell: bash
         run: |
