@@ -6,6 +6,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BuildDiagnosticsTest {
+    @Test fun localTaskTitlesRedactCredentialsBeforeClippingAndRemainDisplayData() {
+        val samples = listOf(
+            "Inspect api_key='private-title-marker'", "Check password=private-title-marker",
+            "Check Authorization: Basic private-title-marker", "Inspect Cookie: session=private-title-marker",
+            "Inspect https://example.invalid/?token=private-title-marker",
+            "Inspect -----BEGIN PRIVATE KEY-----\nprivate-title-marker\n-----END PRIVATE KEY-----",
+            "Inspect " + "ghp_" + "Z".repeat(24))
+        samples.forEach { text ->
+            val title = BuildDiagnostics.localTaskSummary(text)
+            assertFalse(title.contains("private-title-marker")); assertFalse(title.contains("ghp_"))
+            assertTrue(title.length <= 240)
+        }
+        assertEquals("Repair first Then verify", BuildDiagnostics.localTaskSummary("Repair first\nThen verify"))
+        assertEquals(240, BuildDiagnostics.localTaskSummary("x".repeat(500)).length)
+        assertFalse(BuildDiagnostics.localTaskSummary("a".repeat(225) + " token='private-title-marker'").contains("private-title"))
+    }
     private val commit = "a".repeat(40)
     private val branch = "feature/jarvis-developer-task/diagnostic-01-" + "b".repeat(12)
     private val source = "developer/src/main/java/com/jarvis/developer/TaskFileSummary.kt"

@@ -12,9 +12,139 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Real Android view/lifecycle interactions on a disposable emulator. No provider or writer call. */
+/** Real Android views/lifecycle on a disposable emulator. Provider fixtures make no live request or source write. */
 @RunWith(AndroidJUnit4::class)
 class DeveloperGuidedUxDeviceTest {
+    private fun projectFixture(activity: MainActivity, project: String, pending: MutableList<() -> Unit>, configure: Boolean = true,
+        source: ((String, PatchEngine.Target) -> RepositoryCodingContext.Context)? = null): ProjectGenerationWorkbench.Handle {
+        val owner = MainActivity::class.java.getDeclaredField("projectGeneration").apply { isAccessible = true }
+        (owner.get(activity) as? ProjectGenerationWorkbench.Handle)?.dispose()
+        val active = MainActivity::class.java.getDeclaredField("activeProject").apply { isAccessible = true }
+        active.set(activity, project)
+        val provider = views(activity.window.decorView).filterIsInstance<Spinner>().single {
+            it.adapter?.count == 2 && it.getItemAtPosition(0).toString() == "Gemini" && it.getItemAtPosition(1).toString() == "OpenAI"
+        }
+        val target = views(activity.window.decorView).filterIsInstance<Spinner>().single { it.contentDescription == "Application to improve" }
+        val key = field(activity, "Paste your API key here (not a model name)")
+        val model = field(activity, "Model ID (blank = provider default)")
+        if (configure) { key.setText("native-provider-fixture-42"); model.setText("gemini-2.5-pro") }
+        val status = views(activity.window.decorView).filterIsInstance<TextView>().single { it.tag == "project-generation-status" }
+        val output = views(activity.window.decorView).filterIsInstance<TextView>().single { it.tag == "project-generation-reply" }
+        val handle = ProjectGenerationWorkbench.attach(activity, button(activity, "Ask Jarvis / save instructions"),
+            button(activity, "Cancel AI reply"), provider, key, model, field(activity, PROMPT), output, status,
+            { target.selectedItemPosition }, { target }, { active.get(activity) as? String }, { active.set(activity, it) },
+            ProjectGenerationStore(activity.getSharedPreferences("developer_local_projects_v1", android.content.Context.MODE_PRIVATE)),
+            { button(activity, "Refresh saved projects").performClick() },
+            ProjectGenerationWorkbench.Services(worker = { pending.add(it) }, ask = { _, _, _, task, _, _ -> "Fixture reply for $task" },
+                context = { task, product, _, _, _ -> source?.invoke(task, product) ?: RepositoryCodingContext.unavailable(task, product) }))
+        // Instance-local test transport: the real Activity destruction hook owns its cleanup.
+        owner.set(activity, handle)
+        return handle
+    }
+    @Test fun nativeHomeRetainsVerifiedReplyProvenanceAndLabelsInstructionsOnlyFallback() {
+        val project = "native-context-" + java.util.UUID.randomUUID()
+        val pending = mutableListOf<() -> Unit>()
+        val prefs = instrumentation.targetContext.getSharedPreferences("developer_local_projects_v1", android.content.Context.MODE_PRIVATE)
+        val commit = "a".repeat(40)
+        val path = "developer/src/main/java/com/jarvis/developer/VoiceNetwork.kt"
+        val source = "class VoiceNetwork { fun voiceLatency() = 5 }"
+        val bytes = source.toByteArray()
+        val digest = java.security.MessageDigest.getInstance("SHA-1").apply { update("blob ${bytes.size}\u0000".toByteArray()) }
+        val blob = digest.digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) }
+        var available = true
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                settle(scenario)
+                scenario.onActivity { activity ->
+                    projectFixture(activity, project, pending, source = { task, target ->
+                        if (!available) RepositoryCodingContext.unavailable(task, target) else {
+                            val inventory = RepositoryAnalysis.Inventory(listOf(RepositoryAnalysis.SourceFile(path, blob, bytes.size.toLong())), false, commit)
+                            RepositoryCodingContext.fromAnalysis(task, target, inventory,
+                                RepositoryAnalysis.analyze(task, inventory) { source }, mapOf(path to source), emptyList())
+                        }
+                    })
+                    views(activity.window.decorView).filterIsInstance<Spinner>()
+                        .single { it.contentDescription == "Application to improve" }.setSelection(0)
+                    field(activity, PROMPT).setText("Repair voice network latency")
+                    button(activity, "Ask Jarvis / save instructions").performClick(); pending.removeAt(0).invoke()
+                    var record = org.json.JSONObject(prefs.getString("project_$project", "{}")!!)
+                    assertTrue(record.getString("response").contains(commit)); assertTrue(record.getString("response").contains(path))
+                    assertFalse(record.getString("response").contains("voiceLatency")); assertFalse(record.has("approval"))
+                    assertFalse(record.toString().contains("native-provider-fixture-42"))
+                    button(activity, "Projects").performClick(); button(activity, "Home").performClick()
+                    val output = views(activity.window.decorView).filterIsInstance<TextView>().single { it.tag == "project-generation-reply" }
+                    assertTrue(output.text.toString().contains(commit)); assertTrue(button(activity, "Ask Jarvis / save instructions").isEnabled)
+                    available = false
+                    button(activity, "Ask Jarvis / save instructions").performClick(); pending.removeAt(0).invoke()
+                    record = org.json.JSONObject(prefs.getString("project_$project", "{}")!!)
+                    assertTrue(record.getString("response").startsWith("Repository context unavailable."))
+                    assertFalse(record.getString("response").contains(commit)); assertFalse(record.has("approval"))
+                    assertTrue(pending.isEmpty())
+                }
+            }
+        } finally { prefs.edit().remove("project_$project").commit() }
+    }
+    @Test fun nativeCancellationAndRetryKeepNewerInputsBusyAndIgnoreTheOldReply() {
+        val project = "native-generation-" + java.util.UUID.randomUUID()
+        val pending = mutableListOf<() -> Unit>()
+        val prefs = instrumentation.targetContext.getSharedPreferences("developer_local_projects_v1", android.content.Context.MODE_PRIVATE)
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                settle(scenario)
+                scenario.onActivity { activity ->
+                    projectFixture(activity, project, pending)
+                    field(activity, PROMPT).setText("First native instructions")
+                    button(activity, "Ask Jarvis / save instructions").performClick()
+                    assertFalse(field(activity, PROMPT).isEnabled)
+                    val started = SystemClock.elapsedRealtime()
+                    button(activity, "Cancel AI reply").performClick()
+                    println("JARVIS_PROJECT_CANCEL_CALLBACK_MS=" + (SystemClock.elapsedRealtime() - started))
+                    assertTrue(field(activity, PROMPT).isEnabled)
+                    field(activity, PROMPT).setText("New native instructions")
+                    button(activity, "Ask Jarvis / save instructions").performClick()
+                    pending.removeAt(0).invoke()
+                    assertFalse(button(activity, "Ask Jarvis / save instructions").isEnabled)
+                    assertTrue(button(activity, "Cancel AI reply").isEnabled)
+                    pending.removeAt(0).invoke()
+                    assertTrue(button(activity, "Ask Jarvis / save instructions").isEnabled)
+                    assertFalse(button(activity, "Cancel AI reply").isEnabled)
+                    assertEquals("gemini-2.5-pro", field(activity, "Model ID (blank = provider default)").text.toString())
+                }
+                val record = org.json.JSONObject(prefs.getString("project_$project", "{}")!!)
+                assertEquals("New native instructions", record.getString("description"))
+                assertTrue(record.getString("response").contains("Repository context unavailable"))
+                assertTrue(record.getString("response").endsWith("Fixture reply for New native instructions"))
+                assertEquals("generated", record.getString("state")); assertFalse(record.has("approval"))
+            }
+        } finally { prefs.edit().remove("project_$project").commit() }
+    }
+    @Test fun nativeActivityDestructionInterruptsGenerationWithoutRestoringCredentialsOrRetrying() {
+        val project = "native-generation-" + java.util.UUID.randomUUID()
+        val pending = mutableListOf<() -> Unit>()
+        val prefs = instrumentation.targetContext.getSharedPreferences("developer_local_projects_v1", android.content.Context.MODE_PRIVATE)
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                settle(scenario)
+                scenario.onActivity { activity ->
+                    projectFixture(activity, project, pending)
+                    field(activity, PROMPT).setText("Keep these interrupted instructions")
+                    button(activity, "Ask Jarvis / save instructions").performClick()
+                }
+                scenario.recreate(); settle(scenario)
+                scenario.onActivity { activity ->
+                    pending.removeAt(0).invoke()
+                    assertTrue(field(activity, PROMPT).isEnabled)
+                    assertEquals("Keep these interrupted instructions", field(activity, PROMPT).text.toString())
+                    assertEquals("", field(activity, "Paste your API key here (not a model name)").text.toString())
+                    assertTrue(pending.isEmpty()); assertFalse(button(activity, "Cancel AI reply").isEnabled)
+                }
+                val record = org.json.JSONObject(prefs.getString("project_$project", "{}")!!)
+                assertEquals("generation_interrupted", record.getString("state"))
+                assertEquals("Keep these interrupted instructions", record.getString("description"))
+                assertFalse(record.has("generation_request")); assertFalse(record.toString().contains("native-provider-fixture-42"))
+            }
+        } finally { prefs.edit().remove("project_$project").commit() }
+    }
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     @Before fun disposableOnly() {
         assertEquals("true", InstrumentationRegistry.getArguments().getString("jarvis_disposable_emulator"))

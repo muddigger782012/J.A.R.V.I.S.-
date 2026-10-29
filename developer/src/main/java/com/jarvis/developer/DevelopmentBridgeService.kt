@@ -55,12 +55,7 @@ class DevelopmentBridgeService : Service() {
                     if (request.kind == Wire.ARTIFACT_INSTALL_CANCEL)
                         inbox.installationRecord(result.getString("id"))?.let { JarvisPackageInstaller.abandon(this@DevelopmentBridgeService, it) }
                     if (request.kind !in setOf("task.status.request", "task.list.request", Wire.ARTIFACT_REVIEW) + Wire.personalInstallOperations) {
-                        if (request.kind in setOf("task.cancel.request", "task.pause.request")) {
-                            DevelopmentArtifactReads.cancel(result.getString("id"))
-                            inbox.installationRecord(result.getString("id"))?.let { JarvisPackageInstaller.abandon(this@DevelopmentBridgeService, it) }
-                        }
-                        DevelopmentAnalysisScheduler.accepted(this@DevelopmentBridgeService, result)
-                        DevelopmentEngineeringScheduler.accepted(this@DevelopmentBridgeService, result)
+                        DevelopmentJobControlEffects.accepted(this@DevelopmentBridgeService, inbox, result)
                     }
                 }
                 Wire.response(requestId, "OK", result)

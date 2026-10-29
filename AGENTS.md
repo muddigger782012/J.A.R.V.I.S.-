@@ -12,3 +12,7 @@ All new UI and visual changes must follow the user's currently selected theme.
 - Android-owned permission, installer and picker windows follow Android's styling. Do not promise control over their appearance.
 
 These requirements apply to future additions as well as modifications.
+
+## Jarvis Developer autonomous coding
+
+For any work under `developer/`, also read and follow `developer/AGENTS.md` and `developer/DEVELOPMENT_ROADMAP.md`. These define the approved six-phase coding plan, recovery prerequisite, safety gates, acceptance criteria, and estimates. Do not confuse planned capabilities with implemented features. Keep Developer work isolated from Jarvis and Jarvis Beta.

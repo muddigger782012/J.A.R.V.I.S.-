@@ -185,6 +185,75 @@ class DeveloperGuidedUxTest {
         assertTrue(DeveloperUiState.descendants(home).filterIsInstance<TextView>().any { it.text.toString() == "Analysis cancelled. Nothing was approved or changed." })
     }
 
+    @Test fun personalGuidedAnalysisStagesOnePermittedProductionFileWithItsPinnedSource() {
+        val activity = start()
+        val panel = LinearLayout(activity)
+        val task = EditText(activity).apply { setText("Correct forecast date selection") }
+        val first = "app/src/main/java/com/assistant/core/services/ForecastDates.kt"
+        val second = "app/src/main/java/com/assistant/core/services/WeatherLocation.kt"
+        val excluded = listOf("app/src/main/java/com/assistant/core/MainActivity.kt",
+            "app/src/test/java/com/assistant/core/services/ForecastDatesTest.kt",
+            "developer/src/main/java/com/jarvis/developer/TaskFileSummary.kt")
+        val base = "b".repeat(40)
+        var analyzed: PatchEngine.Target? = null
+        var staged: Triple<List<String>, String, PatchEngine.Target>? = null
+        var reviews = 0
+        val patch = PatchWorkbench.Handle({ _, _, _, _, _ -> false }, { _, _ -> false }, { true },
+            guidedAction = { _, description, paths, source, target ->
+                assertEquals(task.text.toString(), description)
+                staged = Triple(paths, source, target); true
+            })
+        GuidedDevelopmentWorkbench.attach(activity, panel, task, patch, 1, { reviews++ },
+            GuidedDevelopmentWorkbench.Services(analyze = { description, product, cancellation ->
+                cancellation.check(); analyzed = product
+                val files = (listOf(first, second) + excluded).map { path -> RepositoryAnalysis.PlannedFile(
+                    RepositoryAnalysis.SourceFile(path, "a".repeat(40), 20), listOf("Task reference"),
+                    "Inspect logic", "Review required", emptyList(), emptyList(), emptyList()) }
+                RepositoryAnalysis.AnalysisPlan(description, base, files, emptyList(), listOf(first, second), 5)
+            }, worker = { it() }))
+        fun action(text: String) = DeveloperUiState.descendants(panel).filterIsInstance<Button>().single { it.text.toString() == text }
+        idle(); action("Analyze my request (read-only)").performClick(); idle()
+        assertEquals(PatchEngine.Target.PERSONAL, analyzed)
+        val choices = DeveloperUiState.descendants(panel).filterIsInstance<CheckBox>().toList()
+        assertEquals(listOf(first), choices.filter { it.isChecked }.map { it.tag })
+        excluded.forEach { path -> assertFalse(choices.single { it.tag == path }.isEnabled) }
+        choices.single { it.tag == second }.isChecked = true
+        assertEquals(listOf(second), choices.filter { it.isChecked }.map { it.tag })
+        assertNull(staged)
+        action("Review suggested changes in Activity").performClick(); idle()
+        assertEquals(Triple(listOf(second), base, PatchEngine.Target.PERSONAL), staged)
+        assertEquals(1, reviews)
+    }
+
+    @Test fun changingApplicationsDuringSourceAnalysisCancelsItsReadAndRejectsTheOldScope() {
+        val activity = start()
+        val panel = LinearLayout(activity)
+        val task = EditText(activity).apply { setText("Inspect source parsing") }
+        lateinit var target: Spinner
+        var read: PatchPreviewCancellation? = null
+        var staged = false
+        val patch = PatchWorkbench.Handle({ _, _, _, _, _ -> false }, { _, _ -> false }, { true },
+            guidedAction = { _, _, _, _, _ -> staged = true; true })
+        target = GuidedDevelopmentWorkbench.attach(activity, panel, task, patch, 0, {},
+            GuidedDevelopmentWorkbench.Services(analyze = { description, product, cancellation ->
+                assertEquals(PatchEngine.Target.DEVELOPER, product)
+                read = cancellation
+                target.setSelection(1); idle()
+                // A provider can return even after cancellation; the UI must still reject it.
+                val path = "developer/src/main/java/com/jarvis/developer/TaskFileSummary.kt"
+                val file = RepositoryAnalysis.PlannedFile(RepositoryAnalysis.SourceFile(path, "a".repeat(40), 20),
+                    emptyList(), "Inspect logic", "Review required", emptyList(), emptyList(), emptyList())
+                RepositoryAnalysis.AnalysisPlan(description, "b".repeat(40), listOf(file), emptyList(), listOf(path), 1)
+            }, worker = { it() })).first
+        fun action(text: String) = DeveloperUiState.descendants(panel).filterIsInstance<Button>().single { it.text.toString() == text }
+        idle(); action("Analyze my request (read-only)").performClick(); idle()
+        assertTrue(read!!.isCancelled)
+        assertEquals(1, target.selectedItemPosition)
+        assertTrue(DeveloperUiState.descendants(panel).filterIsInstance<CheckBox>().none())
+        assertFalse(action("Review suggested changes in Activity").isEnabled)
+        assertFalse(staged)
+    }
+
     companion object {
         const val PROMPT = "Example: Build me an app to track equipment maintenance."
         const val SOURCE = "Source path or directory prefix (blank lists all allowed sources)"

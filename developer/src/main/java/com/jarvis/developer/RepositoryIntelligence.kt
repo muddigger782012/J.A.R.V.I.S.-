@@ -112,6 +112,11 @@ object RepositoryIntelligence {
         Reader(http(cancellation), cancellation, requestLimit = 24).analyzeSnapshot("", task,
             if (target == PatchEngine.Target.PERSONAL) "main" else BRANCH, target, progress)
 
+    /** Reuses the same pinned GET reader and lexical analyzer; credentials never enter a prompt. */
+    internal fun codingContext(task: String, target: PatchEngine.Target, token: String,
+        providerKey: String, cancellation: PatchPreviewCancellation): RepositoryCodingContext.Context =
+        Reader(http(cancellation), cancellation, requestLimit = 12).codingContext(task, target, token, providerKey)
+
     /** Injectable for deterministic JVM tests; it exposes neither write methods nor arbitrary hosts. */
     internal class Reader(
         private val transport: GetTransport,
@@ -124,6 +129,25 @@ object RepositoryIntelligence {
         private var requestCount = 0
         private var stoppedReason: String? = null
         private var selectedTarget = PatchEngine.Target.DEVELOPER
+
+        fun codingContext(task: String, target: PatchEngine.Target, token: String = "", providerKey: String = ""): RepositoryCodingContext.Context {
+            try {
+                cancellation?.check()
+                val snapshot = inventory(token, RepositoryCodingContext.branch(target), target)
+                val scoped = snapshot.copy(files = snapshot.files.filter { RepositoryCodingContext.allowedPath(it.path, target) })
+                val sources = linkedMapOf<String, String>()
+                val plan = RepositoryAnalysis.analyzeControlled(task, scoped, checkpoint = {
+                    cancellation?.check(); checkTimeBudget()
+                }, onPlanning = {}, readSource = { path -> readSource(token, snapshot, path).also { sources[path] = it } },
+                    budget = RepositoryAnalysis.ReadBudget(RepositoryCodingContext.MAX_READ_FILES,
+                        RepositoryCodingContext.MAX_READ_BYTES, relevantPathsOnly = true))
+                cancellation?.check(); checkTimeBudget()
+                return RepositoryCodingContext.fromAnalysis(task, target, snapshot, plan, sources, listOf(token, providerKey))
+            } catch (_: Exception) {
+                cancellation?.check() // Cancellation must not become an instructions-only cloud request.
+                return RepositoryCodingContext.unavailable(task, target)
+            }
+        }
 
         fun personalFollowUp(token: String, result: PatchPublisher.CommitResult, report: BuildDiagnostics.Report,
             path: String): PersonalRepair.Review {

@@ -326,15 +326,33 @@ object BuildDiagnostics {
         return path.takeIf { Regex("(?:developer|app)/(?:build\\.gradle(?:\\.kts)?|src/(?:main|test|androidTest)/(?:java|kotlin|res)/[A-Za-z0-9_./$-]+\\.(?:kt|java|xml))").matches(it) }
     }
 
+    /** Local task titles are display data; use the same bounded credential redaction as diagnostics. */
+    internal fun localTaskSummary(value: String): String =
+        clean(value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' '), 240)
+
+    /** Ordinary local drafts retain formatting and useful URLs, but never recognized credentials. */
+    internal fun localTaskDraft(value: String): String {
+        require(value.length <= 12_000 && Charsets.UTF_8.newEncoder().canEncode(value))
+        val text = value.filter { (!Character.isISOControl(it) || it in "\n\r\t") && Character.getType(it) != Character.FORMAT.toInt() }
+        return redact(text, false)
+    }
+
     private fun clean(value: String, max: Int = 512): String {
         val withoutControls = value.filter { !Character.isISOControl(it) && Character.getType(it) != Character.FORMAT.toInt() && Character.getType(it) != Character.SURROGATE.toInt() }
-        var output = RepositoryRedaction.line(withoutControls)
+        return redact(withoutControls, true).take(max)
+    }
+
+    private fun redact(value: String, redactUrls: Boolean): String {
+        var output = RepositoryRedaction.line(value)
         output = credentialHeader.replace(output) { it.groupValues[1] + "[REDACTED]" }
         output = bearer.replace(output) { "Bearer [REDACTED]" }
         output = redactAssignments(output)
-        output = url.replace(output, "[URL REDACTED]")
+        if (redactUrls) output = url.replace(output, "[URL REDACTED]")
+        else output = url.replace(output) { match ->
+            if ('@' in match.value) "[URL REDACTED]" else match.value
+        }
         privateKey.find(output)?.let { output = output.take(it.range.first) + "[REDACTED PRIVATE KEY]" }
-        return output.take(max)
+        return output
     }
 
     /** Personal logs may contain contact data or source excerpts; only app-owned categories survive. */

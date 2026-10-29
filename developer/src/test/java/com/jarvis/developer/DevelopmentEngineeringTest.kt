@@ -11,6 +11,13 @@ import java.security.MessageDigest
 import java.util.UUID
 
 class DevelopmentEngineeringTest {
+    @Test fun theLocalTaskTitleUsesTheOwnersStagedGoalWithoutGrantingApproval() {
+        val job = analyzed()
+        inbox().stageEngineering(job, status(job).getLong("revision"), listOf(path), true, "Clarify this task's conversation tone")
+        assertEquals("Clarify this task's conversation tone", inbox().localSnapshot().single().getString("summary"))
+        assertFalse(status(job).getJSONObject("engineering").getBoolean("approvalConsumed"))
+        assertFalse(status(job).getBoolean("sourceVerified"))
+    }
     private fun installedCheck(job: String, mode: String = "supervised") = Wire.Request(UUID.randomUUID().toString(),
         Wire.INSTALLED_APK_CHECK, mode = mode, jobId = job, expectedRevision = status(job).getLong("revision"))
     private fun installedReport(at: Long = System.currentTimeMillis()) = InstalledApkCheck.Report(34, at, 17,
@@ -443,6 +450,31 @@ class DevelopmentEngineeringTest {
         assertFalse(DevelopmentEngineeringRead.run(inbox(), job, true, PatchPreviewCancellation(),
             inspect = { reads++; result(write) }, feedback = { _, _, _ -> report(write) }))
         assertEquals(1, reads); assertEquals("READY_FOR_REVIEW", status(job).getString("state"))
+    }
+    @Test fun aCancelledUnknownOutcomeNeedsAnExplicitReadOnlyRecheckAndNeverRepeatsTheWrite() {
+        val job = analyzed(); val write = claim(job)
+        control(job, "task.cancel.request")
+        assertTrue(inbox().recoverableEngineeringJobs().isEmpty())
+        assertThrows(Wire.Rejected::class.java) { control(job, "task.retry.request") }
+        inbox().refreshEngineeringEvidence(job, status(job).getLong("revision"), true)
+        assertEquals("OUTCOME_UNKNOWN", status(job).getString("state"))
+        var reads = 0
+        assertFalse(DevelopmentEngineeringRead.run(inbox(), job, true, PatchPreviewCancellation(),
+            inspect = { reads++; result(write) }, feedback = { _, _, _ -> report(write) }))
+        assertEquals(1, reads)
+        assertEquals("READY_FOR_REVIEW", status(job).getString("state"))
+        assertTrue(status(job).getBoolean("sourceVerified"))
+        assertEquals("PENDING", status(job).getJSONObject("verification").getString("SIGNED_APK"))
+        assertFalse(status(job).getBoolean("deviceVerified"))
+    }
+    @Test fun anUnapprovedCancelledTaskCannotBecomeAnEngineeringRecheck() {
+        val job = analyzed(); stage(job)
+        control(job, "task.cancel.request")
+        assertThrows(IllegalArgumentException::class.java) {
+            inbox().refreshEngineeringEvidence(job, status(job).getLong("revision"), true)
+        }
+        assertEquals("CANCELLED", status(job).getString("state"))
+        assertTrue(inbox().recoverableEngineeringJobs().isEmpty())
     }
     @Test fun anAbsentBranchIsNotRollbackEvidenceOrPermissionToRetryAWritingAttempt() {
         val job = analyzed(); claim(job)

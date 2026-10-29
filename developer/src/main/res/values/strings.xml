@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="project_generation_reading_context">Reading relevant repository source at one fixed commit… Cancel stops source reading and the AI request.</string>
+    <string name="project_generation_context_ready">Verified source excerpts ready. Connecting to %1$s…</string>
+    <string name="project_generation_context_unavailable">Repository context unavailable. Connecting to %1$s with instructions only…</string>
+    <string name="development_history_reading">Reading development history…</string>
+    <string name="development_history_read_failed">History could not be read. Refresh to try again.</string>
+    <string name="development_draft_save">Save task draft on this device</string>
+    <string name="development_draft_forget">Forget saved task draft</string>
+    <string name="development_draft_unavailable">Saved drafts could not be read. Refresh history to retry. You can still edit and review this task.</string>
+    <string name="development_draft_stale">The saved draft belongs to an earlier task state and has not been applied. Save the current text or forget the older copy.</string>
+    <string name="development_draft_restored">Unsent draft recovered from this device. Review the instructions and analyzed paths again; no approval was restored.</string>
+    <string name="development_draft_unsaved">Save this draft to keep these instructions and paths after reopening. Saving grants no approval.</string>
+    <string name="development_draft_saving">Updating the local draft…</string>
+    <string name="development_draft_forgotten">Saved copy removed. Current text remains editable here; source and approvals are unchanged.</string>
+    <string name="development_draft_changed_while_saving">Earlier edits were saved. Your current changes are still unsaved.</string>
+    <string name="development_draft_redacted">Draft saved with recognized credentials omitted. Current text is unchanged; no source change was approved.</string>
+    <string name="development_draft_saved">Draft saved on this device. Reopening does not restore source approval.</string>
+    <string name="development_draft_save_failed">The draft changed elsewhere or storage is unavailable. Current text is unchanged. Refresh history before retrying.</string>
+    <string name="project_generation_cancel">Cancel AI reply</string>
+    <string name="project_generation_cancelled">AI request cancelled. Your saved instructions remain available. No source files were changed.</string>
+    <string name="project_generation_stopped">Stopped waiting for this request. A reply may already be saved in Projects; no source files were changed.</string>
+    <string name="project_generation_cancel_save_failed">AI request cancelled, but its final status could not be saved. Your previously saved instructions remain in Projects.</string>
+    <string name="project_generation_describe">Describe the project you want to create first.</string>
+    <string name="project_generation_remove_key">Remove the API key from your instructions before saving or sending this request.</string>
+    <string name="project_generation_saved_offline">Project saved locally. Connect an AI provider in Settings to generate code.</string>
+    <string name="project_generation_not_started">Project saved. Your description is safe on this device; AI generation has not started.</string>
+    <string name="project_generation_save_failed">Project could not be saved on this device. Your current instructions are unchanged; AI generation has not started.</string>
+    <string name="project_generation_changed">This saved project changed while the request was running. Its reply was not applied. Refresh Projects before retrying.</string>
+    <string name="project_generation_received">Project saved; response received from %1$s. No build or source change was performed.</string>
+    <string name="project_generation_response_unsaved">AI response received, but could not be saved locally. Keep a copy before leaving.</string>
+    <string name="project_generation_failed">Project saved; AI generation failed.</string>
+    <string name="project_generation_check_connection">Check the selected provider, API key and model.</string>
+    <string name="project_generation_description_kept">Your project description remains saved on this device.</string>
+    <string name="project_generation_failure_detail">%1$s\n%2$s</string>
+    <string name="project_generation_start_failed">The AI request could not start. Your instructions remain saved; retry when ready.</string>
+    <string name="project_generation_finish_code_operation">Finish or cancel the active code operation before changing projects. Your current work is unchanged.</string>
+    <string name="project_generation_restored_without_reply">Project restored. Use Ask Jarvis to request an AI reply when ready.</string>
+    <string name="project_generation_previous_reply">Earlier saved AI reply. Review it against the current instructions and selected app before using it:\n\n%1$s</string>
+</resources>

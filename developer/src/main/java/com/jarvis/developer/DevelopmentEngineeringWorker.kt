@@ -24,6 +24,9 @@ internal object DevelopmentEngineeringCredentials {
         values[job] = token
     }
     fun token(job: String) = values[job].orEmpty()
+    fun rememberForRead(state: org.json.JSONObject, token: String) {
+        if (state.getString("state") in setOf("VERIFYING", "OUTCOME_UNKNOWN")) remember(state.getString("id"), token)
+    }
     @Synchronized
     fun forget(job: String) { values.remove(job) }
 }
