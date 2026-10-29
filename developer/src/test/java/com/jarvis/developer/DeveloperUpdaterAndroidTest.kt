@@ -119,6 +119,14 @@ class DeveloperUpdaterAndroidTest {
         foreground = true; assertEquals(0, installations); positive(); runWork()
         assertEquals(2, source.checks); assertEquals(1, installations); source.file!!.delete()
     }
+    @Test fun fastPauseAndResumeBeforeVerificationReturnsStillRequiresFreshInstallConsent() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup(); controllers += controller
+        val source = Source(); start(controller.get(), source); runWork(); positive(); runWork(); positive()
+        controller.pause().resume(); idle() // Foreground is true again before the queued verification returns.
+        runWork(); assertEquals(0, installations)
+        assertTrue(messages.last().contains("tap Install again"))
+        positive(); runWork(); assertEquals(2, source.checks); assertEquals(1, installations); source.file!!.delete()
+    }
     @Test fun missingAndroidPermissionKeepsReviewAndRequiresFreshOwnerActionAfterSettings() {
         val source = Source(); start(activity(), source); runWork(); positive(); runWork()
         permission = false; opened = false; positive(); runWork()

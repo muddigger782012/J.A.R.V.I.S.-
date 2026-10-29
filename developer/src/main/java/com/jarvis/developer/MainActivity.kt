@@ -1234,6 +1234,11 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
     }
 
+    override fun onPause() {
+        DeveloperUpdater.onBackground(this)
+        super.onPause()
+    }
+
     override fun onDestroy() {
         DeveloperUpdater.cancel(this)
         projectGeneration?.dispose()

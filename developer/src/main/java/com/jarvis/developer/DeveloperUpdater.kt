@@ -43,6 +43,8 @@ object DeveloperUpdater {
             controller.cancel()
         }
     }
+    /** Pausing never transfers installation consent across a foreground transition. */
+    fun onBackground(activity: Activity) { active[activity]?.invalidateInstallReview() }
 
     private class Controller(val activity: Activity, val status: (String) -> Unit, val services: Services) {
         private val cancellation = PatchPreviewCancellation()
@@ -51,6 +53,8 @@ object DeveloperUpdater {
         private var staged: File? = null
         private var transferred = false
         private var busy = false
+        private var reviewGeneration = 0L
+        fun invalidateInstallReview() { reviewGeneration++ }
         private fun alive() = active[activity] === this && !cancellation.isCancelled && !activity.isFinishing && !activity.isDestroyed
         fun cancel() {
             cancellation.cancel(); dialog?.dismiss(); dialog = null
@@ -114,6 +118,7 @@ object DeveloperUpdater {
         }
         private fun requestInstall(found: DeveloperUpdateRelease.Release) {
             val file = staged ?: return
+            val requestedGeneration = reviewGeneration
             busy = true; dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = false
             status("Rechecking the current release and downloaded signature before Android confirmation...")
             services.worker("DeveloperUpdateInstallReview") {
@@ -123,7 +128,7 @@ object DeveloperUpdater {
                         throw DeveloperUpdateRelease.Failure(DeveloperUpdateRelease.Problem.CURRENT)
                     activity.runOnUiThread {
                         if (!alive()) return@runOnUiThread
-                        if (!services.foreground(activity, dialog)) {
+                        if (requestedGeneration != reviewGeneration || !services.foreground(activity, dialog)) {
                             busy = false; dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = true
                             status("Return to this update review and tap Install again. No installation was requested.")
                             return@runOnUiThread
