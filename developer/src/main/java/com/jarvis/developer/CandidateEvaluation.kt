@@ -163,7 +163,7 @@ object CandidateEvaluation {
             if (c.apkSha256 == known.apkSha256) blockers.add("A higher-version candidate cannot reuse the known-good APK bytes")
         }
         val backup = evidence.backup
-        if (backup == null) blockers.add("Verified release backup is missing; preserve the current published APK as an immutable snapshot or exact legacy backup before requesting promotion")
+        if (backup == null) blockers.add("Verified previous-release backup is missing; preserve the current published APK as an immutable snapshot or exact legacy backup before requesting promotion")
         else if (!backup.verified || known == null || backup.facts != known)
             blockers.add("Release backup bytes, source, version, package or signer do not match the known-good artifact; an older snapshot cannot replace the current baseline")
         val rebuild = evidence.rebuild
