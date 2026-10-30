@@ -55,7 +55,13 @@ Unit coverage checks operation scope, budget consumption, cancellation, opt-in,
 nonrecoverable errors and the shared two-capture limit. Native diagnostics
 acceptance injects a helper timeout and then requires actual Accessibility
 content, and checks that read-recovery scope does not leak to later commands.
-This deterministic fault injection is separate from measured framework delays.
+The disposable fixture also delays one child-node callback by1,550ms with Android
+caching disabled. The actual cross-process READ bridge must then return complete
+fixture content, record a first BUSY capture plus a second capture, and perform
+zero taps. Its cache state is restored. This fixture callback and its arming
+method are absent from release/Beta APKs; there is no production fault-injection
+command. Both deterministic injections are separate from naturally observed
+framework delays and physical-device measurements.
 Real uncached stress runs and Samsung physical acceptance remain necessary;
 bounded recovery cannot guarantee that an unresponsive Android Binder call ends
 within the soft deadline.

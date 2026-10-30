@@ -150,6 +150,25 @@ class ScreenControlAcceptanceTest {
             assertFalse(report.contains("Screen control fixture")); assertFalse(report.contains("Practice button"))
             assertFalse(report.contains(context.packageName))
             scenario.onActivity { assertEquals(0, it.tapCount) }
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                val service = requireNotNull(JarvisAccessibilityService.active())
+                val caching = service.isCacheEnabled
+                try {
+                    service.setCacheEnabled(false)
+                    settled()
+                    scenario.onActivity { it.delayNextAccessibilityRead() }
+                    val recoveredRead = remote("read my screen")
+                    val recoveredDiagnostics = remote("screen read diagnostics")
+                    assertTrue("Controlled slow Accessibility callback must recover a complete read: $recoveredDiagnostics",
+                        recoveredRead.contains("Screen control fixture"))
+                    assertTrue(recoveredDiagnostics, recoveredDiagnostics.contains("attempt: completed"))
+                    assertTrue(recoveredDiagnostics, recoveredDiagnostics.contains("Captures: 2. First capture: time limit reached"))
+                    assertTrue(recoveredDiagnostics, recoveredDiagnostics.contains("Total read time:"))
+                    assertFalse(recoveredDiagnostics.contains("Screen control fixture"))
+                    scenario.onActivity { assertEquals(1, it.delayedReadCount); assertEquals(0, it.tapCount) }
+                    instrumentation.sendStatus(2, Bundle().apply { putString("jarvis_screen_read_controlled_recovery", recoveredDiagnostics) })
+                } finally { service.setCacheEnabled(caching) }
+            }
         }
     }
 
