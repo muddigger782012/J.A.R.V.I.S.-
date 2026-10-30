@@ -17,8 +17,29 @@ boundaries. Current production and recovery releases remain independent.
 The base is canonical Developer source
 `3ba01ca35b4dd6fd4d138200b32fc7b020cf992e`. Its existing Assistant/integration
 sources match main `b59e42ea4f684d7014f0d29521d1c738adf06cb4`.
-The four sets modify disjoint files. Integration does not replace any file with
-an older implementation or grant an AI response authority to execute actions.
+The four sets modify disjoint files. Their application code remains exact;
+the CI-only follow-up below adjusts the placement of one unchanged native test.
+Integration does not replace any file with an older implementation or grant an
+AI response authority to execute actions.
+
+## Aggregate native timeout found during integration
+
+The first combined run retained its original failed evidence: preflight18 passed,
+then71 of72 full-suite cases passed before the360-second aggregate timer killed
+the final twelve-theme `VoiceProfileUiTest`. The earlier component suite took
+352.633 seconds, including34.676 seconds for that profile test. This is evidence
+of inadequate aggregate headroom, not a passing final test or a phone voice fix.
+
+Keep every native test and assertion unchanged. The existing mandatory API34
+compatibility job now runs the complete profile test with a separate60-second
+bound, validates the actual SDK before executing, and retains its raw result.
+The full voice invocation explicitly excludes only that class and still requires
+all71 remaining cases inside the unchanged360 seconds; preflight18 and its
+120-second bound remain. API26/34 compatibility jobs still require their original
+four cases and all three Manager iterations. A failed or missing API34 profile
+result fails that job, which is already a required publication gate. The original
+90 executions are preserved as18+71+1 across the required jobs, without retries,
+increased voice deadlines or changed production code.
 
 ## Combined acceptance gates
 

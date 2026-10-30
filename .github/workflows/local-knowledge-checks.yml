@@ -158,7 +158,7 @@ jobs:
           emulator-boot-timeout: 300
           profile: pixel_2
           disable-animations: true
-          script: bash scripts/screen_read_acceptance.sh
+          script: bash scripts/screen_read_acceptance.sh ${{ matrix.api }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -166,6 +166,7 @@ jobs:
           path: |
             android-compatibility-results.txt
             screen-read-round-*.txt
+            voice-profile-results.txt
 
   voice-playback:
     runs-on: ubuntu-latest

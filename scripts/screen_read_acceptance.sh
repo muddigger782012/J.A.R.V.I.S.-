@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+screen_api="${1:?Expected CI Android API (26 or 34)}"
 # Retain the existing four compatibility cases as a hard prerequisite.
 bash scripts/android_compatibility_acceptance.sh
 screen_manager_apk=.acceptance/connection-manager/connection-manager/build/outputs/apk/debug/connection-manager-debug.apk
@@ -12,3 +13,4 @@ for screen_probe_round in 1 2 3; do
     cat "$screen_probe_result"
     grep -Eq 'OK \(1 test\)' "$screen_probe_result"
 done
+bash scripts/voice_profile_acceptance.sh "$screen_api"
