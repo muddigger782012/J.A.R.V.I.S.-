@@ -31,6 +31,7 @@ internal object AndroidChecklistScaffold {
                                 androidTestImplementation("androidx.test:runner:1.6.2")
                                 androidTestImplementation("androidx.test:rules:1.6.1")
                                 androidTestImplementation("androidx.test.ext:junit:1.2.1")
+                                androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
                             }
                         """.trimIndent()))
                 }
@@ -334,6 +335,10 @@ internal object AndroidChecklistScaffold {
                 import androidx.test.core.app.ActivityScenario
                 import androidx.test.ext.junit.runners.AndroidJUnit4
                 import androidx.test.platform.app.InstrumentationRegistry
+                import androidx.test.espresso.Espresso.onView
+                import androidx.test.espresso.action.ViewActions.click
+                import androidx.test.espresso.matcher.RootMatchers.isDialog
+                import androidx.test.espresso.matcher.ViewMatchers.withText
                 import org.junit.Assert.*
                 import org.junit.Before
                 import org.junit.Test
@@ -361,15 +366,8 @@ internal object AndroidChecklistScaffold {
                     }
                     private fun tasks(activity: StarterActivity) = views(activity.window.decorView).filterIsInstance<CheckBox>()
                     private fun dialogButton(positive: Boolean) {
-                        val device = InstrumentationRegistry.getInstrumentation().uiAutomation
-                        val text = if (positive) "Confirm" else "Cancel"
-                        val nodes = device.rootInActiveWindow.findAccessibilityNodeInfosByText(text)
-                        try {
-                            val exact = nodes.filter { it.text?.toString() == text && it.isClickable }
-                            assertEquals(1, exact.size)
-                            assertTrue(exact.single().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
-                        } finally { nodes.forEach { it.recycle() } }
-                        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                        onView(withText(if (positive) "Confirm" else "Cancel"))
+                            .inRoot(isDialog()).perform(click())
                     }
                     @Test fun saveCompleteCancelRemovalAndRecreate() {
                         assertTrue(preferences.edit().clear().commit())
