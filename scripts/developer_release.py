@@ -356,41 +356,123 @@ def preflight(client, manifest, sdk, recovery=False, ancestor=ancestry, sdk_comm
                 tagMode=tag_mode(previous, manifest['sourceCommit'], recovery, ancestor), recoveryRequested=recovery)
 
 
-def preserve_recovery(client, sdk, sdk_command=sdk_output):
-    """Keep source-only historical snapshots; use a digest suffix for repeated source builds."""
-    current = baseline(client, sdk, sdk_command)
-    if current is None:
-        return dict(status='NOT_NEEDED', mutationPerformed=False)
+def recovery_selection(client, current):
+    """Select one immutable destination without modifying legacy recovery channels."""
     legacy = 'developer-recovery-' + current['source']
     existing = release_metadata(client, legacy, missing=True)
     tag = legacy
     if existing:
-        require(existing['target_commitish'] == current['source'], 'Historical recovery source differs')
+        require(existing['target_commitish'] == current['source'] and
+                tag_target(client, legacy) == current['source'], 'Historical recovery source differs')
         previous = asset(existing, APK)
         if previous['digest'] != 'sha256:' + current['sha256']:
             tag += '-' + current['sha256']
             existing = release_metadata(client, tag, missing=True)
+    target = tag_target(client, tag)
+    require(target is None or target == current['source'], 'Existing recovery tag has another source')
+    if existing:
+        remote = asset(existing, APK)
+        require(target == current['source'] and existing['target_commitish'] == current['source'] and
+                remote['digest'] == 'sha256:' + current['sha256'] and remote['size'] == current['bytes'],
+                'Immutable recovery snapshot mismatch; never overwrite it')
+    return tag, existing
+
+
+def verify_recovery(client, current, tag, folder):
+    snapshot = release_metadata(client, tag)
+    remote = asset(snapshot, APK)
+    require(tag_target(client, tag) == current['source'] and snapshot['target_commitish'] == current['source'] and
+            remote['digest'] == 'sha256:' + current['sha256'] and remote['size'] == current['bytes'],
+            'Immutable recovery snapshot mismatch; never overwrite it')
+    client.download(tag, APK, folder)
+    require(digest(folder / APK) == current['sha256'] and (folder / APK).stat().st_size == current['bytes'],
+            'Recovery readback bytes differ')
+    fresh = release_metadata(client, tag)
+    fresh_asset = asset(fresh, APK)
+    require(fresh['id'] == snapshot['id'] and fresh['target_commitish'] == snapshot['target_commitish'] and
+            all(fresh_asset.get(key) == remote.get(key) for key in ('id', 'name', 'size', 'digest')) and
+            tag_target(client, tag) == current['source'],
+            'Recovery identity changed during readback')
+
+
+def recovery_plan(client, sdk, sdk_command=sdk_output):
+    """Read-only evidence for one exact published APK, never promotion authority."""
+    current = baseline(client, sdk, sdk_command)
+    require(current is not None, 'Published Developer baseline is missing')
+    tag, existing = recovery_selection(client, current)
+    if existing:
+        with tempfile.TemporaryDirectory(prefix='developer-recovery-plan-') as temporary:
+            verify_recovery(client, current, tag, Path(temporary))
+    require(baseline(client, sdk, sdk_command) == current, 'Published baseline changed during recovery audit')
+    return dict(schemaVersion=1, scope='CURRENT_RELEASE_RECOVERY_ONLY',
+                status='VERIFIED' if existing else 'APPROVAL_REQUIRED', baseline=current,
+                packageName='com.jarvis.developer', signerSha256=SIGNER, destinationTag=tag,
+                mutationPerformed=False, promotionEligibility='NOT_ASSESSED',
+                signingCredentialsUsed=False, deviceInstallation='PENDING',
+                approvalRequires=['approve_snapshot=true', 'approved_source_sha', 'approved_apk_sha256'])
+
+
+def preserve_recovery(client, sdk, sdk_command=sdk_output, *, approved_baseline=None):
+    """Reuse publication's preservation path, with optional exact standalone approval."""
+    current = baseline(client, sdk, sdk_command)
+    if approved_baseline is not None:
+        require(current == approved_baseline, 'Approved published baseline changed; request fresh approval')
+    if current is None:
+        return dict(status='NOT_NEEDED', mutationPerformed=False)
+    tag, existing = recovery_selection(client, current)
+    attempted = False
     with tempfile.TemporaryDirectory(prefix='developer-snapshot-') as temporary:
         folder = Path(temporary)
         client.download(TAG, APK, folder)
         require(digest(folder / APK) == current['sha256'], 'Baseline changed before recovery preservation')
         if existing is None:
-            existing_tag = tag_target(client, tag)
-            require(existing_tag is None or existing_tag == current['source'], 'Existing recovery tag has another source')
-            client.api('releases', 'POST', dict(tag_name=tag, target_commitish=current['source'], draft=False,
-                       prerelease=True, make_latest='false', name='Jarvis Developer recovery 0.1.' + str(current['version']),
-                       body='Immutable signed APK recovery. APK SHA-256 ' + current['sha256']))
-            client.upload(tag, [folder / APK])
-        snapshot = release_metadata(client, tag)
-        require(tag_target(client, tag) == current['source'], 'Immutable recovery tag source differs')
-        remote = asset(snapshot, APK)
-        require(snapshot['target_commitish'] == current['source'] and
-                remote['digest'] == 'sha256:' + current['sha256'] and remote['size'] == current['bytes'],
-                'Immutable recovery snapshot mismatch; never overwrite it')
-        client.download(tag, APK, folder)
-        require(digest(folder / APK) == current['sha256'], 'Recovery readback bytes differ')
-    require(baseline(client, sdk, sdk_command) == current, 'Published baseline changed during preservation')
+            require(baseline(client, sdk, sdk_command) == current, 'Published baseline changed before recovery creation')
+            fresh_tag, fresh_existing = recovery_selection(client, current)
+            require(fresh_tag == tag and fresh_existing is None, 'Recovery destination changed; audit again before writes')
+        try:
+            if existing is None:
+                # No retries, clobber, deletion or cleanup after an uncertain write.
+                attempted = True
+                created = client.api('releases', 'POST', dict(tag_name=tag, target_commitish=current['source'], draft=False,
+                           prerelease=True, make_latest='false', name='Jarvis Developer recovery 0.1.' + str(current['version']),
+                           body='Immutable signed APK recovery. APK SHA-256 ' + current['sha256']))
+                require(isinstance(created, dict) and type(created.get('id')) is int and created['id'] > 0 and
+                        created.get('tag_name') == tag and created.get('target_commitish') == current['source'] and
+                        created.get('draft') is False and created.get('prerelease') is True and
+                        tag_target(client, tag) == current['source'], 'Created recovery identity differs')
+                client.upload(tag, [folder / APK])
+            verify_recovery(client, current, tag, folder)
+            require(baseline(client, sdk, sdk_command) == current, 'Published baseline changed during preservation')
+        except Exception:
+            if attempted:
+                raise ReleaseFailure('Recovery write outcome is uncertain; retain state and run a fresh read-only audit before any retry') from None
+            raise
     return dict(status='PASSED', tag=tag, baseline=current, mutationPerformed=existing is None)
+
+
+def recovery_context(write=False):
+    """Read-only PR audits are allowed; writes require the actual canonical checkout."""
+    controller = os.environ.get('GITHUB_SHA', '')
+    require(os.environ.get('GITHUB_REPOSITORY') == REPO and SHA.fullmatch(controller) and
+            command(['git', 'rev-parse', 'HEAD']) == controller, 'Recovery controller identity differs')
+    if write:
+        require(os.environ.get('GITHUB_REF') == BRANCH and os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch' and
+                not os.environ.get('JARVIS_JOB_RECOVERY_SOURCE') and not os.environ.get('JARVIS_ARTIFACT_SOURCE'),
+                'Explicit canonical recovery-only dispatch required')
+    return controller
+
+
+def preserve_approved_recovery(client, sdk, source, apk_hash, approve=False, sdk_command=sdk_output):
+    require(approve is True and isinstance(source, str) and SHA.fullmatch(source) and
+            isinstance(apk_hash, str) and HASH.fullmatch(apk_hash), 'Exact explicit snapshot approval required')
+    controller = recovery_context(write=True)
+    plan = recovery_plan(client, sdk, sdk_command)
+    current = plan['baseline']
+    require(current['source'] == source and current['sha256'] == apk_hash,
+            'Approved source or APK changed; request fresh approval')
+    require(ancestry(source, controller), 'Published source is outside canonical Developer history')
+    result = preserve_recovery(client, sdk, sdk_command, approved_baseline=current)
+    return dict(plan, status='VERIFIED', destinationTag=result['tag'], mutationPerformed=result['mutationPerformed'])
 
 
 def require_publication(manifest, client):
@@ -519,11 +601,31 @@ def context(write=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('operation', choices=['prepare', 'preflight', 'preserve-recovery', 'finalize',
-                                             'audit-published', 'exercise-draft-upload'])
+                                             'audit-published', 'exercise-draft-upload',
+                                             'audit-recovery-plan', 'preserve-approved-recovery'])
     parser.add_argument('--apks', type=Path)
     parser.add_argument('--evidence', type=Path, required=True)
     args = parser.parse_args()
+    snapshot_mutation = False
     try:
+        if args.operation in {'audit-recovery-plan', 'preserve-approved-recovery'}:
+            controller = recovery_context(write=args.operation == 'preserve-approved-recovery')
+            sdk = Path(os.environ['ANDROID_HOME']) / 'build-tools/34.0.0'
+            client = GitHub()
+            if args.operation == 'audit-recovery-plan':
+                result = recovery_plan(client, sdk)
+            else:
+                # A failure before the helper returns cannot prove no write occurred
+                # (including interrupted temporary-file cleanup after readback).
+                snapshot_mutation = 'UNKNOWN'
+                result = preserve_approved_recovery(client, sdk, os.environ.get('APPROVED_SOURCE_SHA'),
+                    os.environ.get('APPROVED_APK_SHA256'), os.environ.get('APPROVE_SNAPSHOT') == 'true')
+                snapshot_mutation = result['mutationPerformed']
+            result.update(controllerCommitSha=controller, runId=os.environ.get('GITHUB_RUN_ID'),
+                          runAttempt=os.environ.get('GITHUB_RUN_ATTEMPT'))
+            write_json(args.evidence / 'recovery-snapshot-plan.json', result)
+            print('PASS: current-release recovery evidence; no candidate publication, signing or installation.')
+            return 0
         if args.operation == 'exercise-draft-upload':
             result = exercise_draft_upload(GitHub(), args.evidence / 'fixture')
             write_json(args.evidence / 'draft-upload-verification.json', result)
@@ -552,6 +654,16 @@ def main():
         return 0
     except Exception as failure:
         message = str(failure) if isinstance(failure, ReleaseFailure) else 'Developer release verification failed'
+        if args.operation in {'audit-recovery-plan', 'preserve-approved-recovery'}:
+            # Failure is evidence, never a restored approval or invented no-write claim.
+            try:
+                write_json(args.evidence / 'recovery-snapshot-plan.json', dict(schemaVersion=1,
+                    scope='CURRENT_RELEASE_RECOVERY_ONLY', status='BLOCKED',
+                    mutationPerformed='UNKNOWN' if 'outcome is uncertain' in message else snapshot_mutation,
+                    promotionEligibility='NOT_ASSESSED', signingCredentialsUsed=False,
+                    deviceInstallation='PENDING', requiresFreshAudit=True))
+            except Exception:
+                pass  # Preserve the primary failure even if local evidence cannot be written.
         print(message)
         return 1
 
