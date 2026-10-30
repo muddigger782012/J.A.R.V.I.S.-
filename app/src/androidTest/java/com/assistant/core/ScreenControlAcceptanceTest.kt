@@ -155,6 +155,7 @@ class ScreenControlAcceptanceTest {
                 val caching = service.isCacheEnabled
                 try {
                     service.setCacheEnabled(false)
+                    assertFalse(service.isCacheEnabled)
                     settled()
                     scenario.onActivity { it.delayNextAccessibilityRead() }
                     val recoveredRead = remote("read my screen")
@@ -162,6 +163,7 @@ class ScreenControlAcceptanceTest {
                     assertTrue("Controlled slow Accessibility callback must recover a complete read: $recoveredDiagnostics",
                         recoveredRead.contains("Screen control fixture"))
                     assertTrue(recoveredDiagnostics, recoveredDiagnostics.contains("attempt: completed"))
+                    assertTrue(recoveredDiagnostics, recoveredDiagnostics.contains("Android cache: disabled"))
                     assertTrue(recoveredDiagnostics, recoveredDiagnostics.contains("Captures: 2. First capture: time limit reached"))
                     assertTrue(recoveredDiagnostics, recoveredDiagnostics.contains("Total read time:"))
                     assertFalse(recoveredDiagnostics.contains("Screen control fixture"))
