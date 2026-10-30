@@ -163,9 +163,9 @@ object CandidateEvaluation {
             if (c.apkSha256 == known.apkSha256) blockers.add("A higher-version candidate cannot reuse the known-good APK bytes")
         }
         val backup = evidence.backup
-        if (backup == null) blockers.add("Verified previous-release backup is missing; recovery cannot be deferred")
+        if (backup == null) blockers.add("Verified previous-release backup is missing; preserve the current published APK as an immutable snapshot or exact legacy backup before requesting promotion")
         else if (!backup.verified || known == null || backup.facts != known)
-            blockers.add("Previous-release backup bytes, source, version, package or signer do not match the known-good artifact")
+            blockers.add("Release backup bytes, source, version, package or signer do not match the known-good artifact; an older snapshot cannot replace the current baseline")
         val rebuild = evidence.rebuild
         if (rebuild == null) blockers.add("Actual signed recovery rebuild is missing")
         else if (!rebuild.verified || known == null || rebuild.facts.sourceCommitSha != known.sourceCommitSha ||
@@ -192,12 +192,12 @@ object CandidateEvaluation {
         append("Scope/controller/isolation verified: ${review.evidence.source.scopeVerified}/${review.evidence.source.controlsUnchanged}/${review.evidence.source.branchIsolated}\n")
         append("Tests: ${review.evidence.tests.tests}; failures/errors/skips ${review.evidence.tests.failures}/${review.evidence.tests.errors}/${review.evidence.tests.skipped}; lint ${review.evidence.tests.lintErrors} errors, ${review.evidence.tests.lintWarnings} warnings\n")
         append("Known-good artifact: ").append(review.evidence.baseline?.let(::artifactSummary) ?: "MISSING").append('\n')
-        append("Previous backup: ").append(review.evidence.backup?.let { "verified=${it.verified}; ${artifactSummary(it.facts)}" } ?: "MISSING").append('\n')
+        append("Release backup (immutable snapshot or legacy): ").append(review.evidence.backup?.let { "verified=${it.verified}; ${artifactSummary(it.facts)}" } ?: "MISSING").append('\n')
         append("Recovery rebuild: ").append(review.evidence.rebuild?.let { "verified=${it.verified}; ${artifactSummary(it.facts)}" } ?: "MISSING").append('\n')
         append("Baseline CI: ${review.baselineReportFingerprint}\nCandidate CI: ${review.candidateReportFingerprint}\n")
         append("Review: ${review.fingerprint}\nExpires: ${review.deadlineAtMillis}\n")
         review.blockers.forEach { append("Blocked: $it\n") }
-        append("Evidence describes the recorded controller run. The five-minute review expiry does not refresh a moving release channel. Before actual promotion, independently revalidate current latest/previous APK bytes, immutable source and signer identity.\n")
+        append("Evidence describes the recorded controller run. The five-minute review expiry does not refresh a moving release channel. Before actual promotion, independently revalidate the current latest APK and selected verified backup bytes, immutable source and signer identity.\n")
         append("This is source/CI evidence. Device installation, device verification and publication are separate approvals.")
     }
 
@@ -210,7 +210,7 @@ object CandidateEvaluation {
         append("APK: ${request.candidate.apkSha256} ${request.candidate.apkBytes}\nPackage/version: ${request.candidate.packageName} ${request.candidate.versionCode}\nSigner: ${request.candidate.signerSha256}\n")
         append("Known good: ${artifactSummary(request.baseline)}\nRecovery: ${artifactSummary(request.recovery)}\n")
         append("Baseline CI: ${request.baselineReportFingerprint}\nCandidate CI: ${request.candidateReportFingerprint}\nConfirmed: ${request.confirmedAtMillis}\n")
-        append("Evidence describes the recorded controller run; five-minute review expiry does not refresh a moving release channel. Actual promotion requires independent revalidation of current latest/previous APK bytes, immutable source and signer identity.\n")
+        append("Evidence describes the recorded controller run; five-minute review expiry does not refresh a moving release channel. Actual promotion requires independent revalidation of the current latest APK and selected verified backup bytes, immutable source and signer identity.\n")
         append("This metadata object has no action authority. No publication or installation was performed or authorized by it.")
     }
 

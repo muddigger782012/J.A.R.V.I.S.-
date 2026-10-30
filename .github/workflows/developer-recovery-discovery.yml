@@ -1,0 +1,50 @@
+name: Verify immutable Developer recovery discovery
+on:
+  pull_request:
+    paths:
+      - 'developer/tools/candidate_audit.py'
+      - 'developer/tools/candidate_*_test.py'
+      - '.github/workflows/developer-recovery-discovery.yml'
+  push:
+    branches: [feature/jarvis-developer, 'feature/jarvis-developer-task/**']
+    paths:
+      - 'developer/tools/candidate_audit.py'
+      - 'developer/tools/candidate_*_test.py'
+      - '.github/workflows/developer-recovery-discovery.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read-only-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test recovery selection, source binding and unchanged promotion gates
+        run: python3 -m unittest discover -s developer/tools -p 'candidate_*_test.py' -v
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Install independent APK inspection tools
+        run: sdkmanager 'build-tools;34.0.0'
+      - name: Audit current lookup and actual historical snapshot without signing or release writes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 developer/tools/candidate_audit.py audit-recovery --controller .
+          --directory "${{ runner.temp }}/recovery-discovery"
+          --reference-source 089195cd9d768be7d4c9e8c6dd4cfea304286733
+          --reference-apk-sha256 73f16e1564d9057a9cff5a4fca38c83bd5417f20b9e48455aef0eb26b5b6cb5e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Developer-recovery-discovery-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/recovery-discovery/recovery-discovery.json
+          if-no-files-found: warn
