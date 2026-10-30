@@ -314,6 +314,112 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Verify separately approved offline checklist sources
+        run: python3 developer/tools/scaffold_build_evidence.py verify --root developer/build/reports/phase6-checklist-acceptance --platform android --fixture checklist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-phase6-checklist-sources
+          path: |
+            developer/build/reports/phase6-checklist-acceptance/evidence.json
+            developer/build/reports/phase6-checklist-acceptance/android.zip
+            developer/build/reports/phase6-checklist-acceptance/android/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  phase6-checklist-build:
+    name: Build and test the approved offline task-list app
+    needs: developer-debug
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: Jarvis-Developer-phase6-checklist-sources
+          path: developer/build/reports/phase6-checklist-acceptance/
+      - name: Verify every approved source byte before building
+        run: python3 developer/tools/scaffold_build_evidence.py verify --root developer/build/reports/phase6-checklist-acceptance --platform android --fixture checklist
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Run generated model tests, lint and build both independent debug APKs
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon -p developer/build/reports/phase6-checklist-acceptance/android :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Bind unit results and APK signatures to the approved source revision
+        run: python3 developer/tools/scaffold_build_evidence.py record --root developer/build/reports/phase6-checklist-acceptance --platform android --fixture checklist
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Jarvis-Developer-phase6-checklist-preview
+          path: |
+            developer/build/reports/phase6-checklist-acceptance/evidence.json
+            developer/build/reports/phase6-checklist-acceptance/android.zip
+            developer/build/reports/phase6-checklist-acceptance/android-build-evidence.json
+            developer/build/reports/phase6-checklist-acceptance/android/app/src/
+            developer/build/reports/phase6-checklist-acceptance/android/app/build.gradle.kts
+            developer/build/reports/phase6-checklist-acceptance/android/app/build/outputs/apk/
+            developer/build/reports/phase6-checklist-acceptance/android/app/build/test-results/testDebugUnitTest/
+            developer/build/reports/phase6-checklist-acceptance/android/app/build/reports/lint-results-debug.*
+            developer/build/reports/phase6-checklist-acceptance/android/settings.gradle.kts
+            developer/build/reports/phase6-checklist-acceptance/android/build.gradle.kts
+            developer/build/reports/phase6-checklist-acceptance/android/gradle.properties
+            developer/build/reports/phase6-checklist-acceptance/android/README.md
+          if-no-files-found: error
+          retention-days: 14
+
+  phase6-checklist-device:
+    name: Offline task-list save, restart and recovery (API ${{ matrix.api }})
+    needs: phase6-checklist-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [26, 34]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@v4
+        with:
+          name: Jarvis-Developer-phase6-checklist-preview
+          path: developer/build/reports/phase6-checklist-acceptance/
+      - name: Enable disposable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        env:
+          CHECKLIST_API_LEVEL: ${{ matrix.api }}
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-boot-timeout: 300
+          disable-animations: true
+          script: bash developer/tools/checklist_acceptance.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Jarvis-Developer-phase6-checklist-device-API-${{ matrix.api }}
+          path: developer-checklist-device-results/
+          if-no-files-found: error
+          retention-days: 14
+
   phase6-android-preview:
     needs: developer-debug
     runs-on: ubuntu-latest

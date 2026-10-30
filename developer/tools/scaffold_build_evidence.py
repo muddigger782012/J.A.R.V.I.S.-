@@ -18,6 +18,10 @@ import xml.etree.ElementTree as ET
 PLATFORMS = ("android", "backend", "windows")
 PACKAGE = "io.example.focuscounter"
 TEMPLATE_VERSION = "jarvis-starter-v1"
+FIXTURES = {
+    "starter": (PLATFORMS, TEMPLATE_VERSION, PACKAGE),
+    "checklist": (("android",), "jarvis-checklist-v1", "io.example.offlinechecklist"),
+}
 MAX_FILE = 256_000
 MAX_SOURCE = 2_000_000
 
@@ -47,17 +51,19 @@ def relative_path(value):
     return path
 
 
-def verify_sources(root, source_sha, platform, strict_tree=True):
+def verify_sources(root, source_sha, platform, strict_tree=True, fixture="starter"):
     require(re.fullmatch(r"[0-9a-f]{40}", source_sha or "") is not None, "Immutable source SHA required")
-    require(platform in PLATFORMS, "Unsupported platform")
+    require(fixture in FIXTURES, "Unsupported fixture")
+    platforms, template, _ = FIXTURES[fixture]
+    require(platform in platforms, "Unsupported platform")
     raw = bounded_bytes(root / "evidence.json", 64_000)
     evidence = json.loads(raw)
     require(evidence["schemaVersion"] == 1, "Unsupported evidence schema")
     require(evidence["sourceCommitSha"] == source_sha, "Scaffold source SHA mismatch")
-    require(evidence["templateVersion"] == TEMPLATE_VERSION, "Unexpected scaffold template version")
+    require(evidence["templateVersion"] == template, "Unexpected scaffold template version")
     records = evidence["platforms"]
-    require(isinstance(records, list) and len(records) == 3, "Expected three platform records")
-    require(sorted(item["platform"] for item in records) == sorted(PLATFORMS), "Platform identity mismatch")
+    require(isinstance(records, list) and len(records) == len(platforms), "Unexpected platform record count")
+    require(sorted(item["platform"] for item in records) == sorted(platforms), "Platform identity mismatch")
     record = next(item for item in records if item["platform"] == platform)
     require(re.fullmatch(r"[0-9a-f]{64}", record["fingerprint"]) is not None, "Invalid plan fingerprint")
     files = record["files"]
@@ -94,7 +100,7 @@ def verify_sources(root, source_sha, platform, strict_tree=True):
         for entry in entries:
             require(entry.file_size <= MAX_FILE and entry.file_size == len(contents[entry.filename]), "Archive member size mismatch")
             require(zipped.read(entry) == contents[entry.filename], "Archive source bytes mismatch")
-    return dict(sourceCommitSha=source_sha, platform=platform, templateVersion=TEMPLATE_VERSION,
+    return dict(sourceCommitSha=source_sha, platform=platform, templateVersion=template,
                 fingerprint=record["fingerprint"], sourceEvidenceSha256=digest(raw),
                 zipSha256=record["zipSha256"], files=files)
 
@@ -126,16 +132,37 @@ def checked_output(argv):
     return result.stdout.decode("utf-8")
 
 
-def apk_record(project):
-    path = project / "app/build/outputs/apk/debug/app-debug.apk"
+def apk_record(project, package=PACKAGE, android_test=False):
+    relative = ("app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk" if android_test
+                else "app/build/outputs/apk/debug/app-debug.apk")
+    path = project / relative
     data = bounded_bytes(path, 64_000_000)
     tools = Path(os.environ["ANDROID_HOME"]) / "build-tools/34.0.0"
     badging = checked_output([str(tools / "aapt"), "dump", "badging", str(path)])
-    require(re.search(r"^package: name='" + re.escape(PACKAGE) + "'", badging, re.M) is not None, "Unexpected preview APK package")
+    require(re.search(r"^package: name='" + re.escape(package) + "'", badging, re.M) is not None, "Unexpected preview APK package")
     signatures = checked_output([str(tools / "apksigner"), "verify", "--print-certs", str(path)])
     certs = re.findall(r"^Signer #[0-9]+ certificate SHA-256 digest: ([a-f0-9]{64})$", signatures, re.M)
     require(len(certs) == 1, "Expected one verified debug signer")
-    return dict(packageName=PACKAGE, bytes=len(data), apkSha256=digest(data), signerSha256=certs[0], signing="ephemeral-debug")
+    return dict(packageName=package, bytes=len(data), apkSha256=digest(data), signerSha256=certs[0], signing="ephemeral-debug")
+
+
+def verify_checklist_build(root, source_sha):
+    """Recheck source, unit results, both APKs and their shared signer before a disposable install."""
+    source = verify_sources(root, source_sha, "android", strict_tree=False, fixture="checklist")
+    recorded = json.loads(bounded_bytes(root / "android-build-evidence.json", 64_000))
+    require(recorded.get("schemaVersion") == 1 and recorded.get("installed") is False and
+            recorded.get("published") is False, "Unexpected build evidence state")
+    for key, value in source.items():
+        require(recorded.get(key) == value, "Build/source evidence mismatch")
+    project = root / "android"
+    require(junit_records(project / "app/build/test-results/testDebugUnitTest") == recorded.get("unitTests"),
+            "Recorded unit results changed")
+    package = FIXTURES["checklist"][2]
+    app = apk_record(project, package)
+    tests = apk_record(project, package + ".test", android_test=True)
+    require(recorded.get("apk") == app and recorded.get("deviceTestApk") == tests, "Build/APK evidence mismatch")
+    require(app["signerSha256"] == tests["signerSha256"], "App and instrumentation signer mismatch")
+    return recorded
 
 
 def backend_tests(path):
@@ -168,19 +195,30 @@ def windows_smoke(project, path):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("verify", "record"))
+    parser.add_argument("action", choices=("verify", "record", "verify-device"))
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--platform", choices=PLATFORMS, required=True)
+    parser.add_argument("--fixture", choices=tuple(FIXTURES), default="starter")
     args = parser.parse_args(argv)
+    if args.action == "verify-device":
+        require(args.fixture == "checklist" and args.platform == "android", "Unsupported device fixture")
+        evidence = verify_checklist_build(args.root, os.environ.get("GITHUB_SHA", ""))
+        print("JARVIS_PHASE6_CHECKLIST_PREINSTALL_VERIFIED=" + json.dumps(evidence, sort_keys=True, separators=(",", ":")))
+        return
     evidence = verify_sources(args.root, os.environ.get("GITHUB_SHA", ""), args.platform,
-                              strict_tree=args.action == "verify")
+                              strict_tree=args.action == "verify", fixture=args.fixture)
     evidence.update(schemaVersion=1, installed=False, published=False,
                     runId=os.environ.get("GITHUB_RUN_ID"), runAttempt=os.environ.get("GITHUB_RUN_ATTEMPT"))
     if args.action == "record":
         project = args.root / args.platform
         if args.platform == "android":
             evidence["unitTests"] = junit_records(project / "app/build/test-results/testDebugUnitTest")
-            evidence["apk"] = apk_record(project)
+            package = FIXTURES[args.fixture][2]
+            evidence["apk"] = apk_record(project, package)
+            if args.fixture == "checklist":
+                evidence["deviceTestApk"] = apk_record(project, package + ".test", android_test=True)
+                require(evidence["apk"]["signerSha256"] == evidence["deviceTestApk"]["signerSha256"],
+                        "App and instrumentation signer mismatch")
         elif args.platform == "backend":
             evidence["unitTests"] = backend_tests(args.root / "backend-tests.log")
         else:

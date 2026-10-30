@@ -48,6 +48,78 @@ class ScaffoldEvidenceTests(unittest.TestCase):
             with self.subTest(platform=platform):
                 self.assertEqual(SHA, self.verify(platform)["sourceCommitSha"])
 
+    def checklist_manifest(self):
+        self.manifest["templateVersion"] = evidence.FIXTURES["checklist"][1]
+        self.manifest["platforms"] = self.manifest["platforms"][:1]
+        self.save_manifest()
+
+    def test_checklist_requires_explicit_fixture_and_one_android_record(self):
+        self.checklist_manifest()
+        self.assertEqual("jarvis-checklist-v1", self.verify(fixture="checklist")["templateVersion"])
+        with self.assertRaisesRegex(ValueError, "template"):
+            self.verify()
+        with self.assertRaisesRegex(ValueError, "Unsupported platform"):
+            self.verify("backend", fixture="checklist")
+        with self.assertRaisesRegex(ValueError, "Unsupported fixture"):
+            self.verify(fixture="untrusted")
+
+    def test_starter_cannot_be_relabelled_as_checklist_by_call_site(self):
+        with self.assertRaisesRegex(ValueError, "template"):
+            self.verify(fixture="checklist")
+        self.manifest["templateVersion"] = "jarvis-checklist-v1"
+        self.save_manifest()
+        with self.assertRaisesRegex(ValueError, "record count"):
+            self.verify(fixture="checklist")
+
+    def test_checklist_retains_revision_and_postbuild_source_checks(self):
+        self.checklist_manifest()
+        with self.assertRaisesRegex(ValueError, "SHA mismatch"):
+            evidence.verify_sources(self.root, "f" * 40, "android", fixture="checklist")
+        (self.root / "android/source.txt").write_bytes(b"replaced source")
+        with self.assertRaisesRegex(ValueError, "byte count|digest"):
+            self.verify(strict_tree=False, fixture="checklist")
+
+    def test_apk_identity_is_fixed_by_fixture_and_wrong_package_is_rejected(self):
+        path = self.root / "android/app/build/outputs/apk/debug/app-debug.apk"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"test-only-placeholder")
+        with patch.dict(os.environ, {"ANDROID_HOME": str(self.root / "test-sdk")}), \
+                patch.object(evidence, "checked_output", return_value="package: name='com.jarvis.developer'\n"):
+            with self.assertRaisesRegex(ValueError, "Unexpected preview APK package"):
+                evidence.apk_record(self.root / "android", evidence.FIXTURES["checklist"][2])
+
+    def test_preinstall_rechecks_both_artifact_identities_and_unit_results(self):
+        self.checklist_manifest()
+        source = self.verify(fixture="checklist")
+        unit = {"totals": {"tests": 5, "failures": 0, "errors": 0, "skipped": 0}}
+        app = dict(packageName="io.example.offlinechecklist", apkSha256="a" * 64, signerSha256="c" * 64)
+        tests = dict(packageName="io.example.offlinechecklist.test", apkSha256="b" * 64, signerSha256="c" * 64)
+        record = dict(source, schemaVersion=1, installed=False, published=False, unitTests=unit,
+                      apk=app, deviceTestApk=tests)
+        path = self.root / "android-build-evidence.json"
+        path.write_text(json.dumps(record))
+        with patch.object(evidence, "junit_records", return_value=unit), \
+                patch.object(evidence, "apk_record", side_effect=[app, tests]):
+            self.assertEqual(record, evidence.verify_checklist_build(self.root, SHA))
+        for field, replacement in (("sourceCommitSha", "f" * 40), ("installed", True),
+                                   ("published", True), ("deviceTestApk", app), ("unitTests", {})):
+            path.write_text(json.dumps(dict(record, **{field: replacement})))
+            with self.subTest(field=field), patch.object(evidence, "junit_records", return_value=unit), \
+                    patch.object(evidence, "apk_record", side_effect=[app, tests]), self.assertRaises(ValueError):
+                evidence.verify_checklist_build(self.root, SHA)
+
+    def test_preinstall_rejects_different_app_and_instrumentation_signers(self):
+        self.checklist_manifest()
+        source = self.verify(fixture="checklist")
+        app = dict(signerSha256="a" * 64)
+        tests = dict(signerSha256="b" * 64)
+        (self.root / "android-build-evidence.json").write_text(json.dumps(dict(
+            source, schemaVersion=1, installed=False, published=False, unitTests={}, apk=app, deviceTestApk=tests)))
+        with patch.object(evidence, "junit_records", return_value={}), \
+                patch.object(evidence, "apk_record", side_effect=[app, tests]), \
+                self.assertRaisesRegex(ValueError, "signer mismatch"):
+            evidence.verify_checklist_build(self.root, SHA)
+
     def test_stale_revision_is_rejected(self):
         self.manifest["sourceCommitSha"] = "f" * 40
         self.save_manifest()
