@@ -1435,7 +1435,6 @@ class HybridAssistantService(
                 "check internet connection", "check internet connections",
                 "diagnose internet connection", "diagnose internet connections",
                 "check online connectivity", "run connectivity diagnostics",
-                "test search connection", "check search connection",
                 "test network connection", "test network connections",
                 "test my network connection", "test my network connections"
             )) {
@@ -1461,6 +1460,18 @@ class HybridAssistantService(
                 remember(rawInput, response)
                 callback(HybridAssistantReply(response))
             }.start()
+            return
+        }
+        // Search diagnostics must never masquerade as an internet reachability test.
+        // Until the configured search provider exposes a safe probe, report the
+        // missing capability explicitly rather than returning unrelated HTTPS 204.
+        if (diagnosticPhrase in setOf(
+                "test search connection", "test search connections",
+                "check search connection", "check search connections"
+            )) {
+            val response = "Search provider connectivity has not been tested. The basic internet probe cannot verify search availability. A dedicated configured-provider diagnostic is required."
+            remember(rawInput, response)
+            callback(HybridAssistantReply(response))
             return
         }
         val resolvedInput = if (manualConfirmation) {
