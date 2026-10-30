@@ -90,11 +90,14 @@ class ScreenAccessProvider : ContentProvider() {
             }
         }
         val token = epoch.token()
-        val deadline = SystemClock.uptimeMillis() + 3000
+        val enqueuedAt = SystemClock.uptimeMillis()
+        val deadline = enqueuedAt + 3000
         fun execute(): Bundle {
+            val queuedMillis = (SystemClock.uptimeMillis() - enqueuedAt).coerceAtLeast(0)
             applyCancellation()
             if (!epoch.valid(token)) return cancelledReply()
-            val result = AndroidScreenPlatform.withDeadline(deadline, { !epoch.valid(token) }) {
+            val result = AndroidScreenPlatform.withDeadline(deadline, { !epoch.valid(token) },
+                queueWaitMillis = queuedMillis) {
                 val beforeKey = controls.taskKey
                 val wasConfirming = controls.confirming
                 val step = controls.currentStep
