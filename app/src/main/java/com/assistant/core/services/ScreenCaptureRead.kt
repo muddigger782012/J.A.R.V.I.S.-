@@ -15,10 +15,17 @@ internal object ScreenCaptureRead {
         }
     }
 
-    fun <T> read(allowed: () -> Boolean, capture: () -> T): T {
+    /** Only explicit observations may spend remaining request time on a fresh timeout recheck. */
+    fun mayRetryTimeout(kind: ScreenControls.Kind?, remainingMillis: Long) =
+        kind in setOf(ScreenControls.Kind.READ, ScreenControls.Kind.LIST) && remainingMillis >= 500
+
+    fun <T> read(allowed: () -> Boolean, retryTimeout: () -> Boolean = { false },
+                 beforeRetry: (ScreenReadFailure.Reason) -> Unit = {}, capture: () -> T): T {
         check(allowed())
-        return try { capture() } catch (_: Changed) {
+        return try { capture() } catch (failure: ScreenReadFailure) {
+            if (failure !is Changed && (failure.reason != ScreenReadFailure.Reason.BUSY || !retryTimeout())) throw failure
             check(allowed())
+            beforeRetry(failure.reason)
             capture() // One complete recapture; never reuse a partial tree or retry an action.
         }
     }

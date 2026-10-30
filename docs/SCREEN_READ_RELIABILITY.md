@@ -24,6 +24,42 @@ screen restrictions, final consistency check and action approval gates remain
 unchanged. No partial tree or stale cached result is substituted to make a read
 appear successful, and device actions are never retried by this repair.
 
+## Bounded recovery of explicit observations
+
+Later combined acceptance exposed a disabled-cache capture that spent1,531ms in
+controls with only1ms queue wait. A same-source repeat passed, so the underlying
+framework/scheduling delay remains unresolved. Removing duplicate refreshes
+alone does not establish a universal timeout fix.
+
+An explicit `READ` or `LIST` request may now discard a BUSY capture and make one
+fresh capture if at least500ms remains in its original provider deadline. Task
+commands, taps, confirmations, scrolls, app queries, diagnostics and unscoped
+direct callers do not acquire this policy. This uses the same two-capture ceiling
+as the existing changed-tree recapture: a second timeout/change never starts a
+third capture. Cancellation, disconnection, reading limits, unknown exceptions
+and insufficient remaining time do not trigger timeout recovery.
+
+The provider deadline still starts before queueing and is never reset. Each
+capture retains its original traversal limit and all access, lock, password,
+protected-window, size and consistency checks. The first capture recycles its
+nodes on failure; no partial tree is reused. Actual action execution still calls
+the single-capture path and gains no retry. No Android caching setting is changed.
+
+When two captures actually start, diagnostics additionally report the first
+fixed failure reason and the total read duration. Existing phase/node figures
+describe the final attempt, while total read time includes both attempts. A
+failed/protected final attempt remains failed/protected. There is no screen text,
+exception text or new persistent history in this receipt.
+
+Unit coverage checks operation scope, budget consumption, cancellation, opt-in,
+nonrecoverable errors and the shared two-capture limit. Native diagnostics
+acceptance injects a helper timeout and then requires actual Accessibility
+content, and checks that read-recovery scope does not leak to later commands.
+This deterministic fault injection is separate from measured framework delays.
+Real uncached stress runs and Samsung physical acceptance remain necessary;
+bounded recovery cannot guarantee that an unresponsive Android Binder call ends
+within the soft deadline.
+
 `screen read diagnostics` now distinguishes the measured provider queue wait
 from capture access/root/window/control/verification times and records the
 selected refresh policy and attempted explicit refresh count. The transient

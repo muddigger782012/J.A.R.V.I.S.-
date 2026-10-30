@@ -100,12 +100,12 @@ class ScreenControlAcceptanceTest {
             instrumentation.waitForIdleSync(); settled()
             val platform = AndroidScreenPlatform(context)
             val timedOut = assertThrows(ScreenReadFailure::class.java) {
-                AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() - 1) { platform.snapshot() }
+                AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() - 1, readKind = ScreenControls.Kind.READ) { platform.snapshot() }
             }
             assertEquals(ScreenReadFailure.Reason.BUSY, timedOut.reason)
             assertEquals(0, platform.readDiagnostics()!!.nodes)
             val cancelled = assertThrows(ScreenReadFailure::class.java) {
-                AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() + 3000, { true }) { platform.snapshot() }
+                AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() + 3000, { true }, readKind = ScreenControls.Kind.READ) { platform.snapshot() }
             }
             assertEquals(ScreenReadFailure.Reason.CANCELLED, cancelled.reason)
             assertEquals(0, platform.readDiagnostics()!!.nodes)
@@ -118,6 +118,30 @@ class ScreenControlAcceptanceTest {
             assertEquals(321L, requireNotNull(platform.readDiagnostics()).queueMillis)
             assertTrue(platform.snapshot().text.contains("Screen control fixture"))
             assertEquals(0L, requireNotNull(platform.readDiagnostics()).queueMillis)
+            assertFalse(AndroidScreenPlatform.canRecoverReadTimeout())
+            AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() + 3000, readKind = ScreenControls.Kind.READ) {
+                assertTrue(AndroidScreenPlatform.canRecoverReadTimeout())
+                var attempts = 0; var reason: ScreenReadFailure.Reason? = null
+                // Inject one helper failure, then require actual permitted service content.
+                // This is deterministic fault injection, not a measured slow framework call.
+                val recovered = ScreenCaptureRead.read({ platform.connected() },
+                    { AndroidScreenPlatform.canRecoverReadTimeout() }, { reason = it }) {
+                    if (++attempts == 1) throw ScreenReadFailure(ScreenReadFailure.Reason.BUSY)
+                    platform.snapshot()
+                }
+                assertTrue(recovered.text.contains("Screen control fixture")); assertEquals(2, attempts)
+                assertEquals(ScreenReadFailure.Reason.BUSY, reason)
+            }
+            assertFalse(AndroidScreenPlatform.canRecoverReadTimeout())
+            AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() + 100, readKind = ScreenControls.Kind.READ) {
+                assertFalse(AndroidScreenPlatform.canRecoverReadTimeout())
+            }
+            for (kind in listOf(ScreenControls.Kind.CONFIRM, ScreenControls.Kind.SCROLL_DOWN, ScreenControls.Kind.TAP_LABEL)) {
+                AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() + 3000, readKind = kind) {
+                    assertFalse(AndroidScreenPlatform.canRecoverReadTimeout())
+                }
+            }
+            assertFalse(AndroidScreenPlatform.canRecoverReadTimeout())
             assertTrue(remote("read my screen").contains("Screen control fixture"))
             val report = remote("screen read diagnostics")
             assertTrue(report, report.contains("Last screen-read attempt: completed"))

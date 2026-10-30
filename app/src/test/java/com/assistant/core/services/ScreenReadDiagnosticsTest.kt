@@ -4,6 +4,31 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ScreenReadDiagnosticsTest {
+    @Test fun recaptureReportsTheActualFirstFailureAndBoundsItsWholeReadDuration() {
+        val record = ScreenReadDiagnostics(recapture = ScreenReadDiagnostics.Recapture(ScreenReadFailure.Reason.BUSY, Long.MAX_VALUE))
+        val report = record.report()
+        assertTrue(report.contains("attempt: completed"))
+        assertTrue(report.contains("Captures: 2. First capture: time limit reached. Total read time: 60000 ms"))
+        assertTrue(record.copy(recapture = ScreenReadDiagnostics.Recapture(ScreenReadFailure.Reason.CHANGED, -1)).report()
+            .contains("Captures: 2. First capture: screen changed. Total read time: 0 ms"))
+        assertFalse(ScreenReadDiagnostics().report().contains("Captures: 2"))
+    }
+    @Test fun recaptureMetadataCannotConvertFailureOrProtectionIntoSuccessfulContentAccess() {
+        val receipt = ScreenReadDiagnostics.Recapture(ScreenReadFailure.Reason.BUSY, 2400)
+        for (reason in ScreenReadFailure.Reason.values()) {
+            val report = ScreenReadDiagnostics(reason = reason, recapture = receipt).report()
+            assertFalse(report.contains("attempt: completed")); assertTrue(report.contains("Captures: 2"))
+        }
+        val report = ScreenReadDiagnostics(protectedScreen = true, nodes = 123, refreshes = 123, recapture = receipt).report()
+        assertTrue(report.contains("protected screen; no content exposed"))
+        assertTrue(report.contains("Examined nodes: 0")); assertTrue(report.contains("Explicit refresh calls: 0"))
+        assertFalse(report.contains("attempt: completed"))
+    }
+    @Test fun nonRecoverableReasonsCannotFabricateARecaptureReceipt() {
+        for (reason in ScreenReadFailure.Reason.values().filter { it !in setOf(ScreenReadFailure.Reason.BUSY, ScreenReadFailure.Reason.CHANGED) }) {
+            assertThrows(IllegalArgumentException::class.java) { ScreenReadDiagnostics.Recapture(reason, 0) }
+        }
+    }
     @Test fun fixedReasonsGiveDifferentRecoveryGuidanceWithoutExceptionContents() {
         val replies = ScreenReadFailure.Reason.values().map { ScreenReadFailure.guidance(ScreenReadFailure(it)) }
         assertEquals(ScreenReadFailure.Reason.values().size, replies.distinct().size)

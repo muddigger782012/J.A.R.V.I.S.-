@@ -17,8 +17,10 @@ boundaries. Current production and recovery releases remain independent.
 The base is canonical Developer source
 `3ba01ca35b4dd6fd4d138200b32fc7b020cf992e`. Its existing Assistant/integration
 sources match main `b59e42ea4f684d7014f0d29521d1c738adf06cb4`.
-The four sets modify disjoint files. Their application code remains exact;
-the CI-only follow-up below adjusts the placement of one unchanged native test.
+The four sets modify disjoint files. The CI-only follow-up below adjusts the
+placement of one unchanged native test. A subsequent Assistant repair adds one
+budgeted fresh capture for explicit read/list timeouts; its scope, retained
+deadlines and evidence are described in `SCREEN_READ_RELIABILITY.md`.
 Integration does not replace any file with an older implementation or grant an
 AI response authority to execute actions.
 

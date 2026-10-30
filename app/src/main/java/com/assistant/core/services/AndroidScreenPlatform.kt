@@ -196,15 +196,21 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
         }
     }
     override fun snapshot(): ScreenControls.Snapshot {
-        var attempted = false
-        return try { ScreenCaptureRead.read({ !requestExpired() && connected() }) {
-            attempted = true
+        var attempts = 0
+        var firstFailure: ScreenReadFailure.Reason? = null
+        val started = SystemClock.uptimeMillis()
+        return try { ScreenCaptureRead.read({ !requestExpired() && connected() },
+            retryTimeout = { canRecoverReadTimeout() }, beforeRetry = { firstFailure = it }) {
+            attempts++
             capture().use { it.snapshot }
         } } catch (failure: Exception) {
             val safeFailure = readFailure(failure)
-            lastRead = if (!attempted) ScreenReadDiagnostics(reason = safeFailure.reason, queueMillis = requestQueueWait.get() ?: 0L)
+            lastRead = if (attempts == 0) ScreenReadDiagnostics(reason = safeFailure.reason, queueMillis = requestQueueWait.get() ?: 0L)
                 else lastRead?.copy(reason = safeFailure.reason) ?: ScreenReadDiagnostics(reason = safeFailure.reason)
             throw safeFailure
+        } finally {
+            if (attempts == 2 && firstFailure != null) lastRead = lastRead?.copy(recapture =
+                ScreenReadDiagnostics.Recapture(requireNotNull(firstFailure), SystemClock.uptimeMillis() - started))
         }
     }
     override fun perform(snapshot: ScreenControls.Snapshot, control: ScreenControls.Control, scroll: ScreenControls.Kind?): ScreenControls.Result = try {
@@ -245,13 +251,22 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
         private val requestDeadline = ThreadLocal<Long>()
         private val requestCancelled = ThreadLocal<() -> Boolean>()
         private val requestQueueWait = ThreadLocal<Long>()
+        private val requestReadKind = ThreadLocal<ScreenControls.Kind>()
         private fun requestExpired() = SystemClock.uptimeMillis() >= (requestDeadline.get() ?: Long.MAX_VALUE) ||
             requestCancelled.get()?.invoke() == true
-        fun <T> withDeadline(deadline: Long, cancelled: () -> Boolean = { false }, queueWaitMillis: Long = 0, block: () -> T): T {
+        internal fun canRecoverReadTimeout(): Boolean {
+            val deadline = requestDeadline.get() ?: return false
+            return !requestExpired() && ScreenCaptureRead.mayRetryTimeout(requestReadKind.get(), deadline - SystemClock.uptimeMillis())
+        }
+        fun <T> withDeadline(deadline: Long, cancelled: () -> Boolean = { false }, queueWaitMillis: Long = 0,
+                             readKind: ScreenControls.Kind? = null, block: () -> T): T {
             requestDeadline.set(deadline)
             requestCancelled.set(cancelled)
             requestQueueWait.set(queueWaitMillis.coerceIn(0, 60_000))
-            return try { block() } finally { requestDeadline.remove(); requestCancelled.remove(); requestQueueWait.remove() }
+            if (readKind == null) requestReadKind.remove() else requestReadKind.set(readKind)
+            return try { block() } finally {
+                requestDeadline.remove(); requestCancelled.remove(); requestQueueWait.remove(); requestReadKind.remove()
+            }
         }
         private fun display(value: String, limit: Int) = value.replace(Regex("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]+"), " ")
             .replace(Regex("\\s+"), " ").trim().take(limit)

@@ -21,10 +21,17 @@ data class ScreenReadDiagnostics(val reason: ScreenReadFailure.Reason? = null, v
                                  val stage: Stage = Stage.PREPARE, val nodes: Int = 0,
                                  val elapsedMillis: Long = 0, val cache: Cache = Cache.UNKNOWN,
                                  val queueMillis: Long = 0, val phases: Phases = Phases(),
-                                 val refreshes: Int = 0, val refreshPolicy: RefreshPolicy = RefreshPolicy.UNKNOWN) {
+                                 val refreshes: Int = 0, val refreshPolicy: RefreshPolicy = RefreshPolicy.UNKNOWN,
+                                 val recapture: Recapture? = null) {
     enum class Stage { PREPARE, ROOT, WINDOW, CONTROLS, VERIFY }
     enum class Cache { ENABLED, DISABLED, UNKNOWN }
     enum class RefreshPolicy { UNKNOWN, PLATFORM_FRESH, EXPLICIT_REQUIRED }
+    data class Recapture(val firstFailure: ScreenReadFailure.Reason, val elapsedMillis: Long) {
+        init { require(firstFailure in setOf(ScreenReadFailure.Reason.BUSY, ScreenReadFailure.Reason.CHANGED)) }
+        fun report() = "Captures: 2. First capture: " +
+            (if (firstFailure == ScreenReadFailure.Reason.BUSY) "time limit reached" else "screen changed") +
+            ". Total read time: ${elapsedMillis.coerceIn(0, 60_000)} ms. "
+    }
     data class Phases(val prepareMillis: Long = 0, val rootMillis: Long = 0, val windowMillis: Long = 0,
                       val controlsMillis: Long = 0, val verifyMillis: Long = 0) {
         fun report() = "Capture phases (ms): access ${prepareMillis.coerceIn(0, 60_000)}; " +
@@ -63,6 +70,7 @@ data class ScreenReadDiagnostics(val reason: ScreenReadFailure.Reason? = null, v
             "Examined nodes: ${if (protectedScreen) 0 else nodes.coerceIn(0, 300)}. Time: $elapsed ms. Android cache: $cacheState. " +
             "Queue wait: ${queueMillis.coerceIn(0, 60_000)} ms. " + phases.report() +
             "Read mode: $policy. Explicit refresh calls: ${if (protectedScreen) 0 else refreshes.coerceIn(0, 300)}. " +
+            recapture?.report().orEmpty() +
             "This describes that attempt, not the current screen. Request a fresh read for current content. " +
             "This diagnostic contains no screen text or user values."
     }
