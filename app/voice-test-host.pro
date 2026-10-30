@@ -83,6 +83,8 @@
 -keep,allowoptimization class com.assistant.core.services.AndroidScreenPlatform** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ScreenReadDiagnostics** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ScreenReadFailure** { public *; }
+# The deterministic recapture case calls this Kotlin object's INSTANCE/read entry points.
+-keep,allowoptimization class com.assistant.core.services.ScreenCaptureRead** { public *; }
 -keep,allowoptimization class com.assistant.core.services.JarvisAccessibilityService** { public *; }
 
 # Debug/optimized-host-only real-window and separate-process acceptance fixtures.
