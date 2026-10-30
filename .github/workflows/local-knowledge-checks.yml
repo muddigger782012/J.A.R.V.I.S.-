@@ -136,6 +136,15 @@ jobs:
         with:
           name: android-compatibility-tests
           path: app/build/outputs/apk/androidTest/debug
+      - uses: android-actions/setup-android@v4
+      - name: Check out the same immutable Connection Manager acceptance reference
+        uses: actions/checkout@v4
+        with:
+          ref: 246c82a00f116dad328d213db3fcc805e25a0c5a
+          path: .acceptance/connection-manager
+          persist-credentials: false
+      - name: Build the independent Connection Manager reference for repeated screen reads
+        run: timeout 300s bash gradlew --no-daemon -p .acceptance/connection-manager :connection-manager:assembleDebug
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -149,12 +158,14 @@ jobs:
           emulator-boot-timeout: 300
           profile: pixel_2
           disable-animations: true
-          script: bash scripts/android_compatibility_acceptance.sh
+          script: bash scripts/screen_read_acceptance.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: android-compatibility-${{ matrix.api }}
-          path: android-compatibility-results.txt
+          path: |
+            android-compatibility-results.txt
+            screen-read-round-*.txt
 
   voice-playback:
     runs-on: ubuntu-latest
