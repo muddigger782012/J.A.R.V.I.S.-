@@ -1,7 +1,7 @@
 package com.jarvis.developer
 
 import android.content.Context
-import androidx.test.core.app.ApplicationProvider
+import org.robolectric.RuntimeEnvironment
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Before
@@ -15,7 +15,7 @@ class ProjectGenerationStoreConcurrencyTest {
     private lateinit var context: Context
 
     @Before fun setUp() {
-        context = ApplicationProvider.getApplicationContext()
+        context = RuntimeEnvironment.getApplication()
         val preferences = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
         preferences.edit().clear().commit()
         store = ProjectGenerationStore(preferences)
