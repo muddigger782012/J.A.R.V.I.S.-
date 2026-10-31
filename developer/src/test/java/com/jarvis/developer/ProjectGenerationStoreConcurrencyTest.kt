@@ -21,6 +21,20 @@ class ProjectGenerationStoreConcurrencyTest {
         store = ProjectGenerationStore(preferences)
     }
 
+    @Test fun recoverAllHandlesMultipleProjectsAndLeavesActiveRequestAlone() {
+        val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
+        requireNotNull(store.begin("active", "live task", 0))
+        for (id in listOf("orphan1", "orphan2")) {
+            prefs.edit().putString("project_$id",
+                JSONObject().put("id", id).put("description", "old task").put("target", 0)
+                    .put("state", "generating").put("generation_request", "old")
+                    .put("generation_process", "previous-process").toString()).commit()
+        }
+        assertEquals(2, store.recoverAllInterrupted())
+        assertEquals(0, store.recoverAllInterrupted())
+        assertEquals("generating", JSONObject(requireNotNull(prefs.getString("project_active", null))).getString("state"))
+    }
+
     @Test fun oldProcessGenerationCanBeRecoveredAndRetried() {
         val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
         prefs.edit().putString("project_project1",

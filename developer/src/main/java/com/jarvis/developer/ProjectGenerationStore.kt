@@ -52,6 +52,15 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
         }.getOrDefault(Result.FAILED)
     }
 
+    /** Recover orphaned requests across every stored project without touching live requests. */
+    fun recoverAllInterrupted(): Int = synchronized(lock) {
+        preferences.all.keys.asSequence()
+            .filter { it.startsWith("project_") }
+            .map { it.removePrefix("project_") }
+            .filter { it.matches(Regex("[A-Za-z0-9_-]{1,80}")) }
+            .count { recoverInterrupted(it) }
+    }
+
     /** Turn a prior-process in-flight request into a durable, retryable interruption. */
     fun recoverInterrupted(id: String): Boolean = synchronized(lock) {
         runCatching {

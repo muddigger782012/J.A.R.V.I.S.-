@@ -49,6 +49,12 @@ internal object ProjectGenerationWorkbench {
             }
         }
         // Reconcile a request orphaned by process death before accepting another command.
+        val recoveredProjects = store.recoverAllInterrupted()
+        if (recoveredProjects > 0) {
+            output.setText(R.string.project_generation_not_started)
+            status.text = "$recoveredProjects interrupted AI request(s) recovered. Review and retry."
+            changed()
+        }
         selected()?.let { project ->
             if (store.recoverInterrupted(project)) {
                 output.setText(R.string.project_generation_not_started)
