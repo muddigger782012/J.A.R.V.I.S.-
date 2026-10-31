@@ -150,8 +150,12 @@ class ProjectGenerationStoreConcurrencyTest {
     @Test fun currentTicketCheckRejectsSupersededOrCancelledWork() {
         val ticket = requireNotNull(store.begin("project1", "first task", 0))
         assertTrue(store.isCurrent(ticket))
-        assertTrue(store.saveLocal("project1", "offline revision", 1))
+        // Active generation is protected against an offline overwrite.
+        assertFalse(store.saveLocal("project1", "offline revision", 1))
+        assertTrue(store.isCurrent(ticket))
+        assertEquals(ProjectGenerationStore.Result.SAVED, store.finish(ticket, "generation_cancelled"))
         assertFalse(store.isCurrent(ticket))
+        assertTrue(store.saveLocal("project1", "offline revision", 1))
         val retry = requireNotNull(store.begin("project1", "retry", 1))
         assertTrue(store.isCurrent(retry))
         assertFalse(store.isCurrent(ticket))
