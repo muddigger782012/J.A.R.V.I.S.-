@@ -116,6 +116,7 @@ internal object ProjectGenerationWorkbench {
                     activity.runOnUiThread { if (current(run)) status.text = activity.getString(
                         if (context.verified) R.string.project_generation_context_ready else R.string.project_generation_context_unavailable, providerName) }
                     val text = services.ask(providerName, secret, modelName, task, run.cancellation, context)
+                    require(text.isNotBlank()) { "AI provider returned an empty response." }
                     run.cancellation.check()
                     val replyText = sourceSummary + "\n\n" + text
                     // Never persist or display credentials accidentally echoed by a provider.
