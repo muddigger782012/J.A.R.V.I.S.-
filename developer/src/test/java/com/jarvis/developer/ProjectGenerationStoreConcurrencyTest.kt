@@ -68,7 +68,7 @@ class ProjectGenerationStoreConcurrencyTest {
 
     @Test fun oversizedProviderReplyFailsAndCanBeRetried() {
         val ticket = requireNotNull(store.begin("project1", "task", 0))
-        assertEquals(ProjectGenerationStore.Result.SAVED,
+        assertEquals(ProjectGenerationStore.Result.FAILED,
             store.finish(ticket, "generated", "x".repeat(256_001)))
         val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
         val record = JSONObject(requireNotNull(prefs.getString("project_project1", null)))

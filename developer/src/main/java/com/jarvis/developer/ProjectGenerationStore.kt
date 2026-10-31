@@ -39,7 +39,8 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
         require((state == "generated") == (response != null))
         if (response != null && response.length > 256_000) {
             // Do not strand the workbench in generating when a provider exceeds the storage limit.
-            return@synchronized finish(ticket, "generation_failed")
+            val recorded = finish(ticket, "generation_failed")
+            return@synchronized if (recorded == Result.STALE) Result.STALE else Result.FAILED
         }
         runCatching {
             val record = read(ticket.project)

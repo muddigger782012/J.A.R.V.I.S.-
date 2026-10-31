@@ -90,6 +90,10 @@ internal object ProjectGenerationWorkbench {
                 } else status.setText(R.string.project_generation_save_failed)
                 return@setOnClickListener
             }
+            if (product !in 0..1) {
+                status.text = "Select a valid development target before generating."
+                return@setOnClickListener
+            }
             val ticket = store.begin(project, task, product)
             if (ticket == null) { status.setText(R.string.project_generation_save_failed); return@setOnClickListener }
             select(project); changed()
