@@ -86,6 +86,8 @@ class ProjectGenerationStoreConcurrencyTest {
             .put("approved", true).toString()))
         assertFalse(destination.importProject(JSONObject(exported).put("id", "forged")
             .put("generation_request", "forged-ticket").toString()))
+        assertFalse(destination.importProject(JSONObject(exported).put("id", "forged")
+            .put("state", "approved_and_published").toString()))
         assertFalse(otherPrefs.contains("project_forged"))
     }
 

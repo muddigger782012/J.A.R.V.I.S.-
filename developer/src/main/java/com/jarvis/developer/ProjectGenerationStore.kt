@@ -124,6 +124,12 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
             val task = json.getString("description")
             val target = json.getInt("target")
             val note = json.optString("developer_note")
+            // An import is always a new, inactive project; reject fabricated lifecycle
+            // states instead of allowing a snapshot to masquerade as a completed job.
+            if (json.has("state") && json.optString("state") !in setOf(
+                    "Saved locally", "AI reply received", "AI request failed",
+                    "AI request cancelled", "AI request interrupted"
+                )) return@synchronized false
             if (!id.matches(Regex("[A-Za-z0-9_-]{1,80}")) ||
                 task.isBlank() || task.length > 16_000 || target !in 0..1 ||
                 note.length > 8_000 || read(id).has("id")) return@synchronized false
