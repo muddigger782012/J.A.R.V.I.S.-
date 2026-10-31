@@ -35,3 +35,15 @@ Navigation drawer; adaptive layout; hybrid controls; preserve current Jarvis the
 - Include accessibility support: screen reader labels, touch targets, keyboard/Back navigation, readable contrast, and reduced-motion support.
 - UI generation must be deterministic from a validated schema; no arbitrary executable code or untrusted HTML from model output. Reject unsupported control types and invalid values, with safe text fallback.
 - Tests must verify that changing an option updates dependent previews and approval payloads, saved choices restore correctly, and untrusted model output cannot trigger file writes or release actions.
+
+## Approved Interactive Build Architect configuration (owner-selected)
+These are the current project defaults, not suggestions:
+- Consultation mode: **Collaborative**. Present useful alternatives at meaningful design/build milestones, avoiding unnecessary interruptions.
+- Navigation: **Expandable drawer**. All screens must provide reliable Back/close navigation.
+- Information density: **Balanced**.
+- Interface scale: **100%**.
+- Proactive recommendations: **Enabled**.
+- UI: **Context-aware interactive controls and live previews** for development decisions; selection changes must update the preview and the eventual approved configuration.
+- Theme: **Preserve the existing J.A.R.V.I.S. theme and all previously approved defaults**, except where the owner explicitly authorizes a change.
+
+Persist these values in project-scoped configuration once the feature is implemented. Never treat this specification alone as evidence that runtime preferences are already saved or functioning.
