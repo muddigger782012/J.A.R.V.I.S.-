@@ -68,6 +68,10 @@ internal object ProjectGenerationWorkbench {
             if (!alive() || running != null) return@setOnClickListener
             val task = prompt.text.toString().trim()
             if (task.isEmpty()) { status.setText(R.string.project_generation_describe); prompt.requestFocus(); return@setOnClickListener }
+            if (task.length > 16_000) {
+                status.text = "Task exceeds 16,000 characters. Shorten the request and retry."
+                return@setOnClickListener
+            }
             val secret = key.text.toString().trim()
             val readToken = githubToken().trim()
             if ((secret.isNotEmpty() && task.contains(secret)) || (readToken.isNotEmpty() && task.contains(readToken))) {

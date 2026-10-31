@@ -60,6 +60,7 @@ internal object ProviderCredentialStore {
             require(provider == "Gemini" || provider == "OpenAI")
             require(key.isNotBlank() && key.length <= 1024 && key.none { it.isWhitespace() })
             require(model.length <= 128 && model.none { it.isWhitespace() })
+            require(model.isEmpty() || model.matches(Regex("[A-Za-z0-9][A-Za-z0-9._/-]{0,127}")))
             Triple(provider, key, model)
         } catch (_: Exception) {
             // Never return corrupt or undecryptable credentials.

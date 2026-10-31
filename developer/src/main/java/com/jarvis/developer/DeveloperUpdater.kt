@@ -63,6 +63,8 @@ object DeveloperUpdater {
                 activity.runOnUiThread { status("Downloading Developer update...") }
                 val folder = File(activity.cacheDir, "updates").apply { mkdirs() }
                 val file = File(folder, "Jarvis-Developer.apk")
+                // Never trust an APK left by an earlier interrupted or failed download.
+                if (file.exists() && !file.delete()) throw IllegalStateException("Unable to clear old update")
                 val conn = URL(url).openConnection() as HttpURLConnection
                 conn.connectTimeout = 15000
                 conn.readTimeout = 120000
@@ -86,8 +88,10 @@ object DeveloperUpdater {
                     throw IllegalStateException("Downloaded APK failed SHA-256 integrity verification")
                 }
                 val archive = activity.packageManager.getPackageArchiveInfo(file.absolutePath, 0)
-                    ?: throw IllegalStateException("Downloaded file is not an APK")
-                if (archive.packageName != activity.packageName) throw IllegalStateException("APK package mismatch")
+                    ?: run { file.delete(); throw IllegalStateException("Downloaded file is not an APK") }
+                if (archive.packageName != activity.packageName) {
+                    file.delete(); throw IllegalStateException("APK package mismatch")
+                }
                 val installed = activity.packageManager.getPackageInfo(activity.packageName, 0)
                 val incomingVersion = if (Build.VERSION.SDK_INT >= 28) archive.longVersionCode else @Suppress("DEPRECATION") archive.versionCode.toLong()
                 val currentVersion = if (Build.VERSION.SDK_INT >= 28) installed.longVersionCode else @Suppress("DEPRECATION") installed.versionCode.toLong()
