@@ -113,6 +113,7 @@ object ApplicationApprovalWorkbench {
 
         fun attach() {
             root.addView(container)
+            BuildArchitectPanel.attach(activity, container)
             container.addView(TextView(context).apply { text = "Build a new application" })
             container.addView(TextView(context).apply {
                 text = "Choose an Android, backend service or Windows starter and describe its purpose. " +
