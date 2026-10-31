@@ -23,7 +23,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      # GitHub's Ubuntu runner already provides ANDROID_HOME and command-line tools.
+      # setup-android@v3 fails on this runner trying to install nonexistent package 'tools'.
+      - name: Verify preinstalled Android SDK
+        run: test -d "$ANDROID_HOME/platforms" && test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
       - uses: gradle/actions/setup-gradle@v4
       - name: Run Developer generation regression tests
         run: ./gradlew -PjarvisDeveloper=true :developer:testDebugUnitTest --tests 'com.jarvis.developer.ProjectGenerationStoreConcurrencyTest' --stacktrace
