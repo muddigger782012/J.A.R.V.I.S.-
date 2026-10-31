@@ -10,13 +10,22 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
     enum class Result { SAVED, STALE, FAILED }
 
     fun saveLocal(id: String, task: String, target: Int): Boolean = synchronized(lock) {
-        runCatching { write(id, base(id, task, target).put("state", "saved").apply {
-            remove("generation_request"); remove("generation_process")
-        }) }.getOrDefault(false)
+        runCatching {
+            val current = read(id)
+            if (current.optString("state") == "generating" &&
+                current.optString("generation_process") == process) return@synchronized false
+            write(id, base(id, task, target).put("state", "saved").apply {
+                remove("generation_request"); remove("generation_process")
+                remove("response"); remove("response_description"); remove("response_target")
+            })
+        }.getOrDefault(false)
     }
 
     fun begin(id: String, task: String, target: Int): Ticket? = synchronized(lock) {
         runCatching {
+            val current = read(id)
+            if (current.optString("state") == "generating" &&
+                current.optString("generation_process") == process) return@synchronized null
             val ticket = Ticket(id, UUID.randomUUID().toString())
             if (write(id, base(id, task, target).put("state", "generating")
                     .put("generation_request", ticket.request).put("generation_process", process))) ticket else null
@@ -34,6 +43,9 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
             record.remove("generation_process")
             if (response != null) record.put("response", response)
                 .put("response_description", record.getString("description")).put("response_target", record.getInt("target"))
+            else {
+                record.remove("response"); record.remove("response_description"); record.remove("response_target")
+            }
             if (write(ticket.project, record)) Result.SAVED else Result.FAILED
         }.getOrDefault(Result.FAILED)
     }
