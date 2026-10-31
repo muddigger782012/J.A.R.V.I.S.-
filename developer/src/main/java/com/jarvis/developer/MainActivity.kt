@@ -1029,7 +1029,11 @@ class MainActivity : Activity() {
             if (next != activePage) {
                 dismissKeyboard()
                 positions[activePage] = pages[activePage].scrollY
-                if (remember) pageHistory.add(activePage)
+                if (remember) {
+                    // Keep the navigation stack bounded and avoid duplicate adjacent entries.
+                    if (pageHistory.lastOrNull() != activePage) pageHistory.add(activePage)
+                    if (pageHistory.size > 32) pageHistory.removeAt(0)
+                }
             }
             activePage = next
             pages.forEachIndexed { pageIndex, page ->
@@ -1054,7 +1058,14 @@ class MainActivity : Activity() {
             if (activePage == 4 && openSection >= 0) {
                 sectionButtons[openSection].performClick(); true
             } else if (pageHistory.isNotEmpty()) {
-                showPage(pageHistory.removeAt(pageHistory.lastIndex), false); true
+                // Discard stale entries for the current page before navigating.
+                while (pageHistory.lastOrNull() == activePage) pageHistory.removeAt(pageHistory.lastIndex)
+                if (pageHistory.isNotEmpty()) {
+                    showPage(pageHistory.removeAt(pageHistory.lastIndex), false)
+                } else {
+                    showPage(0, false)
+                }
+                true
             } else if (activePage != 0) { showPage(0, false); true } else false
         }
         listOf(projects, activityPage, settings, advanced).forEach { page ->
