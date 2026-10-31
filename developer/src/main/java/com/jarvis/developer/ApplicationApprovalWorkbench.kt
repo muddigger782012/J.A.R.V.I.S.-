@@ -130,6 +130,9 @@ object ApplicationApprovalWorkbench {
                 container.addView(it, LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             }
+            BuildArchitectPanel.attach(activity, container)
+            DeliveryStatusPanel.attach(activity, container)
+            DevelopmentJobPanel.attach(activity, container)
             val changes = object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
