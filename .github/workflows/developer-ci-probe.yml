@@ -1,0 +1,28 @@
+name: Developer CI registration probe
+on:
+  push:
+    branches:
+      - 'feature/jarvis-developer-task/**'
+    paths:
+      - 'developer/**'
+      - '.github/workflows/build-jarvis-developer.yml'
+      - '.github/workflows/developer-ci-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  registration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm isolated Developer workflow is present at this commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s .github/workflows/build-jarvis-developer.yml
+          test -s developer/tools/checklist_acceptance.sh
+          python3 -m unittest discover -s developer/tools -p 'checklist_acceptance_contract_test.py' -v
+          printf 'DEVELOPER_CI_PROBE_SHA=%s\n' "$GITHUB_SHA"
