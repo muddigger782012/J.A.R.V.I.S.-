@@ -31,6 +31,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
+    # Task branches may test metadata, but never receive production signing authority.
+    if: github.repository == 'muddigger782012/J.A.R.V.I.S.-' && github.ref == 'refs/heads/feature/jarvis-developer'
     runs-on: ubuntu-latest
     steps:
       - name: Resolve approved recovery source
@@ -50,6 +52,7 @@ jobs:
           fi
           if [ -n "$RECOVERY_SHA" ]; then
             [[ "$RECOVERY_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'Invalid recovery SHA'; exit 1; }
+            RECOVERY_SHA="${RECOVERY_SHA,,}"
           fi
           echo "sha=$RECOVERY_SHA" >> "$GITHUB_OUTPUT"
       - name: Record selected Developer source
@@ -72,6 +75,15 @@ jobs:
           if [ -n "$RECOVERY_SHA" ]; then
             [[ "$RECOVERY_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'Invalid recovery SHA'; exit 1; }
           fi
+      - name: Check out trusted publication tools
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Retain current tools for historical recovery builds
+        run: |
+          mkdir -p "$RUNNER_TEMP/developer-release-tools"
+          cp scripts/job_apk_evidence.py scripts/developer_release.py "$RUNNER_TEMP/developer-release-tools/"
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.recovery.outputs.sha || github.sha }}
@@ -126,7 +138,6 @@ jobs:
           test -s "$APK"
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify "$APK"
           "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" | head -1 | grep -q "name='com.jarvis.developer'"
-          cp "$APK" "$RUNNER_TEMP/Jarvis-Developer.apk"
           mkdir -p "$RUNNER_TEMP/developer-job-artifact"
           cp "$APK" "$RUNNER_TEMP/developer-job-artifact/Jarvis-Developer.apk"
       - name: Bind signed candidate source provenance
@@ -135,86 +146,47 @@ jobs:
           JARVIS_ARTIFACT_SOURCE: ${{ steps.recovery.outputs.sha || github.sha }}
           JARVIS_JOB_RECOVERY_SOURCE: ${{ steps.recovery.outputs.sha }}
         run: |
-          if [ -n "$JARVIS_JOB_RECOVERY_SOURCE" ] && [ ! -f scripts/job_apk_evidence.py ]; then
-            echo '::notice::Legacy recovery source predates job APK provenance. Preserve its existing verified release path; do not claim a job artifact receipt.'
-          else
-            python3 scripts/job_apk_evidence.py --directory "$RUNNER_TEMP/developer-job-artifact" --target DEVELOPER --signing production
-          fi
+          python3 "$RUNNER_TEMP/developer-release-tools/job_apk_evidence.py" --directory "$RUNNER_TEMP/developer-job-artifact" --target DEVELOPER --signing production
+          python3 "$RUNNER_TEMP/developer-release-tools/developer_release.py" prepare --apks "$RUNNER_TEMP/developer-job-artifact" --evidence "$RUNNER_TEMP/developer-release-evidence"
       - name: Upload signed release candidate artifact
         uses: actions/upload-artifact@v4
         with:
           name: Jarvis-Developer-signed-release-candidate
           path: ${{ runner.temp }}/developer-job-artifact/
           if-no-files-found: error
-      - name: Verify release write access
+      - name: Check release metadata access
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "Release promotion requires a token with repository Contents: read/write."
-          echo "If GitHub defaults the workflow token to read-only, configure JARVIS_DEVELOPER_RELEASE_TOKEN as a fine-grained repository token with Contents: read/write."
+          echo "Canonical manual publication requires repository Contents: write for release assets and source tags."
           gh api "repos/$GITHUB_REPOSITORY/releases?per_page=1" >/dev/null || {
-            echo "::error::Cannot access releases. Check JARVIS_DEVELOPER_RELEASE_TOKEN and repository Actions permissions."
+            echo "::error::Cannot read release metadata. Check repository Actions permissions."
             exit 1
           }
       - name: Record signed APK checksum
         run: |
-          SHA256=$(sha256sum "$RUNNER_TEMP/Jarvis-Developer.apk" | cut -d ' ' -f 1)
+          SHA256=$(sha256sum "$RUNNER_TEMP/developer-job-artifact/Jarvis-Developer.apk" | cut -d ' ' -f 1)
           echo "Signed APK SHA-256: $SHA256"
           {
             echo "### Signed APK integrity"
             echo "- SHA-256: \`$SHA256\`"
             echo "- Artifact: \`Jarvis-Developer-signed-release-candidate\`"
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Validate previous release recovery metadata
+      - name: Preserve independently verified signed recovery
         if: github.event_name == 'workflow_dispatch' && !inputs.defer_recovery
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view developer-latest >/dev/null 2>&1; then
-            PREVIOUS_SOURCE=$(gh release view developer-latest --json targetCommitish --jq .targetCommitish)
-            if ! [[ "$PREVIOUS_SOURCE" =~ ^[0-9a-fA-F]{40}$ ]]; then
-              echo "::error::Previous release does not record a full immutable source commit SHA. Refusing promotion to protect rollback."
-              exit 1
-            fi
-            git cat-file -e "${PREVIOUS_SOURCE}^{commit}" || {
-              echo "::error::Previous release source commit is unavailable."
-              exit 1
-            }
-          fi
-      - name: Preserve previous signed Developer release as immutable recovery snapshot
-        if: github.event_name == 'workflow_dispatch' && !inputs.defer_recovery
+          JARVIS_ARTIFACT_SOURCE: ${{ steps.recovery.outputs.sha || github.sha }}
+          JARVIS_JOB_RECOVERY_SOURCE: ${{ steps.recovery.outputs.sha }}
+        run: python3 "$RUNNER_TEMP/developer-release-tools/developer_release.py" preserve-recovery --apks "$RUNNER_TEMP/developer-job-artifact" --evidence "$RUNNER_TEMP/developer-release-evidence"
+      - name: Check updater version and source-tag proposal before promotion
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view developer-latest >/dev/null 2>&1; then
-            PREVIOUS_SOURCE=$(gh release view developer-latest --json targetCommitish --jq .targetCommitish)
-            [[ "$PREVIOUS_SOURCE" =~ ^[0-9a-fA-F]{40}$ ]] || exit 1
-            SNAPSHOT="developer-recovery-$PREVIOUS_SOURCE"
-            mkdir -p "$RUNNER_TEMP/developer-recovery"
-            gh release download developer-latest -p Jarvis-Developer.apk -D "$RUNNER_TEMP/developer-recovery"
-            ORIGINAL_HASH=$(sha256sum "$RUNNER_TEMP/developer-recovery/Jarvis-Developer.apk" | cut -d ' ' -f 1)
-            if gh release view "$SNAPSHOT" >/dev/null 2>&1; then
-              RECORDED_SOURCE=$(gh release view "$SNAPSHOT" --json targetCommitish --jq .targetCommitish)
-              test "$RECORDED_SOURCE" = "$PREVIOUS_SOURCE" || { echo "::error::Recovery snapshot source mismatch"; exit 1; }
-              mkdir -p "$RUNNER_TEMP/developer-existing-snapshot"
-              gh release download "$SNAPSHOT" -p Jarvis-Developer.apk -D "$RUNNER_TEMP/developer-existing-snapshot"
-              cmp "$RUNNER_TEMP/developer-recovery/Jarvis-Developer.apk" "$RUNNER_TEMP/developer-existing-snapshot/Jarvis-Developer.apk" || {
-                echo "::error::Recovery snapshot APK mismatch; refusing promotion"; exit 1;
-              }
-            else
-              gh release create "$SNAPSHOT" --target "$PREVIOUS_SOURCE" --prerelease \
-                --title "Jarvis Developer recovery $PREVIOUS_SOURCE" \
-                --notes "Immutable recovery of developer-latest before promotion. Source $PREVIOUS_SOURCE. APK SHA-256 $ORIGINAL_HASH."
-              gh release upload "$SNAPSHOT" "$RUNNER_TEMP/developer-recovery/Jarvis-Developer.apk"
-            fi
-            mkdir -p "$RUNNER_TEMP/developer-verified-snapshot"
-            gh release download "$SNAPSHOT" -p Jarvis-Developer.apk -D "$RUNNER_TEMP/developer-verified-snapshot"
-            cmp "$RUNNER_TEMP/developer-recovery/Jarvis-Developer.apk" "$RUNNER_TEMP/developer-verified-snapshot/Jarvis-Developer.apk" || {
-              echo "::error::Recovery snapshot verification failed; refusing promotion"; exit 1;
-            }
-            echo "Verified recovery snapshot $SNAPSHOT SHA-256 $ORIGINAL_HASH"
-          fi
+          JARVIS_ARTIFACT_SOURCE: ${{ steps.recovery.outputs.sha || github.sha }}
+          JARVIS_JOB_RECOVERY_SOURCE: ${{ steps.recovery.outputs.sha }}
+        run: python3 "$RUNNER_TEMP/developer-release-tools/developer_release.py" preflight --apks "$RUNNER_TEMP/developer-job-artifact" --evidence "$RUNNER_TEMP/developer-release-evidence"
       - name: Publish isolated prerelease update
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -223,5 +195,19 @@ jobs:
           if ! gh release view developer-latest >/dev/null 2>&1; then
             gh release create developer-latest --target "${{ steps.recovery.outputs.sha || github.sha }}" --prerelease --title "Jarvis Developer 0.1.${{ github.run_number }}" --notes "Independent Developer signed APK"
           fi
-          gh release upload developer-latest "$RUNNER_TEMP/Jarvis-Developer.apk" --clobber
+          gh release upload developer-latest "$RUNNER_TEMP/developer-job-artifact/Jarvis-Developer.apk" --clobber
           gh release edit developer-latest --target "${{ steps.recovery.outputs.sha || github.sha }}" --title "Jarvis Developer 0.1.${{ github.run_number }}" --notes "Developer source ${{ steps.recovery.outputs.sha || github.sha }}. Version 0.1.${{ github.run_number }}. Recovery build: ${{ steps.recovery.outputs.sha != '' }}. Recovery verification deferred by owner: ${{ inputs.defer_recovery }}."
+      - name: Verify public evidence and align the exact source tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JARVIS_ARTIFACT_SOURCE: ${{ steps.recovery.outputs.sha || github.sha }}
+          JARVIS_JOB_RECOVERY_SOURCE: ${{ steps.recovery.outputs.sha }}
+        run: python3 "$RUNNER_TEMP/developer-release-tools/developer_release.py" finalize --apks "$RUNNER_TEMP/developer-job-artifact" --evidence "$RUNNER_TEMP/developer-release-evidence"
+      - name: Retain bounded publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-release-evidence-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/developer-release-evidence/
+          if-no-files-found: warn

@@ -100,26 +100,77 @@ class ScreenControlAcceptanceTest {
             instrumentation.waitForIdleSync(); settled()
             val platform = AndroidScreenPlatform(context)
             val timedOut = assertThrows(ScreenReadFailure::class.java) {
-                AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() - 1) { platform.snapshot() }
+                AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() - 1, readKind = ScreenControls.Kind.READ) { platform.snapshot() }
             }
             assertEquals(ScreenReadFailure.Reason.BUSY, timedOut.reason)
             assertEquals(0, platform.readDiagnostics()!!.nodes)
             val cancelled = assertThrows(ScreenReadFailure::class.java) {
-                AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() + 3000, { true }) { platform.snapshot() }
+                AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() + 3000, { true }, readKind = ScreenControls.Kind.READ) { platform.snapshot() }
             }
             assertEquals(ScreenReadFailure.Reason.CANCELLED, cancelled.reason)
             assertEquals(0, platform.readDiagnostics()!!.nodes)
             assertTrue(platform.snapshot().text.contains("Screen control fixture"))
             val successful = requireNotNull(platform.readDiagnostics())
             assertNull(successful.reason); assertTrue(successful.nodes > 0)
+            assertEquals(0L, successful.queueMillis)
             assertEquals(successful, platform.readDiagnostics())
+            AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() + 3000, queueWaitMillis = 321) { platform.snapshot() }
+            assertEquals(321L, requireNotNull(platform.readDiagnostics()).queueMillis)
+            assertTrue(platform.snapshot().text.contains("Screen control fixture"))
+            assertEquals(0L, requireNotNull(platform.readDiagnostics()).queueMillis)
+            assertFalse(AndroidScreenPlatform.canRecoverReadTimeout())
+            AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() + 3000, readKind = ScreenControls.Kind.READ) {
+                assertTrue(AndroidScreenPlatform.canRecoverReadTimeout())
+                var attempts = 0; var reason: ScreenReadFailure.Reason? = null
+                // Inject one helper failure, then require actual permitted service content.
+                // This is deterministic fault injection, not a measured slow framework call.
+                val recovered = ScreenCaptureRead.read({ platform.connected() },
+                    { AndroidScreenPlatform.canRecoverReadTimeout() }, { reason = it }) {
+                    if (++attempts == 1) throw ScreenReadFailure(ScreenReadFailure.Reason.BUSY)
+                    platform.snapshot()
+                }
+                assertTrue(recovered.text.contains("Screen control fixture")); assertEquals(2, attempts)
+                assertEquals(ScreenReadFailure.Reason.BUSY, reason)
+            }
+            assertFalse(AndroidScreenPlatform.canRecoverReadTimeout())
+            AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() + 100, readKind = ScreenControls.Kind.READ) {
+                assertFalse(AndroidScreenPlatform.canRecoverReadTimeout())
+            }
+            for (kind in listOf(ScreenControls.Kind.CONFIRM, ScreenControls.Kind.SCROLL_DOWN, ScreenControls.Kind.TAP_LABEL)) {
+                AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() + 3000, readKind = kind) {
+                    assertFalse(AndroidScreenPlatform.canRecoverReadTimeout())
+                }
+            }
+            assertFalse(AndroidScreenPlatform.canRecoverReadTimeout())
             assertTrue(remote("read my screen").contains("Screen control fixture"))
             val report = remote("screen read diagnostics")
             assertTrue(report, report.contains("Last screen-read attempt: completed"))
             assertTrue(report, report.contains("not the current screen"))
+            assertTrue(report, report.contains("Queue wait:")); assertTrue(report, report.contains("Capture phases (ms):"))
             assertFalse(report.contains("Screen control fixture")); assertFalse(report.contains("Practice button"))
             assertFalse(report.contains(context.packageName))
             scenario.onActivity { assertEquals(0, it.tapCount) }
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                val service = requireNotNull(JarvisAccessibilityService.active())
+                val caching = service.isCacheEnabled
+                try {
+                    service.setCacheEnabled(false)
+                    assertFalse(service.isCacheEnabled)
+                    settled()
+                    scenario.onActivity { it.delayNextAccessibilityRead() }
+                    val recoveredRead = remote("read my screen")
+                    val recoveredDiagnostics = remote("screen read diagnostics")
+                    assertTrue("Controlled slow Accessibility callback must recover a complete read: $recoveredDiagnostics",
+                        recoveredRead.contains("Screen control fixture"))
+                    assertTrue(recoveredDiagnostics, recoveredDiagnostics.contains("attempt: completed"))
+                    assertTrue(recoveredDiagnostics, recoveredDiagnostics.contains("Android cache: disabled"))
+                    assertTrue(recoveredDiagnostics, recoveredDiagnostics.contains("Captures: 2. First capture: time limit reached"))
+                    assertTrue(recoveredDiagnostics, recoveredDiagnostics.contains("Total read time:"))
+                    assertFalse(recoveredDiagnostics.contains("Screen control fixture"))
+                    scenario.onActivity { assertEquals(1, it.delayedReadCount); assertEquals(0, it.tapCount) }
+                    instrumentation.sendStatus(2, Bundle().apply { putString("jarvis_screen_read_controlled_recovery", recoveredDiagnostics) })
+                } finally { service.setCacheEnabled(caching) }
+            }
         }
     }
 
@@ -316,7 +367,15 @@ class ScreenControlAcceptanceTest {
                     screen.text.any { text -> text.contains("NOT TESTED") }
             }.getOrDefault(false) }
             val managerRead = remote("read my screen")
-            assertTrue("Expected Connection Manager content from remote voice bridge, got: $managerRead", managerRead.contains("CONNECTION MANAGER"))
+            val managerDiagnostics = remote("screen read diagnostics")
+            assertTrue("Expected Connection Manager content from remote voice bridge, got: $managerRead; $managerDiagnostics", managerRead.contains("CONNECTION MANAGER"))
+            val examined = Regex("Examined nodes: ([0-9]+)").find(managerDiagnostics)!!.groupValues[1].toInt()
+            val refreshed = Regex("Explicit refresh calls: ([0-9]+)").find(managerDiagnostics)!!.groupValues[1].toInt()
+            if (managerDiagnostics.contains("Read mode: explicit refresh required")) assertEquals(examined, refreshed)
+            else assertEquals(0, refreshed)
+            assertTrue(managerDiagnostics, managerDiagnostics.contains("Capture phases (ms):"))
+            assertFalse(managerDiagnostics.contains("CONNECTION MANAGER")); assertFalse(managerDiagnostics.contains("NOT TESTED"))
+            instrumentation.sendStatus(2, Bundle().apply { putString("jarvis_screen_read_cached", managerDiagnostics) })
             if (android.os.Build.VERSION.SDK_INT >= 33) {
                 val service = requireNotNull(JarvisAccessibilityService.active())
                 val caching = service.isCacheEnabled
@@ -342,7 +401,10 @@ class ScreenControlAcceptanceTest {
                     val diagnostics = remote("screen read diagnostics")
                     assertTrue("Disabled caching must retain the supported fresh-node read: $withoutCache; $diagnostics", withoutCache.contains("CONNECTION MANAGER"))
                     assertTrue(diagnostics, diagnostics.contains("Android cache: disabled"))
+                    assertTrue(diagnostics, diagnostics.contains("Read mode: fresh-node path"))
+                    assertTrue(diagnostics, diagnostics.contains("Explicit refresh calls: 0"))
                     assertFalse(diagnostics.contains("CONNECTION MANAGER")); assertFalse(diagnostics.contains("NOT TESTED"))
+                    instrumentation.sendStatus(2, Bundle().apply { putString("jarvis_screen_read_uncached", diagnostics) })
                 } finally { service.setCacheEnabled(caching) }
             }
             assertFalse(ScreenAccessClient(context).taskState().active)

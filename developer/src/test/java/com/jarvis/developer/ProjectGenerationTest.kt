@@ -149,6 +149,32 @@ class ProjectGenerationTest {
             assertEquals(newer.request, s.record().getString("generation_request"))
         }
     }
+    @Test fun discussionWritesRequireTheCurrentTicketProjectAndProduct() {
+        val prefs = preferences(); val store = ProjectGenerationStore(prefs)
+        val ticket = store.begin("project-a", "Inspect code", 0)!!
+        for (history in listOf(ProjectGenerationDiscussion.empty("project-b", 0), ProjectGenerationDiscussion.empty("project-a", 1))) {
+            assertEquals(ProjectGenerationStore.Result.FAILED, store.finish(ticket, "generated", "Reply", history.append("Inspect code", "Reply", emptyList())))
+            val record = JSONObject(prefs.getString("project_project-a", "{}")!!)
+            assertEquals("generating", record.getString("state")); assertFalse(record.has("discussion"))
+        }
+        assertTrue(store.forgetDiscussion("project-a"))
+        assertEquals(ProjectGenerationStore.Result.STALE, store.finish(ticket, "generated", "Late reply"))
+    }
+
+    @Test fun legacyRepliesAreNotAutomaticallyUploadedAndOfflineTargetChangesForgetHistory() {
+        val prefs = preferences(); val store = ProjectGenerationStore(prefs)
+        prefs.edit().putString("project_project-a", JSONObject().put("id", "project-a").put("target", 0)
+            .put("response", "Legacy reply remains local").toString()).commit()
+        assertEquals(0, store.discussion("project-a", 0, emptyList()).size)
+        val ticket = store.begin("project-a", "Current task", 0)!!
+        val history = ProjectGenerationDiscussion.empty("project-a", 0).append("Current task", "New reply", emptyList())
+        assertEquals(ProjectGenerationStore.Result.SAVED, store.finish(ticket, "generated", "New reply", history))
+        assertEquals(1, store.discussion("project-a", 0, emptyList()).size)
+        assertTrue(store.saveLocal("project-a", "Offline Personal task", 1))
+        assertFalse(JSONObject(prefs.getString("project_project-a", "{}")!!).has("discussion"))
+        assertEquals("New reply", JSONObject(prefs.getString("project_project-a", "{}")!!).getString("response"))
+    }
+
     @Test fun projectStatesNeverGrantBuildReleaseOrSourceApproval() {
         val prefs = preferences(); val store = ProjectGenerationStore(prefs)
         val ticket = store.begin("project-a", "Inspect this code", 0)!!

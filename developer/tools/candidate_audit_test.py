@@ -22,7 +22,8 @@ CERT = "c" * 64
 def apk_fixture(payload=b"fixed modeled APK bytes"):
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
-        archive.writestr("AndroidManifest.xml", payload)
+        # Byte-identity assertions must not depend on crossing ZIP's two-second wall clock boundary.
+        archive.writestr(zipfile.ZipInfo("AndroidManifest.xml", date_time=(2024, 1, 1, 0, 0, 0)), payload)
     return output.getvalue()
 
 

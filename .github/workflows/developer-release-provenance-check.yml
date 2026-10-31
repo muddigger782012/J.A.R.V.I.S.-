@@ -1,0 +1,98 @@
+name: Verify Developer release provenance
+on:
+  pull_request:
+    paths:
+      - 'scripts/developer_release.py'
+      - 'scripts/job_apk_evidence.py'
+      - 'scripts/tests/test_developer_release.py'
+      - '.github/workflows/release-jarvis-developer.yml'
+      - '.github/workflows/developer-release-provenance-check.yml'
+  push:
+    branches: ['feature/jarvis-developer-task/**', feature/jarvis-developer]
+    paths:
+      - 'scripts/developer_release.py'
+      - 'scripts/job_apk_evidence.py'
+      - 'scripts/tests/test_developer_release.py'
+      - '.github/workflows/release-jarvis-developer.yml'
+      - '.github/workflows/developer-release-provenance-check.yml'
+  workflow_dispatch:
+    inputs:
+      exercise_draft_upload:
+        description: 'Test JSON/checksum uploads in an unpublished temporary draft; no APK or production update'
+        type: boolean
+        required: false
+        default: false
+permissions:
+  contents: read
+jobs:
+  canonical-boundary:
+    # Same expression as the real signer, but this probe has no secrets or mutation steps.
+    if: github.repository == 'muddigger782012/J.A.R.V.I.S.-' && github.ref == 'refs/heads/feature/jarvis-developer'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Observe canonical condition without exercising the real publisher
+        run: echo 'Canonical condition matched; this read-only probe neither signs nor publishes.'
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test release provenance, recovery, tag and approval contracts
+        run: python3 -m unittest discover -s scripts/tests -p 'test_developer_release.py' -v
+      - name: Preserve the existing artifact contract
+        run: python3 -m unittest discover -s scripts/tests -p 'test_job_apk_evidence.py' -v
+  public-audit:
+    needs: contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Install independent APK inspection tools
+        run: sdkmanager 'build-tools;34.0.0'
+      - name: Read-only audit of the existing public updater and production signature
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/developer_release.py audit-published --evidence "$RUNNER_TEMP/developer-release-audit"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Developer-public-updater-audit
+          path: ${{ runner.temp }}/developer-release-audit/
+          if-no-files-found: warn
+  draft-upload:
+    if: github.event_name == 'workflow_dispatch' && inputs.exercise_draft_upload == true
+    needs: contracts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exercise metadata upload and guarded cleanup without publishing a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JARVIS_EXERCISE_DRAFT_UPLOAD: ${{ inputs.exercise_draft_upload }}
+        run: python3 scripts/developer_release.py exercise-draft-upload --evidence "$RUNNER_TEMP/developer-release-audit"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Developer-draft-metadata-upload-evidence
+          path: ${{ runner.temp }}/developer-release-audit/draft-upload-verification.json
+          if-no-files-found: warn

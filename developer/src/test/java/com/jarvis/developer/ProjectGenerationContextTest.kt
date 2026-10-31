@@ -23,18 +23,18 @@ class ProjectGenerationContextTest {
     private val path = "developer/src/main/java/com/jarvis/developer/VoiceNetwork.kt"
     private val secret = "configured-provider-fixture-42"
     private val readToken = "configured-github-fixture-42"
-    private fun evidence(task: String, target: PatchEngine.Target): RepositoryCodingContext.Context {
+    private fun evidence(task: String, target: PatchEngine.Target, revision: String = commit): RepositoryCodingContext.Context {
         val source = "class VoiceNetwork { fun voiceLatency() = 5 }\n// $readToken $secret"
         val bytes = source.toByteArray()
         val digest = MessageDigest.getInstance("SHA-1").apply { update("blob ${bytes.size}\u0000".toByteArray()) }
         val blob = digest.digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) }
         val actualPath = if (target == PatchEngine.Target.PERSONAL) path.replace("developer/src", "app/src")
             .replace("com/jarvis/developer", "com/assistant/core") else path
-        val inventory = RepositoryAnalysis.Inventory(listOf(RepositoryAnalysis.SourceFile(actualPath, blob, bytes.size.toLong())), false, commit)
+        val inventory = RepositoryAnalysis.Inventory(listOf(RepositoryAnalysis.SourceFile(actualPath, blob, bytes.size.toLong())), false, revision)
         val plan = RepositoryAnalysis.analyze(task, inventory) { source }
         return RepositoryCodingContext.fromAnalysis(task, target, inventory, plan, mapOf(actualPath to source), listOf(secret, readToken))
     }
-    private inner class Screen : AutoCloseable {
+    private inner class Screen(preferences: android.content.SharedPreferences? = null) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -43,20 +43,23 @@ class ProjectGenerationContextTest {
         val key = EditText(activity).apply { setText(secret) }
         val model = EditText(activity).apply { setText("gemini-2.5-pro") }
         val prompt = EditText(activity).apply { setText("Repair voice network latency") }
-        val output = TextView(activity); val status = TextView(activity)
-        val prefs = activity.getSharedPreferences("context-fixture-" + java.util.UUID.randomUUID(), Context.MODE_PRIVATE)
+        val output = TextView(activity); val status = TextView(activity); val forget = Button(activity)
+        val prefs = preferences ?: activity.getSharedPreferences("context-fixture-" + java.util.UUID.randomUUID(), Context.MODE_PRIVATE)
         val pending = mutableListOf<() -> Unit>()
         val requests = mutableListOf<JSONObject>()
         val reads = mutableListOf<Pair<String, PatchEngine.Target>>()
-        var reader: (String, PatchEngine.Target) -> RepositoryCodingContext.Context = ::evidence
+        var reader: (String, PatchEngine.Target) -> RepositoryCodingContext.Context = { task, target -> evidence(task, target) }
+        var selected = "context-project"
+        var providerFailure: Exception? = null
         val handle = ProjectGenerationWorkbench.attach(activity, send, cancel, provider, key, model, prompt, output, status,
-            { target.selectedItemPosition }, { target }, { "context-project" }, {}, ProjectGenerationStore(prefs), {},
+            { target.selectedItemPosition }, { target }, { selected }, { selected = it }, ProjectGenerationStore(prefs), {},
             ProjectGenerationWorkbench.Services(worker = { pending.add(it) }, context = { task, product, token, apiKey, stop ->
                 assertEquals(readToken, token); assertEquals(secret, apiKey); stop.check()
                 reads.add(task to product); reader(task, product)
             }, ask = { provider, apiKey, selectedModel, task, stop, context ->
                 CodingAssistantProvider.Client(CodingAssistantProvider.PostTransport { request ->
                     requests.add(JSONObject(String(request.body, Charsets.UTF_8)))
+                    providerFailure?.let { throw it }
                     val response = if (provider == "Gemini") JSONObject().put("candidates", JSONArray().put(JSONObject()
                         .put("finishReason", "STOP").put("content", JSONObject().put("role", "model")
                             .put("parts", JSONArray().put(JSONObject().put("text", "Use the voice evidence."))))))
@@ -66,10 +69,91 @@ class ProjectGenerationContextTest {
                     val bytes = response.toString().toByteArray()
                     CodingAssistantProvider.PostResponse(200, bytes.size.toLong(), request.url, ByteArrayInputStream(bytes))
                 }, cancellation = stop).ask(provider, apiKey, selectedModel, task, context = context)
-            }), githubToken = { readToken })
+            }), githubToken = { readToken }, forget = forget)
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = prefs.getString("project_context-project", "")!!
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
+    }
+
+    private fun context(body: JSONObject, provider: String = "Gemini"): JSONObject = JSONObject(if (provider == "Gemini")
+        body.getJSONArray("contents").getJSONObject(0).getJSONArray("parts").getJSONObject(1).getString("text")
+        else body.getJSONArray("input").getJSONObject(0).getJSONArray("content").getJSONObject(1).getString("text"))
+
+    @Test fun followUpsIncludeOnlyTheirProjectDiscussionAndFreshRevisionForBothProviders() {
+        for (provider in listOf("Gemini", "OpenAI")) Screen().use { s ->
+            if (provider == "OpenAI") { s.provider.setSelection(1); s.model.setText("gpt-4.1-mini") }
+            s.send.performClick(); s.complete()
+            assertFalse(context(s.requests.single(), provider).has("priorDiscussion"))
+            s.reader = { task, target -> evidence(task, target, "b".repeat(40)) }
+            s.prompt.setText("What about its tests?"); s.send.performClick(); s.complete()
+            val data = context(s.requests.last(), provider)
+            assertEquals("b".repeat(40), data.getString("commitSha"))
+            val turn = data.getJSONObject("priorDiscussion").getJSONArray("turns").getJSONObject(0)
+            assertEquals("Repair voice network latency", turn.getString("ownerRequest"))
+            assertEquals("Use the voice evidence.", turn.getString("assistantReply"))
+            assertTrue(s.reads.last().first.contains("Repair voice network latency"))
+            assertFalse(data.getJSONObject("priorDiscussion").has("project"))
+            assertTrue(s.output.text.toString().contains("Earlier coding discussion: 1"))
+            assertFalse(s.record().contains(secret)); assertFalse(s.record().contains(readToken))
+            assertEquals(2, JSONObject(s.record()).getJSONObject("discussion").getJSONArray("turns").length())
+            assertTrue(s.forget.isEnabled)
+        }
+    }
+
+    @Test fun olderDiscussionNeverClaimsUnavailableCurrentSourceWasInspected() {
+        Screen().use { s ->
+            s.send.performClick(); s.complete()
+            s.reader = { task, target -> RepositoryCodingContext.unavailable(task, target) }
+            s.prompt.setText("And the tests?"); s.send.performClick(); s.complete()
+            val data = context(s.requests.last())
+            assertEquals("unavailable", data.getString("status")); assertFalse(data.has("commitSha")); assertFalse(data.has("files"))
+            assertTrue(data.has("priorDiscussion"))
+            assertTrue(s.output.text.toString().startsWith("Repository context unavailable."))
+            assertTrue(s.output.text.toString().contains("unverified")); assertFalse(s.output.text.toString().contains(commit))
+        }
+    }
+
+    @Test fun resetRemovesDiscussionAndNextRequestStartsFreshWithoutDiscardingProjectInputs() {
+        Screen().use { s ->
+            s.send.performClick(); s.complete()
+            val oldReply = JSONObject(s.record()).getString("response")
+            s.forget.performClick()
+            assertFalse(JSONObject(s.record()).has("discussion"))
+            assertEquals(oldReply, JSONObject(s.record()).getString("response"))
+            assertEquals("Repair voice network latency", s.prompt.text.toString())
+            assertEquals(s.activity.getString(R.string.project_generation_discussion_cleared), s.status.text.toString())
+            s.prompt.setText("Start a different feature"); s.send.performClick(); assertFalse(s.forget.isEnabled); s.complete()
+            assertFalse(context(s.requests.last()).has("priorDiscussion"))
+        }
+    }
+
+    @Test fun failedCancelledAndSupersededRepliesNeverExtendOrRestoreDiscussion() {
+        Screen().use { s ->
+            s.send.performClick(); s.complete()
+            val stored = JSONObject(s.record()).getJSONObject("discussion").toString()
+            s.providerFailure = IllegalStateException("private fixture")
+            s.prompt.setText("And tests?"); s.send.performClick(); s.complete()
+            assertEquals(stored, JSONObject(s.record()).getJSONObject("discussion").toString())
+            s.providerFailure = null
+            s.send.performClick(); s.cancel.performClick(); s.complete()
+            assertEquals(stored, JSONObject(s.record()).getJSONObject("discussion").toString())
+            s.send.performClick(); assertTrue(ProjectGenerationStore(s.prefs).forgetDiscussion("context-project")); s.complete()
+            assertFalse(JSONObject(s.record()).has("discussion"))
+        }
+    }
+
+    @Test fun reloadedDiscussionIsProjectScopedAndTargetChangesClearIt() {
+        val preferences = Screen().use { s -> s.send.performClick(); s.complete(); s.prefs }
+        Screen(preferences).use { s ->
+            s.prompt.setText("And tests?"); s.send.performClick(); s.complete()
+            assertTrue(context(s.requests.last()).has("priorDiscussion"))
+            s.selected = "another-project"; s.send.performClick(); s.complete()
+            assertFalse(context(s.requests.last()).has("priorDiscussion"))
+            s.selected = "context-project"; s.target.setSelection(1); s.send.performClick(); s.complete()
+            assertFalse(context(s.requests.last()).has("priorDiscussion"))
+            s.target.setSelection(0); s.send.performClick(); s.complete()
+            assertFalse(context(s.requests.last()).has("priorDiscussion"))
+        }
     }
 
     @Test fun homeSendsActualSourceEvidenceWithManualModelsAndSavesOnlyReplyProvenance() {
@@ -142,6 +226,14 @@ class ProjectGenerationContextTest {
         Screen().use { s ->
             s.prompt.setText("Repair the voice task with $readToken"); s.send.performClick()
             assertTrue(s.pending.isEmpty()); assertTrue(s.reads.isEmpty()); assertTrue(s.requests.isEmpty()); assertEquals("", s.record())
+        }
+    }
+
+    @Test fun malformedSelectedProjectCannotStartOrCrashARequest() {
+        Screen().use { s ->
+            s.selected = "../invalid-project"; s.send.performClick()
+            assertTrue(s.pending.isEmpty()); assertTrue(s.requests.isEmpty()); assertTrue(s.reads.isEmpty())
+            assertEquals(s.activity.getString(R.string.project_generation_save_failed), s.status.text.toString())
         }
     }
 }
