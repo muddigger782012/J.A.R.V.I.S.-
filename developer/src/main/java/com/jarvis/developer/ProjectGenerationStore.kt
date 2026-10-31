@@ -81,7 +81,7 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
     }
 
     private fun base(id: String, task: String, target: Int): JSONObject {
-        require(task.isNotBlank() && target in 0..1)
+        require(task.isNotBlank() && task.length <= 16_000 && target in 0..1)
         return read(id).apply { if (!has("response")) put("response", "") }
             .put("id", id).put("description", task).put("target", target)
     }

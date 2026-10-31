@@ -86,6 +86,8 @@ object DeveloperUpdater {
                                 if (count < 0) break
                                 output.write(buffer, 0, count)
                                 receivedBytes += count
+                                if (receivedBytes > declaredSize)
+                                    throw IllegalStateException("APK transfer exceeded published release size")
                                 if (expectedBytes > 0) {
                                     val percent = (receivedBytes * 100 / expectedBytes).toInt().coerceAtMost(100)
                                     if (percent >= lastReportedPercent + 5) {
