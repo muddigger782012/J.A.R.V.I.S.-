@@ -96,8 +96,8 @@ internal object ProjectGenerationWorkbench {
             }
             val providerName = provider.selectedItem.toString()
             val modelName = model.text.toString().trim()
-            if (modelName.isBlank()) {
-                status.text = "Choose an AI model before sending a request."
+            if (modelName.isBlank() || !modelName.matches(Regex("[A-Za-z0-9][A-Za-z0-9._/-]{0,127}"))) {
+                status.text = "Choose a valid AI model ID before sending a request."
                 model.requestFocus()
                 return@setOnClickListener
             }

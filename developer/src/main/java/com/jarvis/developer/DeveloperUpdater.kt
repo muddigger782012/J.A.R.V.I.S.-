@@ -29,6 +29,8 @@ object DeveloperUpdater {
                     if (connection.responseCode != 200) throw IllegalStateException("Developer release not published yet (HTTP ${connection.responseCode})")
                     JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
                 } finally { connection.disconnect() }
+                if (response.optBoolean("draft") || response.optBoolean("prerelease"))
+                    throw IllegalStateException("Developer update release is not published as stable")
                 val assets = response.getJSONArray("assets")
                 val apk = (0 until assets.length()).map { assets.getJSONObject(it) }
                     .firstOrNull { it.optString("name") == "Jarvis-Developer.apk" }
@@ -42,8 +44,6 @@ object DeveloperUpdater {
                 require(apk.optString("digest").startsWith("sha256:") && expectedDigest.matches(Regex("[0-9a-fA-F]{64}"))) {
                     "Published Developer APK is missing a valid SHA-256 digest"
                 }
-                if (response.optBoolean("draft") || response.optBoolean("prerelease"))
-                    throw IllegalStateException("Developer update release is not published as stable")
                 val releaseVersion = response.optString("name")
                 val releaseTag = response.optString("tag_name")
                 if (releaseTag != "developer-latest") {
