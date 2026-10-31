@@ -29,8 +29,9 @@ jobs:
         run: test -d "$ANDROID_HOME/platforms" && test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
       - uses: gradle/actions/setup-gradle@v4
       - name: Run Developer generation regression tests
-        run: ./gradlew -PjarvisDeveloper=true :developer:testDebugUnitTest --tests 'com.jarvis.developer.ProjectGenerationStoreConcurrencyTest' --stacktrace
+        run: ./gradlew -PjarvisDeveloper=true :developer:testDebugUnitTest --tests 'com.jarvis.developer.ProjectGenerationStoreConcurrencyTest' --stacktrace --no-daemon
       - name: Assemble Developer debug APK
+        if: always()
         run: ./gradlew -PjarvisDeveloper=true :developer:assembleDebug --stacktrace
       - name: Upload installable Developer APK
         uses: actions/upload-artifact@v4
