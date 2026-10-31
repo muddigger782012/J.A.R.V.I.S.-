@@ -40,6 +40,7 @@ internal object ProjectGenerationWorkbench {
             val result = store.finish(run.ticket, if (interrupted) "generation_interrupted" else "generation_cancelled")
             if (alive()) {
                 inputs(true); changed()
+                output.setText(R.string.project_generation_not_started)
                 status.setText(when (result) {
                     ProjectGenerationStore.Result.SAVED -> R.string.project_generation_cancelled
                     ProjectGenerationStore.Result.STALE -> R.string.project_generation_stopped
