@@ -608,8 +608,10 @@ class MainActivity : Activity() {
         settings.addView(credentialStatus)
         saveConnection.setOnClickListener {
             val selectedKey = key.text.toString().trim()
-            if (selectedKey.isBlank()) {
-                credentialStatus.text = "Enter an actual API key, not a model name."
+            if (selectedKey.isBlank() || selectedKey.startsWith("gemini-", true) ||
+                selectedKey.startsWith("gpt-", true) || selectedKey.length > 1024 ||
+                selectedKey.any { it.isWhitespace() }) {
+                credentialStatus.text = "Enter a valid API key, not a model name."
             } else {
                 try {
                     ProviderCredentialStore.save(this, provider.selectedItem.toString(),
@@ -1075,7 +1077,11 @@ class MainActivity : Activity() {
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             controls.addView(Button(this).apply {
                 text = "Close"; contentDescription = "Close page and return Home"; isAllCaps = false
-                setOnClickListener { pageHistory.clear(); showPage(0, false) }
+                setOnClickListener {
+                    pageHistory.clear()
+                    if (openSection >= 0) sectionButtons[openSection].performClick()
+                    showPage(0, false)
+                }
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             page.addView(controls, 0)
         }

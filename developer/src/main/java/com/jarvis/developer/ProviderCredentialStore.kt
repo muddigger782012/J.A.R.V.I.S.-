@@ -31,7 +31,9 @@ internal object ProviderCredentialStore {
 
     fun save(context: Context, provider: String, apiKey: String, model: String) {
         require(provider == "Gemini" || provider == "OpenAI")
-        require(apiKey.isNotBlank())
+        require(apiKey.isNotBlank() && apiKey.length <= 1024 && apiKey.none { it.isWhitespace() })
+        require(!apiKey.startsWith("gemini-", true) && !apiKey.startsWith("gpt-", true))
+        require(model.length <= 128 && model.none { it.isWhitespace() })
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, secretKey())
         val data = cipher.iv + cipher.doFinal(apiKey.toByteArray(Charsets.UTF_8))
