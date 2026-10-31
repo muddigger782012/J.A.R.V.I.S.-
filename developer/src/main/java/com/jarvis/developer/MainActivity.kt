@@ -562,6 +562,7 @@ class MainActivity : Activity() {
                 return@setOnClickListener
             }
             val discoveryModel = model.text.toString().trim()
+            val discoveryProvider = provider.selectedItem.toString()
             discoverModels.isEnabled = false
             credentialStatus.text = "Checking Gemini models available to this key..."
             thread(name = "GeminiModelDiscovery") {
@@ -578,8 +579,11 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
                         discoverModels.isEnabled = true
-                        if (provider.selectedItem.toString() != "Gemini" || key.text.toString().trim() != apiKey ||
-                            model.text.toString().trim() != discoveryModel) return@runOnUiThread
+                        if (provider.selectedItem.toString() != discoveryProvider || key.text.toString().trim() != apiKey ||
+                            model.text.toString().trim() != discoveryModel) {
+                            credentialStatus.text = "Model discovery settings changed. Run discovery again."
+                            return@runOnUiThread
+                        }
                         if (result.isEmpty()) {
                             credentialStatus.text = safeFailure ?: "No compatible models returned for this API key."
                         } else {
@@ -589,7 +593,8 @@ class MainActivity : Activity() {
                                 .setItems(result.toTypedArray()) { _, index ->
                                     if (provider.selectedItem.toString() == "Gemini" && key.text.toString().trim() == apiKey &&
                                         model.text.toString().trim() == discoveryModel) model.setText(result[index])
-                                    credentialStatus.text = "Selected ${result[index]}. Save and test connection."
+                                    if (model.text.toString().trim() == result[index])
+                                        credentialStatus.text = "Selected ${result[index]}. Save and test connection."
                                 }
                                 .setNegativeButton("Cancel", null)
                                 .show()
