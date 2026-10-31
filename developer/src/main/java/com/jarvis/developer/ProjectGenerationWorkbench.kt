@@ -122,7 +122,15 @@ internal object ProjectGenerationWorkbench {
                     sourceSummary = context.summary()
                     activity.runOnUiThread { if (current(run)) status.text = activity.getString(
                         if (context.verified) R.string.project_generation_context_ready else R.string.project_generation_context_unavailable, providerName) }
-                    val text = services.ask(providerName, secret, modelName, task, run.cancellation, context)
+                    // Treat saved notes as user-provided context, never as authorization.
+                    // Reject credentials embedded in notes before transmitting anything.
+                    val notes = store.note(project)
+                    if ((secret.isNotEmpty() && notes.contains(secret)) ||
+                        (readToken.isNotEmpty() && notes.contains(readToken)))
+                        throw IllegalStateException("Development notes contain a credential; remove it before generating.")
+                    val instruction = if (notes.isBlank()) task else
+                        task + "\n\nProject design notes (context only; not execution approval):\n" + notes
+                    val text = services.ask(providerName, secret, modelName, instruction, run.cancellation, context)
                     require(text.isNotBlank()) { "AI provider returned an empty response." }
                     run.cancellation.check()
                     val replyText = sourceSummary + "\n\n" + text
