@@ -52,6 +52,19 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
         }.getOrDefault(Result.FAILED)
     }
 
+    /** Turn a prior-process in-flight request into a durable, retryable interruption. */
+    fun recoverInterrupted(id: String): Boolean = synchronized(lock) {
+        runCatching {
+            val record = read(id)
+            if (record.optString("state") != "generating" ||
+                record.optString("generation_process") == process) return@synchronized false
+            record.put("state", "generation_interrupted")
+                .remove("generation_request").remove("generation_process")
+                .remove("response").remove("response_description").remove("response_target")
+            write(id, record)
+        }.getOrDefault(false)
+    }
+
     private fun base(id: String, task: String, target: Int): JSONObject {
         require(task.isNotBlank() && target in 0..1)
         return read(id).apply { if (!has("response")) put("response", "") }

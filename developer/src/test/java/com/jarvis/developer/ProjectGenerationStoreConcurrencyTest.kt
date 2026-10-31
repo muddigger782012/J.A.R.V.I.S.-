@@ -21,6 +21,27 @@ class ProjectGenerationStoreConcurrencyTest {
         store = ProjectGenerationStore(preferences)
     }
 
+    @Test fun oldProcessGenerationCanBeRecoveredAndRetried() {
+        val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
+        prefs.edit().putString("project_project1",
+            JSONObject().put("id", "project1").put("description", "task")
+                .put("target", 0).put("state", "generating")
+                .put("generation_request", "old-ticket")
+                .put("generation_process", "previous-process")
+                .put("response", "obsolete").toString()).commit()
+        assertTrue(store.recoverInterrupted("project1"))
+        val recovered = JSONObject(requireNotNull(prefs.getString("project_project1", null)))
+        assertEquals("generation_interrupted", recovered.getString("state"))
+        assertFalse(recovered.has("generation_request"))
+        assertFalse(recovered.has("response"))
+        assertNotNull(store.begin("project1", "retry", 0))
+    }
+
+    @Test fun currentProcessRequestCannotBeRecoveredAsInterrupted() {
+        requireNotNull(store.begin("project1", "task", 0))
+        assertFalse(store.recoverInterrupted("project1"))
+    }
+
     @Test fun secondRequestForSameProjectIsRejected() {
         val first = requireNotNull(store.begin("project1", "first task", 0))
         assertNull(store.begin("project1", "second task", 0))
