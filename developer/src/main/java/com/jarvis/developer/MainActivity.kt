@@ -960,6 +960,38 @@ class MainActivity : Activity() {
             }
         ))
         root.addView(quickRow(quickAction("My projects", 1), quickAction("Review progress", 2)))
+        // Every requirement has a working entry point into its existing relevant screen.
+        // Navigation does not imply that the underlying capability has passed verification.
+        val requirementRoutes = listOf(
+            "AI coding engine" to 0, "Multi-file generation" to 1,
+            "GitHub integration" to 4, "Approved tasks" to 2,
+            "Build failure repair" to 2, "APK building" to 4,
+            "APK installation" to 3, "Self-update" to 3,
+            "Rollback" to 3, "Development memory" to 1,
+            "Resume interrupted jobs" to 2, "Multiple workstreams" to 1,
+            "UI previews" to 1, "Alternative recommendations" to 0,
+            "Approved designs" to 2, "Projects and Tools UI" to 1,
+            "Back and Close" to 3, "Diagnostics dashboard" to 2,
+            "AI model and API settings" to 3, "Terminal tools" to 4,
+            "Permissions and Shizuku" to 4, "Personal/Developer separation" to 4,
+            "Verified release APK" to 2, "Publication and update path" to 3
+        )
+        root.addView(Button(this).apply {
+            text = "24 development requirements — open checklist"
+            isAllCaps = false
+            setOnClickListener {
+                val labels = requirementRoutes.mapIndexed { index, item ->
+                    "${index + 1}. ${item.first}"
+                }.toTypedArray()
+                android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Development requirements")
+                    .setItems(labels) { _, which ->
+                        selectPage?.invoke(requirementRoutes[which].second)
+                    }
+                    .setNegativeButton("Close", null)
+                    .show()
+            }
+        })
         fun openCodeReview() {
             selectPage?.invoke(2)
             codingWidgets.firstOrNull()?.let { first -> first.post {
