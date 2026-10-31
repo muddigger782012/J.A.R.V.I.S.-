@@ -114,6 +114,7 @@ jobs:
           python3 -m unittest discover -s developer/tools -p 'developer_backup_test.py' -v
           python3 -m unittest discover -s developer/tools -p 'device_validation_test.py' -v
           python3 -m unittest discover -s developer/tools -p 'scaffold_build_evidence_test.py' -v
+          python3 -m unittest discover -s developer/tools -p 'checklist_acceptance_contract_test.py' -v
           python3 -m unittest discover -s scripts/tests -p 'test_job_apk_evidence.py' -v
       - uses: actions/setup-java@v4
         with:
