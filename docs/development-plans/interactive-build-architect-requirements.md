@@ -24,3 +24,14 @@ Status: Approved owner preferences; implementation pending. Scope: personal Deve
 
 ## Owner-selected defaults
 Navigation drawer; adaptive layout; hybrid controls; preserve current Jarvis theme.
+
+## Intelligent interactive decision interface (owner requirement)
+- Present choices as context-appropriate interactive UI rather than static prose: radio choices, segmented selectors, sliders, toggles, structured comparisons, diagrams, code diffs, and previewable layout variations.
+- Render project-aware recommendations with an explicit rationale, estimated impact, default choice, and an approval action. Provide an optional detail view for advanced variables without overwhelming beginners.
+- Where a visual change is proposed, show a responsive phone/tablet preview using the existing Jarvis visual system. Preview state must reflect current selections; label mockups honestly until backed by running code.
+- For technical decisions, use structured widgets appropriate to the data: dependency and permissions matrices, build/test status, diagnostics with actionable remedies, resource/performance tradeoffs, and rollback consequences.
+- Keep user selections coherent across cards and previews. Save approved values to the project design specification and apply them to subsequent generated edits; preserve previously approved choices unless changed explicitly.
+- Allow the user to accept the recommended configuration, customize individual variables, request alternatives, or defer a nonessential choice. Require explicit approval for consequential changes.
+- Include accessibility support: screen reader labels, touch targets, keyboard/Back navigation, readable contrast, and reduced-motion support.
+- UI generation must be deterministic from a validated schema; no arbitrary executable code or untrusted HTML from model output. Reject unsupported control types and invalid values, with safe text fallback.
+- Tests must verify that changing an option updates dependent previews and approval payloads, saved choices restore correctly, and untrusted model output cannot trigger file writes or release actions.
