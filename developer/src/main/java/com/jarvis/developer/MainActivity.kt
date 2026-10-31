@@ -1029,7 +1029,10 @@ class MainActivity : Activity() {
             if (next != activePage) {
                 dismissKeyboard()
                 positions[activePage] = pages[activePage].scrollY
-                if (remember) pageHistory.add(activePage)
+                if (remember) {
+                    if (pageHistory.lastOrNull() != activePage) pageHistory.add(activePage)
+                    while (pageHistory.size > 32) pageHistory.removeAt(0)
+                }
             }
             activePage = next
             pages.forEachIndexed { pageIndex, page ->
@@ -1053,9 +1056,12 @@ class MainActivity : Activity() {
         navigateBack = {
             if (activePage == 4 && openSection >= 0) {
                 sectionButtons[openSection].performClick(); true
-            } else if (pageHistory.isNotEmpty()) {
-                showPage(pageHistory.removeAt(pageHistory.lastIndex), false); true
-            } else if (activePage != 0) { showPage(0, false); true } else false
+            } else {
+                while (pageHistory.lastOrNull() == activePage) pageHistory.removeAt(pageHistory.lastIndex)
+                if (pageHistory.isNotEmpty()) {
+                    showPage(pageHistory.removeAt(pageHistory.lastIndex), false); true
+                } else if (activePage != 0) { showPage(0, false); true } else false
+            }
         }
         listOf(projects, activityPage, settings, advanced).forEach { page ->
             val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
