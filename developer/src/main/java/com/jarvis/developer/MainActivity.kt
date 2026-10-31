@@ -411,6 +411,27 @@ class MainActivity : Activity() {
         }
         // Existing projects are readable and recoverable after a failed AI request.
         val savedProjects = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val importProjectButton = Button(this).apply {
+            text = "Import project JSON"
+            isAllCaps = false
+            setOnClickListener {
+                val editor = android.widget.EditText(this@MainActivity).apply {
+                    hint = "Paste exported project JSON"
+                    minLines = 4
+                    maxLines = 10
+                }
+                android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Import saved project")
+                    .setView(editor)
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Import") { _, _ ->
+                        val imported = ProjectGenerationStore(projectPrefs).importProject(editor.text.toString())
+                        status.text = if (imported) "Project imported." else
+                            "Import rejected: invalid JSON or duplicate project."
+                        if (imported) refreshSavedProjectsAfterChange?.invoke()
+                    }.show()
+            }
+        }
         val refreshProjects = Button(this).apply { text = "Refresh saved projects"; isAllCaps = false }
         fun refreshSavedProjects() {
             savedProjects.removeAllViews()
@@ -501,6 +522,7 @@ class MainActivity : Activity() {
         }
         refreshSavedProjectsAfterChange = ::refreshSavedProjects
         refreshProjects.setOnClickListener { refreshSavedProjects() }
+        projects.addView(importProjectButton)
         projects.addView(refreshProjects)
         projects.addView(savedProjects)
         refreshSavedProjects()

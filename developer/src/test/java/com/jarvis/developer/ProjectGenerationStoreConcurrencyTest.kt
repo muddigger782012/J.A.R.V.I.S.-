@@ -67,6 +67,23 @@ class ProjectGenerationStoreConcurrencyTest {
         assertEquals(ProjectGenerationStore.Result.SAVED, store.finish(ticket, "generation_cancelled"))
     }
 
+    @Test fun importRoundTripPreservesNotesButNotApprovalsOrReplies() {
+        assertTrue(store.saveLocal("source", "Repair menu navigation", 0))
+        assertTrue(store.saveNote("source", "Keep the cyan theme"))
+        val exported = requireNotNull(store.exportProject("source"))
+        val otherPrefs = context.getSharedPreferences("generation_import_test", Context.MODE_PRIVATE)
+        otherPrefs.edit().clear().commit()
+        val destination = ProjectGenerationStore(otherPrefs)
+        assertTrue(destination.importProject(exported))
+        assertEquals("Keep the cyan theme", destination.note("source"))
+        val saved = JSONObject(requireNotNull(otherPrefs.getString("project_source", null)))
+        assertEquals("saved", saved.getString("state"))
+        assertFalse(saved.has("approved"))
+        assertFalse(saved.has("response"))
+        assertFalse(destination.importProject(exported))
+        assertFalse(destination.importProject(JSONObject(exported).put("id", "../unsafe").toString()))
+    }
+
     @Test fun recoverAllHandlesMultipleProjectsAndLeavesActiveRequestAlone() {
         val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
         requireNotNull(store.begin("active", "live task", 0))

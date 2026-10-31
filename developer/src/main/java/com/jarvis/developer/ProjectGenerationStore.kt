@@ -98,6 +98,24 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
         }.getOrNull()
     }
 
+    /** Import safe project context only; never import approvals or execution state. */
+    fun importProject(snapshot: String): Boolean = synchronized(lock) {
+        if (snapshot.length > 32_000) return@synchronized false
+        runCatching {
+            val json = JSONObject(snapshot)
+            if (json.optInt("schema", -1) != 1) return@synchronized false
+            val id = json.getString("id")
+            val task = json.getString("description")
+            val target = json.getInt("target")
+            val note = json.optString("developer_note")
+            if (!id.matches(Regex("[A-Za-z0-9_-]{1,80}")) ||
+                task.isBlank() || task.length > 16_000 || target !in 0..1 ||
+                note.length > 8_000 || read(id).has("id")) return@synchronized false
+            write(id, JSONObject().put("id", id).put("description", task)
+                .put("target", target).put("developer_note", note).put("state", "saved"))
+        }.getOrDefault(false)
+    }
+
     /** Recover orphaned requests across every stored project without touching live requests. */
     fun recoverAllInterrupted(): Int = synchronized(lock) {
         preferences.all.keys.asSequence()
