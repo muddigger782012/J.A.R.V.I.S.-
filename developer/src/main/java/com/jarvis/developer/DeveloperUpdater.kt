@@ -71,7 +71,29 @@ object DeveloperUpdater {
                 conn.instanceFollowRedirects = true
                 try {
                     if (conn.responseCode != 200) throw IllegalStateException("Download HTTP ${conn.responseCode}")
-                    conn.inputStream.use { input -> file.outputStream().use { output -> input.copyTo(output) } }
+                    val expectedBytes = conn.contentLengthLong
+                    var receivedBytes = 0L
+                    var lastReportedPercent = -1
+                    conn.inputStream.use { input ->
+                        file.outputStream().use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                                receivedBytes += count
+                                if (expectedBytes > 0) {
+                                    val percent = (receivedBytes * 100 / expectedBytes).toInt().coerceAtMost(100)
+                                    if (percent >= lastReportedPercent + 5) {
+                                        lastReportedPercent = percent
+                                        activity.runOnUiThread { status("Downloading Developer update: $percent%") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (expectedBytes > 0 && receivedBytes != expectedBytes)
+                        throw IllegalStateException("Incomplete APK download ($receivedBytes of $expectedBytes bytes)")
                 } finally { conn.disconnect() }
                 val digest = MessageDigest.getInstance("SHA-256")
                 file.inputStream().use { input ->
