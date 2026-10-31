@@ -71,8 +71,16 @@ object DeveloperUpdater {
                     if (conn.responseCode != 200) throw IllegalStateException("Download HTTP ${conn.responseCode}")
                     conn.inputStream.use { input -> file.outputStream().use { output -> input.copyTo(output) } }
                 } finally { conn.disconnect() }
-                val actualDigest = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
-                    .joinToString("") { "%02x".format(it) }
+                val digest = MessageDigest.getInstance("SHA-256")
+                file.inputStream().use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        digest.update(buffer, 0, count)
+                    }
+                }
+                val actualDigest = digest.digest().joinToString("") { "%02x".format(it) }
                 if (!actualDigest.equals(expectedDigest, ignoreCase = true)) {
                     file.delete()
                     throw IllegalStateException("Downloaded APK failed SHA-256 integrity verification")
