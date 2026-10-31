@@ -11,8 +11,9 @@ object BuildArchitectPanel {
     private const val PREFS = "developer_build_architect_v1"
     private const val CYAN = 0xFF4EDDF3.toInt()
 
-    fun attach(activity: Activity, parent: LinearLayout) {
-        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    fun attach(activity: Activity, parent: LinearLayout, projectId: String = "default") {
+        require(projectId.matches(Regex("[A-Za-z0-9][A-Za-z0-9_.-]{0,79}")))
+        val prefs = activity.getSharedPreferences(PREFS + "_" + projectId, Context.MODE_PRIVATE)
         val defaults = InteractiveBuildArchitect.defaults()
         val section = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -34,6 +35,7 @@ object BuildArchitectPanel {
         var consultation = prefs.getString("consultation", defaults.consultation.name) ?: defaults.consultation.name
         var scale = prefs.getInt("scale", defaults.scalePercent).coerceIn(80, 130)
         var recommendations = prefs.getBoolean("recommendations", defaults.proactiveRecommendations)
+        var controls = prefs.getString("controls", defaults.controls.name) ?: defaults.controls.name
         var screen = "PHONE"
         val preview = TextView(activity).apply {
             setTextColor(Color.WHITE)
@@ -66,6 +68,7 @@ object BuildArchitectPanel {
         selector("Consultation mode", listOf("COLLABORATIVE", "AUTOMATIC", "MANUAL"), consultation) { consultation = it }
         selector("Navigation", listOf("DRAWER", "TABS"), navigation) { navigation = it; render() }
         selector("Information density", listOf("BALANCED", "COMPACT", "SPACIOUS"), density) { density = it; render() }
+        selector("Control style", listOf("HYBRID", "ICONS", "LABELS"), controls) { controls = it; render() }
         selector("Preview device", listOf("PHONE", "TABLET"), screen) { screen = it; render() }
         label("Interface scale: 80–130%")
         section.addView(SeekBar(activity).apply {
@@ -99,7 +102,8 @@ object BuildArchitectPanel {
                         navigation = InteractiveBuildArchitect.Navigation.valueOf(navigation),
                         density = InteractiveBuildArchitect.Density.valueOf(density),
                         scalePercent = scale,
-                        proactiveRecommendations = recommendations
+                        proactiveRecommendations = recommendations,
+                        controls = InteractiveBuildArchitect.ControlStyle.valueOf(controls)
                     )
                     val saved = prefs.edit()
                         .putString("consultation", config.consultation.name)
@@ -107,6 +111,7 @@ object BuildArchitectPanel {
                         .putString("density", config.density.name)
                         .putInt("scale", config.scalePercent)
                         .putBoolean("recommendations", config.proactiveRecommendations)
+                        .putString("controls", config.controls.name)
                         .commit()
                     feedback.text = if (saved) "Approved preferences saved on this device." else
                         "Could not save preferences. Retry."
