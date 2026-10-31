@@ -426,6 +426,18 @@ class MainActivity : Activity() {
                 val response = record.optString("response")
                 val projectId = record.optString("id")
                 savedProjects.addView(Button(this).apply {
+                    text = "Review notes: " + description.take(60)
+                    isAllCaps = false
+                    setOnClickListener {
+                        val savedNote = ProjectGenerationStore(projectPrefs).note(projectId)
+                        android.app.AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Saved development notes")
+                            .setMessage(savedNote.ifBlank { "No development notes saved for this project." })
+                            .setPositiveButton("Close", null)
+                            .show()
+                    }
+                })
+                savedProjects.addView(Button(this).apply {
                     text = "Edit notes: " + description.take(60)
                     isAllCaps = false
                     setOnClickListener {
