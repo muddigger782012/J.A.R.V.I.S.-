@@ -424,6 +424,30 @@ class MainActivity : Activity() {
                 val description = record.optString("description")
                 val state = ProjectGenerationStore.stateLabel(record)
                 val response = record.optString("response")
+                val projectId = record.optString("id")
+                savedProjects.addView(Button(this).apply {
+                    text = "Edit notes: " + description.take(60)
+                    isAllCaps = false
+                    setOnClickListener {
+                        val notesStore = ProjectGenerationStore(projectPrefs)
+                        val editor = android.widget.EditText(this@MainActivity).apply {
+                            setText(notesStore.note(projectId))
+                            hint = "Project decisions and design notes (max 8,000 characters)"
+                            minLines = 3
+                            maxLines = 8
+                        }
+                        android.app.AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Development notes")
+                            .setView(editor)
+                            .setNegativeButton("Cancel", null)
+                            .setPositiveButton("Save") { _, _ ->
+                                val saved = notesStore.saveNote(projectId, editor.text.toString())
+                                status.text = if (saved) "Project notes saved locally." else
+                                    "Unable to save notes. Check the project and 8,000-character limit."
+                            }
+                            .show()
+                    }
+                })
                 savedProjects.addView(Button(this).apply {
                     text = description.take(80) + " (" + state + ")"
                     isAllCaps = false
