@@ -1,0 +1,36 @@
+name: Developer generation regression tests
+on:
+  pull_request:
+    paths:
+      - 'developer/**'
+      - '.github/workflows/developer-generation-tests.yml'
+  push:
+    branches:
+      - fix/developer-generation-state-integrity
+    paths:
+      - 'developer/**'
+      - '.github/workflows/developer-generation-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Run Developer generation regression tests
+        run: ./gradlew -PjarvisDeveloper=true :developer:testDebugUnitTest --tests 'com.jarvis.developer.ProjectGenerationStoreConcurrencyTest' --stacktrace
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: developer-generation-test-results
+          path: developer/build/reports/tests/
+          if-no-files-found: warn
