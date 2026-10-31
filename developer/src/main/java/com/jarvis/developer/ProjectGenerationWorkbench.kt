@@ -120,10 +120,13 @@ internal object ProjectGenerationWorkbench {
                             output.setText(R.string.project_generation_not_started)
                             status.setText(R.string.project_generation_changed)
                         } else reply.onSuccess { text ->
-                            output.text = text
-                            status.text = if (saved == ProjectGenerationStore.Result.SAVED)
-                                activity.getString(R.string.project_generation_received, providerName)
-                                else activity.getString(R.string.project_generation_response_unsaved)
+                            if (saved == ProjectGenerationStore.Result.SAVED) {
+                                output.text = text
+                                status.text = activity.getString(R.string.project_generation_received, providerName)
+                            } else {
+                                output.setText(R.string.project_generation_not_started)
+                                status.setText(R.string.project_generation_response_unsaved)
+                            }
                         }.onFailure { failure ->
                             status.setText(R.string.project_generation_failed)
                             val reason = if (failure is CodingAssistantProvider.ProviderFailure) failure.message.orEmpty()
