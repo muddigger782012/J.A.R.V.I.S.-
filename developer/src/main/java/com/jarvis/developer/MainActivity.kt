@@ -411,11 +411,32 @@ class MainActivity : Activity() {
         }
         // Existing projects are readable and recoverable after a failed AI request.
         val savedProjects = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val importProjectButton = Button(this).apply {
+            text = "Import project JSON"
+            isAllCaps = false
+            setOnClickListener {
+                val editor = android.widget.EditText(this@MainActivity).apply {
+                    hint = "Paste exported project JSON"
+                    minLines = 4
+                    maxLines = 10
+                }
+                android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Import saved project")
+                    .setView(editor)
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Import") { _, _ ->
+                        val imported = ProjectGenerationStore(projectPrefs).importProject(editor.text.toString())
+                        status.text = if (imported) "Project imported." else
+                            "Import rejected: invalid JSON or duplicate project."
+                        if (imported) refreshSavedProjectsAfterChange?.invoke()
+                    }.show()
+            }
+        }
         val refreshProjects = Button(this).apply { text = "Refresh saved projects"; isAllCaps = false }
         fun refreshSavedProjects() {
             savedProjects.removeAllViews()
-            val records = projectPrefs.all.values.mapNotNull { raw ->
-                try { org.json.JSONObject(raw as String) } catch (_: Exception) { null }
+            val records = ProjectGenerationStore(projectPrefs).projectIds().mapNotNull { id ->
+                runCatching { org.json.JSONObject(projectPrefs.getString("project_$id", null) ?: return@mapNotNull null) }.getOrNull()
             }.sortedByDescending { it.optLong("updated_at") }
             if (records.isEmpty()) {
                 savedProjects.addView(TextView(this).apply { text = "No saved projects yet." })
@@ -424,6 +445,58 @@ class MainActivity : Activity() {
                 val description = record.optString("description")
                 val state = ProjectGenerationStore.stateLabel(record)
                 val response = record.optString("response")
+                val projectId = record.optString("id")
+                savedProjects.addView(Button(this).apply {
+                    text = "Export project: " + description.take(60)
+                    isAllCaps = false
+                    setOnClickListener {
+                        val snapshot = ProjectGenerationStore(projectPrefs).exportProject(projectId)
+                        if (snapshot == null) {
+                            status.text = "Unable to export this project."
+                        } else {
+                            val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
+                                "Jarvis Developer project", snapshot))
+                            status.text = "Project context copied as JSON. No approvals or credentials included."
+                        }
+                    }
+                })
+                savedProjects.addView(Button(this).apply {
+                    text = "Review notes: " + description.take(60)
+                    isAllCaps = false
+                    setOnClickListener {
+                        val savedNote = ProjectGenerationStore(projectPrefs).note(projectId)
+                        android.app.AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Saved development notes")
+                            .setMessage(savedNote.ifBlank { "No development notes saved for this project." })
+                            .setPositiveButton("Close", null)
+                            .show()
+                    }
+                })
+                savedProjects.addView(Button(this).apply {
+                    text = "Edit notes: " + description.take(60)
+                    isAllCaps = false
+                    setOnClickListener {
+                        val notesStore = ProjectGenerationStore(projectPrefs)
+                        val editor = android.widget.EditText(this@MainActivity).apply {
+                            setText(notesStore.note(projectId))
+                            hint = "Project decisions and design notes (max 8,000 characters)"
+                            minLines = 3
+                            maxLines = 8
+                        }
+                        android.app.AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Development notes")
+                            .setView(editor)
+                            .setNegativeButton("Cancel", null)
+                            .setPositiveButton("Save") { _, _ ->
+                                val saved = notesStore.saveNote(projectId, editor.text.toString())
+                                status.text = if (saved) "Project notes saved locally." else
+                                    "Unable to save notes. Check the project and 8,000-character limit."
+                            }
+                            .show()
+                    }
+                })
                 savedProjects.addView(Button(this).apply {
                     text = description.take(80) + " (" + state + ")"
                     isAllCaps = false
@@ -439,7 +512,9 @@ class MainActivity : Activity() {
                         output.text = if (response.isBlank()) getString(R.string.project_generation_restored_without_reply)
                             else if (ProjectGenerationStore.replyMatches(record) == true) response
                             else getString(R.string.project_generation_previous_reply, response)
-                        status.text = "Loaded saved project. Description restored."
+                        val savedNote = ProjectGenerationStore(projectPrefs).note(projectId)
+                        status.text = if (savedNote.isBlank()) "Loaded saved project. Description restored." else
+                            "Loaded saved project with development notes. Review notes in My projects."
                         selectPage?.invoke(0)
                     }
                 })
@@ -447,6 +522,7 @@ class MainActivity : Activity() {
         }
         refreshSavedProjectsAfterChange = ::refreshSavedProjects
         refreshProjects.setOnClickListener { refreshSavedProjects() }
+        projects.addView(importProjectButton)
         projects.addView(refreshProjects)
         projects.addView(savedProjects)
         refreshSavedProjects()
@@ -562,6 +638,7 @@ class MainActivity : Activity() {
                 return@setOnClickListener
             }
             val discoveryModel = model.text.toString().trim()
+            val discoveryProvider = provider.selectedItem.toString()
             discoverModels.isEnabled = false
             credentialStatus.text = "Checking Gemini models available to this key..."
             thread(name = "GeminiModelDiscovery") {
@@ -578,8 +655,11 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
                         discoverModels.isEnabled = true
-                        if (provider.selectedItem.toString() != "Gemini" || key.text.toString().trim() != apiKey ||
-                            model.text.toString().trim() != discoveryModel) return@runOnUiThread
+                        if (provider.selectedItem.toString() != discoveryProvider || key.text.toString().trim() != apiKey ||
+                            model.text.toString().trim() != discoveryModel) {
+                            credentialStatus.text = "Model discovery settings changed. Run discovery again."
+                            return@runOnUiThread
+                        }
                         if (result.isEmpty()) {
                             credentialStatus.text = safeFailure ?: "No compatible models returned for this API key."
                         } else {
@@ -589,7 +669,8 @@ class MainActivity : Activity() {
                                 .setItems(result.toTypedArray()) { _, index ->
                                     if (provider.selectedItem.toString() == "Gemini" && key.text.toString().trim() == apiKey &&
                                         model.text.toString().trim() == discoveryModel) model.setText(result[index])
-                                    credentialStatus.text = "Selected ${result[index]}. Save and test connection."
+                                    if (model.text.toString().trim() == result[index])
+                                        credentialStatus.text = "Selected ${result[index]}. Save and test connection."
                                 }
                                 .setNegativeButton("Cancel", null)
                                 .show()
@@ -603,14 +684,18 @@ class MainActivity : Activity() {
         settings.addView(credentialStatus)
         saveConnection.setOnClickListener {
             val selectedKey = key.text.toString().trim()
-            if (selectedKey.isBlank()) {
-                credentialStatus.text = "Enter an actual API key, not a model name."
+            if (selectedKey.isBlank() || selectedKey.startsWith("gemini-", true) ||
+                selectedKey.startsWith("gpt-", true) || selectedKey.length > 1024 ||
+                selectedKey.any { it.isWhitespace() }) {
+                credentialStatus.text = "Enter a valid API key, not a model name."
             } else {
                 try {
                     ProviderCredentialStore.save(this, provider.selectedItem.toString(),
                         selectedKey, model.text.toString().trim())
                     credentialStatus.text = "Connection saved securely. You can now start a project."
                     updateConnectionSetup()
+                } catch (e: IllegalArgumentException) {
+                    credentialStatus.text = "Invalid API key or model ID. Check Settings fields."
                 } catch (_: Exception) {
                     credentialStatus.text = "Unable to save securely. Check device security settings."
                 }
@@ -1029,7 +1114,10 @@ class MainActivity : Activity() {
             if (next != activePage) {
                 dismissKeyboard()
                 positions[activePage] = pages[activePage].scrollY
-                if (remember) pageHistory.add(activePage)
+                if (remember) {
+                    if (pageHistory.lastOrNull() != activePage) pageHistory.add(activePage)
+                    while (pageHistory.size > 32) pageHistory.removeAt(0)
+                }
             }
             activePage = next
             pages.forEachIndexed { pageIndex, page ->
@@ -1053,18 +1141,29 @@ class MainActivity : Activity() {
         navigateBack = {
             if (activePage == 4 && openSection >= 0) {
                 sectionButtons[openSection].performClick(); true
-            } else if (pageHistory.isNotEmpty()) {
-                showPage(pageHistory.removeAt(pageHistory.lastIndex), false); true
-            } else if (activePage != 0) { showPage(0, false); true } else false
+            } else {
+                while (pageHistory.lastOrNull() == activePage) pageHistory.removeAt(pageHistory.lastIndex)
+                if (pageHistory.isNotEmpty()) {
+                    showPage(pageHistory.removeAt(pageHistory.lastIndex), false); true
+                } else if (activePage != 0) { showPage(0, false); true } else false
+            }
         }
         listOf(projects, activityPage, settings, advanced).forEach { page ->
             val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             controls.addView(Button(this).apply {
-                text = "Back"; isAllCaps = false; setOnClickListener { onBackPressed() }
+                text = "Back"; isAllCaps = false; setOnClickListener {
+                    // In-page Back navigates even when an editor has keyboard focus.
+                    dismissKeyboard()
+                    navigateBack?.invoke()
+                }
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             controls.addView(Button(this).apply {
                 text = "Close"; contentDescription = "Close page and return Home"; isAllCaps = false
-                setOnClickListener { pageHistory.clear(); showPage(0, false) }
+                setOnClickListener {
+                    pageHistory.clear()
+                    if (openSection >= 0) sectionButtons[openSection].performClick()
+                    showPage(0, false)
+                }
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             page.addView(controls, 0)
         }

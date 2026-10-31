@@ -29,12 +29,18 @@ object DeveloperUpdater {
                     if (connection.responseCode != 200) throw IllegalStateException("Developer release not published yet (HTTP ${connection.responseCode})")
                     JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
                 } finally { connection.disconnect() }
+                if (response.optBoolean("draft") || response.optBoolean("prerelease"))
+                    throw IllegalStateException("Developer update release is not published as stable")
                 val assets = response.getJSONArray("assets")
                 val apk = (0 until assets.length()).map { assets.getJSONObject(it) }
                     .firstOrNull { it.optString("name") == "Jarvis-Developer.apk" }
                     ?: throw IllegalStateException("No Developer APK in the release")
                 val url = apk.getString("browser_download_url")
                 val expectedDigest = apk.optString("digest").removePrefix("sha256:")
+                val declaredSize = apk.optLong("size", -1)
+                require(declaredSize in 1..250_000_000) {
+                    "Published Developer APK has an invalid size"
+                }
                 require(apk.optString("digest").startsWith("sha256:") && expectedDigest.matches(Regex("[0-9a-fA-F]{64}"))) {
                     "Published Developer APK is missing a valid SHA-256 digest"
                 }
@@ -48,13 +54,13 @@ object DeveloperUpdater {
                         .setTitle("Jarvis Developer update")
                         .setMessage("Published release: $releaseVersion\nInstalled version: ${BuildConfig.VERSION_NAME}\nDownload and request installation?")
                         .setNegativeButton("Cancel", null)
-                        .setPositiveButton("Download") { _, _ -> download(activity, url, expectedDigest, status) }
+                        .setPositiveButton("Download") { _, _ -> download(activity, url, expectedDigest, declaredSize, status) }
                         .show()
                 }
             } catch (e: Exception) { activity.runOnUiThread { status(e.message ?: "Update check failed") } }
         }
     }
-    private fun download(activity: Activity, url: String, expectedDigest: String, status: (String) -> Unit) {
+    private fun download(activity: Activity, url: String, expectedDigest: String, declaredSize: Long, status: (String) -> Unit) {
         thread {
             try {
                 require(url.startsWith("https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/developer-latest/")) {
@@ -63,27 +69,68 @@ object DeveloperUpdater {
                 activity.runOnUiThread { status("Downloading Developer update...") }
                 val folder = File(activity.cacheDir, "updates").apply { mkdirs() }
                 val file = File(folder, "Jarvis-Developer.apk")
+                // Never trust an APK left by an earlier interrupted or failed download.
+                if (file.exists() && !file.delete()) throw IllegalStateException("Unable to clear old update")
                 val conn = URL(url).openConnection() as HttpURLConnection
                 conn.connectTimeout = 15000
                 conn.readTimeout = 120000
                 conn.instanceFollowRedirects = true
                 try {
                     if (conn.responseCode != 200) throw IllegalStateException("Download HTTP ${conn.responseCode}")
-                    conn.inputStream.use { input -> file.outputStream().use { output -> input.copyTo(output) } }
+                    val expectedBytes = conn.contentLengthLong
+                    if (expectedBytes > declaredSize)
+                        throw IllegalStateException("Download exceeds published APK size")
+                    var receivedBytes = 0L
+                    var lastReportedPercent = -1
+                    conn.inputStream.use { input ->
+                        file.outputStream().use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                                receivedBytes += count
+                                if (receivedBytes > declaredSize)
+                                    throw IllegalStateException("APK transfer exceeded published release size")
+                                if (expectedBytes > 0) {
+                                    val percent = (receivedBytes * 100 / expectedBytes).toInt().coerceAtMost(100)
+                                    if (percent >= lastReportedPercent + 5) {
+                                        lastReportedPercent = percent
+                                        activity.runOnUiThread { status("Downloading Developer update: $percent%") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (receivedBytes != declaredSize)
+                        throw IllegalStateException("APK size does not match published release metadata")
+                    if (expectedBytes > 0 && receivedBytes != expectedBytes)
+                        throw IllegalStateException("Incomplete APK download ($receivedBytes of $expectedBytes bytes)")
                 } finally { conn.disconnect() }
-                val actualDigest = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
-                    .joinToString("") { "%02x".format(it) }
+                val digest = MessageDigest.getInstance("SHA-256")
+                file.inputStream().use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        digest.update(buffer, 0, count)
+                    }
+                }
+                val actualDigest = digest.digest().joinToString("") { "%02x".format(it) }
                 if (!actualDigest.equals(expectedDigest, ignoreCase = true)) {
                     file.delete()
                     throw IllegalStateException("Downloaded APK failed SHA-256 integrity verification")
                 }
                 val archive = activity.packageManager.getPackageArchiveInfo(file.absolutePath, 0)
-                    ?: throw IllegalStateException("Downloaded file is not an APK")
-                if (archive.packageName != activity.packageName) throw IllegalStateException("APK package mismatch")
+                    ?: run { file.delete(); throw IllegalStateException("Downloaded file is not an APK") }
+                if (archive.packageName != activity.packageName) {
+                    file.delete(); throw IllegalStateException("APK package mismatch")
+                }
                 val installed = activity.packageManager.getPackageInfo(activity.packageName, 0)
                 val incomingVersion = if (Build.VERSION.SDK_INT >= 28) archive.longVersionCode else @Suppress("DEPRECATION") archive.versionCode.toLong()
                 val currentVersion = if (Build.VERSION.SDK_INT >= 28) installed.longVersionCode else @Suppress("DEPRECATION") installed.versionCode.toLong()
                 if (incomingVersion <= currentVersion) {
+                    file.delete()
                     activity.runOnUiThread { status("Already current (installed $currentVersion, available $incomingVersion)") }
                     return@thread
                 }
@@ -102,7 +149,11 @@ object DeveloperUpdater {
                         status("Android installer opened. Confirm the update to proceed.")
                     }
                 }
-            } catch (e: Exception) { activity.runOnUiThread { status(e.message ?: "Update failed") } }
+            } catch (e: Exception) {
+                // Do not retain a partially downloaded or rejected APK for a later install.
+                File(activity.cacheDir, "updates/Jarvis-Developer.apk").delete()
+                activity.runOnUiThread { status(e.message ?: "Update failed") }
+            }
         }
     }
 }

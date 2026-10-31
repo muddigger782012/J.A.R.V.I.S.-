@@ -10,38 +10,161 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
     enum class Result { SAVED, STALE, FAILED }
 
     fun saveLocal(id: String, task: String, target: Int): Boolean = synchronized(lock) {
-        runCatching { write(id, base(id, task, target).put("state", "saved").apply {
-            remove("generation_request"); remove("generation_process")
-        }) }.getOrDefault(false)
+        runCatching {
+            val current = read(id)
+            // Keep an active request isolated from offline edits. The user must cancel
+            // or recover it first; do not silently replace its ownership ticket.
+            if (current.optString("state") == "generating") return@synchronized false
+            write(id, base(id, task, target).put("state", "saved").apply {
+                remove("generation_request"); remove("generation_process")
+                remove("response"); remove("response_description"); remove("response_target")
+            })
+        }.getOrDefault(false)
     }
 
     fun begin(id: String, task: String, target: Int): Ticket? = synchronized(lock) {
         runCatching {
+            val current = read(id)
+            if (current.optString("state") == "generating") return@synchronized null
             val ticket = Ticket(id, UUID.randomUUID().toString())
             if (write(id, base(id, task, target).put("state", "generating")
-                    .put("generation_request", ticket.request).put("generation_process", process))) ticket else null
+                    .put("generation_request", ticket.request).put("generation_process", process).apply {
+                        remove("response"); remove("response_description"); remove("response_target")
+                    })) ticket else null
         }.getOrNull()
+    }
+
+    /** Verify the request still owns its project before contacting an external AI provider. */
+    fun isCurrent(ticket: Ticket): Boolean = synchronized(lock) {
+        runCatching {
+            val record = read(ticket.project)
+            record.optString("state") == "generating" &&
+                record.optString("generation_request") == ticket.request &&
+                record.optString("generation_process") == process
+        }.getOrDefault(false)
     }
 
     fun finish(ticket: Ticket, state: String, response: String? = null): Result = synchronized(lock) {
         require(state in setOf("generated", "generation_failed", "generation_cancelled", "generation_interrupted"))
         require((state == "generated") == (response != null))
+        if (response != null && response.length > 256_000) {
+            // Do not strand the workbench in generating when a provider exceeds the storage limit.
+            val recorded = finish(ticket, "generation_failed")
+            return@synchronized if (recorded == Result.STALE) Result.STALE else Result.FAILED
+        }
         runCatching {
             val record = read(ticket.project)
-            if (record.optString("state") != "generating" || record.optString("generation_request") != ticket.request)
+            if (record.optString("state") != "generating" || record.optString("generation_request") != ticket.request ||
+                record.optString("generation_process") != process)
                 return@synchronized Result.STALE
             record.put("state", state).remove("generation_request")
             record.remove("generation_process")
             if (response != null) record.put("response", response)
                 .put("response_description", record.getString("description")).put("response_target", record.getInt("target"))
+            else {
+                record.remove("response"); record.remove("response_description"); record.remove("response_target")
+            }
             if (write(ticket.project, record)) Result.SAVED else Result.FAILED
         }.getOrDefault(Result.FAILED)
     }
 
+    /** Return stable project IDs for the Projects page and workstream selection. */
+    fun projectIds(): List<String> = synchronized(lock) {
+        preferences.all.keys.asSequence()
+            .filter { it.startsWith("project_") }
+            .map { it.removePrefix("project_") }
+            .filter { it.matches(Regex("[A-Za-z0-9_-]{1,80}")) }
+            .filter { runCatching { read(it).has("id") }.getOrDefault(false) }
+            .sorted()
+            .toList()
+    }
+
+    /** Persist a user-authored development note without changing job approval or source files. */
+    fun saveNote(id: String, note: String): Boolean = synchronized(lock) {
+        if (note.length > 8_000) return@synchronized false
+        runCatching {
+            val record = read(id)
+            if (!record.has("id")) return@synchronized false
+            record.put("developer_note", note)
+            write(id, record)
+        }.getOrDefault(false)
+    }
+
+    fun note(id: String): String = synchronized(lock) {
+        runCatching { read(id).optString("developer_note") }.getOrDefault("")
+    }
+
+    /** Export a reviewable, credential-free snapshot; never export provider keys or approvals. */
+    fun exportProject(id: String): String? = synchronized(lock) {
+        runCatching {
+            val record = read(id)
+            if (!record.has("id")) return@synchronized null
+            JSONObject()
+                .put("schema", 1)
+                .put("id", id)
+                .put("description", record.optString("description"))
+                .put("target", record.optInt("target"))
+                .put("developer_note", record.optString("developer_note"))
+                .put("state", stateLabel(record))
+                .toString(2)
+        }.getOrNull()
+    }
+
+    /** Import safe project context only; never import approvals or execution state. */
+    fun importProject(snapshot: String): Boolean = synchronized(lock) {
+        if (snapshot.length > 32_000) return@synchronized false
+        runCatching {
+            val json = JSONObject(snapshot)
+            if (json.optInt("schema", -1) != 1) return@synchronized false
+            // Reject unrecognized fields instead of silently accepting forged approval,
+            // credential, executable job, or generated-response metadata.
+            val permitted = setOf("schema", "id", "description", "target", "developer_note", "state")
+            if (json.keys().asSequence().any { it !in permitted }) return@synchronized false
+            val id = json.getString("id")
+            val task = json.getString("description")
+            val target = json.getInt("target")
+            val note = json.optString("developer_note")
+            // An import is always a new, inactive project; reject fabricated lifecycle
+            // states instead of allowing a snapshot to masquerade as a completed job.
+            if (json.has("state") && json.optString("state") !in setOf(
+                    "Saved locally", "AI reply received", "AI request failed",
+                    "AI request cancelled", "AI request interrupted"
+                )) return@synchronized false
+            if (!id.matches(Regex("[A-Za-z0-9_-]{1,80}")) ||
+                task.isBlank() || task.length > 16_000 || target !in 0..1 ||
+                note.length > 8_000 || read(id).has("id")) return@synchronized false
+            write(id, JSONObject().put("id", id).put("description", task)
+                .put("target", target).put("developer_note", note).put("state", "saved"))
+        }.getOrDefault(false)
+    }
+
+    /** Recover orphaned requests across every stored project without touching live requests. */
+    fun recoverAllInterrupted(): Int = synchronized(lock) {
+        preferences.all.keys.asSequence()
+            .filter { it.startsWith("project_") }
+            .map { it.removePrefix("project_") }
+            .filter { it.matches(Regex("[A-Za-z0-9_-]{1,80}")) }
+            .count { recoverInterrupted(it) }
+    }
+
+    /** Turn a prior-process in-flight request into a durable, retryable interruption. */
+    fun recoverInterrupted(id: String): Boolean = synchronized(lock) {
+        runCatching {
+            val record = read(id)
+            if (record.optString("state") != "generating" ||
+                record.optString("generation_process") == process) return@synchronized false
+            record.put("state", "generation_interrupted")
+            listOf("generation_request", "generation_process", "response",
+                "response_description", "response_target").forEach { record.remove(it) }
+            write(id, record)
+        }.getOrDefault(false)
+    }
+
     private fun base(id: String, task: String, target: Int): JSONObject {
-        require(task.isNotBlank() && target in 0..1)
-        return read(id).apply { if (!has("response")) put("response", "") }
-            .put("id", id).put("description", task).put("target", target)
+        require(id.matches(Regex("[A-Za-z0-9_-]{1,80}")))
+        require(task.isNotBlank() && task.length <= 16_000 && target in 0..1)
+        // A newly saved or pending project has no AI reply until generation succeeds.
+        return read(id).put("id", id).put("description", task).put("target", target)
     }
     private fun read(id: String): JSONObject {
         require(id.matches(Regex("[A-Za-z0-9_-]{1,80}")))

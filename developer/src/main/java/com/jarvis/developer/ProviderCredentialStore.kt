@@ -31,7 +31,10 @@ internal object ProviderCredentialStore {
 
     fun save(context: Context, provider: String, apiKey: String, model: String) {
         require(provider == "Gemini" || provider == "OpenAI")
-        require(apiKey.isNotBlank())
+        require(apiKey.isNotBlank() && apiKey.length <= 1024 && apiKey.none { it.isWhitespace() })
+        require(!apiKey.startsWith("gemini-", true) && !apiKey.startsWith("gpt-", true))
+        require(model.length <= 128 && model.none { it.isWhitespace() })
+        require(model.isEmpty() || model.matches(Regex("[A-Za-z0-9][A-Za-z0-9._/-]{0,127}")))
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, secretKey())
         val data = cipher.iv + cipher.doFinal(apiKey.toByteArray(Charsets.UTF_8))
@@ -52,8 +55,13 @@ internal object ProviderCredentialStore {
             cipher.init(Cipher.DECRYPT_MODE, secretKey(),
                 GCMParameterSpec(128, data.copyOfRange(0, IV_SIZE)))
             val key = String(cipher.doFinal(data.copyOfRange(IV_SIZE, data.size)), Charsets.UTF_8)
-            Triple(prefs.getString("provider", "Gemini") ?: "Gemini",
-                key, prefs.getString("model", "") ?: "")
+            val provider = prefs.getString("provider", "Gemini") ?: "Gemini"
+            val model = prefs.getString("model", "") ?: ""
+            require(provider == "Gemini" || provider == "OpenAI")
+            require(key.isNotBlank() && key.length <= 1024 && key.none { it.isWhitespace() })
+            require(model.length <= 128 && model.none { it.isWhitespace() })
+            require(model.isEmpty() || model.matches(Regex("[A-Za-z0-9][A-Za-z0-9._/-]{0,127}")))
+            Triple(provider, key, model)
         } catch (_: Exception) {
             // Never return corrupt or undecryptable credentials.
             null
