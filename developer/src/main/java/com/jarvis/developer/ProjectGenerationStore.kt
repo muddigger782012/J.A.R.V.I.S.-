@@ -56,6 +56,17 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
         }.getOrDefault(Result.FAILED)
     }
 
+    /** Return stable project IDs for the Projects page and workstream selection. */
+    fun projectIds(): List<String> = synchronized(lock) {
+        preferences.all.keys.asSequence()
+            .filter { it.startsWith("project_") }
+            .map { it.removePrefix("project_") }
+            .filter { it.matches(Regex("[A-Za-z0-9_-]{1,80}")) }
+            .filter { runCatching { read(it).has("id") }.getOrDefault(false) }
+            .sorted()
+            .toList()
+    }
+
     /** Recover orphaned requests across every stored project without touching live requests. */
     fun recoverAllInterrupted(): Int = synchronized(lock) {
         preferences.all.keys.asSequence()

@@ -21,6 +21,26 @@ class ProjectGenerationStoreConcurrencyTest {
         store = ProjectGenerationStore(preferences)
     }
 
+    @Test fun projectListingExcludesUnrelatedPreferencesAndSortsWorkstreams() {
+        assertTrue(store.saveLocal("zeta", "offline task", 0))
+        assertTrue(store.saveLocal("alpha", "offline task", 1))
+        val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
+        prefs.edit().putString("provider_key", "not a project").putString("project_bad.name", "{}").commit()
+        assertEquals(listOf("alpha", "zeta"), store.projectIds())
+    }
+
+    @Test fun priorProcessGeneratingRecordCannotBeOverwrittenBeforeRecovery() {
+        val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
+        prefs.edit().putString("project_orphan", JSONObject()
+            .put("id", "orphan").put("description", "original").put("target", 0)
+            .put("state", "generating").put("generation_process", "previous-process")
+            .put("generation_request", "old-ticket").toString()).commit()
+        assertFalse(store.saveLocal("orphan", "replacement", 0))
+        assertNull(store.begin("orphan", "replacement", 0))
+        assertTrue(store.recoverInterrupted("orphan"))
+        assertTrue(store.saveLocal("orphan", "replacement", 0))
+    }
+
     @Test fun recoverAllHandlesMultipleProjectsAndLeavesActiveRequestAlone() {
         val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
         requireNotNull(store.begin("active", "live task", 0))
