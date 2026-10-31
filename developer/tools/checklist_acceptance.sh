@@ -7,6 +7,9 @@ mkdir -p "$results"
 test "$(adb shell getprop ro.kernel.qemu | tr -d '\r')" = 1
 test "$(adb devices | awk '$2 == "device" { print $1 }' | wc -l)" -eq 1
 adb devices | awk '$2 == "device" { print $1 }' | grep -Eq '^emulator-[0-9]+$'
+expected_api="${CHECKLIST_API_LEVEL:?Missing expected emulator API level}"
+actual_api="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+[[ "$actual_api" == "$expected_api" ]] || { echo "Emulator API mismatch" >&2; exit 1; }
 python3 developer/tools/scaffold_build_evidence.py verify-device --root "$root" --platform android --fixture checklist > "$results/preinstall.json.log"
 adb install -r -t "$root/android/app/build/outputs/apk/debug/app-debug.apk"
 adb install -r -t "$root/android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
