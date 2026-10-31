@@ -414,8 +414,8 @@ class MainActivity : Activity() {
         val refreshProjects = Button(this).apply { text = "Refresh saved projects"; isAllCaps = false }
         fun refreshSavedProjects() {
             savedProjects.removeAllViews()
-            val records = projectPrefs.all.values.mapNotNull { raw ->
-                try { org.json.JSONObject(raw as String) } catch (_: Exception) { null }
+            val records = ProjectGenerationStore(projectPrefs).projectIds().mapNotNull { id ->
+                runCatching { org.json.JSONObject(projectPrefs.getString("project_$id", null) ?: return@mapNotNull null) }.getOrNull()
             }.sortedByDescending { it.optLong("updated_at") }
             if (records.isEmpty()) {
                 savedProjects.addView(TextView(this).apply { text = "No saved projects yet." })
