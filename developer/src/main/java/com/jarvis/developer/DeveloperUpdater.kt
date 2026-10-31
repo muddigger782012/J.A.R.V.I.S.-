@@ -35,6 +35,10 @@ object DeveloperUpdater {
                     ?: throw IllegalStateException("No Developer APK in the release")
                 val url = apk.getString("browser_download_url")
                 val expectedDigest = apk.optString("digest").removePrefix("sha256:")
+                val declaredSize = apk.optLong("size", -1)
+                require(declaredSize in 1..250_000_000) {
+                    "Published Developer APK has an invalid size"
+                }
                 require(apk.optString("digest").startsWith("sha256:") && expectedDigest.matches(Regex("[0-9a-fA-F]{64}"))) {
                     "Published Developer APK is missing a valid SHA-256 digest"
                 }
@@ -48,13 +52,13 @@ object DeveloperUpdater {
                         .setTitle("Jarvis Developer update")
                         .setMessage("Published release: $releaseVersion\nInstalled version: ${BuildConfig.VERSION_NAME}\nDownload and request installation?")
                         .setNegativeButton("Cancel", null)
-                        .setPositiveButton("Download") { _, _ -> download(activity, url, expectedDigest, status) }
+                        .setPositiveButton("Download") { _, _ -> download(activity, url, expectedDigest, declaredSize, status) }
                         .show()
                 }
             } catch (e: Exception) { activity.runOnUiThread { status(e.message ?: "Update check failed") } }
         }
     }
-    private fun download(activity: Activity, url: String, expectedDigest: String, status: (String) -> Unit) {
+    private fun download(activity: Activity, url: String, expectedDigest: String, declaredSize: Long, status: (String) -> Unit) {
         thread {
             try {
                 require(url.startsWith("https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/developer-latest/")) {
@@ -92,6 +96,8 @@ object DeveloperUpdater {
                             }
                         }
                     }
+                    if (receivedBytes != declaredSize)
+                        throw IllegalStateException("APK size does not match published release metadata")
                     if (expectedBytes > 0 && receivedBytes != expectedBytes)
                         throw IllegalStateException("Incomplete APK download ($receivedBytes of $expectedBytes bytes)")
                 } finally { conn.disconnect() }
