@@ -70,6 +70,8 @@ internal object ProjectGenerationWorkbench {
             val ticket = store.begin(project, task, product)
             if (ticket == null) { status.setText(R.string.project_generation_save_failed); return@setOnClickListener }
             select(project); changed()
+            // Never display a previous AI answer as though it belongs to the new request.
+            output.setText(R.string.project_generation_not_started)
             val run = Running(ticket, PatchPreviewCancellation()).also { running = it }
             val providerName = provider.selectedItem.toString(); val modelName = model.text.toString().trim()
             inputs(false); status.setText(R.string.project_generation_reading_context)
