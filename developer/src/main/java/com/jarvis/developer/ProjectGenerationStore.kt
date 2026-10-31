@@ -67,6 +67,21 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
             .toList()
     }
 
+    /** Persist a user-authored development note without changing job approval or source files. */
+    fun saveNote(id: String, note: String): Boolean = synchronized(lock) {
+        if (note.length > 8_000) return@synchronized false
+        runCatching {
+            val record = read(id)
+            if (!record.has("id")) return@synchronized false
+            record.put("developer_note", note)
+            write(id, record)
+        }.getOrDefault(false)
+    }
+
+    fun note(id: String): String = synchronized(lock) {
+        runCatching { read(id).optString("developer_note") }.getOrDefault("")
+    }
+
     /** Recover orphaned requests across every stored project without touching live requests. */
     fun recoverAllInterrupted(): Int = synchronized(lock) {
         preferences.all.keys.asSequence()

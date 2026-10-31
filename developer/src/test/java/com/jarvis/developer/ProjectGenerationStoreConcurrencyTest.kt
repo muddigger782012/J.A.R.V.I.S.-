@@ -41,6 +41,18 @@ class ProjectGenerationStoreConcurrencyTest {
         assertTrue(store.saveLocal("orphan", "replacement", 0))
     }
 
+    @Test fun developmentNotesSurviveProjectEditsWithoutBecomingApproval() {
+        assertTrue(store.saveLocal("project1", "first task", 0))
+        assertTrue(store.saveNote("project1", "Use cyan accents; approval still required"))
+        assertTrue(store.saveLocal("project1", "second task", 0))
+        assertEquals("Use cyan accents; approval still required", store.note("project1"))
+        assertFalse(store.saveNote("project1", "x".repeat(8_001)))
+        assertEquals("Use cyan accents; approval still required", store.note("project1"))
+        val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
+        val record = JSONObject(requireNotNull(prefs.getString("project_project1", null)))
+        assertFalse(record.has("approved"))
+    }
+
     @Test fun recoverAllHandlesMultipleProjectsAndLeavesActiveRequestAlone() {
         val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
         requireNotNull(store.begin("active", "live task", 0))
