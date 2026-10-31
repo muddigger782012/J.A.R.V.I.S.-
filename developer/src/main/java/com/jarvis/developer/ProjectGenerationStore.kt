@@ -12,11 +12,12 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
     fun saveLocal(id: String, task: String, target: Int): Boolean = synchronized(lock) {
         runCatching {
             val current = read(id)
-            // An offline revision intentionally supersedes the pending AI request.
-            // Preserve legacy replies as historical context; invalidate their match metadata.
+            // Keep an active request isolated from offline edits. The user must cancel
+            // or recover it first; do not silently replace its ownership ticket.
+            if (current.optString("state") == "generating") return@synchronized false
             write(id, base(id, task, target).put("state", "saved").apply {
                 remove("generation_request"); remove("generation_process")
-                remove("response_description"); remove("response_target")
+                remove("response"); remove("response_description"); remove("response_target")
             })
         }.getOrDefault(false)
     }
