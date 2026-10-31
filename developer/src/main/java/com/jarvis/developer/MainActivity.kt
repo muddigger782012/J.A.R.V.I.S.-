@@ -426,6 +426,22 @@ class MainActivity : Activity() {
                 val response = record.optString("response")
                 val projectId = record.optString("id")
                 savedProjects.addView(Button(this).apply {
+                    text = "Export project: " + description.take(60)
+                    isAllCaps = false
+                    setOnClickListener {
+                        val snapshot = ProjectGenerationStore(projectPrefs).exportProject(projectId)
+                        if (snapshot == null) {
+                            status.text = "Unable to export this project."
+                        } else {
+                            val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
+                                "Jarvis Developer project", snapshot))
+                            status.text = "Project context copied as JSON. No approvals or credentials included."
+                        }
+                    }
+                })
+                savedProjects.addView(Button(this).apply {
                     text = "Review notes: " + description.take(60)
                     isAllCaps = false
                     setOnClickListener {
