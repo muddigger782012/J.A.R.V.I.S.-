@@ -113,7 +113,6 @@ object ApplicationApprovalWorkbench {
 
         fun attach() {
             root.addView(container)
-            BuildArchitectPanel.attach(activity, container)
             container.addView(TextView(context).apply { text = "Build a new application" })
             container.addView(TextView(context).apply {
                 text = "Choose an Android, backend service or Windows starter and describe its purpose. " +
@@ -131,6 +130,7 @@ object ApplicationApprovalWorkbench {
                 container.addView(it, LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             }
+            BuildArchitectPanel.attach(activity, container)
             val changes = object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
