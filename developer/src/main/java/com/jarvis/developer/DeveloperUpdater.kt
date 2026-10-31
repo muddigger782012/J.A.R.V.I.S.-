@@ -76,6 +76,8 @@ object DeveloperUpdater {
                 try {
                     if (conn.responseCode != 200) throw IllegalStateException("Download HTTP ${conn.responseCode}")
                     val expectedBytes = conn.contentLengthLong
+                    if (expectedBytes > declaredSize)
+                        throw IllegalStateException("Download exceeds published APK size")
                     var receivedBytes = 0L
                     var lastReportedPercent = -1
                     conn.inputStream.use { input ->

@@ -101,6 +101,12 @@ internal object ProjectGenerationWorkbench {
             output.setText(R.string.project_generation_not_started)
             val run = Running(ticket, PatchPreviewCancellation()).also { running = it }
             val providerName = provider.selectedItem.toString(); val modelName = model.text.toString().trim()
+            if (modelName.isBlank()) {
+                store.finish(ticket, "generation_failed")
+                running = null
+                status.text = "Choose an AI model before sending a request."
+                return@setOnClickListener
+            }
             inputs(false); status.setText(R.string.project_generation_reading_context)
             val productTarget = if (product == 1) PatchEngine.Target.PERSONAL else PatchEngine.Target.DEVELOPER
             val work: () -> Unit = {
