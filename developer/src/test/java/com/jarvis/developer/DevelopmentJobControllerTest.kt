@@ -12,7 +12,7 @@ class DevelopmentJobControllerTest {
         job = controller.advance(job, DevelopmentJobController.Event.SOURCE_APPROVED, proposalId = "proposal_1234")
         job = controller.advance(job, DevelopmentJobController.Event.BUILD_STARTED, runId = 42L)
         job = controller.advance(job, DevelopmentJobController.Event.BUILD_PASSED)
-        assertEquals(controller.Stage.VERIFIED, job.stage)
+        assertEquals(DevelopmentJobController.Stage.VERIFIED, job.stage)
     }
 
     @Test fun buildCannotSkipApproval() {
@@ -35,7 +35,7 @@ class DevelopmentJobControllerTest {
         job = controller.advance(job, DevelopmentJobController.Event.SOURCE_APPROVED, proposalId = "proposal_1234")
         job = controller.advance(job, DevelopmentJobController.Event.BUILD_STARTED, runId = 42L)
         job = controller.advance(job, DevelopmentJobController.Event.BUILD_FAILED)
-        assertEquals(controller.Stage.REPAIR_REVIEW, job.stage)
+        assertEquals(DevelopmentJobController.Stage.REPAIR_REVIEW, job.stage)
         assertThrows(IllegalArgumentException::class.java) {
             controller.advance(job, DevelopmentJobController.Event.BUILD_STARTED, runId = 43L)
         }
