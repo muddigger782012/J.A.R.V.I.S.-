@@ -109,7 +109,13 @@ internal object ProjectGenerationWorkbench {
                         if (context.verified) R.string.project_generation_context_ready else R.string.project_generation_context_unavailable, providerName) }
                     val text = services.ask(providerName, secret, modelName, task, run.cancellation, context)
                     run.cancellation.check()
-                    sourceSummary + "\n\n" + text
+                    val replyText = sourceSummary + "\n\n" + text
+                    // Never persist or display credentials accidentally echoed by a provider.
+                    if (secret.isNotEmpty() && replyText.contains(secret))
+                        throw IllegalStateException("AI reply contained an API credential; response discarded.")
+                    if (readToken.isNotEmpty() && replyText.contains(readToken))
+                        throw IllegalStateException("AI reply contained a repository credential; response discarded.")
+                    replyText
                 }
                 if (!run.cancellation.isCancelled) {
                     val saved = store.finish(ticket, if (reply.isSuccess) "generated" else "generation_failed", reply.getOrNull())
