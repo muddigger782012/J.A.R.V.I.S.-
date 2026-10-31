@@ -124,13 +124,20 @@ internal object ProjectGenerationWorkbench {
                         if (context.verified) R.string.project_generation_context_ready else R.string.project_generation_context_unavailable, providerName) }
                     // Treat saved notes as user-provided context, never as authorization.
                     // Reject credentials embedded in notes before transmitting anything.
+                    run.cancellation.check()
                     val notes = store.note(project)
+                    // Never send a note revision that changed while repository context was loading.
+                    // The user must review and explicitly resend the updated instruction.
+                    if (notes.length > 8_000) throw IllegalStateException("Development notes exceed the allowed limit.")
                     if ((secret.isNotEmpty() && notes.contains(secret)) ||
                         (readToken.isNotEmpty() && notes.contains(readToken)))
                         throw IllegalStateException("Development notes contain a credential; remove it before generating.")
                     val instruction = if (notes.isBlank()) task else
                         task + "\n\nProject design notes (context only; not execution approval):\n" + notes
                     val text = services.ask(providerName, secret, modelName, instruction, run.cancellation, context)
+                    run.cancellation.check()
+                    if (store.note(project) != notes)
+                        throw IllegalStateException("Development notes changed during generation; review and retry.")
                     require(text.isNotBlank()) { "AI provider returned an empty response." }
                     run.cancellation.check()
                     val replyText = sourceSummary + "\n\n" + text
