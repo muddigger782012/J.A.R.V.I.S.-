@@ -48,6 +48,14 @@ internal object ProjectGenerationWorkbench {
                 })
             }
         }
+        // Reconcile a request orphaned by process death before accepting another command.
+        selected()?.let { project ->
+            if (store.recoverInterrupted(project)) {
+                output.setText(R.string.project_generation_not_started)
+                status.text = "Previous AI request was interrupted. Review the task and retry."
+                changed()
+            }
+        }
         cancel.isEnabled = false
         cancel.setOnClickListener { stop(false) }
         send.setOnClickListener {
@@ -60,6 +68,10 @@ internal object ProjectGenerationWorkbench {
                 status.setText(R.string.project_generation_remove_key); return@setOnClickListener
             }
             val project = selected() ?: java.util.UUID.randomUUID().toString()
+            if (store.recoverInterrupted(project)) {
+                output.setText(R.string.project_generation_not_started)
+                changed()
+            }
             val product = target()
             if (secret.isEmpty()) {
                 if (store.saveLocal(project, task, product)) {
