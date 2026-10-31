@@ -56,6 +56,27 @@ class ProjectGenerationStoreConcurrencyTest {
         assertFalse(store.recoverInterrupted("project1"))
     }
 
+    @Test fun oldProcessCannotCompleteItsGenerationTicket() {
+        val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
+        val ticket = requireNotNull(store.begin("project1", "task", 0))
+        val record = JSONObject(requireNotNull(prefs.getString("project_project1", null)))
+        record.put("generation_process", "previous-process")
+        prefs.edit().putString("project_project1", record.toString()).commit()
+        assertEquals(ProjectGenerationStore.Result.STALE, store.finish(ticket, "generated", "old"))
+        assertTrue(store.recoverInterrupted("project1"))
+    }
+
+    @Test fun oversizedProviderReplyIsRejectedBeforeStorage() {
+        val ticket = requireNotNull(store.begin("project1", "task", 0))
+        try {
+            store.finish(ticket, "generated", "x".repeat(256_001))
+            fail("Oversized reply must not be persisted")
+        } catch (_: IllegalArgumentException) {
+            // Expected: keep project in generating state so caller can mark failure.
+        }
+        assertEquals(ProjectGenerationStore.Result.SAVED, store.finish(ticket, "generation_failed"))
+    }
+
     @Test fun secondRequestForSameProjectIsRejected() {
         val first = requireNotNull(store.begin("project1", "first task", 0))
         assertNull(store.begin("project1", "second task", 0))
