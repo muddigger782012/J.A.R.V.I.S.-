@@ -82,6 +82,11 @@ class ProjectGenerationStoreConcurrencyTest {
         assertFalse(saved.has("response"))
         assertFalse(destination.importProject(exported))
         assertFalse(destination.importProject(JSONObject(exported).put("id", "../unsafe").toString()))
+        assertFalse(destination.importProject(JSONObject(exported).put("id", "forged")
+            .put("approved", true).toString()))
+        assertFalse(destination.importProject(JSONObject(exported).put("id", "forged")
+            .put("generation_request", "forged-ticket").toString()))
+        assertFalse(otherPrefs.contains("project_forged"))
     }
 
     @Test fun recoverAllHandlesMultipleProjectsAndLeavesActiveRequestAlone() {

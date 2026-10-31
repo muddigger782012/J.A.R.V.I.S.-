@@ -116,6 +116,10 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
         runCatching {
             val json = JSONObject(snapshot)
             if (json.optInt("schema", -1) != 1) return@synchronized false
+            // Reject unrecognized fields instead of silently accepting forged approval,
+            // credential, executable job, or generated-response metadata.
+            val permitted = setOf("schema", "id", "description", "target", "developer_note", "state")
+            if (json.keys().asSequence().any { it !in permitted }) return@synchronized false
             val id = json.getString("id")
             val task = json.getString("description")
             val target = json.getInt("target")
