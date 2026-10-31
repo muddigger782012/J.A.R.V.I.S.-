@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [feature/jarvis-developer, feature/developer-four-tab-guided-ux, 'feature/jarvis-developer-task/**', 'fix/developer-gemini-diagnostics-135']
+    # Explicitly keep Phase 5/6 development branches eligible for isolated CI.
     paths:
       - 'developer/**'
       - 'integration/**'
