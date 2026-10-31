@@ -30,5 +30,20 @@ class ChecklistAcceptanceContractTest(unittest.TestCase):
         self.assertIn('GITHUB_SHA', text)
 
 
+    def test_emulator_api_is_verified_before_installation(self):
+        text = SCRIPT.read_text(encoding='utf-8')
+        guard = 'actual_api="$(adb shell getprop ro.build.version.sdk'
+        self.assertIn('CHECKLIST_API_LEVEL:?', text)
+        self.assertIn(guard, text)
+        self.assertIn('[[ "$actual_api" == "$expected_api" ]]', text)
+        self.assertLess(text.index(guard), text.index('adb install -r -t'))
+
+    def test_recovery_and_restart_are_separate_device_runs(self):
+        text = SCRIPT.read_text(encoding='utf-8')
+        for case in ('save-recreate', 'process-relaunch', 'corrupt-recovery'):
+            self.assertIn('> "$results/' + case + '.txt" 2>&1', text)
+            self.assertIn('grep -Eq', text)
+        self.assertIn('hostForceStopVerified=True', text)
+
 if __name__ == '__main__':
     unittest.main()
