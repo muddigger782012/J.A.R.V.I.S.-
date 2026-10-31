@@ -82,6 +82,22 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
         runCatching { read(id).optString("developer_note") }.getOrDefault("")
     }
 
+    /** Export a reviewable, credential-free snapshot; never export provider keys or approvals. */
+    fun exportProject(id: String): String? = synchronized(lock) {
+        runCatching {
+            val record = read(id)
+            if (!record.has("id")) return@synchronized null
+            JSONObject()
+                .put("schema", 1)
+                .put("id", id)
+                .put("description", record.optString("description"))
+                .put("target", record.optInt("target"))
+                .put("developer_note", record.optString("developer_note"))
+                .put("state", stateLabel(record))
+                .toString(2)
+        }.getOrNull()
+    }
+
     /** Recover orphaned requests across every stored project without touching live requests. */
     fun recoverAllInterrupted(): Int = synchronized(lock) {
         preferences.all.keys.asSequence()

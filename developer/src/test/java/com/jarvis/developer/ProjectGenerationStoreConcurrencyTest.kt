@@ -53,6 +53,20 @@ class ProjectGenerationStoreConcurrencyTest {
         assertFalse(record.has("approved"))
     }
 
+    @Test fun exportedProjectContainsReviewableContextWithoutGenerationReceipts() {
+        assertTrue(store.saveLocal("review", "Fix navigation", 0))
+        assertTrue(store.saveNote("review", "Preserve the existing theme"))
+        val ticket = requireNotNull(store.begin("review", "Fix navigation", 0))
+        val exported = JSONObject(requireNotNull(store.exportProject("review")))
+        assertEquals("review", exported.getString("id"))
+        assertEquals("Fix navigation", exported.getString("description"))
+        assertEquals("Preserve the existing theme", exported.getString("developer_note"))
+        assertFalse(exported.has("generation_request"))
+        assertFalse(exported.has("generation_process"))
+        assertFalse(exported.has("approved"))
+        assertEquals(ProjectGenerationStore.Result.SAVED, store.finish(ticket, "generation_cancelled"))
+    }
+
     @Test fun recoverAllHandlesMultipleProjectsAndLeavesActiveRequestAlone() {
         val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
         requireNotNull(store.begin("active", "live task", 0))
