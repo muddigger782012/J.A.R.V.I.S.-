@@ -114,7 +114,11 @@ object DeveloperUpdater {
                         status("Android installer opened. Confirm the update to proceed.")
                     }
                 }
-            } catch (e: Exception) { activity.runOnUiThread { status(e.message ?: "Update failed") } }
+            } catch (e: Exception) {
+                // Do not retain a partially downloaded or rejected APK for a later install.
+                File(activity.cacheDir, "updates/Jarvis-Developer.apk").delete()
+                activity.runOnUiThread { status(e.message ?: "Update failed") }
+            }
         }
     }
 }
