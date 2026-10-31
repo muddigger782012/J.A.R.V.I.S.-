@@ -37,7 +37,10 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
     fun finish(ticket: Ticket, state: String, response: String? = null): Result = synchronized(lock) {
         require(state in setOf("generated", "generation_failed", "generation_cancelled", "generation_interrupted"))
         require((state == "generated") == (response != null))
-        require(response == null || response.length <= 256_000)
+        if (response != null && response.length > 256_000) {
+            // Do not strand the workbench in generating when a provider exceeds the storage limit.
+            return@synchronized finish(ticket, "generation_failed")
+        }
         runCatching {
             val record = read(ticket.project)
             if (record.optString("state") != "generating" || record.optString("generation_request") != ticket.request ||
