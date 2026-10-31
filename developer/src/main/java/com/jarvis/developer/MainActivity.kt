@@ -1075,7 +1075,11 @@ class MainActivity : Activity() {
         listOf(projects, activityPage, settings, advanced).forEach { page ->
             val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             controls.addView(Button(this).apply {
-                text = "Back"; isAllCaps = false; setOnClickListener { onBackPressed() }
+                text = "Back"; isAllCaps = false; setOnClickListener {
+                    // In-page Back navigates even when an editor has keyboard focus.
+                    dismissKeyboard()
+                    navigateBack?.invoke()
+                }
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             controls.addView(Button(this).apply {
                 text = "Close"; contentDescription = "Close page and return Home"; isAllCaps = false
