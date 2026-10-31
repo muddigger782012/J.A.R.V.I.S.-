@@ -33,6 +33,16 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
         }.getOrNull()
     }
 
+    /** Verify the request still owns its project before contacting an external AI provider. */
+    fun isCurrent(ticket: Ticket): Boolean = synchronized(lock) {
+        runCatching {
+            val record = read(ticket.project)
+            record.optString("state") == "generating" &&
+                record.optString("generation_request") == ticket.request &&
+                record.optString("generation_process") == process
+        }.getOrDefault(false)
+    }
+
     fun finish(ticket: Ticket, state: String, response: String? = null): Result = synchronized(lock) {
         require(state in setOf("generated", "generation_failed", "generation_cancelled", "generation_interrupted"))
         require((state == "generated") == (response != null))

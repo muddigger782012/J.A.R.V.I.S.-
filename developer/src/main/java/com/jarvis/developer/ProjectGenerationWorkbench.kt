@@ -127,6 +127,10 @@ internal object ProjectGenerationWorkbench {
                     // Reject credentials embedded in notes before transmitting anything.
                     run.cancellation.check()
                     val notes = store.note(project)
+                    // The repository context may have been loading while the project changed.
+                    // Do not ask the provider to work on a superseded request.
+                    if (!store.isCurrent(ticket))
+                        throw IllegalStateException("Project instructions changed; review and retry.")
                     // Never send a note revision that changed while repository context was loading.
                     // The user must review and explicitly resend the updated instruction.
                     if (notes.length > 8_000) throw IllegalStateException("Development notes exceed the allowed limit.")
