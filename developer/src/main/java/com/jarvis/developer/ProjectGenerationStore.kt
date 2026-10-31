@@ -28,7 +28,9 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
                 current.optString("generation_process") == process) return@synchronized null
             val ticket = Ticket(id, UUID.randomUUID().toString())
             if (write(id, base(id, task, target).put("state", "generating")
-                    .put("generation_request", ticket.request).put("generation_process", process))) ticket else null
+                    .put("generation_request", ticket.request).put("generation_process", process).apply {
+                        remove("response"); remove("response_description"); remove("response_target")
+                    })) ticket else null
         }.getOrNull()
     }
 

@@ -51,6 +51,27 @@ class ProjectGenerationStoreConcurrencyTest {
         assertFalse(record.has("response_description"))
     }
 
+    @Test fun retryImmediatelyClearsPreviousAnswer() {
+        val first = requireNotNull(store.begin("project1", "first", 0))
+        assertEquals(ProjectGenerationStore.Result.SAVED, store.finish(first, "generated", "old"))
+        requireNotNull(store.begin("project1", "second", 0))
+        val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
+        val record = JSONObject(requireNotNull(prefs.getString("project_project1", null)))
+        assertEquals("generating", record.getString("state"))
+        assertFalse(record.has("response"))
+        assertFalse(record.has("response_description"))
+    }
+
+    @Test fun staleCompletionCannotOverwriteNewGeneration() {
+        val first = requireNotNull(store.begin("project1", "first", 0))
+        assertEquals(ProjectGenerationStore.Result.SAVED, store.finish(first, "generation_cancelled"))
+        val second = requireNotNull(store.begin("project1", "second", 0))
+        assertEquals(ProjectGenerationStore.Result.STALE, store.finish(first, "generated", "stale"))
+        assertEquals(ProjectGenerationStore.Result.SAVED, store.finish(second, "generated", "fresh"))
+        val prefs = context.getSharedPreferences("generation_concurrency_test", Context.MODE_PRIVATE)
+        assertEquals("fresh", JSONObject(requireNotNull(prefs.getString("project_project1", null))).getString("response"))
+    }
+
     @Test fun failedGenerationClearsPreviousAnswer() {
         val ticket = requireNotNull(store.begin("project1", "task", 0))
         assertEquals(ProjectGenerationStore.Result.SAVED, store.finish(ticket, "generated", "answer"))
