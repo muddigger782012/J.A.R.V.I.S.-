@@ -99,6 +99,7 @@ internal object ProjectGenerationWorkbench {
                         if (!current(run)) return@runOnUiThread
                         running = null; inputs(true); changed()
                         if (selected() != project || saved == ProjectGenerationStore.Result.STALE) {
+                            output.setText(R.string.project_generation_not_started)
                             status.setText(R.string.project_generation_changed)
                         } else reply.onSuccess { text ->
                             output.text = text
@@ -119,7 +120,8 @@ internal object ProjectGenerationWorkbench {
             runCatching { services.worker(work) }.onFailure {
                 run.cancellation.cancel(); running = null
                 store.finish(ticket, "generation_failed")
-                inputs(true); changed(); status.setText(R.string.project_generation_start_failed)
+                inputs(true); changed(); output.setText(R.string.project_generation_not_started)
+                status.setText(R.string.project_generation_start_failed)
             }
         }
         return Handle(::stop)
