@@ -40,7 +40,8 @@ internal object ProjectGenerationWorkbench {
             val result = store.finish(run.ticket, if (interrupted) "generation_interrupted" else "generation_cancelled")
             if (alive()) {
                 inputs(true); changed()
-                output.setText(R.string.project_generation_not_started)
+                // Cancellation must not erase the user's existing visible result.
+                // The status explicitly marks the active request as cancelled.
                 status.setText(when (result) {
                     ProjectGenerationStore.Result.SAVED -> R.string.project_generation_cancelled
                     ProjectGenerationStore.Result.STALE -> R.string.project_generation_stopped
