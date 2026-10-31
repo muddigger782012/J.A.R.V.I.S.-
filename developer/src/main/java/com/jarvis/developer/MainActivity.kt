@@ -618,6 +618,8 @@ class MainActivity : Activity() {
                         selectedKey, model.text.toString().trim())
                     credentialStatus.text = "Connection saved securely. You can now start a project."
                     updateConnectionSetup()
+                } catch (e: IllegalArgumentException) {
+                    credentialStatus.text = "Invalid API key or model ID. Check Settings fields."
                 } catch (_: Exception) {
                     credentialStatus.text = "Unable to save securely. Check device security settings."
                 }
