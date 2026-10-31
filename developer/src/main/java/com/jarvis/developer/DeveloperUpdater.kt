@@ -42,6 +42,8 @@ object DeveloperUpdater {
                 require(apk.optString("digest").startsWith("sha256:") && expectedDigest.matches(Regex("[0-9a-fA-F]{64}"))) {
                     "Published Developer APK is missing a valid SHA-256 digest"
                 }
+                if (response.optBoolean("draft") || response.optBoolean("prerelease"))
+                    throw IllegalStateException("Developer update release is not published as stable")
                 val releaseVersion = response.optString("name")
                 val releaseTag = response.optString("tag_name")
                 if (releaseTag != "developer-latest") {
@@ -128,6 +130,7 @@ object DeveloperUpdater {
                 val incomingVersion = if (Build.VERSION.SDK_INT >= 28) archive.longVersionCode else @Suppress("DEPRECATION") archive.versionCode.toLong()
                 val currentVersion = if (Build.VERSION.SDK_INT >= 28) installed.longVersionCode else @Suppress("DEPRECATION") installed.versionCode.toLong()
                 if (incomingVersion <= currentVersion) {
+                    file.delete()
                     activity.runOnUiThread { status("Already current (installed $currentVersion, available $incomingVersion)") }
                     return@thread
                 }

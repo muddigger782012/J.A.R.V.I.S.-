@@ -83,15 +83,15 @@ internal object ProjectGenerationWorkbench {
                 changed()
             }
             val product = target()
+            if (product !in 0..1) {
+                status.text = "Select a valid development target before saving or generating."
+                return@setOnClickListener
+            }
             if (secret.isEmpty()) {
                 if (store.saveLocal(project, task, product)) {
                     select(project); changed(); status.setText(R.string.project_generation_saved_offline)
                     output.setText(R.string.project_generation_not_started)
                 } else status.setText(R.string.project_generation_save_failed)
-                return@setOnClickListener
-            }
-            if (product !in 0..1) {
-                status.text = "Select a valid development target before generating."
                 return@setOnClickListener
             }
             val providerName = provider.selectedItem.toString()

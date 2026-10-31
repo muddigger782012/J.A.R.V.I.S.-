@@ -12,8 +12,7 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
     fun saveLocal(id: String, task: String, target: Int): Boolean = synchronized(lock) {
         runCatching {
             val current = read(id)
-            if (current.optString("state") == "generating" &&
-                current.optString("generation_process") == process) return@synchronized false
+            if (current.optString("state") == "generating") return@synchronized false
             write(id, base(id, task, target).put("state", "saved").apply {
                 remove("generation_request"); remove("generation_process")
                 remove("response"); remove("response_description"); remove("response_target")
@@ -24,8 +23,7 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
     fun begin(id: String, task: String, target: Int): Ticket? = synchronized(lock) {
         runCatching {
             val current = read(id)
-            if (current.optString("state") == "generating" &&
-                current.optString("generation_process") == process) return@synchronized null
+            if (current.optString("state") == "generating") return@synchronized null
             val ticket = Ticket(id, UUID.randomUUID().toString())
             if (write(id, base(id, task, target).put("state", "generating")
                     .put("generation_request", ticket.request).put("generation_process", process).apply {
