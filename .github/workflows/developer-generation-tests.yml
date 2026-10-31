@@ -50,8 +50,21 @@ jobs:
       - name: Verify preinstalled Android SDK
         run: test -d "$ANDROID_HOME/platforms" && test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Assemble Developer debug APK
-        run: ./gradlew -PjarvisDeveloper=true :developer:assembleDebug --stacktrace --no-daemon
+      - name: Assemble Developer debug APK with dependency retry
+        shell: bash
+        run: |
+          set -o pipefail
+          for attempt in 1 2 3; do
+            echo "APK build attempt $attempt of 3"
+            if ./gradlew -PjarvisDeveloper=true :developer:assembleDebug --stacktrace --no-daemon --refresh-dependencies; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Developer APK assembly failed after three attempts; inspect dependency resolution logs"
+              exit 1
+            fi
+            sleep $((attempt * 20))
+          done
       - name: Verify APK exists
         run: test -s developer/build/outputs/apk/debug/developer-debug.apk
       - name: Upload installable Developer APK
