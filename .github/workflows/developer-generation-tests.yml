@@ -30,6 +30,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Run Developer generation regression tests
         run: ./gradlew -PjarvisDeveloper=true :developer:testDebugUnitTest --tests 'com.jarvis.developer.ProjectGenerationStoreConcurrencyTest' --stacktrace
+      - name: Assemble Developer debug APK
+        run: ./gradlew -PjarvisDeveloper=true :developer:assembleDebug --stacktrace
+      - name: Upload installable Developer APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-Developer-debug-apk
+          path: developer/build/outputs/apk/debug/developer-debug.apk
+          if-no-files-found: error
+          retention-days: 30
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
