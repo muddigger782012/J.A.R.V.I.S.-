@@ -70,8 +70,8 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
             if (record.optString("state") != "generating" ||
                 record.optString("generation_process") == process) return@synchronized false
             record.put("state", "generation_interrupted")
-                .remove("generation_request").remove("generation_process")
-                .remove("response").remove("response_description").remove("response_target")
+            listOf("generation_request", "generation_process", "response",
+                "response_description", "response_target").forEach { record.remove(it) }
             write(id, record)
         }.getOrDefault(false)
     }
