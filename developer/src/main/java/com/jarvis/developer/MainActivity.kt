@@ -463,7 +463,9 @@ class MainActivity : Activity() {
                         output.text = if (response.isBlank()) getString(R.string.project_generation_restored_without_reply)
                             else if (ProjectGenerationStore.replyMatches(record) == true) response
                             else getString(R.string.project_generation_previous_reply, response)
-                        status.text = "Loaded saved project. Description restored."
+                        val savedNote = ProjectGenerationStore(projectPrefs).note(projectId)
+                        status.text = if (savedNote.isBlank()) "Loaded saved project. Description restored." else
+                            "Loaded saved project with development notes. Review notes in My projects."
                         selectPage?.invoke(0)
                     }
                 })
