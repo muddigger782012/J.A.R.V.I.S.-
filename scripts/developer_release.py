@@ -1,3 +1,4 @@
+import time
 """Developer release provenance and finalization. Never builds, signs or installs.
 
 Production writes require the existing explicit canonical-branch dispatch. APK
@@ -240,20 +241,28 @@ class GitHub:
                     'Public updater differs from approved artifact')
             download = 'https://github.com/' + REPO + '/releases/download/' + TAG + '/' + APK
             require(remote.get('browser_download_url') == download, 'Unexpected public APK URL')
-            calculated = hashlib.sha256()
-            count = 0
-            with urllib.request.urlopen(urllib.request.Request(download, headers={'User-Agent': 'JarvisDeveloper'}),
-                                        timeout=90) as response:
-                require(response.status == 200 and response.geturl().startswith('https://'), 'Public APK unavailable')
-                while True:
-                    chunk = response.read(65536)
-                    if not chunk:
-                        break
-                    count += len(chunk)
-                    require(count <= expected['apkBytes'] and count <= MAX_APK, 'Public APK exceeds expected size')
-                    calculated.update(chunk)
-            require(count == expected['apkBytes'] and calculated.hexdigest() == expected['apkSha256'],
-                    'Public APK checksum differs')
+            # GitHub release asset replacement can briefly leave the public CDN serving
+            # an older asset. Never accept mismatched bytes: retry the exact updater URL
+            # for a bounded interval, then fail closed if the mismatch persists.
+            for attempt, delay in enumerate((0, 3, 6, 12, 24, 30)):
+                if delay:
+                    time.sleep(delay)
+                calculated = hashlib.sha256()
+                count = 0
+                with urllib.request.urlopen(urllib.request.Request(download, headers={'User-Agent': 'JarvisDeveloper'}),
+                                            timeout=90) as response:
+                    require(response.status == 200 and response.geturl().startswith('https://'), 'Public APK unavailable')
+                    while True:
+                        chunk = response.read(65536)
+                        if not chunk:
+                            break
+                        count += len(chunk)
+                        require(count <= expected['apkBytes'] and count <= MAX_APK, 'Public APK exceeds expected size')
+                        calculated.update(chunk)
+                if count == expected['apkBytes'] and calculated.hexdigest() == expected['apkSha256']:
+                    break
+                if attempt == 5:
+                    raise ReleaseFailure('Public APK checksum differs after bounded CDN consistency retries')
         except ReleaseFailure:
             raise
         except Exception:
