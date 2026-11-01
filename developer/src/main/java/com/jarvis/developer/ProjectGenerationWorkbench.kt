@@ -22,7 +22,8 @@ internal object ProjectGenerationWorkbench {
     fun attach(activity: Activity, send: Button, cancel: Button, provider: Spinner, key: EditText, model: EditText,
         prompt: EditText, output: TextView, status: TextView, target: () -> Int, targetView: () -> View?,
         selected: () -> String?, select: (String) -> Unit, store: ProjectGenerationStore,
-        changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }, forget: Button? = null): Handle {
+        changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }, forget: Button? = null,
+        requestPatch: () -> Boolean = { false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var disposed = false
@@ -100,7 +101,14 @@ internal object ProjectGenerationWorkbench {
                     sourceSummary = context.summary()
                     activity.runOnUiThread { if (current(run)) status.text = activity.getString(
                         if (context.verified) R.string.project_generation_context_ready else R.string.project_generation_context_unavailable, providerName) }
-                    val text = services.ask(providerName, secret, modelName, task, run.cancellation, context)
+                    val wantsPatch = requestPatch()
+                    if (wantsPatch && product != 0)
+                        throw IllegalArgumentException("Code patch proposals are limited to the Developer target")
+                    val instruction = if (!wantsPatch) task else task +
+                        "\\n\\nCODE PATCH MODE (proposal only, never execute): Return ONLY a JSON object with summary (string) and edits (array of path and content strings). " +
+                        "Every edit must be a complete NEW Kotlin or Java source file under developer/src/main/java/com/jarvis/developer/ or developer/src/test/java/com/jarvis/developer/. " +
+                        "Do not modify existing files, protected components, build configuration, permissions, credentials, or releases. Maximum 8 files. Explicit user approval is required separately. No Markdown fences."
+                    val text = services.ask(providerName, secret, modelName, instruction, run.cancellation, context)
                     run.cancellation.check()
                     nextDiscussion = discussion.append(task, text, secrets)
                     sourceSummary + "\n\n" + text
