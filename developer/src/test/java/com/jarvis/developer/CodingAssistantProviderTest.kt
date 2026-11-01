@@ -292,7 +292,16 @@ class CodingAssistantProviderTest {
         )
         for (reply in replies) {
             val fake = Fixture().apply { body(reply) }
-            fails(fake, "Gemini")
+            if (reply.getJSONArray("candidates").length() == 1 &&
+                reply.getJSONArray("candidates").getJSONObject(0).optString("finishReason") == "MAX_TOKENS") {
+                try {
+                    CodingAssistantProvider.Client(fake).ask("Gemini", key, "", task)
+                    fail("Expected a bounded output-limit rejection")
+                } catch (failure: CodingAssistantProvider.ProviderFailure) {
+                    assertTrue(failure.message.orEmpty().contains("output-token limit"))
+                    assertFalse(failure.toString().contains(key))
+                }
+            } else fails(fake, "Gemini")
             assertEquals(1, fake.closed)
         }
     }
