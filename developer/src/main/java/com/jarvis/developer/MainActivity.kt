@@ -163,6 +163,13 @@ class MainActivity : Activity() {
             setTextIsSelectable(true)
             text = "Your assistant’s response will appear here."
         }
+        val proposeCodePatch = android.widget.CheckBox(this).apply {
+            text = "Generate a code patch proposal (Developer only)"
+            isChecked = false
+            setTextColor(getColor(R.color.developer_text))
+            contentDescription = "Request a reviewable code patch proposal, not an automatic code change"
+        }
+        root.addView(proposeCodePatch)
         val send = Button(this).apply { text = "Ask Jarvis / save instructions"; isAllCaps = false }
         root.addView(send)
         val cancelGeneration = Button(this).apply {
@@ -385,7 +392,8 @@ class MainActivity : Activity() {
         projectGeneration = ProjectGenerationWorkbench.attach(this, send, cancelGeneration, provider, key, model,
             prompt, output, status, { guidedTarget?.selectedItemPosition ?: 0 }, { guidedTarget },
             { activeProject }, { activeProject = it }, ProjectGenerationStore(projectPrefs),
-            { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() }, forget = forgetDiscussion)
+            { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() }, forget = forgetDiscussion,
+            requestPatch = { proposeCodePatch.isChecked })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
