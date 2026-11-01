@@ -320,7 +320,13 @@ object CodingAssistantProvider {
         val candidates = root.getJSONArray("candidates")
         require(candidates.length() == 1)
         val candidate = candidates.getJSONObject(0)
-        require(candidate.get("finishReason") == "STOP")
+        when (candidate.optString("finishReason")) {
+            "STOP" -> Unit
+            "MAX_TOKENS" -> throw ProviderFailure("Gemini reached its output-token limit before completing the response. Choose a model with a larger output budget or request a smaller patch.")
+            "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII" ->
+                throw ProviderFailure("Gemini stopped generation because of a provider content restriction.")
+            else -> throw ProviderFailure("Gemini returned an incomplete or unsupported finish status.")
+        }
         val content = candidate.getJSONObject("content")
         requireOnlyKeys(content, setOf("role", "parts"))
         require(content.get("role") == "model")
