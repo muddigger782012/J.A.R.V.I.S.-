@@ -249,8 +249,12 @@ class GitHub:
                     time.sleep(delay)
                 calculated = hashlib.sha256()
                 count = 0
-                with urllib.request.urlopen(urllib.request.Request(download, headers={'User-Agent': 'JarvisDeveloper'}),
-                                            timeout=90) as response:
+                # A fixed release download URL can remain cached across asset replacements.
+                # Cache-bust each verification attempt, without relaxing byte/digest checks.
+                verify_url = download + '?verification=' + expected['apkSha256'][:16] + '-' + str(attempt)
+                with urllib.request.urlopen(urllib.request.Request(verify_url, headers={
+                        'User-Agent': 'JarvisDeveloper', 'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'}), timeout=90) as response:
                     require(response.status == 200 and response.geturl().startswith('https://'), 'Public APK unavailable')
                     while True:
                         chunk = response.read(65536)
