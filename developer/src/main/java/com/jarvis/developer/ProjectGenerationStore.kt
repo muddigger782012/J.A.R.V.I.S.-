@@ -124,6 +124,13 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
             val task = json.getString("description")
             val target = json.getInt("target")
             val note = json.optString("developer_note")
+            // Enforce real JSON types: coercing strings like "1" into a target or
+            // numeric state into text would hide malformed or tampered snapshots.
+            if (json.get("schema") !is Number || json.get("target") !is Number ||
+                json.get("id") !is String || json.get("description") !is String ||
+                (json.has("developer_note") && json.get("developer_note") !is String) ||
+                (json.has("state") && json.get("state") !is String))
+                return@synchronized false
             // An import is always a new, inactive project; reject fabricated lifecycle
             // states instead of allowing a snapshot to masquerade as a completed job.
             if (json.has("state") && json.optString("state") !in setOf(
