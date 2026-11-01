@@ -110,7 +110,7 @@ class ProjectGenerationContextTest {
             s.reader = { task, target -> s.cancel.performClick(); evidence(task, target) }
             s.send.performClick(); s.complete()
             assertTrue(s.requests.isEmpty()); assertEquals("generation_cancelled", JSONObject(s.record()).getString("state"))
-            assertTrue(s.send.isEnabled); assertFalse(s.record().contains(commit)); assertEquals("", JSONObject(s.record()).getString("response"))
+            assertTrue(s.send.isEnabled); assertFalse(s.record().contains(commit)); assertFalse(JSONObject(s.record()).has("response"))
         }
     }
 

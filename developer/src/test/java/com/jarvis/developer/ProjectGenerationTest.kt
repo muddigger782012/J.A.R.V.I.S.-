@@ -63,7 +63,7 @@ class ProjectGenerationTest {
         assertEquals("Current response", record.getString("response")); assertFalse(record.has("generation_request"))
         assertEquals(true, ProjectGenerationStore.replyMatches(record))
         assertTrue(store.saveLocal("project-a", "Different instructions", 0))
-        assertEquals(false, ProjectGenerationStore.replyMatches(JSONObject(prefs.getString("project_project-a", "{}")!!)))
+        assertNull(ProjectGenerationStore.replyMatches(JSONObject(prefs.getString("project_project-a", "{}")!!)))
     }
     @Test fun corruptLegacyRecordsArePreservedWithoutStartingGeneration() {
         val prefs = preferences(); prefs.edit().putString("project_project-a", "invalid-json-private-fixture").commit()
@@ -76,10 +76,12 @@ class ProjectGenerationTest {
         prefs.edit().putString("project_project-a", JSONObject().put("id", "project-a").put("description", "Old task")
             .put("target", 0).put("response", "Previous saved reply").put("legacy_note", "Keep this metadata").toString()).commit()
         val pending = store.begin("project-a", "Pending task", 0)!!
+        assertFalse(store.saveLocal("project-a", "Offline revision", 1))
+        assertEquals(ProjectGenerationStore.Result.SAVED, store.finish(pending, "generation_cancelled"))
         assertTrue(store.saveLocal("project-a", "Offline revision", 1))
         assertEquals(ProjectGenerationStore.Result.STALE, store.finish(pending, "generated", "Do not apply"))
         val record = JSONObject(prefs.getString("project_project-a", "{}")!!)
-        assertEquals("Previous saved reply", record.getString("response")); assertEquals("Keep this metadata", record.getString("legacy_note"))
+        assertFalse(record.has("response")); assertEquals("Keep this metadata", record.getString("legacy_note"))
         assertEquals("saved", record.getString("state")); assertEquals(1, record.getInt("target"))
         assertNull(ProjectGenerationStore.replyMatches(record))
     }
@@ -142,6 +144,8 @@ class ProjectGenerationTest {
     @Test fun anotherEditorCanSupersedeARequestWithoutReceivingItsOldReply() {
         Screen().use { s ->
             s.send.performClick()
+            assertNull(ProjectGenerationStore(s.prefs).begin("project-a", "Other window instructions", 1))
+            assertEquals(ProjectGenerationStore.Result.SAVED, s.store.finish(ProjectGenerationStore.Ticket("project-a", s.record().getString("generation_request")), "generation_cancelled"))
             val newer = ProjectGenerationStore(s.prefs).begin("project-a", "Other window instructions", 1)!!
             s.complete(); assertEquals("Previous display", s.output.text.toString())
             assertEquals(s.activity.getString(R.string.project_generation_changed), s.status.text.toString())
