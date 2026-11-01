@@ -126,7 +126,9 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
             val note = json.optString("developer_note")
             // Enforce real JSON types: coercing strings like "1" into a target or
             // numeric state into text would hide malformed or tampered snapshots.
-            if (json.get("schema") !is Number || json.get("target") !is Number ||
+            if ((json.get("schema") as? Number)?.toDouble() != 1.0 ||
+                (json.get("target") as? Number)?.toDouble() != target.toDouble() ||
+                json.get("schema") !is Number || json.get("target") !is Number ||
                 json.get("id") !is String || json.get("description") !is String ||
                 (json.has("developer_note") && json.get("developer_note") !is String) ||
                 (json.has("state") && json.get("state") !is String))
