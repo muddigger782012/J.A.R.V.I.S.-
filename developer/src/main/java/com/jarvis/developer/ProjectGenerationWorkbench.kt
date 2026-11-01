@@ -22,7 +22,8 @@ internal object ProjectGenerationWorkbench {
     fun attach(activity: Activity, send: Button, cancel: Button, provider: Spinner, key: EditText, model: EditText,
         prompt: EditText, output: TextView, status: TextView, target: () -> Int, targetView: () -> View?,
         selected: () -> String?, select: (String) -> Unit, store: ProjectGenerationStore,
-        changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }): Handle {
+        changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" },
+        requestPatch: () -> Boolean = { false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var disposed = false
@@ -102,6 +103,11 @@ internal object ProjectGenerationWorkbench {
                 model.requestFocus()
                 return@setOnClickListener
             }
+            val wantsPatch = requestPatch()
+            if (wantsPatch && product != 0) {
+                status.text = "Code patch generation is currently limited to the Developer target."
+                return@setOnClickListener
+            }
             val ticket = store.begin(project, task, product)
             if (ticket == null) { status.setText(R.string.project_generation_save_failed); return@setOnClickListener }
             select(project); changed()
@@ -138,7 +144,14 @@ internal object ProjectGenerationWorkbench {
                         throw IllegalStateException("Development notes contain a credential; remove it before generating.")
                     val instruction = if (notes.isBlank()) task else
                         task + "\n\nProject design notes (context only; not execution approval):\n" + notes
-                    val text = services.ask(providerName, secret, modelName, instruction, run.cancellation, context)
+                    val providerInstruction = if (!wantsPatch) instruction else instruction +
+                        "\\n\\nCODE PATCH MODE (proposal only, no approval or execution): " +
+                        "Return ONLY a JSON object with keys summary (string) and edits (array of objects with path and content strings). " +
+                        "Every edit must be a COMPLETE NEW Kotlin or Java source file under developer/src/main/java/com/jarvis/developer/ " +
+                        "or developer/src/test/java/com/jarvis/developer/. Do not modify existing files, protected components, " +
+                        "build configuration, permissions, credentials, or releases. Maximum 8 files. " +
+                        "The user must validate and explicitly approve the result separately. No Markdown fences."
+                    val text = services.ask(providerName, secret, modelName, providerInstruction, run.cancellation, context)
                     run.cancellation.check()
                     if (store.note(project) != notes)
                         throw IllegalStateException("Development notes changed during generation; review and retry.")
