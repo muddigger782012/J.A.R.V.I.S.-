@@ -92,7 +92,7 @@ class ProjectGenerationTest {
             s.cancel.performClick(); assertTrue(s.prompt.isEnabled); assertTrue(s.target.isEnabled)
             s.prompt.setText("Second request"); s.send.performClick(); assertEquals(2, s.pending.size)
             s.complete(); assertFalse(s.send.isEnabled); assertTrue(s.cancel.isEnabled)
-            assertEquals("Previous display", s.output.text.toString()); assertEquals("generating", s.record().getString("state"))
+            assertEquals(s.activity.getString(R.string.project_generation_not_started), s.output.text.toString()); assertEquals("generating", s.record().getString("state"))
             s.complete(); assertTrue(s.send.isEnabled); assertFalse(s.cancel.isEnabled)
             assertTrue(s.output.text.toString().endsWith("Reply for Second request"))
             assertTrue(s.output.text.toString().contains("Repository context unavailable")); assertEquals("generated", s.record().getString("state"))
@@ -109,7 +109,7 @@ class ProjectGenerationTest {
                 assertTrue(started.await(5, TimeUnit.SECONDS)); s.cancel.performClick()
                 assertTrue(s.send.isEnabled); assertTrue(stopped.await(5, TimeUnit.SECONDS))
                 release.countDown(); job.get(5, TimeUnit.SECONDS); shadowOf(Looper.getMainLooper()).idle()
-                assertEquals("generation_cancelled", s.record().getString("state")); assertEquals("Previous display", s.output.text.toString())
+                assertEquals("generation_cancelled", s.record().getString("state")); assertEquals(s.activity.getString(R.string.project_generation_not_started), s.output.text.toString())
             }
         } finally { release.countDown(); pool.shutdownNow() }
     }
@@ -147,7 +147,7 @@ class ProjectGenerationTest {
             assertNull(ProjectGenerationStore(s.prefs).begin("project-a", "Other window instructions", 1))
             assertEquals(ProjectGenerationStore.Result.SAVED, s.store.finish(ProjectGenerationStore.Ticket("project-a", s.record().getString("generation_request")), "generation_cancelled"))
             val newer = ProjectGenerationStore(s.prefs).begin("project-a", "Other window instructions", 1)!!
-            s.complete(); assertEquals("Previous display", s.output.text.toString())
+            s.complete(); assertEquals(s.activity.getString(R.string.project_generation_not_started), s.output.text.toString())
             assertEquals(s.activity.getString(R.string.project_generation_changed), s.status.text.toString())
             assertEquals("Other window instructions", s.record().getString("description"))
             assertEquals(newer.request, s.record().getString("generation_request"))
