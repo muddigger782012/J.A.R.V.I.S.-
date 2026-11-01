@@ -548,6 +548,26 @@ class MainActivity : Activity() {
                 form.addView(explanation)
                 form.addView(commitInput)
                 form.addView(patchInput)
+                form.addView(Button(this@MainActivity).apply {
+                    text = "Use latest AI response"
+                    isAllCaps = false
+                    setOnClickListener {
+                        val reply = output.text.toString()
+                        // AI workbench prefixes its verified repository summary to the
+                        // provider response. Extract the final JSON object, not that prefix.
+                        val marker = reply.lastIndexOf("\\n\\n{")
+                        val candidate = if (marker >= 0) reply.substring(marker + 2).trim()
+                            else reply.trim()
+                        if (runCatching { org.json.JSONObject(candidate).getJSONArray("edits") }.isSuccess) {
+                            patchInput.setText(candidate)
+                            val sha = Regex("[a-f0-9]{40}").find(reply.substringBefore(candidate))?.value
+                            if (sha != null && commitInput.text.isBlank()) commitInput.setText(sha)
+                            explanation.text = "AI proposal loaded. Review all files and verify the base SHA before validating."
+                        } else {
+                            explanation.text = "Latest response is not a structured patch. Ask the AI for JSON with summary and edits (path and full content)."
+                        }
+                    }
+                })
                 val dialog = android.app.AlertDialog.Builder(this@MainActivity)
                     .setTitle("Validate code proposal")
                     .setView(form)
