@@ -257,7 +257,11 @@ class GitHub:
                         if not chunk:
                             break
                         count += len(chunk)
-                        require(count <= expected['apkBytes'] and count <= MAX_APK, 'Public APK exceeds expected size')
+                        require(count <= MAX_APK, 'Public APK exceeds maximum allowed size')
+                        if count > expected['apkBytes']:
+                            # A stale, larger asset is a mismatch for this attempt, not
+                            # grounds to skip the remaining bounded CDN retries.
+                            break
                         calculated.update(chunk)
                 if count == expected['apkBytes'] and calculated.hexdigest() == expected['apkSha256']:
                     break
