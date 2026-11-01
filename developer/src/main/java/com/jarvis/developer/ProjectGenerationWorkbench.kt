@@ -130,8 +130,12 @@ internal object ProjectGenerationWorkbench {
                                 else activity.getString(R.string.project_generation_response_unsaved)
                         }.onFailure { failure ->
                             status.setText(R.string.project_generation_failed)
-                            val reason = if (failure is CodingAssistantProvider.ProviderFailure) failure.message.orEmpty()
-                                else activity.getString(R.string.project_generation_check_connection)
+                            val reason = when (failure) {
+                                is CodingAssistantProvider.ProviderFailure -> failure.message.orEmpty()
+                                is IllegalArgumentException -> "AI request or response format validation failed. Check the selected model and request limits."
+                                is IllegalStateException -> "AI response processing failed. Check model compatibility and output limits."
+                                else -> activity.getString(R.string.project_generation_check_connection)
+                            }
                             val detail = if (sourceSummary.isBlank()) reason else sourceSummary + "\n\n" + reason
                             output.text = activity.getString(R.string.project_generation_failure_detail, detail,
                                 activity.getString(R.string.project_generation_description_kept))
