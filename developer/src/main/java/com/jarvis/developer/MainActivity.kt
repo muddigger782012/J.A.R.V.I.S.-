@@ -522,6 +522,80 @@ class MainActivity : Activity() {
         }
         refreshSavedProjectsAfterChange = ::refreshSavedProjects
         refreshProjects.setOnClickListener { refreshSavedProjects() }
+        // Standalone, read-only patch review: validates NEW source files with the
+        // same strict engine used by the approved publishing workflow.
+        // No approval, GitHub write, build, or install is performed here.
+        projects.addView(Button(this).apply {
+            text = "Review generated code patch"
+            isAllCaps = false
+            setOnClickListener {
+                val form = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(24, 12, 24, 8)
+                }
+                val commitInput = android.widget.EditText(this@MainActivity).apply {
+                    hint = "Base commit SHA (40 lowercase hex characters)"
+                    setSingleLine(true)
+                }
+                val patchInput = android.widget.EditText(this@MainActivity).apply {
+                    hint = "Paste JSON: {\\\"summary\\\":\\\"...\\\",\\\"edits\\\":[{\\\"path\\\":\\\"...\\\",\\\"content\\\":\\\"...\\\"}]}"
+                    minLines = 6
+                    maxLines = 12
+                }
+                val explanation = TextView(this@MainActivity).apply {
+                    text = "Read-only preview for NEW files only. Existing-file edits require verified original source and a separate approved workflow."
+                }
+                form.addView(explanation)
+                form.addView(commitInput)
+                form.addView(patchInput)
+                val dialog = android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Validate code proposal")
+                    .setView(form)
+                    .setNegativeButton("Close", null)
+                    .setPositiveButton("Validate", null)
+                    .create()
+                dialog.setOnShowListener {
+                    dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val result = runCatching {
+                            val raw = patchInput.text.toString()
+                            val json = org.json.JSONObject(raw)
+                            val edits = json.getJSONArray("edits")
+                            require(edits.length() in 1..PatchEngine.MAX_FILES)
+                            val paths = (0 until edits.length()).map { edits.getJSONObject(it).getString("path") }
+                            require(paths.distinct().size == paths.size)
+                            require(paths.all { PatchEngine.allowedPath(it) })
+                            val task = prompt.text.toString().trim().ifBlank { "Review generated code patch" }
+                            val request = PatchEngine.Request(
+                                taskId = "manual_review",
+                                task = task.take(12_000),
+                                baseCommitSha = commitInput.text.toString().trim(),
+                                allowedPaths = paths,
+                                sources = paths.map { PatchEngine.SourceFile(it, null, null) },
+                                provider = "Manual",
+                                model = "review",
+                                baseBranch = RepositoryCodingContext.branch(PatchEngine.Target.DEVELOPER)
+                            )
+                            PatchEngine.parse(request, raw)
+                        }
+                        result.onSuccess { proposal ->
+                            dialog.dismiss()
+                            android.app.AlertDialog.Builder(this@MainActivity)
+                                .setTitle("Validated patch — not approved")
+                                .setMessage("Proposal ID: " + proposal.id + "\\n\\n" +
+                                    proposal.summary + "\\n\\n" + proposal.diff.take(30_000))
+                                .setPositiveButton("Close", null)
+                                .show()
+                        }.onFailure {
+                            android.app.AlertDialog.Builder(this@MainActivity)
+                                .setTitle("Patch rejected")
+                                .setMessage("The proposal failed validation. Check its source paths, JSON, base SHA and code content.")
+                                .setPositiveButton("OK", null).show()
+                        }
+                    }
+                }
+                dialog.show()
+            }
+        })
         projects.addView(importProjectButton)
         projects.addView(refreshProjects)
         projects.addView(savedProjects)
