@@ -603,7 +603,49 @@ class MainActivity : Activity() {
                                 .setTitle("Validated patch — not approved")
                                 .setMessage("Proposal ID: " + proposal.id + "\\n\\n" +
                                     proposal.summary + "\\n\\n" + proposal.diff.take(30_000))
-                                .setPositiveButton("Close", null)
+                                .setNegativeButton("Close", null)
+                                .setPositiveButton("Review for GitHub") { _, _ ->
+                                    val confirmation = android.widget.EditText(this@MainActivity).apply {
+                                        hint = "Enter exact 64-character proposal ID"
+                                        setSingleLine(true)
+                                        isSaveEnabled = false
+                                    }
+                                    android.app.AlertDialog.Builder(this@MainActivity)
+                                        .setTitle("Explicit approval required")
+                                        .setMessage("Review the full diff before proceeding. This creates a task branch in GitHub; it does not merge or publish a release. Enter the exact proposal ID to authorize these specific edits.")
+                                        .setView(confirmation)
+                                        .setNegativeButton("Cancel", null)
+                                        .setPositiveButton("Create review branch") { _, _ ->
+                                            val approved = runCatching {
+                                                PatchEngine.approve(proposal, confirmation.text.toString().trim())
+                                            }.getOrNull()
+                                            if (approved == null || githubToken.text.isBlank()) {
+                                                status.text = "Approval rejected or GitHub token missing. No changes submitted."
+                                            } else {
+                                                status.text = "Submitting approved patch to a separate review branch…"
+                                                val token = githubToken.text.toString()
+                                                kotlin.concurrent.thread(name = "DeveloperApprovedPatchCommit") {
+                                                    val result = runCatching { PatchPublisher.commit(token, approved) }
+                                                    runOnUiThread {
+                                                        result.onSuccess { committed ->
+                                                            status.text = "Approved patch committed to review branch: " + committed.branch
+                                                            android.app.AlertDialog.Builder(this@MainActivity)
+                                                                .setTitle("Review branch created")
+                                                                .setMessage("Commit: " + committed.commitSha + "\\nBranch: " + committed.branch +
+                                                                    "\\nNo merge or release was performed.")
+                                                                .setNegativeButton("Close", null)
+                                                                .setPositiveButton("Open GitHub review") { _, _ ->
+                                                                    startActivity(Intent(Intent.ACTION_VIEW,
+                                                                        Uri.parse(PatchPublisher.reviewUrl(committed))))
+                                                                }.show()
+                                                        }.onFailure {
+                                                            status.text = "GitHub commit failed or was rejected. Review branch not confirmed."
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }.show()
+                                }
                                 .show()
                         }.onFailure {
                             android.app.AlertDialog.Builder(this@MainActivity)
