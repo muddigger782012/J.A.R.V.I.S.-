@@ -634,6 +634,34 @@ class MainActivity : Activity() {
                                                                 .setMessage("Commit: " + committed.commitSha + "\\nBranch: " + committed.branch +
                                                                     "\\nNo merge or release was performed.")
                                                                 .setNegativeButton("Close", null)
+                                                                .setNeutralButton("Check build status") { _, _ ->
+                                                                    status.text = "Checking GitHub Actions for the exact review-branch commit…"
+                                                                    kotlin.concurrent.thread(name = "DeveloperReviewBuildStatus") {
+                                                                        val ci = runCatching { PatchPublisher.ci(token, committed) }
+                                                                        runOnUiThread {
+                                                                            ci.onSuccess { build ->
+                                                                                status.text = when (build.state) {
+                                                                                    PatchPublisher.CiState.MISSING -> "No matching build run found for this commit."
+                                                                                    PatchPublisher.CiState.QUEUED -> "Build queued for review branch."
+                                                                                    PatchPublisher.CiState.RUNNING -> "Build running for review branch."
+                                                                                    PatchPublisher.CiState.PASSED -> "Build passed for review branch."
+                                                                                    PatchPublisher.CiState.FAILED -> "Build failed: " + (build.conclusion ?: "unknown")
+                                                                                }
+                                                                                if (build.runUrl != null) {
+                                                                                    android.app.AlertDialog.Builder(this@MainActivity)
+                                                                                        .setTitle("Verified GitHub build status")
+                                                                                        .setMessage(status.text)
+                                                                                        .setNegativeButton("Close", null)
+                                                                                        .setPositiveButton("Open build run") { _, _ ->
+                                                                                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(build.runUrl)))
+                                                                                        }.show()
+                                                                                }
+                                                                            }.onFailure {
+                                                                                status.text = "Unable to verify build status. No success is assumed."
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
                                                                 .setPositiveButton("Open GitHub review") { _, _ ->
                                                                     startActivity(Intent(Intent.ACTION_VIEW,
                                                                         Uri.parse(PatchPublisher.reviewUrl(committed))))
