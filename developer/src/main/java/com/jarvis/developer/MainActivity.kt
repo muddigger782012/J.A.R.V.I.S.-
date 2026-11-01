@@ -462,6 +462,170 @@ class MainActivity : Activity() {
         }
         refreshSavedProjectsAfterChange = ::refreshSavedProjects
         refreshProjects.setOnClickListener { refreshSavedProjects() }
+        // Standalone, read-only patch review: validates NEW source files with the
+        // same strict engine used by the approved publishing workflow.
+        // No approval, GitHub write, build, or install is performed here.
+        projects.addView(Button(this).apply {
+            text = "Review generated code patch"
+            isAllCaps = false
+            setOnClickListener {
+                val form = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(24, 12, 24, 8)
+                }
+                val commitInput = android.widget.EditText(this@MainActivity).apply {
+                    hint = "Base commit SHA (40 lowercase hex characters)"
+                    setSingleLine(true)
+                }
+                val patchInput = android.widget.EditText(this@MainActivity).apply {
+                    hint = "Paste JSON: {\\\"summary\\\":\\\"...\\\",\\\"edits\\\":[{\\\"path\\\":\\\"...\\\",\\\"content\\\":\\\"...\\\"}]}"
+                    minLines = 6
+                    maxLines = 12
+                }
+                val explanation = TextView(this@MainActivity).apply {
+                    text = "Read-only preview for NEW files only. Existing-file edits require verified original source and a separate approved workflow."
+                }
+                form.addView(explanation)
+                form.addView(commitInput)
+                form.addView(patchInput)
+                form.addView(Button(this@MainActivity).apply {
+                    text = "Use latest AI response"
+                    isAllCaps = false
+                    setOnClickListener {
+                        val reply = output.text.toString()
+                        // AI workbench prefixes its verified repository summary to the
+                        // provider response. Extract the final JSON object, not that prefix.
+                        val marker = reply.lastIndexOf("\\n\\n{")
+                        val candidate = if (marker >= 0) reply.substring(marker + 2).trim()
+                            else reply.trim()
+                        if (runCatching { org.json.JSONObject(candidate).getJSONArray("edits") }.isSuccess) {
+                            patchInput.setText(candidate)
+                            val sha = Regex("[a-f0-9]{40}").find(reply.substringBefore(candidate))?.value
+                            if (sha != null && commitInput.text.isBlank()) commitInput.setText(sha)
+                            explanation.text = "AI proposal loaded. Review all files and verify the base SHA before validating."
+                        } else {
+                            explanation.text = "Latest response is not a structured patch. Ask the AI for JSON with summary and edits (path and full content)."
+                        }
+                    }
+                })
+                val dialog = android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Validate code proposal")
+                    .setView(form)
+                    .setNegativeButton("Close", null)
+                    .setPositiveButton("Validate", null)
+                    .create()
+                dialog.setOnShowListener {
+                    dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val result = runCatching {
+                            val raw = patchInput.text.toString()
+                            val json = org.json.JSONObject(raw)
+                            val edits = json.getJSONArray("edits")
+                            require(edits.length() in 1..PatchEngine.MAX_FILES)
+                            val paths = (0 until edits.length()).map { edits.getJSONObject(it).getString("path") }
+                            require(paths.distinct().size == paths.size)
+                            require(paths.all { PatchEngine.allowedPath(it) })
+                            val task = prompt.text.toString().trim().ifBlank { "Review generated code patch" }
+                            val request = PatchEngine.Request(
+                                taskId = "manual_review",
+                                task = task.take(12_000),
+                                baseCommitSha = commitInput.text.toString().trim(),
+                                allowedPaths = paths,
+                                sources = paths.map { PatchEngine.SourceFile(it, null, null) },
+                                provider = "Manual",
+                                model = "review",
+                                baseBranch = RepositoryCodingContext.branch(PatchEngine.Target.DEVELOPER)
+                            )
+                            PatchEngine.parse(request, raw)
+                        }
+                        result.onSuccess { proposal ->
+                            dialog.dismiss()
+                            android.app.AlertDialog.Builder(this@MainActivity)
+                                .setTitle("Validated patch — not approved")
+                                .setMessage("Proposal ID: " + proposal.id + "\\n\\n" +
+                                    proposal.summary + "\\n\\n" + proposal.diff.take(30_000))
+                                .setNegativeButton("Close", null)
+                                .setPositiveButton("Review for GitHub") { _, _ ->
+                                    val confirmation = android.widget.EditText(this@MainActivity).apply {
+                                        hint = "Enter exact 64-character proposal ID"
+                                        setSingleLine(true)
+                                        isSaveEnabled = false
+                                    }
+                                    android.app.AlertDialog.Builder(this@MainActivity)
+                                        .setTitle("Explicit approval required")
+                                        .setMessage("Review the full diff before proceeding. This creates a task branch in GitHub; it does not merge or publish a release. Enter the exact proposal ID to authorize these specific edits.")
+                                        .setView(confirmation)
+                                        .setNegativeButton("Cancel", null)
+                                        .setPositiveButton("Create review branch") { _, _ ->
+                                            val approved = runCatching {
+                                                PatchEngine.approve(proposal, confirmation.text.toString().trim())
+                                            }.getOrNull()
+                                            if (approved == null || githubToken.text.isBlank()) {
+                                                status.text = "Approval rejected or GitHub token missing. No changes submitted."
+                                            } else {
+                                                status.text = "Submitting approved patch to a separate review branch…"
+                                                val token = githubToken.text.toString()
+                                                kotlin.concurrent.thread(name = "DeveloperApprovedPatchCommit") {
+                                                    val result = runCatching { PatchPublisher.commit(token, approved) }
+                                                    runOnUiThread {
+                                                        result.onSuccess { committed ->
+                                                            status.text = "Approved patch committed to review branch: " + committed.branch
+                                                            android.app.AlertDialog.Builder(this@MainActivity)
+                                                                .setTitle("Review branch created")
+                                                                .setMessage("Commit: " + committed.commitSha + "\\nBranch: " + committed.branch +
+                                                                    "\\nNo merge or release was performed.")
+                                                                .setNegativeButton("Close", null)
+                                                                .setNeutralButton("Check build status") { _, _ ->
+                                                                    status.text = "Checking GitHub Actions for the exact review-branch commit…"
+                                                                    kotlin.concurrent.thread(name = "DeveloperReviewBuildStatus") {
+                                                                        val ci = runCatching { PatchPublisher.ci(token, committed) }
+                                                                        runOnUiThread {
+                                                                            ci.onSuccess { build ->
+                                                                                status.text = when (build.state) {
+                                                                                    PatchPublisher.CiState.MISSING -> "No matching build run found for this commit."
+                                                                                    PatchPublisher.CiState.QUEUED -> "Build queued for review branch."
+                                                                                    PatchPublisher.CiState.RUNNING -> "Build running for review branch."
+                                                                                    PatchPublisher.CiState.PASSED -> "Build passed for review branch."
+                                                                                    PatchPublisher.CiState.FAILED -> "Build failed: " + (build.conclusion ?: "unknown")
+                                                                                }
+                                                                                if (build.runUrl != null) {
+                                                                                    android.app.AlertDialog.Builder(this@MainActivity)
+                                                                                        .setTitle("Verified GitHub build status")
+                                                                                        .setMessage(status.text)
+                                                                                        .setNegativeButton("Close", null)
+                                                                                        .setPositiveButton("Open build run") { _, _ ->
+                                                                                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(build.runUrl)))
+                                                                                        }.show()
+                                                                                }
+                                                                            }.onFailure {
+                                                                                status.text = "Unable to verify build status. No success is assumed."
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                                .setPositiveButton("Open GitHub review") { _, _ ->
+                                                                    startActivity(Intent(Intent.ACTION_VIEW,
+                                                                        Uri.parse(PatchPublisher.reviewUrl(committed))))
+                                                                }.show()
+                                                        }.onFailure {
+                                                            status.text = "GitHub commit failed or was rejected. Review branch not confirmed."
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }.show()
+                                }
+                                .show()
+                        }.onFailure {
+                            android.app.AlertDialog.Builder(this@MainActivity)
+                                .setTitle("Patch rejected")
+                                .setMessage("The proposal failed validation. Check its source paths, JSON, base SHA and code content.")
+                                .setPositiveButton("OK", null).show()
+                        }
+                    }
+                }
+                dialog.show()
+            }
+        })
         projects.addView(refreshProjects)
         projects.addView(savedProjects)
         refreshSavedProjects()
