@@ -60,6 +60,34 @@ internal object ProviderCredentialStore {
         }
     }
 
+    /** Encrypt a GitHub credential separately from provider keys, using the device Keystore. */
+    fun saveGithub(context: Context, token: String) {
+        require(token.isNotBlank() && token.length <= 4096 && token.none { it.isISOControl() })
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+        val data = cipher.iv + cipher.doFinal(token.trim().toByteArray(Charsets.UTF_8))
+        check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString("github_token", Base64.encodeToString(data, Base64.NO_WRAP)).commit())
+    }
+
+    fun loadGithub(context: Context): String? {
+        val encoded = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("github_token", null) ?: return null
+        return runCatching {
+            val data = Base64.decode(encoded, Base64.NO_WRAP)
+            require(data.size > IV_SIZE + 16)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, secretKey(),
+                GCMParameterSpec(128, data.copyOfRange(0, IV_SIZE)))
+            String(cipher.doFinal(data.copyOfRange(IV_SIZE, data.size)), Charsets.UTF_8)
+        }.getOrNull()
+    }
+
+    fun clearGithub(context: Context) {
+        check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove("github_token").commit())
+    }
+
     fun clear(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit()
     }
