@@ -492,7 +492,10 @@ class MainActivity : Activity() {
                     text = "Use latest AI response"
                     isAllCaps = false
                     setOnClickListener {
-                        val reply = output.text.toString()
+                        val reply = projectPrefs.all.values.mapNotNull { raw ->
+                            runCatching { org.json.JSONObject(raw as String) }.getOrNull()
+                        }.firstOrNull { it.optString("id") == activeProject && ProjectGenerationStore.replyMatches(it) == true }
+                            ?.optString("response").orEmpty().ifBlank { output.text.toString() }
                         // AI workbench prefixes its verified repository summary to the
                         // provider response. Extract the final JSON object, not that prefix.
                         val marker = reply.lastIndexOf("\\n\\n{")
