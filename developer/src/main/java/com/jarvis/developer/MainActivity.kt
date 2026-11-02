@@ -511,7 +511,7 @@ class MainActivity : Activity() {
                             ?.optString("response").orEmpty().ifBlank { output.text.toString() }
                         // AI workbench prefixes its verified repository summary to the
                         // provider response. Extract the final JSON object, not that prefix.
-                        val marker = reply.lastIndexOf("\\n\\n{")
+                        val marker = reply.lastIndexOf("\n\n{")
                         val candidate = if (marker >= 0) reply.substring(marker + 2).trim()
                             else reply.trim()
                         if (runCatching { org.json.JSONObject(candidate).getJSONArray("edits") }.isSuccess) {
