@@ -640,8 +640,9 @@ class MainActivity : Activity() {
                                                                     startActivity(Intent(Intent.ACTION_VIEW,
                                                                         Uri.parse(PatchPublisher.reviewUrl(committed))))
                                                                 }.show()
-                                                        }.onFailure {
-                                                            status.text = "GitHub commit failed or was rejected. Review branch not confirmed."
+                                                        }.onFailure { failure ->
+                                                            val reason = if (failure is PatchPublisher.ApiFailure) "GitHub returned HTTP ${failure.status}." else "GitHub submission failed before confirmation."
+                                                            status.text = reason + " Review branch not confirmed; saved proposal retained."
                                                         }
                                                     }
                                                 }
