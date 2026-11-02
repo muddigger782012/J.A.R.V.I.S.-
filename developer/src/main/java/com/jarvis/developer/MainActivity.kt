@@ -563,19 +563,18 @@ class MainActivity : Activity() {
                                     proposal.summary + "\\n\\n" + proposal.diff.take(30_000))
                                 .setNegativeButton("Close", null)
                                 .setPositiveButton("Review for GitHub") { _, _ ->
-                                    val confirmation = android.widget.EditText(this@MainActivity).apply {
-                                        hint = "Enter exact 64-character proposal ID"
-                                        setSingleLine(true)
-                                        isSaveEnabled = false
+                                    val confirmation = android.widget.CheckBox(this@MainActivity).apply {
+                                        text = "I reviewed these changes and authorize creating a GitHub review branch."
+                                        isChecked = false
                                     }
                                     android.app.AlertDialog.Builder(this@MainActivity)
                                         .setTitle("Explicit approval required")
-                                        .setMessage("Review the full diff before proceeding. This creates a task branch in GitHub; it does not merge or publish a release. Enter the exact proposal ID to authorize these specific edits.")
+                                        .setMessage("Review the full diff before proceeding. This creates a task branch in GitHub; it does not merge or publish a release. Confirm your approval below to authorize only the patch shown.")
                                         .setView(confirmation)
                                         .setNegativeButton("Cancel", null)
                                         .setPositiveButton("Create review branch") { _, _ ->
                                             val approved = runCatching {
-                                                PatchEngine.approve(proposal, confirmation.text.toString().trim())
+                                                if (confirmation.isChecked) PatchEngine.approve(proposal, proposal.id) else null
                                             }.getOrNull()
                                             if (approved == null || githubToken.text.isBlank()) {
                                                 status.text = "Approval rejected or GitHub token missing. No changes submitted."
