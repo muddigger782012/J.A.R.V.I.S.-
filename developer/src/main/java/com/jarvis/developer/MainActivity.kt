@@ -520,12 +520,12 @@ class MainActivity : Activity() {
                             if (sha != null && commitInput.text.isBlank()) commitInput.setText(sha)
                             val proposalJson = org.json.JSONObject(candidate)
                             val edits = proposalJson.getJSONArray("edits")
-                            val fileNames = (0 until edits.length()).joinToString("\\n") { index ->
+                            val fileNames = (0 until edits.length()).joinToString("\n") { index ->
                                 "• " + edits.getJSONObject(index).optString("path").substringAfterLast("/")
                             }
                             explanation.text = "Jarvis proposes: " + proposalJson.optString("summary", "Code changes") +
-                                "\\n\\nFiles (" + edits.length() + "):\\n" + fileNames +
-                                "\\n\\nTap Review changes to inspect the patch. Nothing will be installed."
+                                "\n\nFiles (" + edits.length() + "):\n" + fileNames +
+                                "\n\nTap Review changes to inspect the patch. Nothing will be installed."
                         } else {
                             explanation.text = "No saved code proposal found. Generate a code proposal from Home first."
                         }
