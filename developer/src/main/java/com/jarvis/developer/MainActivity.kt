@@ -518,7 +518,14 @@ class MainActivity : Activity() {
                             patchInput.setText(candidate)
                             val sha = Regex("[a-f0-9]{40}").find(reply.substringBefore(candidate))?.value
                             if (sha != null && commitInput.text.isBlank()) commitInput.setText(sha)
-                            explanation.text = "Ready to review: " + org.json.JSONObject(candidate).getJSONArray("edits").length() + " proposed file(s). Tap Validate to inspect the changes. Nothing will be installed."
+                            val proposalJson = org.json.JSONObject(candidate)
+                            val edits = proposalJson.getJSONArray("edits")
+                            val fileNames = (0 until edits.length()).joinToString("\\n") { index ->
+                                "• " + edits.getJSONObject(index).optString("path").substringAfterLast("/")
+                            }
+                            explanation.text = "Jarvis proposes: " + proposalJson.optString("summary", "Code changes") +
+                                "\\n\\nFiles (" + edits.length() + "):\\n" + fileNames +
+                                "\\n\\nTap Review changes to inspect the patch. Nothing will be installed."
                         } else {
                             explanation.text = "No saved code proposal found. Generate a code proposal from Home first."
                         }
