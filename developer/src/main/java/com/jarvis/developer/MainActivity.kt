@@ -516,7 +516,8 @@ class MainActivity : Activity() {
                             else reply.trim()
                         if (runCatching { org.json.JSONObject(candidate).getJSONArray("edits") }.isSuccess) {
                             patchInput.setText(candidate)
-                            val sha = Regex("[a-f0-9]{40}").find(reply.substringBefore(candidate))?.value
+                            val sha = Regex("Verified repository excerpts: [^\\n]* @ ([a-f0-9]{40})")
+                                .find(reply.substringBefore(candidate))?.groupValues?.get(1)
                             if (sha != null && commitInput.text.isBlank()) commitInput.setText(sha)
                             val proposalJson = org.json.JSONObject(candidate)
                             val edits = proposalJson.getJSONArray("edits")
