@@ -205,15 +205,24 @@ object CodingAssistantProvider {
                     }
                     strictUtf8(bytes.toByteArray())
                 }
-                val envelope = strictObject(responseText)
-                // Check decoded values as well as field names, including unicode-escaped key echoes.
-                rejectCredential(envelope, key)
-                val text = when (provider) {
-                    "OpenAI" -> openAiText(envelope)
-                    "Gemini" -> geminiText(envelope)
-                    else -> error("Unsupported provider")
+                val envelope = try { strictObject(responseText) } catch (_: Exception) {
+                    throw ProviderFailure("AI provider returned invalid or incomplete JSON.")
                 }
-                require(text.isNotBlank() && !text.contains(key))
+                // Never expose provider bodies or secrets; report only the failed validation stage.
+                try { rejectCredential(envelope, key) } catch (_: Exception) {
+                    throw ProviderFailure("AI response failed credential-safety validation.")
+                }
+                val text = try {
+                    when (provider) {
+                        "OpenAI" -> openAiText(envelope)
+                        "Gemini" -> geminiText(envelope)
+                        else -> error("Unsupported provider")
+                    }
+                } catch (e: ProviderFailure) { throw e } catch (_: Exception) {
+                    throw ProviderFailure("AI provider response structure was not recognized.")
+                }
+                if (text.isBlank() || text.contains(key))
+                    throw ProviderFailure("AI provider returned empty or unsafe generated text.")
                 checkBudget(started)
                 return text
             } catch (e: ProviderFailure) {
