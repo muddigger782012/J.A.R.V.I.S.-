@@ -393,7 +393,7 @@ class MainActivity : Activity() {
             prompt, output, status, { guidedTarget?.selectedItemPosition ?: 0 }, { guidedTarget },
             { activeProject }, { activeProject = it }, ProjectGenerationStore(projectPrefs),
             { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() }, forget = forgetDiscussion,
-            requestPatch = { proposeCodePatch.isChecked })
+            requestPatch = { proposeCodePatch.isChecked && (guidedTarget?.selectedItemPosition ?: 0) == 0 })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
