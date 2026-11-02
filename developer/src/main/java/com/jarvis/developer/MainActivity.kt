@@ -227,6 +227,22 @@ class MainActivity : Activity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             ProviderCredentialStore.loadGithub(this@MainActivity)?.let { setText(it) }
         }
+        val pasteGithub = Button(this).apply {
+            text = "Paste GitHub token from clipboard"
+            isAllCaps = false
+            setOnClickListener {
+                val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                val pasted = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this@MainActivity)?.toString()?.trim().orEmpty()
+                if (pasted.isBlank() || pasted.length > 4096 || pasted.any { it.isISOControl() }) {
+                    status.text = "Clipboard does not contain a valid single-line token."
+                } else {
+                    githubToken.setText(pasted)
+                    githubToken.setSelection(githubToken.length())
+                    status.text = "Token pasted (" + pasted.length + " characters). Save securely to retain it."
+                }
+            }
+        }
+        root.addView(pasteGithub)
         val saveGithub = Button(this).apply {
             text = "Save GitHub connection securely"
             isAllCaps = false
