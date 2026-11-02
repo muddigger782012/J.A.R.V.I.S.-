@@ -486,8 +486,21 @@ class MainActivity : Activity() {
                     text = "Read-only preview for NEW files only. Existing-file edits require verified original source and a separate approved workflow."
                 }
                 form.addView(explanation)
-                form.addView(commitInput)
-                form.addView(patchInput)
+                val advancedReview = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    visibility = View.GONE
+                    addView(commitInput)
+                    addView(patchInput)
+                }
+                form.addView(advancedReview)
+                form.addView(Button(this@MainActivity).apply {
+                    text = "Advanced details"
+                    isAllCaps = false
+                    setOnClickListener {
+                        advancedReview.visibility = if (advancedReview.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                        text = if (advancedReview.visibility == View.VISIBLE) "Hide advanced details" else "Advanced details"
+                    }
+                })
                 val loadProposal = Button(this@MainActivity).apply {
                     text = "Reload saved proposal"
                     isAllCaps = false
