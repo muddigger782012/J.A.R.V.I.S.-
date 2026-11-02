@@ -488,8 +488,8 @@ class MainActivity : Activity() {
                 form.addView(explanation)
                 form.addView(commitInput)
                 form.addView(patchInput)
-                form.addView(Button(this@MainActivity).apply {
-                    text = "Use latest AI response"
+                val loadProposal = Button(this@MainActivity).apply {
+                    text = "Reload saved proposal"
                     isAllCaps = false
                     setOnClickListener {
                         val reply = projectPrefs.all.values.mapNotNull { raw ->
@@ -505,12 +505,14 @@ class MainActivity : Activity() {
                             patchInput.setText(candidate)
                             val sha = Regex("[a-f0-9]{40}").find(reply.substringBefore(candidate))?.value
                             if (sha != null && commitInput.text.isBlank()) commitInput.setText(sha)
-                            explanation.text = "AI proposal loaded. Review all files and verify the base SHA before validating."
+                            explanation.text = "Ready to review: " + org.json.JSONObject(candidate).getJSONArray("edits").length() + " proposed file(s). Tap Validate to inspect the changes. Nothing will be installed."
                         } else {
-                            explanation.text = "Latest response is not a structured patch. Ask the AI for JSON with summary and edits (path and full content)."
+                            explanation.text = "No saved code proposal found. Generate a code proposal from Home first."
                         }
                     }
-                })
+                }
+                form.addView(loadProposal)
+                loadProposal.performClick()
                 val dialog = android.app.AlertDialog.Builder(this@MainActivity)
                     .setTitle("Validate code proposal")
                     .setView(form)
