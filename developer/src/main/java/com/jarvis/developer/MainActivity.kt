@@ -586,8 +586,15 @@ class MainActivity : Activity() {
                                             val approved = runCatching {
                                                 if (confirmation.isChecked) PatchEngine.approve(proposal, proposal.id) else null
                                             }.getOrNull()
-                                            if (approved == null || githubToken.text.isBlank()) {
-                                                status.text = "Approval rejected or GitHub token missing. No changes submitted."
+                                            if (approved == null) {
+                                                status.text = "Approval not confirmed. Check the authorization box to create the review branch. No changes submitted."
+                                                android.widget.Toast.makeText(this@MainActivity, "Check the approval box before creating the review branch.", android.widget.Toast.LENGTH_LONG).show()
+                                            } else if (githubToken.text.isBlank()) {
+                                                status.text = "GitHub token missing. Configure your GitHub token in Settings, then reopen the saved proposal. No changes submitted."
+                                                android.app.AlertDialog.Builder(this@MainActivity)
+                                                    .setTitle("GitHub connection required")
+                                                    .setMessage("Your proposal is saved, but a GitHub token is required to create its review branch. Configure GitHub access in Settings and retry the saved proposal; you do not need to generate it again.")
+                                                    .setPositiveButton("OK", null).show()
                                             } else {
                                                 status.text = "Submitting approved patch to a separate review branch…"
                                                 val token = githubToken.text.toString()
