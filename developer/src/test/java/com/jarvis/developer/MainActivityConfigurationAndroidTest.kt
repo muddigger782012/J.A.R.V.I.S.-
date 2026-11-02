@@ -333,7 +333,7 @@ class MainActivityConfigurationAndroidTest {
 
     companion object {
         private const val PROVIDER_KEY = "Paste your API key here (not a model name)"
-        private const val GITHUB_TOKEN = "GitHub fine-grained token (not saved)"
+        private const val GITHUB_TOKEN = "GitHub fine-grained token (encrypted on device)"
         private const val TASK_ID = "Task ID (letters, digits, hyphens or underscores)"
     }
 }
