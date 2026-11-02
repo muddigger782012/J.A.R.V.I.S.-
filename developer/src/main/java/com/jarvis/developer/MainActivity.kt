@@ -227,22 +227,39 @@ class MainActivity : Activity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             ProviderCredentialStore.loadGithub(this@MainActivity)?.let { setText(it) }
         }
+        // Keep the credential input and feedback beside its actions: the global status
+        // lives on Home and is not visible from the Advanced tools page.
+        val githubFeedback = TextView(this).apply {
+            text = "Paste your GitHub token, then save the encrypted connection."
+            setTextColor(getColor(R.color.developer_secondary))
+            textSize = 14f
+            setPadding(dp(4), dp(8), dp(4), dp(8))
+            setTextIsSelectable(false)
+        }
         val pasteGithub = Button(this).apply {
             text = "Paste GitHub token from clipboard"
             isAllCaps = false
             setOnClickListener {
-                val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                val pasted = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this@MainActivity)?.toString()?.trim().orEmpty()
-                if (pasted.isBlank() || pasted.length > 4096 || pasted.any { it.isISOControl() }) {
-                    status.text = "Clipboard does not contain a valid single-line token."
-                } else {
-                    githubToken.setText(pasted)
-                    githubToken.setSelection(githubToken.length())
-                    status.text = "Token pasted (" + pasted.length + " characters). Save securely to retain it."
+                val result = runCatching {
+                    val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.primaryClip?.getItemAt(0)?.coerceToText(this@MainActivity)?.toString()?.trim().orEmpty()
+                }
+                val pasted = result.getOrNull().orEmpty()
+                when {
+                    result.isFailure -> githubFeedback.text = "Unable to access clipboard. Copy the token again and retry."
+                    pasted.isBlank() -> githubFeedback.text = "Clipboard is empty. Copy your complete GitHub token first."
+                    pasted.length > 4096 || pasted.any { it.isISOControl() } ->
+                        githubFeedback.text = "Clipboard contains invalid token characters."
+                    else -> {
+                        githubToken.setText(pasted)
+                        githubToken.setSelection(githubToken.length())
+                        githubFeedback.text = "Pasted " + pasted.length + " characters. Tap Save GitHub connection securely."
+                    }
                 }
             }
         }
         root.addView(pasteGithub)
+        root.addView(githubFeedback)
         val saveGithub = Button(this).apply {
             text = "Save GitHub connection securely"
             isAllCaps = false
@@ -250,15 +267,18 @@ class MainActivity : Activity() {
                 val token = githubToken.text.toString().trim()
                 if (token.isBlank()) {
                     ProviderCredentialStore.clearGithub(this@MainActivity)
-                    status.text = "Saved GitHub connection cleared."
+                    githubFeedback.text = "Saved GitHub connection cleared."
                 } else {
                     val saved = runCatching { ProviderCredentialStore.saveGithub(this@MainActivity, token) }
-                    status.text = if (saved.isSuccess) "GitHub token encrypted and saved on this device."
+                    githubFeedback.text = if (saved.isSuccess) "GitHub token encrypted and saved on this device."
                         else "Unable to save GitHub connection securely."
                 }
             }
         }
         root.addView(saveGithub)
+        // Move the field immediately above the paste button in the same tools section.
+        root.removeView(githubToken)
+        root.addView(githubToken, root.indexOfChild(pasteGithub))
         val repositoryInfo = TextView(this).apply {
             text = "Codebase awareness: read-only inventory, source browsing and task plans. No AI key required; GitHub token is optional for public source."
         }
