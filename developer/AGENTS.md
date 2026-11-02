@@ -38,3 +38,24 @@ Follow [GitHub issue #128](https://github.com/muddigger782012/J.A.R.V.I.S.-/issu
 ## Owner UI priority — 2026-10-18
 
 Implement [Developer UI redesign issue #134](https://github.com/muddigger782012/J.A.R.V.I.S.-/issues/134) as the next user-facing Developer milestone. Reuse original Jarvis Default-theme assets, exact header reactor artwork and JARVIS lettering; show JARVIS DEVELOPER and adopt a simple beginner-first Home/Projects/Assistant/Activity/Settings navigation with advanced coding controls progressively disclosed. Preserve every existing feature, safety gate and isolated Developer identity. Build and verify a preview APK without production promotion or backup gate bypass.
+
+
+## OWNER'S HIGHEST PRODUCT PRIORITY — 2026-11-01
+
+**P0: Make Jarvis Developer a fully autonomous, conversational software-development agent with a ChatGPT/Codex-simple chat interface.** This directive supersedes older UI-milestone sequencing and feature-polish priorities where they conflict. The owner should be able to say "Build this app; identify worthwhile improvements; test it; prepare it for installation" and have Developer carry out the approved engineering work with minimal intervention.
+
+### Required end-to-end behavior
+1. **Chat-first experience:** A single primary conversation accepts ordinary-language requests, shows plans, progress, source summaries, test results, recommendations, approval requests, and install-ready outcomes. Avoid requiring the owner to navigate Home/Projects/Tools or copy JSON, file paths, hashes, or proposal IDs.
+2. **Autonomous bounded execution:** After the owner approves an objective/scope, inspect the repository, plan and persist subtasks, implement scoped changes, run checks, analyze failures, retry within bounded limits, and continue through verification without asking for permission at every routine step.
+3. **Proactive engineering:** At relevant checkpoints independently inspect for overlooked requirements, defects, architecture/security/performance issues, missing tests, integration gaps and useful advancements. Present concise proposals with impact, tradeoffs, priority and whether approval is needed. Do not silently expand scope.
+4. **Visible task lifecycle:** Ask → Plan → Implement → Test → Diagnose/Retry → Review → Approve consequential actions → Build → Verify → Offer update. Show real status and evidence, not simulated progress or unsupported completion percentages.
+5. **Simple human approvals:** Plain-language review with a short summary and expandable diff; one explicit user approval bound cryptographically/logically to the exact validated proposal. Hide raw SHA/JSON/IDs under Advanced; never let the agent approve its own changes.
+6. **Release quality:** Preserve isolated branch, scoped edits, credentials protection, signed builds, recovery and explicit merge/publish/install gates. Do not conflate generated code, committed code, passing CI, signed APK and device-installed success.
+
+### Agent execution instructions
+- **Treat this P0 objective as the highest priority for all subsequent Codex work on Developer.** Prefer a demonstrably working vertical slice over cosmetic tweaks or standalone menus.
+- Implement the next smallest complete vertical slice of the conversation-driven development loop, with regression tests and verifiable artifacts; then extend it toward autonomous multi-step tasks and proactive analysis.
+- Reuse working engines and approvals rather than creating parallel workflows. Move technical controls into optional advanced views.
+- Preserve all existing functionality and J.A.R.V.I.S. theming; simplify access, not capabilities.
+- Do not claim the end-state is achieved until an owner can request a real app/code change in chat, watch bounded autonomous execution, receive proactive recommendations, review/approve, and obtain a verified installable artifact.
+- For each increment, report exactly what was changed, tests run, failures, release status, and remaining end-to-end gaps.
