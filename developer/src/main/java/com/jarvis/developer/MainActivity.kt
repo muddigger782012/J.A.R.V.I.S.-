@@ -164,8 +164,8 @@ class MainActivity : Activity() {
             text = "Your assistant’s response will appear here."
         }
         val proposeCodePatch = android.widget.CheckBox(this).apply {
-            text = "Generate a code patch proposal (Developer only)"
-            isChecked = false
+            text = "Prepare reviewable code changes"
+            isChecked = true
             setTextColor(getColor(R.color.developer_text))
             contentDescription = "Request a reviewable code patch proposal, not an automatic code change"
         }
