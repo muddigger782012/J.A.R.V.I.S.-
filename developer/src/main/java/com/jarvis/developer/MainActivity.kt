@@ -659,7 +659,9 @@ class MainActivity : Activity() {
             isAllCaps = false
             setOnClickListener { reviewGeneratedPatch.performClick() }
         }
-        root.addView(reviewFromChat)
+        // Keep the primary review action adjacent to the generated response in chat.
+        val reviewPosition = root.indexOfChild(output)
+        root.addView(reviewFromChat, reviewPosition + 1)
         projects.addView(refreshProjects)
         projects.addView(savedProjects)
         refreshSavedProjects()
