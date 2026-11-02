@@ -100,16 +100,16 @@ internal object ProjectGenerationWorkbench {
                     val source = try { services.context(lookupTask, productTarget, readToken, secret, run.cancellation) }
                         catch (_: Exception) { run.cancellation.check(); RepositoryCodingContext.unavailable(lookupTask, productTarget) }
                     run.cancellation.check()
-                    val context = source.withDiscussion(task, discussion)
-                    require(context.target == productTarget)
-                    context.data(task) // Reject a stale or mismatched fixture before any provider request.
-                    sourceSummary = context.summary()
-                    activity.runOnUiThread { if (current(run)) status.text = activity.getString(
-                        if (context.verified) R.string.project_generation_context_ready else R.string.project_generation_context_unavailable, providerName) }
                     val instruction = if (!wantsPatch) task else task +
                         "\n\nCODE PATCH MODE (proposal only, never execute): Return ONLY a JSON object with summary (string) and edits (array of path and content strings). " +
                         "Every edit must be a complete NEW Kotlin or Java source file under developer/src/main/java/com/jarvis/developer/ or developer/src/test/java/com/jarvis/developer/. " +
                         "Do not modify existing files, protected components, build configuration, permissions, credentials, or releases. Maximum 8 files. Explicit user approval is required separately. No Markdown fences."
+                    val context = source.withDiscussion(instruction, discussion)
+                    require(context.target == productTarget)
+                    context.data(instruction) // Context must bind to the exact provider request, including patch-mode instructions.
+                    sourceSummary = context.summary()
+                    activity.runOnUiThread { if (current(run)) status.text = activity.getString(
+                        if (context.verified) R.string.project_generation_context_ready else R.string.project_generation_context_unavailable, providerName) }
                     val text = services.ask(providerName, secret, modelName, instruction, run.cancellation, context)
                     run.cancellation.check()
                     nextDiscussion = discussion.append(task, text, secrets)
