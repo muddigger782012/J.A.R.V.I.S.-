@@ -465,7 +465,7 @@ class MainActivity : Activity() {
         // Standalone, read-only patch review: validates NEW source files with the
         // same strict engine used by the approved publishing workflow.
         // No approval, GitHub write, build, or install is performed here.
-        projects.addView(Button(this).apply {
+        val reviewGeneratedPatch = Button(this).apply {
             text = "Review generated code patch"
             isAllCaps = false
             setOnClickListener {
@@ -630,7 +630,14 @@ class MainActivity : Activity() {
                 }
                 dialog.show()
             }
-        })
+        }
+        projects.addView(reviewGeneratedPatch)
+        val reviewFromChat = Button(this).apply {
+            text = "Review proposed changes"
+            isAllCaps = false
+            setOnClickListener { reviewGeneratedPatch.performClick() }
+        }
+        root.addView(reviewFromChat)
         projects.addView(refreshProjects)
         projects.addView(savedProjects)
         refreshSavedProjects()
