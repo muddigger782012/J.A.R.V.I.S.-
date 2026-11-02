@@ -223,7 +223,7 @@ class MainActivity : Activity() {
                         "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/workflows/release-jarvis-developer.yml")))
                 }.show()
         }
-        val githubToken = field("GitHub fine-grained token (not saved)").apply {
+        val githubToken = field("GitHub fine-grained token (session only)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         val repositoryInfo = TextView(this).apply {
