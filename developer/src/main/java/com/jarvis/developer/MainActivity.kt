@@ -242,7 +242,6 @@ class MainActivity : Activity() {
                 }
             }
         }
-        root.addView(githubToken)
         root.addView(saveGithub)
         val repositoryInfo = TextView(this).apply {
             text = "Codebase awareness: read-only inventory, source browsing and task plans. No AI key required; GitHub token is optional for public source."
