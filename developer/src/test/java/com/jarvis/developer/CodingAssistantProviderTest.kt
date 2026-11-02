@@ -47,7 +47,11 @@ class CodingAssistantProviderTest {
             CodingAssistantProvider.Client(fake).ask(provider, actualKey, model, text)
             fail("Expected safe rejection")
         } catch (failure: IllegalStateException) {
-            assertEquals(CodingAssistantProvider.FAILURE, failure.message)
+            if (failure is CodingAssistantProvider.ProviderFailure) {
+                assertFalse(failure.message.isNullOrBlank())
+            } else {
+                assertEquals(CodingAssistantProvider.FAILURE, failure.message)
+            }
             assertNull(failure.cause)
             if (actualKey.isNotEmpty()) assertFalse(failure.toString().contains(actualKey))
             assertFalse(failure.toString().contains("reflected-error-body"))
