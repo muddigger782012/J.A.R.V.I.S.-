@@ -524,13 +524,15 @@ class MainActivity : Activity() {
                         }
                     }
                 }
-                form.addView(loadProposal)
                 loadProposal.performClick()
+                if (patchInput.text.isBlank()) {
+                    form.addView(loadProposal)
+                }
                 val dialog = android.app.AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Validate code proposal")
+                    .setTitle("Review proposed changes")
                     .setView(form)
                     .setNegativeButton("Close", null)
-                    .setPositiveButton("Validate", null)
+                    .setPositiveButton("Review changes", null)
                     .create()
                 dialog.setOnShowListener {
                     dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
