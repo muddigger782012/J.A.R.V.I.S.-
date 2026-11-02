@@ -223,9 +223,26 @@ class MainActivity : Activity() {
                         "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/workflows/release-jarvis-developer.yml")))
                 }.show()
         }
-        val githubToken = field("GitHub fine-grained token (session only)").apply {
+        val githubToken = field("GitHub fine-grained token (encrypted on device)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            ProviderCredentialStore.loadGithub(this@MainActivity)?.let { setText(it) }
         }
+        val saveGithub = Button(this).apply {
+            text = "Save GitHub connection securely"
+            isAllCaps = false
+            setOnClickListener {
+                val token = githubToken.text.toString().trim()
+                if (token.isBlank()) {
+                    ProviderCredentialStore.clearGithub(this@MainActivity)
+                    status.text = "Saved GitHub connection cleared."
+                } else {
+                    val saved = runCatching { ProviderCredentialStore.saveGithub(this@MainActivity, token) }
+                    status.text = if (saved.isSuccess) "GitHub token encrypted and saved on this device."
+                        else "Unable to save GitHub connection securely."
+                }
+            }
+        }
+        root.addView(saveGithub)
         val repositoryInfo = TextView(this).apply {
             text = "Codebase awareness: read-only inventory, source browsing and task plans. No AI key required; GitHub token is optional for public source."
         }
