@@ -573,6 +573,7 @@ class VoiceForegroundService : Service() {
             val item = history.optJSONObject(i) ?: continue
             if (item.optString("conversation") != liveConversation) continue
             val line = item.optString("text")
+            if (line == "You: $text" && recent.isEmpty()) continue // current turn is already recorded
             if (line.startsWith("You: ") || line.startsWith("J.A.R.V.I.S.: ")) recent.add(line.take(500))
             if (recent.size == 6) break
         }
