@@ -180,6 +180,21 @@ class MainActivity : Activity() {
             contentDescription = "Inspect repository source for the Home task without modifying files"
         }
         root.addView(analyzeFromHome)
+        val reviewHomeAnalysis = Button(this).apply {
+            text = "Review analysis in Activity"
+            isAllCaps = false
+            isEnabled = false
+            contentDescription = "Open Activity to review analysis and proposed changes; no changes are approved automatically"
+        }
+        root.addView(reviewHomeAnalysis)
+        reviewHomeAnalysis.setOnClickListener { selectPage?.invoke(2) }
+        prompt.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                reviewHomeAnalysis.isEnabled = false
+            }
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
         analyzeFromHome.setOnClickListener {
             val task = prompt.text.toString().trim()
             if (task.isBlank()) {
@@ -187,6 +202,7 @@ class MainActivity : Activity() {
                 return@setOnClickListener
             }
             analyzeFromHome.isEnabled = false
+            reviewHomeAnalysis.isEnabled = false
             output.text = "Inspecting repository sources for your request..."
             thread(name = "DeveloperHomeRepositoryAnalysis") {
                 val result = runCatching {
@@ -205,6 +221,8 @@ class MainActivity : Activity() {
                                 else -> "Repository analysis could not complete. Check your connection and retry."
                             } + " No files were changed."
                         }
+                        reviewHomeAnalysis.isEnabled = result.isSuccess &&
+                            prompt.text.toString().trim() == task
                         analyzeFromHome.isEnabled = true
                     }
                 }
