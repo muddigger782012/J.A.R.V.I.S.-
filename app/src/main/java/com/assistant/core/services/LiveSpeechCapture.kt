@@ -113,8 +113,10 @@ class LiveSpeechCapture(private val context: Context,
                 val engine = platform.create(provider, listener)
                 if (current != generation) { runCatching { engine.cancel() }; runCatching { engine.destroy() }; return }
                 recognizer = engine
+                var finishRequested = false
                 finishCapture = {
-                    if (current == generation) {
+                    if (current == generation && !finishRequested) {
+                        finishRequested = true
                         try {
                             engine.finish()
                             if (current == generation) {
