@@ -6,14 +6,14 @@ object DevelopmentCommands {
     private val apkInstall = Regex("""^(?:(?:please|can you|could you|would you) )?install (?:the |my |this )?(?:latest |verified )?apk (?:that )?developer (?:just )?built$""")
     private val installedCheck = Regex("""^(?:(?:please|can you|could you|would you) )?(?:(?:check|recheck|verify) (?:the |my |this )?apk (?:that )?developer (?:just )?installed|(?:run|repeat) (?:the )?installed apk checks)$""")
     fun submission(input: String): String? {
-        val body = Regex("""(?is)^\\s*(?:developer task|development request):\\s*(.+?)\\s*$""")
+        val body = Regex("""(?is)^\s*(?:developer task|development request):\s*(.+?)\s*$""")
             .matchEntire(input)?.groupValues?.get(1)?.trim() ?: return null
-        return body.takeIf { it.length in 12..1500 && it.none { ch -> ch == '\\u0000' } }
+        return body.takeIf { it.length in 12..1500 && it.none { ch -> ch.code == 0 } }
     }
 
     fun parse(input: String): Kind? {
         if (submission(input) != null) return Kind.SUBMIT
-        val text = input.lowercase(java.util.Locale.ROOT).replace('’', '\'').trim().trimEnd('.', '?', '!').replace(Regex("\\s+"), " ")
+        val text = input.lowercase(java.util.Locale.ROOT).replace('’', '\'').trim().trimEnd('.', '?', '!').replace(Regex("\s+"), " ")
         if (apkReview.matches(text)) return Kind.REVIEW_APK
         if (apkInstall.matches(text)) return Kind.INSTALL_APK
         if (installedCheck.matches(text)) return Kind.CHECK_INSTALLED_APK
