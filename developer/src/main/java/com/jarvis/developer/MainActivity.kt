@@ -197,8 +197,8 @@ class MainActivity : Activity() {
         expandHomeAnalysis.setOnClickListener {
             val full = fullHomeAnalysis ?: return@setOnClickListener
             val expanded = expandHomeAnalysis.text.toString() == "Show full source findings"
-            output.text = if (expanded) full else full.lineSequence().take(12).joinToString("\\n") +
-                "\\n\\nMore findings are available below."
+            output.text = if (expanded) full else full.lineSequence().take(12).joinToString("\n") +
+                "\n\nMore findings are available below."
             expandHomeAnalysis.text = if (expanded) "Collapse source findings" else "Show full source findings"
         }
         reviewHomeAnalysis.setOnClickListener { selectPage?.invoke(2) }
@@ -245,8 +245,8 @@ class MainActivity : Activity() {
                             val full = fullHomeAnalysis.orEmpty()
                             val lines = full.lineSequence().toList()
                             if (lines.size > 12) {
-                                output.text = lines.take(12).joinToString("\\n") +
-                                    "\\n\\nMore findings are available below."
+                                output.text = lines.take(12).joinToString("\n") +
+                                    "\n\nMore findings are available below."
                                 expandHomeAnalysis.text = "Show full source findings"
                                 expandHomeAnalysis.visibility = View.VISIBLE
                             }
