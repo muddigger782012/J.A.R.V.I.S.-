@@ -188,6 +188,7 @@ class MainActivity : Activity() {
         }
         root.addView(reviewHomeAnalysis)
         var fullHomeAnalysis: String? = null
+        var homeAnalysisRevision = 0L
         val expandHomeAnalysis = Button(this).apply {
             text = "Show full source findings"
             isAllCaps = false
@@ -206,6 +207,7 @@ class MainActivity : Activity() {
         prompt.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                homeAnalysisRevision++
                 reviewHomeAnalysis.isEnabled = false
                 fullHomeAnalysis = null
                 expandHomeAnalysis.visibility = View.GONE
@@ -218,6 +220,7 @@ class MainActivity : Activity() {
                 output.text = "Describe what to inspect in the task box above."
                 return@setOnClickListener
             }
+            val requestRevision = ++homeAnalysisRevision
             analyzeFromHome.isEnabled = false
             reviewHomeAnalysis.isEnabled = false
             fullHomeAnalysis = null
@@ -233,7 +236,7 @@ class MainActivity : Activity() {
                     if (!isFinishing && !isDestroyed) {
                         // A completed background request must never replace the response
                         // for a newer task entered while the analysis was running.
-                        if (prompt.text.toString().trim() != task) {
+                        if (homeAnalysisRevision != requestRevision || prompt.text.toString().trim() != task) {
                             analyzeFromHome.isEnabled = true
                             return@runOnUiThread
                         }
