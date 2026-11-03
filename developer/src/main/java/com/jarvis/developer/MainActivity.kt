@@ -1372,54 +1372,6 @@ class MainActivity : Activity() {
             button.setTextColor(0xFF071B25.toInt())
             button.backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_primary))
         }
-        // Reference-style quick actions, backed by existing functional screens.
-        val quickHeading = TextView(this).apply {
-            text = "Quick actions"
-            textSize = 19f
-            setTextColor(getColor(R.color.developer_text))
-            setPadding(0, dp(20), 0, dp(12))
-        }
-        root.addView(quickHeading)
-        fun quickAction(label: String, destination: Int, action: (() -> Unit)? = null): Button =
-            Button(this).apply {
-                text = label
-                textSize = 14f
-                typeface = Typeface.DEFAULT_BOLD
-                minHeight = dp(92)
-                gravity = Gravity.CENTER_VERTICAL or Gravity.START
-                setPadding(dp(14), dp(12), dp(8), dp(12))
-                isAllCaps = false
-                setTextColor(getColor(R.color.developer_text))
-                background = GradientDrawable().apply {
-                    setColor(0xFF142F3B.toInt())
-                    cornerRadius = dp(16).toFloat()
-                    setStroke(2, 0xFF285563.toInt())
-                }
-                setOnClickListener {
-                    if (action != null) action() else selectPage?.invoke(destination)
-                }
-            }
-        fun quickRow(first: Button, second: Button): LinearLayout =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 0, 0, dp(10))
-                addView(first, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginEnd = dp(5)
-                })
-                addView(second, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginStart = dp(5)
-                })
-            }
-        root.addView(quickRow(
-            quickAction("Fix a problem", 0) { selectPage?.invoke(0); prompt.requestFocus() },
-            quickAction("Create something", 1) {
-                DeveloperUiState.descendants(projects).filterIsInstance<EditText>()
-                    .firstOrNull { it.hint?.toString() == "Written application specification (up to 4000 characters)" }
-                    ?.let { if (it.text.isNullOrBlank()) it.setText(prompt.text.toString().take(4_000)) }
-                selectPage?.invoke(1)
-            }
-        ))
-        root.addView(quickRow(quickAction("My projects", 1), quickAction("Review progress", 2)))
         fun openCodeReview() {
             selectPage?.invoke(2)
             codingWidgets.firstOrNull()?.let { first -> first.post {
