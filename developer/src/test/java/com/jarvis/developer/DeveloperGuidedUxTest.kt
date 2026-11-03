@@ -85,6 +85,21 @@ class DeveloperGuidedUxTest {
         assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
     }
 
+    @Test fun sourceFindingsRemainCollapsedUntilAnalysisSucceeds() {
+        val activity = start()
+        val expand = button(activity, "Show full source findings")
+        assertEquals(View.GONE, expand.visibility)
+        field(activity, PROMPT).setText("Review source dependencies")
+        assertEquals(View.GONE, expand.visibility)
+        assertFalse(button(activity, "Review analysis in Activity").isEnabled)
+        button(activity, "Analyze repository request (read-only)").performClick()
+        idle()
+        // The asynchronous result is not simulated here. A request alone must
+        // never expose a previous report or unlock review authorization.
+        assertEquals(View.GONE, expand.visibility)
+        assertFalse(button(activity, "Review analysis in Activity").isEnabled)
+    }
+
     @Test fun projectRestorationRetainsTheChosenAppAndInstructionsWithoutAnAiKey() {
         val activity = start()
         val target = views(activity).filterIsInstance<Spinner>().single { it.contentDescription == "Application to improve" }
