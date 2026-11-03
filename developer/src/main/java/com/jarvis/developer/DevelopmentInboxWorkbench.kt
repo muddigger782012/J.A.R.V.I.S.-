@@ -32,7 +32,8 @@ object DevelopmentInboxWorkbench {
     private data class Editor(val paths: List<String>, val goal: String,
         val controls: List<DevelopmentJobInbox.LocalControl>, val draft: Result<DevelopmentJobDrafts.Snapshot>?)
     class Handle internal constructor(val view: LinearLayout, private val select: (String) -> Unit,
-        private val state: () -> Bundle) {
+        private val state: () -> Bundle, private val refresh: () -> Unit) {
+        fun refreshNow() = refresh()
         fun focus(job: String) = select(job)
         fun saveState(): Bundle = state()
     }
@@ -318,6 +319,6 @@ object DevelopmentInboxWorkbench {
         }, { browser.save().apply {
             val scroll = generateSequence(parent as View?) { it.parent as? View }.filterIsInstance<ScrollView>().firstOrNull()
             putInt("scrollY", (scroll?.scrollY ?: 0).coerceIn(0, 1_000_000))
-        } })
+        } }, ::refresh)
     }
 }
