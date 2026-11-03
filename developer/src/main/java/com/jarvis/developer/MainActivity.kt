@@ -230,6 +230,12 @@ class MainActivity : Activity() {
                 }
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
+                        // A completed background request must never replace the response
+                        // for a newer task entered while the analysis was running.
+                        if (prompt.text.toString().trim() != task) {
+                            analyzeFromHome.isEnabled = true
+                            return@runOnUiThread
+                        }
                         output.text = result.getOrElse { error ->
                             val message = error.message.orEmpty()
                             when {
