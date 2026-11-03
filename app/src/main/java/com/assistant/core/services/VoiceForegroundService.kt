@@ -352,7 +352,7 @@ class VoiceForegroundService : Service() {
                             speakLiveReply("Live chat is already active.")
                         } else {
                             liveStatus(VoiceInteractionState.PROCESSING, "Thinking…")
-                            askAssistant(text) { reply ->
+                            askAssistant(contextualLiveInput(text)) { reply ->
                                 liveHandler.post {
                                     if (liveChatActive && liveSession.response(turn)) {
                                         if (reply.screenContextKey != null && screenAccess.taskState().contextKey != reply.screenContextKey) {
@@ -561,6 +561,26 @@ class VoiceForegroundService : Service() {
         pendingClarification = null
         voicePreferences.setForegroundServiceRunning(false)
         publishEvent("Foreground voice service stopped.")
+    }
+
+    // Companion mode is opt-in to the live session, not command recognition.
+    // Short follow-ups inherit recent conversation context without changing the displayed transcript.
+    private fun contextualLiveInput(text: String): String {
+        if (text.length > 160 || !LiveChatCompanionSettings.load(this).contextEnabled) return text
+        val history = LiveChatStore.messages(this)
+        val recent = mutableListOf<String>()
+        for (i in history.length() - 1 downTo 0) {
+            val item = history.optJSONObject(i) ?: continue
+            if (item.optString("conversation") != liveConversation) continue
+            val line = item.optString("text")
+            if (line.startsWith("You: ") || line.startsWith("J.A.R.V.I.S.: ")) recent.add(line.take(500))
+            if (recent.size == 6) break
+        }
+        if (recent.isEmpty()) return text
+        return "Continue this conversation naturally. Be personable, concise, and helpful. " +
+            "Do not repeatedly ask about preferred conversational style. " +
+            "Offer a relevant suggestion or question when useful, without inventing facts or actions.\\n" +
+            recent.asReversed().joinToString("\\n") + "\\nYou: " + text
     }
 
     private fun askAssistant(text: String, callback: (HybridAssistantReply) -> Unit) {
