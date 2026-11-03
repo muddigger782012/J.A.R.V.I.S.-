@@ -115,7 +115,23 @@ class VoiceForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_PUSH_TO_TALK -> {
-                if (liveChatActive || practiceToken != null) return START_NOT_STICKY
+                if (liveChatActive) {
+                    // The mic button must remain useful while Live Chat owns the recognizer.
+                    // Do not start a competing command recognizer or discard an active turn.
+                    if (liveSession.phase == LiveChatSession.Phase.LISTENING) {
+                        liveStatus(VoiceInteractionState.LISTENING, "Listening…")
+                    } else if (liveSession.interrupt()) {
+                        hybridAssistantService.cancelActiveResponse()
+                        liveCapture.stop()
+                        if (::voiceService.isInitialized) voiceService.stopSpeaking()
+                        liveHandler.removeCallbacksAndMessages(null)
+                        liveStatus(VoiceInteractionState.IDLE, "Microphone requested; listening again…")
+                        liveHandler.post(heartbeat)
+                        nextLiveTurn(150L)
+                    }
+                    return START_NOT_STICKY
+                }
+                if (practiceToken != null) return START_NOT_STICKY
                 startVoiceForeground("Starting command capture…")
                 try {
                     if (!::voiceService.isInitialized) { initializeEngine(); initializeVoice() }
