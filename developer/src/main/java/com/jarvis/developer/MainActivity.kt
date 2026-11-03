@@ -186,6 +186,8 @@ class MainActivity : Activity() {
             isEnabled = false
             contentDescription = "Open the inline patch review on Home; no changes are approved automatically"
         }
+        // The separate review launcher is redundant; the successful analysis stages review.
+        reviewHomeAnalysis.visibility = View.GONE
         root.addView(reviewHomeAnalysis)
         var fullHomeAnalysis: String? = null
         var homeAnalysisPlan: RepositoryAnalysis.AnalysisPlan? = null
@@ -277,7 +279,10 @@ class MainActivity : Activity() {
                         if (result.isSuccess && isCurrent) {
                             homeAnalysisPlan = result.getOrNull()?.first
                             stageHomeAnalysisButton.isEnabled = homeAnalysisPlan?.files?.isNotEmpty() == true
-                            stageHomeAnalysisButton.visibility = if (stageHomeAnalysisButton.isEnabled) View.VISIBLE else View.GONE
+                            // Successful read-only analysis automatically stages eligible source paths.
+                            // This only prepares a review; it never generates or approves a write.
+                            stageHomeAnalysisButton.visibility = View.GONE
+                            if (stageHomeAnalysisButton.isEnabled) stageHomeAnalysis?.invoke()
                             fullHomeAnalysis = result.getOrNull()?.second
                             val full = fullHomeAnalysis.orEmpty()
                             val lines = full.lineSequence().toList()
