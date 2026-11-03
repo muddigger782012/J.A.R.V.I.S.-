@@ -1197,7 +1197,28 @@ class MainActivity : Activity() {
                 visibility = View.GONE
             }
         }
+        // Reuse the actual patch engine controls on Home. The panel starts
+        // collapsed, retaining its existing preview, diff, approval and commit gates.
+        val homeCodeReview = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        val homeCodeReviewToggle = Button(this).apply {
+            text = "Open inline code review"
+            isAllCaps = false
+            setOnClickListener {
+                val opening = homeCodeReview.visibility != View.VISIBLE
+                homeCodeReview.visibility = if (opening) View.VISIBLE else View.GONE
+                text = if (opening) "Close inline code review" else "Open inline code review"
+            }
+        }
+        root.addView(homeCodeReviewToggle)
+        root.addView(homeCodeReview)
         advancedChildren.forEach { child ->
+            if (child in codingWidgets) {
+                homeCodeReview.addView(child)
+                return@forEach
+            }
             val section = when (child) {
                 in codingWidgets -> 1
                 in planningWidgets -> 2
