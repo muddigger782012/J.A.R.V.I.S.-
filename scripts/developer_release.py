@@ -273,8 +273,28 @@ class GitHub:
                     raise ReleaseFailure('Public APK checksum differs after bounded CDN consistency retries')
         except ReleaseFailure:
             raise
+        except urllib.error.HTTPError as error:
+            # Report only the HTTP status and verification stage, never request URLs,
+            # response bodies, tokens, or transient CDN query parameters.
+            raise ReleaseFailure(
+                'Unauthenticated updater verification HTTP ' + str(error.code) +
+                ' during ' + ('metadata' if 'meta' not in locals() else 'APK download')
+            ) from None
+        except urllib.error.URLError:
+            raise ReleaseFailure(
+                'Unauthenticated updater verification network failure during ' +
+                ('metadata' if 'meta' not in locals() else 'APK download')
+            ) from None
+        except TimeoutError:
+            raise ReleaseFailure(
+                'Unauthenticated updater verification timeout during ' +
+                ('metadata' if 'meta' not in locals() else 'APK download')
+            ) from None
         except Exception:
-            raise ReleaseFailure('Unauthenticated updater verification failed') from None
+            raise ReleaseFailure(
+                'Unauthenticated updater verification failed during ' +
+                ('metadata' if 'meta' not in locals() else 'APK download')
+            ) from None
 
 
 def tag_target(client, tag=TAG):
