@@ -314,7 +314,7 @@ class MainActivity : Activity() {
                 } catch (e: Exception) {
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
-                            repositoryFeedback.text = "Repository preview failed. Check access, source path and line range, then retry. No source was changed."
+                            repositoryFeedback.text = when { e.message.orEmpty().contains("HTTP 401") -> "GitHub HTTP 401: authentication failed. Check the saved token."; e.message.orEmpty().contains("HTTP 403") -> "GitHub HTTP 403: permission denied or rate limited."; e.message.orEmpty().contains("HTTP 404") -> "GitHub HTTP 404: repository or branch not accessible."; e.message.orEmpty().contains("response exceeds read limit") -> "GitHub repository response exceeds the configured limit."; e.message.orEmpty().contains("Repository GET failed") -> "GitHub network request failed. Check connectivity."; else -> "Repository preview failed. Check access or source limits." } + " No source was changed."
                         }
                     }
                 } finally {
