@@ -60,6 +60,21 @@ class DeveloperGuidedUxTest {
         assertTrue(views(activity).filterIsInstance<Button>().none { it.text.toString() == "Tools" })
     }
 
+    @Test fun trackTabRefreshesOnNavigationAndResumeWithoutGrantingApproval() {
+        val activity = start()
+        button(activity, "Track").performClick(); idle()
+        assertEquals("developer-page-2", page(activity))
+        assertTrue(views(activity).filterIsInstance<TextView>().any {
+            it.text.toString() == "Track"
+        })
+        controller!!.pause().resume(); idle()
+        assertEquals("developer-page-2", page(activity))
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+        button(activity, "Home").performClick(); idle()
+        button(activity, "Track").performClick(); idle()
+        assertEquals("developer-page-2", page(activity))
+    }
+
     @Test fun homeRepositoryAnalysisValidatesEmptyTaskWithoutLeavingConversation() {
         val activity = start()
         assertEquals("developer-page-0", page(activity))
