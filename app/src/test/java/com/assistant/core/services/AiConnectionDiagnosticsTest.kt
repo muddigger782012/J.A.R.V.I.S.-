@@ -8,6 +8,19 @@ class AiConnectionDiagnosticsTest {
     private fun response(text: String) = JSONObject().put("candidates", org.json.JSONArray().put(JSONObject()
         .put("content", JSONObject().put("parts", org.json.JSONArray().put(JSONObject().put("text", text))))))
 
+    @Test fun androidNetworkFailuresHaveActionableSafeDiagnostics() {
+        assertEquals(AiConnectionDiagnostics.Problem.ANDROID_PERMISSION,
+            AiConnectionDiagnostics.problem(SecurityException("private credential and endpoint")))
+        assertEquals(AiConnectionDiagnostics.Problem.MAIN_THREAD,
+            AiConnectionDiagnostics.problem(android.os.NetworkOnMainThreadException()))
+        for (problem in listOf(AiConnectionDiagnostics.Problem.ANDROID_PERMISSION,
+            AiConnectionDiagnostics.Problem.MAIN_THREAD)) {
+            val message = AiConnectionDiagnostics.render(AiConnectionDiagnostics.Result(false, problem = problem))
+            assertFalse(message.contains("private credential"))
+            assertFalse(message.contains("unknown", ignoreCase = true))
+        }
+    }
+
     @Test fun explicitGeminiConnectionCommandsAreRoutedWithoutConsumingOtherRequests() {
         for (phrase in listOf("Test Gemini connection", "please check my Gemini API key",
             "Jarvis, verify the Gemini connection!", "diagnose gemini connectivity")) {
