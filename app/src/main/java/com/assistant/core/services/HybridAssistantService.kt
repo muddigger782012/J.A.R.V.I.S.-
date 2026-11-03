@@ -1286,6 +1286,19 @@ class HybridAssistantService(
             }.start()
             return
         }
+        // The UI and foreground voice use this asynchronous entry point. Network probes must
+        // run off the caller thread, not through the synchronous chat handler.
+        if (personalAssistant && AiConnectionDiagnostics.isExplicitGeminiTest(rawInput)) {
+            clearPendingActionPrompts()
+            responseThread(turn, callback) {
+                val observation = runCatching { directOnlineClient.connectionTest() }.getOrElse {
+                    AiConnectionDiagnostics.Result(false,
+                        problem = AiConnectionDiagnostics.problem(it as? Exception ?: Exception()))
+                }
+                callback(HybridAssistantReply(AiConnectionDiagnostics.render(observation)))
+            }.start()
+            return
+        }
         hostInformation(rawInput)?.let { callback(it); return }
         val weatherInput = ForecastDates.contextual(rawInput, conversationTurns().map { it.first })
         if (weatherInput != null && !RoutineProposal.isCreationRequest(rawInput)) {
