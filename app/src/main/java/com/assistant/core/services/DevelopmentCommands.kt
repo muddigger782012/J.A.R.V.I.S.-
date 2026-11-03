@@ -14,8 +14,8 @@ object DevelopmentCommands {
             "approve this apk installation", "confirm this apk installation" -> Kind.APPROVE_INSTALL_APK
             "cancel apk installation", "cancel this apk installation" -> Kind.CANCEL_INSTALL_APK
             "developer connection status", "check developer connection", "developer capabilities" -> Kind.CAPABILITIES
-            "development job status", "developer job status", "how is the development task going" -> Kind.STATUS
-            "list development jobs", "show development jobs", "development dashboard" -> Kind.LIST
+            "development job status", "developer job status", "developer status", "track development", "how is the development task going" -> Kind.STATUS
+            "list development jobs", "show development jobs", "development dashboard", "show developer jobs", "developer jobs" -> Kind.LIST
             "send runtime diagnostics to developer", "send voice diagnostics to developer", "ask developer to review voice diagnostics" -> Kind.REVIEW_RUNTIME
             "cancel development task", "cancel developer job" -> Kind.CANCEL
             "pause development task", "pause developer job" -> Kind.PAUSE
