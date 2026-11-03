@@ -172,6 +172,44 @@ class MainActivity : Activity() {
         root.addView(proposeCodePatch)
         val send = Button(this).apply { text = "Ask Jarvis / save instructions"; isAllCaps = false }
         root.addView(send)
+        // Keep read-only repository analysis on Home beside the conversational task.
+        // This does not grant patch, branch, commit, or installation authority.
+        val analyzeFromHome = Button(this).apply {
+            text = "Analyze repository request (read-only)"
+            isAllCaps = false
+            contentDescription = "Inspect repository source for the Home task without modifying files"
+        }
+        root.addView(analyzeFromHome)
+        analyzeFromHome.setOnClickListener {
+            val task = prompt.text.toString().trim()
+            if (task.isBlank()) {
+                output.text = "Describe what to inspect in the task box above."
+                return@setOnClickListener
+            }
+            analyzeFromHome.isEnabled = false
+            output.text = "Inspecting repository sources for your request..."
+            thread(name = "DeveloperHomeRepositoryAnalysis") {
+                val result = runCatching {
+                    val token = ProviderCredentialStore.loadGithub(this@MainActivity).orEmpty()
+                    val (_, plan) = RepositoryIntelligence.analyzeSnapshot(token, task)
+                    RepositoryAnalysis.render(plan)
+                }
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        output.text = result.getOrElse { error ->
+                            val message = error.message.orEmpty()
+                            when {
+                                "401" in message -> "GitHub authentication failed. Check your saved connection."
+                                "403" in message -> "GitHub access denied or rate limited."
+                                "404" in message -> "Repository or branch unavailable."
+                                else -> "Repository analysis could not complete. Check your connection and retry."
+                            } + " No files were changed."
+                        }
+                        analyzeFromHome.isEnabled = true
+                    }
+                }
+            }
+        }
         val cancelGeneration = Button(this).apply {
             setText(R.string.project_generation_cancel); isAllCaps = false; isEnabled = false
             minHeight = dp(48)
