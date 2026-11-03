@@ -1729,6 +1729,7 @@ class HybridAssistantService(
                 else "The APK installation request was cancelled. No installation approval was sent."
             }
             when (requireNotNull(command)) {
+                DevelopmentCommands.Kind.SUBMIT -> operations.submit(requireNotNull(DevelopmentCommands.submission(input)))
                 DevelopmentCommands.Kind.INSTALL_APK -> {
                     if (responseTurns.mutate { if (personalAssistant) {
                         screenAccess.discard(); appDiscovery.discard()
