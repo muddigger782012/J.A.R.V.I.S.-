@@ -45,6 +45,13 @@ class MainActivity : Activity() {
     private var artifactInstallWhenFocused: (() -> Unit)? = null
     private var pendingArtifactInstall: Pair<Long, String>? = null
 
+    // A job may complete while Developer is in the background. Reconcile Track
+    // with the persisted inbox whenever the activity becomes visible again.
+    override fun onResume() {
+        super.onResume()
+        if (activePage == 2) developmentHistory?.refreshNow()
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("developer_active_page", activePage)
         outState.putIntArray("developer_page_history", pageHistory.takeLast(32).toIntArray())
