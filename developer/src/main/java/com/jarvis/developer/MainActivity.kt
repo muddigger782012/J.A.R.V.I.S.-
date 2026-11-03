@@ -1309,7 +1309,7 @@ class MainActivity : Activity() {
         val codingViews = (0 until sectionGroups[1].childCount).map { sectionGroups[1].getChildAt(it) }
         codingViews.forEach { sectionGroups[1].removeView(it); activityPage.addView(it) }
         sectionGroups[1].addView(Button(this).apply {
-            text = "Open code review in Activity"; isAllCaps = false
+            text = "Open code review in Track"; isAllCaps = false
             setOnClickListener { selectPage?.invoke(2) }
         })
         // Always give a clear route back to the category overview.
@@ -1378,7 +1378,7 @@ class MainActivity : Activity() {
             savedInstanceState?.getInt("developer_guided_target", 0) ?: 0, ::openCodeReview)
         guidedTarget = guidance.first
         disposeGuidance = guidance.second
-        sectionIntro(activityPage, "Activity", "Review jobs, analysis, approvals, errors and actual verification results. Generate a diff, review all files, approve explicitly, then verify. Queued work is not a completed repair.")
+        sectionIntro(activityPage, "Track", "Live development job history, reviews, failures, and verified results. Pending work is not marked complete.")
         settings.addView(Button(this).apply {
             text = "Advanced tools"; isAllCaps = false
             setOnClickListener { selectPage?.invoke(4) }
@@ -1440,7 +1440,9 @@ class MainActivity : Activity() {
                 positions[activePage] = pages[activePage].scrollY
                 if (remember) pageHistory.add(activePage)
             }
+            val enteringTrack = next == 2 && activePage != 2
             activePage = next
+            if (enteringTrack) developmentHistory?.refreshNow()
             pages.forEachIndexed { pageIndex, page ->
                 page.visibility = if (pageIndex == activePage) View.VISIBLE else View.GONE
             }
@@ -1511,7 +1513,7 @@ class MainActivity : Activity() {
         }
         tab("Home", 0, android.R.drawable.ic_menu_view)
         tab("Projects", 1, android.R.drawable.ic_menu_agenda)
-        tab("Activity", 2, android.R.drawable.ic_menu_recent_history)
+        tab("Track", 2, android.R.drawable.ic_menu_recent_history)
         tab("Settings", 3, android.R.drawable.ic_menu_preferences)
         showPage(activePage, false)
         pages.forEach { page ->
