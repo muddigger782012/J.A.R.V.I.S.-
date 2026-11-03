@@ -98,6 +98,23 @@ class DeveloperGuidedUxTest {
         assertFalse(button(activity, "Review analysis in Activity").isEnabled)
     }
 
+    @Test fun inlineCodeReviewOpensAndClosesOnHomeWithoutGrantingWriteApproval() {
+        val activity = start()
+        val open = button(activity, "Open inline code review")
+        assertEquals("developer-page-0", page(activity))
+        open.performClick(); idle()
+        assertEquals("developer-page-0", page(activity))
+        val close = button(activity, "Close inline code review")
+        assertTrue(views(activity).filterIsInstance<TextView>().any {
+            it.text.toString().contains("Scoped coding engine")
+        })
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+        close.performClick(); idle()
+        assertEquals("developer-page-0", page(activity))
+        assertEquals("Open inline code review", open.text.toString())
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+    }
+
     @Test fun projectRestorationRetainsTheChosenAppAndInstructionsWithoutAnAiKey() {
         val activity = start()
         val target = views(activity).filterIsInstance<Spinner>().single { it.contentDescription == "Application to improve" }
