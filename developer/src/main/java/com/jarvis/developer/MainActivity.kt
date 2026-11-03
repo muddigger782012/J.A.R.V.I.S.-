@@ -181,10 +181,10 @@ class MainActivity : Activity() {
         }
         root.addView(analyzeFromHome)
         val reviewHomeAnalysis = Button(this).apply {
-            text = "Review analysis in Activity"
+            text = "Review changes on Home"
             isAllCaps = false
             isEnabled = false
-            contentDescription = "Open Activity to review analysis and proposed changes; no changes are approved automatically"
+            contentDescription = "Open the inline patch review on Home; no changes are approved automatically"
         }
         root.addView(reviewHomeAnalysis)
         var fullHomeAnalysis: String? = null
@@ -201,7 +201,8 @@ class MainActivity : Activity() {
                 "\n\nMore findings are available below."
             expandHomeAnalysis.text = if (expanded) "Collapse source findings" else "Show full source findings"
         }
-        reviewHomeAnalysis.setOnClickListener { selectPage?.invoke(2) }
+        var openInlineReview: (() -> Unit)? = null
+        reviewHomeAnalysis.setOnClickListener { openInlineReview?.invoke() }
         prompt.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -1214,6 +1215,14 @@ class MainActivity : Activity() {
         }
         root.addView(homeCodeReviewToggle)
         root.addView(homeCodeReview)
+        openInlineReview = {
+            homeCodeReview.visibility = View.VISIBLE
+            homeCodeReviewToggle.text = "Close inline code review"
+            homeCodeReviewToggle.post {
+                homeCodeReviewToggle.requestRectangleOnScreen(
+                    android.graphics.Rect(0, 0, homeCodeReviewToggle.width, homeCodeReviewToggle.height), false)
+            }
+        }
         advancedChildren.forEach { child ->
             if (child in codingWidgets) {
                 homeCodeReview.addView(child)
