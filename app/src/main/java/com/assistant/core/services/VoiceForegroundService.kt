@@ -331,7 +331,11 @@ class VoiceForegroundService : Service() {
             if (audible) "Speaking…" else "Reply ready. Listening again…")
         val turn = liveSession.token
         voiceService.speak(text, SpeechChannel.LIVE_CHAT, after = {
-            if (liveChatActive && liveSession.speechFinished(turn)) nextLiveTurn(650L)
+            // TTS completion may arrive on an engine callback thread. Serialize
+            // session transitions with the main-thread capture and watchdog.
+            liveHandler.post {
+                if (liveChatActive && liveSession.speechFinished(turn)) nextLiveTurn(650L)
+            }
         })
         // Some TTS engines never report completion after an audio failure.
         // Bound the speaking phase so Live Chat cannot remain muted indefinitely.
