@@ -13,7 +13,7 @@ object AiConnectionDiagnostics {
             .matches(input.trim())
     }
     enum class Problem { NOT_CONFIGURED, INVALID_REQUEST, DNS, TLS, TIMEOUT, CONNECTION, AUTHENTICATION,
-        ACCESS, MODEL, QUOTA, SERVICE, FORMAT, LIMIT, UNEXPECTED_REPLY, UNKNOWN }
+        ACCESS, MODEL, QUOTA, SERVICE, FORMAT, LIMIT, UNEXPECTED_REPLY, ANDROID_PERMISSION, MAIN_THREAD, UNKNOWN }
     enum class Purpose { CONNECTION_TEST, CONVERSATION }
     data class Catalogue(val models: List<String>, val complete: Boolean, val problem: Problem? = null, val http: Int? = null)
     data class Result(val success: Boolean, val modelListed: Boolean? = null, val catalogueProblem: Problem? = null,
@@ -22,6 +22,8 @@ object AiConnectionDiagnostics {
         init { require(success == (problem == null)) }
     }
     fun problem(failure: Exception): Problem = when (failure) {
+        is android.os.NetworkOnMainThreadException -> Problem.MAIN_THREAD
+        is SecurityException -> Problem.ANDROID_PERMISSION
         is java.net.UnknownHostException -> Problem.DNS
         is javax.net.ssl.SSLException -> Problem.TLS
         is java.net.SocketTimeoutException -> Problem.TIMEOUT
@@ -82,7 +84,9 @@ object AiConnectionDiagnostics {
         Problem.FORMAT -> "The provider response format could not be read."
         Problem.LIMIT -> "The response exceeded the bounded read or time limit."
         Problem.UNEXPECTED_REPLY -> "The model responded but did not return the connection-test marker; generation is not verified by this test."
-        Problem.UNKNOWN -> "The observed failure could not be classified safely."
+        Problem.ANDROID_PERMISSION -> "Android denied a required network operation. Check the app INTERNET permission and device network policy."
+        Problem.MAIN_THREAD -> "The provider request was attempted on Android’s main thread. Run diagnostics on a background worker."
+        Problem.UNKNOWN -> "An unexpected local failure occurred before connectivity could be verified. The provider has not been proven unavailable."
     }
     fun render(result: Result, provider: String = "Gemini"): String = buildString {
         append(if (result.purpose == Purpose.CONVERSATION) "$provider last conversation request: " else "$provider generation test: ")
