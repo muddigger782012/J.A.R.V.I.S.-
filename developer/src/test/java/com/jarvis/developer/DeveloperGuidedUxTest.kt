@@ -60,6 +60,20 @@ class DeveloperGuidedUxTest {
         assertTrue(views(activity).filterIsInstance<Button>().none { it.text.toString() == "Tools" })
     }
 
+    @Test fun homeRepositoryAnalysisValidatesEmptyTaskWithoutLeavingConversation() {
+        val activity = start()
+        assertEquals("developer-page-0", page(activity))
+        button(activity, "Analyze repository request (read-only)").performClick()
+        idle()
+        assertEquals("developer-page-0", page(activity))
+        assertTrue(views(activity).filterIsInstance<TextView>().any {
+            it.tag == "project-generation-reply" &&
+                it.text.toString() == "Describe what to inspect in the task box above."
+        })
+        assertTrue(button(activity, "Analyze repository request (read-only)").isEnabled)
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+    }
+
     @Test fun projectRestorationRetainsTheChosenAppAndInstructionsWithoutAnAiKey() {
         val activity = start()
         val target = views(activity).filterIsInstance<Spinner>().single { it.contentDescription == "Application to improve" }
