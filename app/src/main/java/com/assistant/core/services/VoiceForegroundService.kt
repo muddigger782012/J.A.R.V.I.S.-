@@ -370,16 +370,18 @@ class VoiceForegroundService : Service() {
                             liveStatus(VoiceInteractionState.PROCESSING, "Thinking…")
                             askAssistant(contextualLiveInput(text)) { reply ->
                                 liveHandler.post {
-                                    if (liveChatActive && liveSession.response(turn)) {
-                                        if (reply.screenContextKey != null && screenAccess.taskState().contextKey != reply.screenContextKey) {
-                                            // No speech was started: recover the THINKING turn rather than
-                                            // calling speechFinished(), which only accepts SPEAKING.
-                                            if (liveSession.recover(turn)) {
-                                                liveStatus(VoiceInteractionState.IDLE, "Screen context changed; listening again…")
-                                                nextLiveTurn(650L)
-                                            }
-                                            return@post
+                                    if (!liveChatActive || liveSession.token != turn ||
+                                        liveSession.phase != LiveChatSession.Phase.THINKING) return@post
+                                    // Check scope before transitioning to SPEAKING: recover() only
+                                    // accepts LISTENING or THINKING, not SPEAKING.
+                                    if (reply.screenContextKey != null && screenAccess.taskState().contextKey != reply.screenContextKey) {
+                                        if (liveSession.recover(turn)) {
+                                            liveStatus(VoiceInteractionState.IDLE, "Screen context changed; listening again…")
+                                            nextLiveTurn(650L)
                                         }
+                                        return@post
+                                    }
+                                    if (liveSession.response(turn)) {
                                         liveLine("J.A.R.V.I.S.: ${reply.text}")
                                         speakLiveReply(reply.text)
                                     }
