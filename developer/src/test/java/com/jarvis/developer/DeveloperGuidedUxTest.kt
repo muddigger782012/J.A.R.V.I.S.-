@@ -52,7 +52,7 @@ class DeveloperGuidedUxTest {
         assertEquals("developer-page-3", page(activity))
         activity.onBackPressed(); idle()
         assertEquals("developer-page-0", page(activity))
-        button(activity, "Review progress").performClick(); idle()
+        button(activity, "Activity").performClick(); idle()
         assertEquals("developer-page-2", page(activity))
         assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
         assertFalse(views(activity).filterIsInstance<CheckBox>().single { it.text.toString().startsWith("I reviewed this exact diff") }.isChecked)
