@@ -131,7 +131,7 @@ class HybridAssistantService(
         handleDevelopmentInput(userInput, developmentInstallConsent.take())?.let { return HybridAssistantReply(it) }
         hostInformation(userInput)?.let { return it }
         // Execute explicit provider diagnostics locally; never ask the conversational model to simulate a test.
-        if (personalAssistant && Regex("^(?:(?:please|jarvis)[, ]+)?(?:test|check|verify|diagnose) (?:my |the )?gemini (?:api )?(?:connection|connectivity|access|key)(?:[.!?])?$", RegexOption.IGNORE_CASE).matches(userInput)) {
+        if (personalAssistant && AiConnectionDiagnostics.isExplicitGeminiTest(userInput)) {
             clearPendingActionPrompts()
             val observation = runCatching { directOnlineClient.connectionTest() }.getOrElse {
                 AiConnectionDiagnostics.Result(false, problem = AiConnectionDiagnostics.problem(it as? Exception ?: Exception()))
