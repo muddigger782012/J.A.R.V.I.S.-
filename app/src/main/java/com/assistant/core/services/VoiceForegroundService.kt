@@ -356,7 +356,13 @@ class VoiceForegroundService : Service() {
                                 liveHandler.post {
                                     if (liveChatActive && liveSession.response(turn)) {
                                         if (reply.screenContextKey != null && screenAccess.taskState().contextKey != reply.screenContextKey) {
-                                            liveSession.speechFinished(); nextLiveTurn(650L); return@post
+                                            // No speech was started: recover the THINKING turn rather than
+                                            // calling speechFinished(), which only accepts SPEAKING.
+                                            if (liveSession.recover(turn)) {
+                                                liveStatus(VoiceInteractionState.IDLE, "Screen context changed; listening again…")
+                                                nextLiveTurn(650L)
+                                            }
+                                            return@post
                                         }
                                         liveLine("J.A.R.V.I.S.: ${reply.text}")
                                         speakLiveReply(reply.text)
