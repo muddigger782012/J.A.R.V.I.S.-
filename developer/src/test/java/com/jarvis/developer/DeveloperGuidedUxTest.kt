@@ -76,7 +76,7 @@ class DeveloperGuidedUxTest {
 
     @Test fun homeReviewShortcutRemainsLockedUntilAnalysisCompletes() {
         val activity = start()
-        val review = button(activity, "Review analysis in Activity")
+        val review = button(activity, "Review changes on Home")
         assertFalse(review.isEnabled)
         field(activity, PROMPT).setText("Inspect the repository parser")
         assertFalse(review.isEnabled)
@@ -91,11 +91,11 @@ class DeveloperGuidedUxTest {
         assertEquals(View.GONE, expand.visibility)
         field(activity, PROMPT).setText("Review source dependencies")
         assertEquals(View.GONE, expand.visibility)
-        assertFalse(button(activity, "Review analysis in Activity").isEnabled)
+        assertFalse(button(activity, "Review changes on Home").isEnabled)
         // The asynchronous repository response is deliberately not mocked.
         // Verify the initial safe state without depending on network timing.
         assertEquals(View.GONE, expand.visibility)
-        assertFalse(button(activity, "Review analysis in Activity").isEnabled)
+        assertFalse(button(activity, "Review changes on Home").isEnabled)
     }
 
     @Test fun inlineCodeReviewOpensAndClosesOnHomeWithoutGrantingWriteApproval() {
