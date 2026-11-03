@@ -287,8 +287,15 @@ class MainActivity : Activity() {
         val sourceRange = field("Source line range, up to 200 lines").apply { setText("1-120") }
         val inventoryButton = Button(this).apply { text = "Browse source inventory (read-only)" }
         val sourceButton = Button(this).apply { text = "Read source lines (read-only)" }
-        val analyzeButton = Button(this).apply { text = "Analyze task and preview file plan (read-only)" }
+        val repositoryTask = field("Describe the source analysis task here").apply {
+            setText(prompt.text.toString())
+            minLines = 3
+            maxLines = 6
+        }
+        val analyzeButton = Button(this).apply { text = "Analyze this task (read-only)" }
         listOf(inventoryButton, sourceButton, analyzeButton).forEach { root.addView(it) }
+        root.removeView(repositoryTask)
+        root.addView(repositoryTask, root.indexOfChild(analyzeButton))
         val repositoryFeedback = TextView(this).apply {
             text = "Choose Browse source inventory to list available repository files."
             textSize = 14f
@@ -345,9 +352,9 @@ class MainActivity : Activity() {
         }
         analyzeButton.setOnClickListener {
             val token = githubToken.text.toString().trim()
-            val task = prompt.text.toString().trim()
+            val task = repositoryTask.text.toString().trim().ifBlank { prompt.text.toString().trim() }
             if (task.isBlank()) {
-                repositoryFeedback.text = "Describe a task on Home before analyzing it here."
+                repositoryFeedback.text = "Describe your task in the box above, then tap Analyze this task."
                 return@setOnClickListener
             }
             repositoryRead("Inspecting bounded source context and dependencies...") {
