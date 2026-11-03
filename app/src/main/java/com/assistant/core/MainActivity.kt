@@ -2388,14 +2388,22 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun importLiveChatMessages() {
+        // Reconcile against the persisted transcript, not only an imported-ID cache.
+        // A process death between saving an ID and rendering a message must not hide it forever.
         val imported = conversationPrefs.getStringSet("live_imported_ids", emptySet()).orEmpty().toMutableSet()
         val entries = com.assistant.core.services.LiveChatStore.messages(this)
         for (i in 0 until entries.length()) {
             val entry = entries.getJSONObject(i)
             val id = entry.getString("id")
-            if (id in imported) continue
             val session = entry.getString("conversation")
             val text = entry.getString("text")
+            // Legacy imported IDs are advisory: verify the message survived persistence.
+            val stored = if (session == conversationSessionId) outputLines
+                else runCatching {
+                    val array = JSONArray(conversationPrefs.getString("messages_$session", "[]"))
+                    (0 until array.length()).map { array.getString(it) }
+                }.getOrDefault(emptyList())
+            if (id in imported && text in stored) continue
             if (session == conversationSessionId) appendOutput(text)
             else {
                 val history = runCatching { JSONArray(conversationPrefs.getString("messages_$session", "[]")) }.getOrDefault(JSONArray())

@@ -334,9 +334,18 @@ class VoiceAssistantService(
             onStatus("Temporary female fallback: ${result.description}")
         } else applyAssistantVoiceProfile()
         if (!speechVoiceUsable) {
-            VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_FAILED)
-            finishSpeech()
-            return
+            // A stale or removed voice must not mute every subsequent reply.
+            // Android's default installed voice is a safer last resort.
+            val fallback = runCatching { tts.setLanguage(java.util.Locale.US) }.getOrDefault(TextToSpeech.LANG_NOT_SUPPORTED)
+            speechVoiceUsable = fallback != TextToSpeech.LANG_MISSING_DATA &&
+                fallback != TextToSpeech.LANG_NOT_SUPPORTED
+            onStatus(if (speechVoiceUsable) "Selected voice unavailable; using Android default English voice."
+                else "Speech unavailable: no usable English TTS voice is installed.")
+            if (!speechVoiceUsable) {
+                VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_FAILED)
+                finishSpeech()
+                return
+            }
         }
         if (afterSpeech == null) onSpeechStarted()
         val chunks = SpeechChunks.split(text, minOf(3000, TextToSpeech.getMaxSpeechInputLength() - 1))

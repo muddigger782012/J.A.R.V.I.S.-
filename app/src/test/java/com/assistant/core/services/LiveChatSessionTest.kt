@@ -76,6 +76,22 @@ class LiveChatSessionTest {
         time = 220_000; assertFalse(session.recover(session.token)); assertFalse(session.active)
         assertFalse(session.interrupt())
     }
+    @Test fun contextInvalidatedBeforeSpeechRecoversListeningAndRejectsLateReply() {
+        val session = LiveChatSession()
+        session.start()
+        val original = session.listen()!!
+        assertTrue(session.transcript(original))
+        assertFalse(session.speechFinished(original)) // Still THINKING; no TTS started.
+        assertTrue(session.recover(original))
+        assertEquals(LiveChatSession.Phase.WAITING, session.phase)
+        assertFalse(session.response(original))
+        val next = session.listen()!!
+        assertTrue(session.transcript(next))
+        assertTrue(session.response(next))
+        assertTrue(session.speechFinished(next))
+        assertEquals(LiveChatSession.Phase.WAITING, session.phase)
+    }
+
     @Test fun replyTimeoutDistinguishesIdleExpiryRetryAndAStaleTimerWithoutLeavingAnActiveStoppedSession() {
         var time = 0L
         val session = LiveChatSession(now = { time })

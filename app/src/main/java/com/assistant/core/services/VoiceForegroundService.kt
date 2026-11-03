@@ -115,7 +115,23 @@ class VoiceForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_PUSH_TO_TALK -> {
-                if (liveChatActive || practiceToken != null) return START_NOT_STICKY
+                if (liveChatActive) {
+                    // The mic button must remain useful while Live Chat owns the recognizer.
+                    // Do not start a competing command recognizer or discard an active turn.
+                    if (liveSession.phase == LiveChatSession.Phase.LISTENING && liveCapture.isActive) {
+                        liveStatus(VoiceInteractionState.LISTENING, "Listening…")
+                    } else if (liveSession.interrupt()) {
+                        hybridAssistantService.cancelActiveResponse()
+                        liveCapture.stop()
+                        if (::voiceService.isInitialized) voiceService.stopSpeaking()
+                        liveHandler.removeCallbacksAndMessages(null)
+                        liveStatus(VoiceInteractionState.IDLE, "Microphone requested; listening again…")
+                        liveHandler.post(heartbeat)
+                        nextLiveTurn(150L)
+                    }
+                    return START_NOT_STICKY
+                }
+                if (practiceToken != null) return START_NOT_STICKY
                 startVoiceForeground("Starting command capture…")
                 try {
                     if (!::voiceService.isInitialized) { initializeEngine(); initializeVoice() }
@@ -315,8 +331,22 @@ class VoiceForegroundService : Service() {
             if (audible) "Speaking…" else "Reply ready. Listening again…")
         val turn = liveSession.token
         voiceService.speak(text, SpeechChannel.LIVE_CHAT, after = {
-            if (liveChatActive && liveSession.speechFinished(turn)) nextLiveTurn(650L)
+            // TTS completion may arrive on an engine callback thread. Serialize
+            // session transitions with the main-thread capture and watchdog.
+            liveHandler.post {
+                if (liveChatActive && liveSession.speechFinished(turn)) nextLiveTurn(650L)
+            }
         })
+        // Some TTS engines never report completion after an audio failure.
+        // Bound the speaking phase so Live Chat cannot remain muted indefinitely.
+        val speechTimeoutMillis = (text.length * 100L + 15_000L).coerceIn(30_000L, 120_000L)
+        liveHandler.postDelayed({
+            if (liveChatActive && liveSession.speechFinished(turn)) {
+                liveStatus(VoiceInteractionState.IDLE, "Speech completion timed out; listening again…")
+                voiceService.stopSpeaking()
+                nextLiveTurn(650L)
+            }
+        }, speechTimeoutMillis)
     }
 
     private fun nextLiveTurn(delay: Long) {
@@ -352,12 +382,20 @@ class VoiceForegroundService : Service() {
                             speakLiveReply("Live chat is already active.")
                         } else {
                             liveStatus(VoiceInteractionState.PROCESSING, "Thinking…")
-                            askAssistant(text) { reply ->
+                            askAssistant(contextualLiveInput(text)) { reply ->
                                 liveHandler.post {
-                                    if (liveChatActive && liveSession.response(turn)) {
-                                        if (reply.screenContextKey != null && screenAccess.taskState().contextKey != reply.screenContextKey) {
-                                            liveSession.speechFinished(); nextLiveTurn(650L); return@post
+                                    if (!liveChatActive || liveSession.token != turn ||
+                                        liveSession.phase != LiveChatSession.Phase.THINKING) return@post
+                                    // Check scope before transitioning to SPEAKING: recover() only
+                                    // accepts LISTENING or THINKING, not SPEAKING.
+                                    if (reply.screenContextKey != null && screenAccess.taskState().contextKey != reply.screenContextKey) {
+                                        if (liveSession.recover(turn)) {
+                                            liveStatus(VoiceInteractionState.IDLE, "Screen context changed; listening again…")
+                                            nextLiveTurn(650L)
                                         }
+                                        return@post
+                                    }
+                                    if (liveSession.response(turn)) {
                                         liveLine("J.A.R.V.I.S.: ${reply.text}")
                                         speakLiveReply(reply.text)
                                     }
@@ -387,7 +425,7 @@ class VoiceForegroundService : Service() {
                 }, onPhase = { phase ->
                     if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING)
                         liveStatus(phase, phase.userLabel())
-                }
+                }, minimumSpeechPauseMillis = 4000L
             )
         }, delay)
     }
@@ -561,6 +599,27 @@ class VoiceForegroundService : Service() {
         pendingClarification = null
         voicePreferences.setForegroundServiceRunning(false)
         publishEvent("Foreground voice service stopped.")
+    }
+
+    // Companion mode is opt-in to the live session, not command recognition.
+    // Short follow-ups inherit recent conversation context without changing the displayed transcript.
+    private fun contextualLiveInput(text: String): String {
+        if (text.length > 160 || !LiveChatCompanionSettings.load(this).contextEnabled) return text
+        val history = LiveChatStore.messages(this)
+        val recent = mutableListOf<String>()
+        for (i in history.length() - 1 downTo 0) {
+            val item = history.optJSONObject(i) ?: continue
+            if (item.optString("conversation") != liveConversation) continue
+            val line = item.optString("text")
+            if (line == "You: $text" && recent.isEmpty()) continue // current turn is already recorded
+            if (line.startsWith("You: ") || line.startsWith("J.A.R.V.I.S.: ")) recent.add(line.take(500))
+            if (recent.size == 6) break
+        }
+        if (recent.isEmpty()) return text
+        return "Continue this conversation naturally. Be personable, concise, and helpful. " +
+            "Do not repeatedly ask about preferred conversational style. " +
+            "Offer a relevant suggestion or question when useful, without inventing facts or actions.\\n" +
+            recent.asReversed().joinToString("\\n") + "\\nYou: " + text
     }
 
     private fun askAssistant(text: String, callback: (HybridAssistantReply) -> Unit) {
