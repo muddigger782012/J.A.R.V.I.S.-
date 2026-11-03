@@ -6,6 +6,12 @@ import java.security.MessageDigest
 
 /** Typed observations only. A probe is not a setting change, conversation or device action. */
 object AiConnectionDiagnostics {
+    /** Only explicit user commands trigger a network diagnostic; ordinary conversation never does. */
+    fun isExplicitGeminiTest(input: String): Boolean {
+        if (input.length > 160) return false
+        return Regex("^(?:(?:please|jarvis)[, ]+)?(?:test|check|verify|diagnose) (?:my |the )?gemini (?:api )?(?:connection|connectivity|access|key)(?:[.!?])?$", RegexOption.IGNORE_CASE)
+            .matches(input.trim())
+    }
     enum class Problem { NOT_CONFIGURED, INVALID_REQUEST, DNS, TLS, TIMEOUT, CONNECTION, AUTHENTICATION,
         ACCESS, MODEL, QUOTA, SERVICE, FORMAT, LIMIT, UNEXPECTED_REPLY, UNKNOWN }
     enum class Purpose { CONNECTION_TEST, CONVERSATION }
