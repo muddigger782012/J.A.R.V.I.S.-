@@ -98,11 +98,11 @@ class CompanionTrackActivity : MenuActivity("Companion Track", 0) {
             ResearchBriefs(PersonalStateFile(this, "research-brief.json")).status()
         }.getOrElse { "Research status unavailable." }
         section("RESEARCH", research)
-        val developmentDetails = section("DEVELOPMENT", "Checking linked Developer status…")
+        val developmentDetails = section("DEVELOPMENT", "Checking linked Developer jobs…")
         section("CONVERSATION", "Return to chat for instructions, approvals and voice interaction. Track never performs actions automatically.")
         // The bridge may require IPC; query it away from the Android main thread.
         Thread {
-            val status = runCatching { DeveloperBridgeOperations(applicationContext).status() }
+            val status = runCatching { DeveloperBridgeOperations(applicationContext).list() }
                 .getOrElse { "Developer status unavailable: ${it.message ?: "connection not ready"}" }
             runOnUiThread {
                 if (generation == refreshGeneration && !isFinishing && !isDestroyed) {
