@@ -1244,13 +1244,7 @@ class MainActivity : ThemedActivity() {
             panel.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
         }
         option("Companion Track", android.R.drawable.ic_menu_agenda) {
-            appendOutput("You: show track")
-            handleAssistantWithLocation("show track") { reply ->
-                runOnUiThread {
-                    appendOutput("J.A.R.V.I.S.: ${reply.text}")
-                    statusOutput.text = reply.text
-                }
-            }
+            startActivity(android.content.Intent(this, CompanionTrackActivity::class.java))
         }
         option("Camera", android.R.drawable.ic_menu_camera) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) captureAttachmentPhoto()
