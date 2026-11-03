@@ -94,8 +94,8 @@ class DeveloperGuidedUxTest {
         val activity = start()
         button(activity, "Settings").performClick(); button(activity, "Advanced tools").performClick()
         button(activity, "Connections and source browsing").performClick()
-        button(activity, "Analyze task and preview file plan (read-only)").performClick(); idle()
-        val feedback = views(activity).filterIsInstance<TextView>().single { it.text.toString() == "Describe a task on Home before analyzing it here." }
+        button(activity, "Analyze this task (read-only)").performClick(); idle()
+        val feedback = views(activity).filterIsInstance<TextView>().single { it.text.toString() == "Describe your task in the box above, then tap Analyze this task." }
         assertTrue(DeveloperUiState.descendants(views(activity).single { it.tag == "developer-page-4" }).any { it === feedback })
         assertTrue(views(activity).filterIsInstance<TextView>().any { it.text.toString() == "Your assistant’s response will appear here." })
     }
