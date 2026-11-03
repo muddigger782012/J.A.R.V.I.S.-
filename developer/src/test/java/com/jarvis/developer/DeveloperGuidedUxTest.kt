@@ -115,6 +115,18 @@ class DeveloperGuidedUxTest {
         assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
     }
 
+    @Test fun analyzedFileHandoffRequiresSuccessfulReadOnlyAnalysis() {
+        val activity = start()
+        val stage = button(activity, "Load analyzed files into code review")
+        assertEquals(View.GONE, stage.visibility)
+        assertFalse(stage.isEnabled)
+        field(activity, PROMPT).setText("Inspect the Developer Home workflow")
+        assertEquals(View.GONE, stage.visibility)
+        assertFalse(stage.isEnabled)
+        assertEquals("developer-page-0", page(activity))
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+    }
+
     @Test fun projectRestorationRetainsTheChosenAppAndInstructionsWithoutAnAiKey() {
         val activity = start()
         val target = views(activity).filterIsInstance<Spinner>().single { it.contentDescription == "Application to improve" }
