@@ -34,7 +34,8 @@ class LiveSpeechCapture(private val context: Context,
                onHypotheses: (List<Pair<String, Float>>) -> Unit = {},
                onEngine: (SpeechCaptureRouting.Engine) -> Unit = {},
                requestedEngine: SpeechCaptureRouting.Engine? = null,
-               onPhase: (VoiceInteractionState) -> Unit = {}) {
+               onPhase: (VoiceInteractionState) -> Unit = {},
+               minimumSpeechPauseMillis: Long = 0L) {
         stop()
         trace = VoiceSessionDiagnostics.begin()
         val strictDevice = onDeviceOnly || requestedEngine == SpeechCaptureRouting.Engine.ON_DEVICE
@@ -137,7 +138,7 @@ class LiveSpeechCapture(private val context: Context,
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                     // These documented hints are provider-dependent; watchdog behavior does not assume they work.
                     val pause = timing
-                        .getLong("speech_pause_millis", 2500L).coerceIn(1000L, 10_000L)
+                        .getLong("speech_pause_millis", 2500L).coerceAtLeast(minimumSpeechPauseMillis).coerceIn(1000L, 10_000L)
                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, pause)
                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, pause)
                     VoiceRecognitionHints.apply(context, this, useProfileHints)
