@@ -118,7 +118,7 @@ class VoiceForegroundService : Service() {
                 if (liveChatActive) {
                     // The mic button must remain useful while Live Chat owns the recognizer.
                     // Do not start a competing command recognizer or discard an active turn.
-                    if (liveSession.phase == LiveChatSession.Phase.LISTENING) {
+                    if (liveSession.phase == LiveChatSession.Phase.LISTENING && liveCapture.isActive) {
                         liveStatus(VoiceInteractionState.LISTENING, "Listening…")
                     } else if (liveSession.interrupt()) {
                         hybridAssistantService.cancelActiveResponse()
