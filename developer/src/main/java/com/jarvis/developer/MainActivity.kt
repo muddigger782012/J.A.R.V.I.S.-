@@ -187,11 +187,27 @@ class MainActivity : Activity() {
             contentDescription = "Open Activity to review analysis and proposed changes; no changes are approved automatically"
         }
         root.addView(reviewHomeAnalysis)
+        var fullHomeAnalysis: String? = null
+        val expandHomeAnalysis = Button(this).apply {
+            text = "Show full source findings"
+            isAllCaps = false
+            visibility = View.GONE
+        }
+        root.addView(expandHomeAnalysis)
+        expandHomeAnalysis.setOnClickListener {
+            val full = fullHomeAnalysis ?: return@setOnClickListener
+            val expanded = expandHomeAnalysis.text.toString() == "Show full source findings"
+            output.text = if (expanded) full else full.lineSequence().take(12).joinToString("\\n") +
+                "\\n\\nMore findings are available below."
+            expandHomeAnalysis.text = if (expanded) "Collapse source findings" else "Show full source findings"
+        }
         reviewHomeAnalysis.setOnClickListener { selectPage?.invoke(2) }
         prompt.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 reviewHomeAnalysis.isEnabled = false
+                fullHomeAnalysis = null
+                expandHomeAnalysis.visibility = View.GONE
             }
             override fun afterTextChanged(s: android.text.Editable?) = Unit
         })
@@ -203,6 +219,8 @@ class MainActivity : Activity() {
             }
             analyzeFromHome.isEnabled = false
             reviewHomeAnalysis.isEnabled = false
+            fullHomeAnalysis = null
+            expandHomeAnalysis.visibility = View.GONE
             output.text = "Inspecting repository sources for your request..."
             thread(name = "DeveloperHomeRepositoryAnalysis") {
                 val result = runCatching {
@@ -221,8 +239,19 @@ class MainActivity : Activity() {
                                 else -> "Repository analysis could not complete. Check your connection and retry."
                             } + " No files were changed."
                         }
-                        reviewHomeAnalysis.isEnabled = result.isSuccess &&
-                            prompt.text.toString().trim() == task
+                        val isCurrent = prompt.text.toString().trim() == task
+                        if (result.isSuccess && isCurrent) {
+                            fullHomeAnalysis = result.getOrNull()
+                            val full = fullHomeAnalysis.orEmpty()
+                            val lines = full.lineSequence().toList()
+                            if (lines.size > 12) {
+                                output.text = lines.take(12).joinToString("\\n") +
+                                    "\\n\\nMore findings are available below."
+                                expandHomeAnalysis.text = "Show full source findings"
+                                expandHomeAnalysis.visibility = View.VISIBLE
+                            }
+                        }
+                        reviewHomeAnalysis.isEnabled = result.isSuccess && isCurrent
                         analyzeFromHome.isEnabled = true
                     }
                 }
