@@ -118,6 +118,32 @@ internal object ProjectGenerationWorkbench {
                         if (context.verified) R.string.project_generation_context_ready else R.string.project_generation_context_unavailable, providerName) }
                     val text = services.ask(providerName, secret, modelName, instruction, run.cancellation, context)
                     run.cancellation.check()
+                    if (wantsPatch) {
+                        // Reject free-form prose and unsafe edits before saving a proposal.
+                        // This is validation only; publication still requires explicit approval.
+                        val proposal = runCatching { org.json.JSONObject(text.trim()) }.getOrElse {
+                            throw IllegalArgumentException("Code proposal must be a JSON object.")
+                        }
+                        require(proposal.optString("summary").isNotBlank()) { "Code proposal has no summary." }
+                        val edits = proposal.optJSONArray("edits")
+                            ?: throw IllegalArgumentException("Code proposal has no edits array.")
+                        require(edits.length() in 1..8) { "Code proposal must contain 1 to 8 files." }
+                        val seen = mutableSetOf<String>()
+                        for (i in 0 until edits.length()) {
+                            val edit = edits.optJSONObject(i)
+                                ?: throw IllegalArgumentException("Invalid code proposal edit.")
+                            val path = edit.optString("path")
+                            require(path.startsWith("developer/src/main/java/com/jarvis/developer/") ||
+                                path.startsWith("developer/src/test/java/com/jarvis/developer/")) {
+                                "Code proposal contains an out-of-scope path."
+                            }
+                            require(!path.contains("..") && !path.contains('\\\\') &&
+                                (path.endsWith(".kt") || path.endsWith(".java")) && seen.add(path)) {
+                                "Code proposal contains an unsafe or duplicate path."
+                            }
+                            require(edit.optString("content").isNotBlank()) { "Code proposal contains an empty file." }
+                        }
+                    }
                     nextDiscussion = discussion.append(task, text, secrets)
                     sourceSummary + "\n\n" + text
                 }
