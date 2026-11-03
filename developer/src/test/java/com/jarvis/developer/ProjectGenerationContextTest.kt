@@ -34,7 +34,7 @@ class ProjectGenerationContextTest {
         val plan = RepositoryAnalysis.analyze(task, inventory) { source }
         return RepositoryCodingContext.fromAnalysis(task, target, inventory, plan, mapOf(actualPath to source), listOf(secret, readToken))
     }
-    private inner class Screen(preferences: android.content.SharedPreferences? = null) : AutoCloseable {
+    private inner class Screen(preferences: android.content.SharedPreferences? = null, private val patchMode: Boolean = false) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -69,7 +69,7 @@ class ProjectGenerationContextTest {
                     val bytes = response.toString().toByteArray()
                     CodingAssistantProvider.PostResponse(200, bytes.size.toLong(), request.url, ByteArrayInputStream(bytes))
                 }, cancellation = stop).ask(provider, apiKey, selectedModel, task, context = context)
-            }), githubToken = { readToken }, forget = forget)
+            }), githubToken = { readToken }, forget = forget, requestPatch = { patchMode })
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = prefs.getString("project_context-project", "")!!
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
@@ -97,6 +97,16 @@ class ProjectGenerationContextTest {
             assertFalse(s.record().contains(secret)); assertFalse(s.record().contains(readToken))
             assertEquals(2, JSONObject(s.record()).getJSONObject("discussion").getJSONArray("turns").length())
             assertTrue(s.forget.isEnabled)
+        }
+    }
+
+    @Test fun patchModeRejectsUnavailableRepositoryBeforeCallingProvider() {
+        Screen(patchMode = true).use { s ->
+            s.reader = { task, target -> RepositoryCodingContext.unavailable(task, target) }
+            s.send.performClick(); s.complete()
+            assertTrue("Provider must not receive an unverified patch request", s.requests.isEmpty())
+            assertTrue(s.output.text.toString().contains("Repository source could not be verified."))
+            assertFalse(s.record().contains(secret))
         }
     }
 
