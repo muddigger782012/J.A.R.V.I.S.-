@@ -916,46 +916,36 @@ class MainActivity : Activity() {
         }
         listOf(key, model).forEach { it.addTextChangedListener(connectionChanges) }
         updateConnectionSetup()
-        val testConnection = Button(this).apply {
-            text = "Test AI connection"
-            isAllCaps = false
-        }
-        settings.addView(testConnection)
-        testConnection.setOnClickListener {
-            val selectedKey = key.text.toString().trim()
-            if (selectedKey.isBlank() || selectedKey.startsWith("gemini-") || selectedKey.startsWith("gpt-")) {
-                credentialStatus.text = "Enter an actual API key, not a model name."
-                return@setOnClickListener
-            }
-            val selectedProvider = provider.selectedItem.toString()
-            val selectedModel = model.text.toString().trim()
-            testConnection.isEnabled = false
-            updateConnectionSetup()
+        // Verify the saved provider automatically at startup. Connection status belongs in
+        // the existing Home status line, not behind a manual test button.
+        fun verifySavedConnection() {
+            val saved = ProviderCredentialStore.load(this@MainActivity) ?: return
+            val (savedProvider, savedKey, savedModel) = saved
+            if (savedKey.isBlank()) return
+            connectionVerification.select(savedProvider, savedKey, savedModel)
             val ticket = connectionVerification.begin()
             renderConnection()
-            credentialStatus.text = "Testing $selectedProvider connection..."
-            thread(name = "DeveloperConnectionTest") {
+            thread(name = "DeveloperAutomaticConnectionCheck") {
                 var successful = false
                 val message = try {
-                    CodingAssistantProvider.testConnection(selectedProvider, selectedKey, selectedModel) 
+                    CodingAssistantProvider.testConnection(savedProvider, savedKey, savedModel)
                     successful = true
-                    "$selectedProvider connection successful."
+                    "$savedProvider connection successful."
                 } catch (e: CodingAssistantProvider.ProviderFailure) {
                     e.message ?: "AI connection failed."
                 } catch (_: Exception) {
-                    "AI connection failed. Check provider and model."
+                    "AI connection failed. Check provider and model in Settings."
                 }
                 runOnUiThread {
-                    if (!isFinishing && !isDestroyed) {
-                        if (connectionVerification.finish(ticket, successful, message)) {
-                            credentialStatus.text = message
-                            renderConnection()
-                        }
-                        testConnection.isEnabled = true
+                    if (!isFinishing && !isDestroyed &&
+                        connectionVerification.finish(ticket, successful, message)) {
+                        credentialStatus.text = message
+                        renderConnection()
                     }
                 }
             }
         }
+        verifySavedConnection()
         val discoverModels = Button(this).apply {
             text = "Find models available to my API key"
             isAllCaps = false
@@ -1019,8 +1009,9 @@ class MainActivity : Activity() {
                 try {
                     ProviderCredentialStore.save(this, provider.selectedItem.toString(),
                         selectedKey, model.text.toString().trim())
-                    credentialStatus.text = "Connection saved securely. You can now start a project."
+                    credentialStatus.text = "Connection saved securely. Checking connection..."
                     updateConnectionSetup()
+                    verifySavedConnection()
                 } catch (_: Exception) {
                     credentialStatus.text = "Unable to save securely. Check device security settings."
                 }
