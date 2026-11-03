@@ -188,6 +188,16 @@ class MainActivity : Activity() {
         }
         root.addView(reviewHomeAnalysis)
         var fullHomeAnalysis: String? = null
+        var homeAnalysisPlan: RepositoryAnalysis.AnalysisPlan? = null
+        var stageHomeAnalysis: (() -> Unit)? = null
+        val stageHomeAnalysisButton = Button(this).apply {
+            text = "Load analyzed files into code review"
+            isAllCaps = false
+            isEnabled = false
+            visibility = View.GONE
+            setOnClickListener { stageHomeAnalysis?.invoke() }
+        }
+        root.addView(stageHomeAnalysisButton)
         var homeAnalysisRevision = 0L
         val expandHomeAnalysis = Button(this).apply {
             text = "Show full source findings"
@@ -210,6 +220,9 @@ class MainActivity : Activity() {
                 homeAnalysisRevision++
                 reviewHomeAnalysis.isEnabled = false
                 fullHomeAnalysis = null
+                homeAnalysisPlan = null
+                stageHomeAnalysisButton.isEnabled = false
+                stageHomeAnalysisButton.visibility = View.GONE
                 expandHomeAnalysis.visibility = View.GONE
             }
             override fun afterTextChanged(s: android.text.Editable?) = Unit
@@ -224,13 +237,16 @@ class MainActivity : Activity() {
             analyzeFromHome.isEnabled = false
             reviewHomeAnalysis.isEnabled = false
             fullHomeAnalysis = null
+            homeAnalysisPlan = null
+            stageHomeAnalysisButton.isEnabled = false
+            stageHomeAnalysisButton.visibility = View.GONE
             expandHomeAnalysis.visibility = View.GONE
             output.text = "Inspecting repository sources for your request..."
             thread(name = "DeveloperHomeRepositoryAnalysis") {
                 val result = runCatching {
                     val token = ProviderCredentialStore.loadGithub(this@MainActivity).orEmpty()
                     val (_, plan) = RepositoryIntelligence.analyzeSnapshot(token, task)
-                    RepositoryAnalysis.render(plan)
+                    plan to RepositoryAnalysis.render(plan)
                 }
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
@@ -240,7 +256,7 @@ class MainActivity : Activity() {
                             analyzeFromHome.isEnabled = true
                             return@runOnUiThread
                         }
-                        output.text = result.getOrElse { error ->
+                        output.text = result.fold(onSuccess = { it.second }, onFailure = { error ->
                             val message = error.message.orEmpty()
                             when {
                                 "401" in message -> "GitHub authentication failed. Check your saved connection."
@@ -248,10 +264,13 @@ class MainActivity : Activity() {
                                 "404" in message -> "Repository or branch unavailable."
                                 else -> "Repository analysis could not complete. Check your connection and retry."
                             } + " No files were changed."
-                        }
+                        })
                         val isCurrent = prompt.text.toString().trim() == task
                         if (result.isSuccess && isCurrent) {
-                            fullHomeAnalysis = result.getOrNull()
+                            homeAnalysisPlan = result.getOrNull()?.first
+                            stageHomeAnalysisButton.isEnabled = homeAnalysisPlan?.files?.isNotEmpty() == true
+                            stageHomeAnalysisButton.visibility = if (stageHomeAnalysisButton.isEnabled) View.VISIBLE else View.GONE
+                            fullHomeAnalysis = result.getOrNull()?.second
                             val full = fullHomeAnalysis.orEmpty()
                             val lines = full.lineSequence().toList()
                             if (lines.size > 12) {
@@ -1218,6 +1237,23 @@ class MainActivity : Activity() {
         }
         root.addView(homeCodeReviewToggle)
         root.addView(homeCodeReview)
+        stageHomeAnalysis = {
+            val plan = homeAnalysisPlan
+            if (plan != null && plan.task == prompt.text.toString().trim() &&
+                plan.files.isNotEmpty() && plan.files.size <= RepositoryAnalysis.MAX_PLANNED_FILES) {
+                val loaded = patchWorkbench.prepareGuided(
+                    "analysis-" + plan.analysisId.take(16), plan.task,
+                    plan.files.map { it.path }, plan.commitSha, PatchEngine.Target.DEVELOPER)
+                if (loaded) {
+                    homeCodeReview.visibility = View.VISIBLE
+                    homeCodeReviewToggle.text = "Close inline code review"
+                    stageHomeAnalysisButton.isEnabled = false
+                    output.text = "Analyzed source paths loaded into the scoped coding engine. Generate a fresh diff and review it before approving any changes."
+                } else {
+                    output.text = "Code review is busy or rejected the analyzed scope. No files were modified."
+                }
+            }
+        }
         openInlineReview = {
             homeCodeReview.visibility = View.VISIBLE
             homeCodeReviewToggle.text = "Close inline code review"
