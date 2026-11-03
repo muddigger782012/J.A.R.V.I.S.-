@@ -104,6 +104,12 @@ internal object ProjectGenerationWorkbench {
                     val source = try { services.context(lookupTask, productTarget, readToken, secret, run.cancellation) }
                         catch (_: Exception) { run.cancellation.check(); RepositoryCodingContext.unavailable(lookupTask, productTarget) }
                     run.cancellation.check()
+                    // A patch must be grounded in verified repository contents. A missing
+                    // GitHub token, failed source read, or unavailable branch must never
+                    // silently turn a code-change request into an ungrounded AI proposal.
+                    if (wantsPatch && !source.verified) {
+                        throw IllegalStateException("Repository source could not be verified. Connect GitHub and retry before requesting code changes.")
+                    }
                     val context = source.withDiscussion(instruction, discussion)
                     require(context.target == productTarget)
                     context.data(instruction) // Context must bind to the exact provider request, including patch-mode instructions.
@@ -133,7 +139,8 @@ internal object ProjectGenerationWorkbench {
                             val reason = when (failure) {
                                 is CodingAssistantProvider.ProviderFailure -> failure.message.orEmpty()
                                 is IllegalArgumentException -> "AI request or response format validation failed. Check the selected model and request limits."
-                                is IllegalStateException -> "AI response processing failed. Check model compatibility and output limits."
+                                is IllegalStateException -> failure.message?.takeIf { it.startsWith("Repository source could not be verified.") }
+                                    ?: "AI response processing failed. Check model compatibility and output limits."
                                 else -> activity.getString(R.string.project_generation_check_connection)
                             }
                             val detail = if (sourceSummary.isBlank()) reason else sourceSummary + "\n\n" + reason
