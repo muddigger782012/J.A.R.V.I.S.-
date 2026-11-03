@@ -333,6 +333,16 @@ class VoiceForegroundService : Service() {
         voiceService.speak(text, SpeechChannel.LIVE_CHAT, after = {
             if (liveChatActive && liveSession.speechFinished(turn)) nextLiveTurn(650L)
         })
+        // Some TTS engines never report completion after an audio failure.
+        // Bound the speaking phase so Live Chat cannot remain muted indefinitely.
+        val speechTimeoutMillis = (text.length * 100L + 15_000L).coerceIn(30_000L, 120_000L)
+        liveHandler.postDelayed({
+            if (liveChatActive && liveSession.speechFinished(turn)) {
+                liveStatus(VoiceInteractionState.IDLE, "Speech completion timed out; listening again…")
+                voiceService.stopSpeaking()
+                nextLiveTurn(650L)
+            }
+        }, speechTimeoutMillis)
     }
 
     private fun nextLiveTurn(delay: Long) {
