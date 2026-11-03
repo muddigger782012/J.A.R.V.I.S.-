@@ -19,9 +19,9 @@ internal object DeveloperUpdateRelease {
     const val APK = "https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/developer-latest/Jarvis-Developer.apk"
     const val PACKAGE = "com.jarvis.developer"
     const val SIGNER = "93a2f2031692f947440f4cfd874a166609cd2735eeda28e60904da64e8245790"
-    const val MAX_APK = 64L * 1024 * 1024
+    const val MAX_APK = 256L * 1024 * 1024
     const val MAX_METADATA = 256L * 1024
-    const val MAX_MILLIS = 180_000L
+    const val MAX_MILLIS = 600_000L
     data class Release(val releaseId: Long, val assetId: Long, val source: String, val version: Long,
         val bytes: Long, val sha256: String) {
         val versionName: String get() = "0.1.$version"
