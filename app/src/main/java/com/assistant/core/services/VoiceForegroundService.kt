@@ -421,7 +421,7 @@ class VoiceForegroundService : Service() {
                 }, onPhase = { phase ->
                     if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING)
                         liveStatus(phase, phase.userLabel())
-                }
+                }, minimumSpeechPauseMillis = 4000L
             )
         }, delay)
     }
