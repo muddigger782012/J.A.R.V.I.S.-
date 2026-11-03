@@ -15,6 +15,7 @@ import com.google.android.material.button.MaterialButton
 /** Read-only Companion dashboard. No implicit approval, job execution or network calls on the UI thread. */
 class CompanionTrackActivity : MenuActivity("Companion Track", 0) {
     private lateinit var content: LinearLayout
+    private var refreshGeneration = 0
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,23 +51,26 @@ class CompanionTrackActivity : MenuActivity("Companion Track", 0) {
 
     override fun onResume() { super.onResume(); if (::content.isInitialized) refresh() }
 
-    private fun section(title: String, details: String) {
+    private fun section(title: String, details: String): TextView {
         content.addView(TextView(this).apply {
             text = title
             textSize = 18f
             setTextColor(ThemePreferences.color(this@CompanionTrackActivity, R.color.jarvis_primary))
             setPadding(0, dp(16), 0, dp(4))
         })
-        content.addView(TextView(this).apply {
+        val detailsView = TextView(this).apply {
             text = details
             textSize = 15f
             setTextColor(ThemePreferences.color(this@CompanionTrackActivity, R.color.jarvis_on_dark))
             setTextIsSelectable(true)
             setPadding(0, 0, 0, dp(8))
-        })
+        }
+        content.addView(detailsView)
+        return detailsView
     }
 
     private fun refresh() {
+        val generation = ++refreshGeneration
         content.removeAllViews()
         val goals = GoalPlanStore(this)
         val pending = runCatching { goals.pending() }.getOrNull()
@@ -80,18 +84,15 @@ class CompanionTrackActivity : MenuActivity("Companion Track", 0) {
             ResearchBriefs(PersonalStateFile(this, "research-brief.json")).status()
         }.getOrElse { "Research status unavailable." }
         section("RESEARCH", research)
-        section("DEVELOPMENT", "Checking linked Developer status…")
+        val developmentDetails = section("DEVELOPMENT", "Checking linked Developer status…")
         section("CONVERSATION", "Return to chat for instructions, approvals and voice interaction. Track never performs actions automatically.")
         // The bridge may require IPC; query it away from the Android main thread.
         Thread {
             val status = runCatching { DeveloperBridgeOperations(applicationContext).status() }
                 .getOrElse { "Developer status unavailable: ${it.message ?: "connection not ready"}" }
             runOnUiThread {
-                if (!isFinishing && !isDestroyed) {
-                    val index = content.indexOfChild(content.getChildAt(4))
-                    if (index >= 0 && content.childCount > index + 1) {
-                        (content.getChildAt(index + 1) as? TextView)?.text = status.take(3000)
-                    }
+                if (generation == refreshGeneration && !isFinishing && !isDestroyed) {
+                    developmentDetails.text = status.take(3000)
                 }
             }
         }.start()
