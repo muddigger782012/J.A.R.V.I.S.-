@@ -25,6 +25,7 @@ jobs:
         run: |
           mkdir -p app/libs
           curl -fL --retry 3 -o app/libs/sherpa-onnx-1.13.8.aar https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
+      # Keep validation on each repair commit before distributing a test APK.
       - name: Compile debug and run JVM unit tests
         run: |
           chmod +x gradlew
