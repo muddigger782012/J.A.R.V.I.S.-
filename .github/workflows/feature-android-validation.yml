@@ -2,6 +2,7 @@ name: Jarvis feature branch Android validation
 on:
   push:
     branches:
+      - main
       - improve/grounded-technical-search
       - fix/voice-default-tts-fallback-20261102
   workflow_dispatch:
