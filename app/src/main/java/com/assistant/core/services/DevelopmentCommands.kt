@@ -13,7 +13,7 @@ object DevelopmentCommands {
 
     fun parse(input: String): Kind? {
         if (submission(input) != null) return Kind.SUBMIT
-        val text = input.lowercase(java.util.Locale.ROOT).replace('’', '\'').trim().trimEnd('.', '?', '!').replace(Regex("\s+"), " ")
+        val text = input.lowercase(java.util.Locale.ROOT).replace('’', '\'').trim().trimEnd('.', '?', '!').replace(Regex("""\s+"""), " ")
         if (apkReview.matches(text)) return Kind.REVIEW_APK
         if (apkInstall.matches(text)) return Kind.INSTALL_APK
         if (installedCheck.matches(text)) return Kind.CHECK_INSTALLED_APK
