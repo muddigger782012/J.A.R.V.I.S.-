@@ -1249,17 +1249,24 @@ class MainActivity : Activity() {
             val plan = homeAnalysisPlan
             if (plan != null && plan.task == prompt.text.toString().trim() &&
                 plan.files.isNotEmpty() && plan.files.size <= RepositoryAnalysis.MAX_PLANNED_FILES) {
-                val loaded = patchWorkbench.prepareGuided(
+                // Lexical analysis can select documentation, protected files, or other paths
+                // outside the explicitly scoped patch engine. Never send those paths to
+                // the coding provider or weaken PatchEngine.allowedPath to accommodate them.
+                val eligiblePaths = plan.files.map { it.path }.distinct().filter {
+                    PatchEngine.allowedPath(it, PatchEngine.Target.DEVELOPER)
+                }.take(PatchEngine.MAX_FILES)
+                val excludedCount = plan.files.size - eligiblePaths.size
+                val loaded = eligiblePaths.isNotEmpty() && patchWorkbench.prepareGuided(
                     "analysis-" + plan.analysisId.take(16), plan.task,
-                    plan.files.map { it.path }, plan.commitSha, PatchEngine.Target.DEVELOPER)
+                    eligiblePaths, plan.commitSha, PatchEngine.Target.DEVELOPER)
                 if (loaded) {
                     homeCodeReview.visibility = View.VISIBLE
                     homeCodeReviewToggle.text = "Close inline code review"
                     stageHomeAnalysisButton.isEnabled = false
-                    homeHandoffStatus.text = "Loaded ${plan.files.size} analyzed source files at ${plan.commitSha.take(12)}. Generate a fresh diff and explicitly approve it before any write."
+                    homeHandoffStatus.text = "Loaded ${eligiblePaths.size} editable source files at ${plan.commitSha.take(12)}; ${excludedCount} analysis-only paths excluded. Generate a fresh diff and explicitly approve it before any write."
                     homeHandoffStatus.visibility = View.VISIBLE
                 } else {
-                    homeHandoffStatus.text = "Code review is busy or rejected the analyzed scope. No files were modified."
+                    homeHandoffStatus.text = if (eligiblePaths.isEmpty()) "Analysis found no files eligible for the protected coding scope. Refine the task to Developer Kotlin, Java, or supported XML source. No files were modified." else "Code review could not stage ${eligiblePaths.size} eligible files (workbench busy or source validation rejected). No files were modified."
                     homeHandoffStatus.visibility = View.VISIBLE
                 }
             }
