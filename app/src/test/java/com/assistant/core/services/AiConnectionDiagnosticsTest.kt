@@ -8,6 +8,18 @@ class AiConnectionDiagnosticsTest {
     private fun response(text: String) = JSONObject().put("candidates", org.json.JSONArray().put(JSONObject()
         .put("content", JSONObject().put("parts", org.json.JSONArray().put(JSONObject().put("text", text))))))
 
+    @Test fun explicitGeminiConnectionCommandsAreRoutedWithoutConsumingOtherRequests() {
+        for (phrase in listOf("Test Gemini connection", "please check my Gemini API key",
+            "Jarvis, verify the Gemini connection!", "diagnose gemini connectivity")) {
+            assertTrue(phrase, AiConnectionDiagnostics.isExplicitGeminiTest(phrase))
+        }
+        for (phrase in listOf("Tell me about Gemini", "test the weather connection",
+            "test Gemini connection and delete my settings", "What is Gemini?",
+            "check OpenAI connection", "test Gemini connection then send a message")) {
+            assertFalse(phrase, AiConnectionDiagnostics.isExplicitGeminiTest(phrase))
+        }
+    }
+
     @Test fun generationIsVerifiedIndependentlyWhenCatalogAccessIsDeniedOrSelectedModelIsAbsent() {
         var generated = 0
         for (catalog in listOf(
