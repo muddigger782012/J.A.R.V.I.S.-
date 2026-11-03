@@ -42,6 +42,20 @@ class CompanionTrackActivity : MenuActivity("Companion Track", 0) {
             isAllCaps = false
             setOnClickListener { refresh() }
         }, LinearLayout.LayoutParams(-1, -2))
+        root.addView(MaterialButton(this).apply {
+            text = "Open Jarvis Developer"
+            isAllCaps = false
+            setOnClickListener {
+                val launch = packageManager.getLaunchIntentForPackage("com.jarvis.developer")
+                if (launch != null) {
+                    startActivity(launch)
+                } else {
+                    android.widget.Toast.makeText(this@CompanionTrackActivity,
+                        "Jarvis Developer is not installed or cannot be opened.",
+                        android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }, LinearLayout.LayoutParams(-1, -2))
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(ScrollView(this).apply { addView(content) },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
