@@ -1,11 +1,18 @@
 package com.assistant.core.services
 
 object DevelopmentCommands {
-    enum class Kind { CAPABILITIES, STATUS, LIST, REVIEW_RUNTIME, ANALYZE_PERSONAL, ANALYZE_DEVELOPER, RETRY_PENDING, CANCEL, PAUSE, RESUME, RETRY, REVIEW_APK, INSTALL_APK, APPROVE_INSTALL_APK, CANCEL_INSTALL_APK, CHECK_INSTALLED_APK }
+    enum class Kind { SUBMIT, CAPABILITIES, STATUS, LIST, REVIEW_RUNTIME, ANALYZE_PERSONAL, ANALYZE_DEVELOPER, RETRY_PENDING, CANCEL, PAUSE, RESUME, RETRY, REVIEW_APK, INSTALL_APK, APPROVE_INSTALL_APK, CANCEL_INSTALL_APK, CHECK_INSTALLED_APK }
     private val apkReview = Regex("""^(?:(?:please|can you|could you|would you) )?(?:(?:open|show)(?: me)? (?:the )?(?:verified )?apk review(?: in developer| for (?:the |my )?development (?:job|task))?|review (?:the |my |this )?(?:verified )?apk (?:from developer|developer (?:just )?built)|open developer(?:'s)? apk review)$""")
     private val apkInstall = Regex("""^(?:(?:please|can you|could you|would you) )?install (?:the |my |this )?(?:latest |verified )?apk (?:that )?developer (?:just )?built$""")
     private val installedCheck = Regex("""^(?:(?:please|can you|could you|would you) )?(?:(?:check|recheck|verify) (?:the |my |this )?apk (?:that )?developer (?:just )?installed|(?:run|repeat) (?:the )?installed apk checks)$""")
+    fun submission(input: String): String? {
+        val body = Regex("""(?is)^\\s*(?:developer task|development request):\\s*(.+?)\\s*$""")
+            .matchEntire(input)?.groupValues?.get(1)?.trim() ?: return null
+        return body.takeIf { it.length in 12..1500 && it.none { ch -> ch == '\\u0000' } }
+    }
+
     fun parse(input: String): Kind? {
+        if (submission(input) != null) return Kind.SUBMIT
         val text = input.lowercase(java.util.Locale.ROOT).replace('’', '\'').trim().trimEnd('.', '?', '!').replace(Regex("\\s+"), " ")
         if (apkReview.matches(text)) return Kind.REVIEW_APK
         if (apkInstall.matches(text)) return Kind.INSTALL_APK
