@@ -198,6 +198,12 @@ class MainActivity : Activity() {
             setOnClickListener { stageHomeAnalysis?.invoke() }
         }
         root.addView(stageHomeAnalysisButton)
+        val homeHandoffStatus = TextView(this).apply {
+            tag = "home-analysis-handoff-status"
+            setTextColor(getColor(R.color.developer_secondary))
+            visibility = View.GONE
+        }
+        root.addView(homeHandoffStatus)
         var homeAnalysisRevision = 0L
         val expandHomeAnalysis = Button(this).apply {
             text = "Show full source findings"
@@ -223,6 +229,7 @@ class MainActivity : Activity() {
                 homeAnalysisPlan = null
                 stageHomeAnalysisButton.isEnabled = false
                 stageHomeAnalysisButton.visibility = View.GONE
+                homeHandoffStatus.visibility = View.GONE
                 expandHomeAnalysis.visibility = View.GONE
             }
             override fun afterTextChanged(s: android.text.Editable?) = Unit
@@ -240,6 +247,7 @@ class MainActivity : Activity() {
             homeAnalysisPlan = null
             stageHomeAnalysisButton.isEnabled = false
             stageHomeAnalysisButton.visibility = View.GONE
+            homeHandoffStatus.visibility = View.GONE
             expandHomeAnalysis.visibility = View.GONE
             output.text = "Inspecting repository sources for your request..."
             thread(name = "DeveloperHomeRepositoryAnalysis") {
@@ -1248,9 +1256,11 @@ class MainActivity : Activity() {
                     homeCodeReview.visibility = View.VISIBLE
                     homeCodeReviewToggle.text = "Close inline code review"
                     stageHomeAnalysisButton.isEnabled = false
-                    output.text = "Analyzed source paths loaded into the scoped coding engine. Generate a fresh diff and review it before approving any changes."
+                    homeHandoffStatus.text = "Loaded ${plan.files.size} analyzed source files at ${plan.commitSha.take(12)}. Generate a fresh diff and explicitly approve it before any write."
+                    homeHandoffStatus.visibility = View.VISIBLE
                 } else {
-                    output.text = "Code review is busy or rejected the analyzed scope. No files were modified."
+                    homeHandoffStatus.text = "Code review is busy or rejected the analyzed scope. No files were modified."
+                    homeHandoffStatus.visibility = View.VISIBLE
                 }
             }
         }
