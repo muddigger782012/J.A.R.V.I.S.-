@@ -74,6 +74,17 @@ class DeveloperGuidedUxTest {
         assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
     }
 
+    @Test fun homeReviewShortcutRemainsLockedUntilAnalysisCompletes() {
+        val activity = start()
+        val review = button(activity, "Review analysis in Activity")
+        assertFalse(review.isEnabled)
+        field(activity, PROMPT).setText("Inspect the repository parser")
+        assertFalse(review.isEnabled)
+        button(activity, "Analyze repository request (read-only)").isEnabled.let { assertTrue(it) }
+        assertEquals("developer-page-0", page(activity))
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+    }
+
     @Test fun projectRestorationRetainsTheChosenAppAndInstructionsWithoutAnAiKey() {
         val activity = start()
         val target = views(activity).filterIsInstance<Spinner>().single { it.contentDescription == "Application to improve" }
