@@ -137,7 +137,7 @@ internal object ProjectGenerationWorkbench {
                                 path.startsWith("developer/src/test/java/com/jarvis/developer/")) {
                                 "Code proposal contains an out-of-scope path."
                             }
-                            require(!path.contains("..") && !path.contains('\\\\') &&
+                            require(!path.contains("..") && !path.contains(92.toChar()) &&
                                 (path.endsWith(".kt") || path.endsWith(".java")) && seen.add(path)) {
                                 "Code proposal contains an unsafe or duplicate path."
                             }
