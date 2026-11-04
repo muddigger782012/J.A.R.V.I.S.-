@@ -119,7 +119,9 @@ class VoiceForegroundService : Service() {
                     // The service, not the Activity's potentially stale label,
                     // determines what a mic tap does. Finish an active utterance;
                     // otherwise interrupt pending TTS/replies and rearm capture.
-                    when (liveSession.microphoneTapped(liveCapture.isActive)) {
+                    // A recognizer awaiting its final transcript is still active but a
+                    // second finish() would be ignored. Treat that tap as recovery.
+                    when (liveSession.microphoneTapped(liveCapture.isActive && !liveCapture.isFinishing)) {
                         LiveChatSession.MicrophoneTap.FINISH_CAPTURE -> {
                             liveCapture.finish()
                             liveStatus(VoiceInteractionState.TRANSCRIBING, "Finishing voice input…")

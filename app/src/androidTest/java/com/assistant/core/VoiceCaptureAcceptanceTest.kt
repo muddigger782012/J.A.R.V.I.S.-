@@ -128,6 +128,44 @@ class VoiceCaptureAcceptanceTest {
         }
     }
 
+    @Test fun aSecondMicTapRecoversFromFinishingAndRejectsTheOldTranscript() {
+        instrumentation.runOnMainSync {
+            val engines = Engines()
+            val capture = LiveSpeechCapture(context, engines)
+            val heard = mutableListOf<String>()
+            try {
+                // LiveChatSession's token transitions are covered by JVM tests.
+                // Exercise the real Android capture boundary here; minified
+                // voiceCheck APKs can rewrite Kotlin default constructors.
+                capture.listen(true, {}, heard::add, { fail("Unexpected initial capture error $it") })
+                val stale = engines.sessions.single()
+                assertTrue(capture.isActive)
+                assertFalse(capture.isFinishing)
+                capture.finish()
+                assertTrue(stale.finished)
+                assertTrue(capture.isActive)
+                assertTrue(capture.isFinishing)
+
+                // A second mic tap observes isFinishing and chooses restart,
+                // rather than silently repeating stopListening().
+                capture.stop()
+                assertFalse(capture.isFinishing)
+                assertFalse(capture.isActive)
+                assertTrue(stale.cancelled && stale.destroyed)
+                stale.listener.onResults(results("stale private speech"))
+                assertTrue(heard.isEmpty())
+
+                capture.listen(true, {}, heard::add, { fail("Unexpected restarted capture error $it") })
+                val restarted = engines.sessions.last()
+                assertFalse(capture.isFinishing)
+                assertTrue(capture.isActive)
+                restarted.listener.onResults(results("new voice command"))
+                assertEquals(listOf("new voice command"), heard)
+                assertFalse(capture.isActive)
+            } finally { capture.stop() }
+        }
+    }
+
     @Test fun offlineCaptureWorksWithoutASystemProviderAndKeepsTranscriptScoresPaired() {
         instrumentation.runOnMainSync {
             val platform = Engines(system = false)
