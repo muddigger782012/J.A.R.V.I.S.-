@@ -224,8 +224,8 @@ def inspect_apk(path, source_sha, signed=True, command=fixed_command):
                 apkSha256=hashlib.sha256(data).hexdigest(), apkBytes=len(data), signerSha256=signer)
 
 
-def release_apk(api, tag, directory):
-    release = api.get(f"/repos/{REPO}/releases/tags/{tag}", missing=True)
+def release_apk(api, tag, directory, *, metadata=None):
+    release = metadata if metadata is not None else api.get(f"/repos/{REPO}/releases/tags/{tag}", missing=True)
     if release is None:
         return None
     source = release.get("target_commitish", "")
@@ -310,18 +310,139 @@ def validate_content(path, content):
             require(not PROTECTED_RESOURCE.search(name), "Protected resource value forbidden")
 
 
-def previous_tag(api, baseline_sha):
-    ref = api.get(f"/repos/{REPO}/git/ref/tags/developer-previous", missing=True)
+def recovery_tags(baseline):
+    require(isinstance(baseline, dict), "Expected baseline artifact facts")
+    source, digest = baseline.get("sourceCommitSha", ""), baseline.get("apkSha256", "")
+    require(isinstance(source, str) and SHA.fullmatch(source) and isinstance(digest, str) and HASH.fullmatch(digest),
+            "Invalid recovery source or APK digest")
+    stem = "developer-recovery-" + source
+    return (stem + "-" + digest, stem, "developer-previous")
+
+
+def recovery_tag_source(api, tag):
+    require(tag == "developer-previous" or re.fullmatch(r"developer-recovery-[a-f0-9]{40}(?:-[a-f0-9]{64})?", tag),
+            "Unexpected recovery tag")
+    ref = api.get(f"/repos/{REPO}/git/ref/tags/{tag}", missing=True)
     if ref is None:
-        return False
+        return None
+    require(isinstance(ref, dict) and ref.get("ref") == "refs/tags/" + tag, "Recovery tag identity differs")
     target = ref.get("object", {})
+    require(isinstance(target, dict), "Invalid recovery tag target")
+    if tag != "developer-previous":
+        require(target.get("type") == "commit", "Immutable recovery must directly identify its source")
     for _ in range(3):
+        require(isinstance(target, dict) and isinstance(target.get("sha"), str) and SHA.fullmatch(target["sha"]),
+                "Invalid recovery tag target")
         if target.get("type") == "commit":
-            return target.get("sha") == baseline_sha
-        if target.get("type") != "tag" or not SHA.fullmatch(target.get("sha", "")):
-            return False
-        target = api.get(f"/repos/{REPO}/git/tags/{target['sha']}").get("object", {})
-    return False
+            return target["sha"]
+        require(target.get("type") == "tag", "Invalid recovery tag type")
+        annotated = api.get(f"/repos/{REPO}/git/tags/{target['sha']}")
+        require(isinstance(annotated, dict), "Invalid annotated recovery tag")
+        target = annotated.get("object", {})
+    raise AuditFailure("Recovery tag indirection exceeds its budget")
+
+
+def previous_tag(api, baseline_sha):
+    # Preserve the legacy predicate for callers; the selector below also supports immutable snapshots.
+    try:
+        return recovery_tag_source(api, "developer-previous") == baseline_sha
+    except AuditFailure:
+        return False
+
+
+def recovery_identity(metadata, tag):
+    require(isinstance(metadata, dict) and metadata.get("tag_name") == tag and
+            metadata.get("draft") is False and metadata.get("prerelease") is True and
+            type(metadata.get("id")) is int and metadata["id"] > 0, "Invalid published recovery identity")
+    source = metadata.get("target_commitish")
+    require(isinstance(source, str) and SHA.fullmatch(source), "Recovery source must be immutable")
+    items = metadata.get("assets")
+    require(isinstance(items, list) and all(isinstance(a, dict) for a in items), "Invalid recovery assets")
+    assets = [a for a in items if a.get("name") == "Jarvis-Developer.apk"]
+    require(len(assets) == 1 and type(assets[0].get("id")) is int and assets[0]["id"] > 0 and
+            type(assets[0].get("size")) is int and 0 < assets[0]["size"] <= MAX_APK, "Invalid recovery APK identity")
+    asset = assets[0]
+    digest = asset.get("digest")
+    require(digest is None or isinstance(digest, str) and re.fullmatch(r"sha256:[a-f0-9]{64}", digest),
+            "Invalid recovery APK digest")
+    if tag != "developer-previous":
+        require(digest is not None, "Immutable recovery requires its APK digest")
+    return (metadata["id"], tag, source, asset["id"], asset["size"], digest)
+
+
+def inspect_recovery_copy(api, baseline, tag, directory):
+    """GET-only snapshot proof. Does not establish that a moving latest channel is still this baseline."""
+    require(tag in recovery_tags(baseline), "Recovery copy is outside the bounded baseline lookup")
+    metadata = api.get(f"/repos/{REPO}/releases/tags/{tag}", missing=True)
+    if metadata is None:
+        return None
+    before = recovery_identity(metadata, tag)
+    source = recovery_tag_source(api, tag)
+    require(source == metadata["target_commitish"], "Recovery ref and recorded source differ")
+    if tag != "developer-previous":
+        require(source == baseline["sourceCommitSha"], "Immutable snapshot source differs from its name")
+    facts = release_apk(api, tag, directory, metadata=metadata)
+    if not same_backup(baseline, facts):
+        require(tag != recovery_tags(baseline)[0], "Digest-qualified recovery differs from its named APK")
+        return dict(**facts, verified=False)
+    after = api.get(f"/repos/{REPO}/releases/tags/{tag}")
+    require(recovery_identity(after, tag) == before and recovery_tag_source(api, tag) == source,
+            "Recovery release or source changed during inspection")
+    return dict(**facts, verified=True)
+
+
+def verified_backup(api, baseline, directory):
+    """Prefer exact immutable copies; preserve legacy backups and every existing promotion gate."""
+    observed = None
+    for tag in recovery_tags(baseline):
+        copy = inspect_recovery_copy(api, baseline, tag, directory)
+        if copy is None:
+            continue
+        observed = copy
+        if copy["verified"]:
+            current = release_apk(api, "developer-latest", directory)
+            require(same_backup(baseline, current), "Published baseline changed during recovery inspection")
+            return copy
+    return observed
+
+
+def audit_recovery(args):
+    """Read-only discovery and optional historical-copy verification; never evaluates promotion."""
+    reference_source = args.reference_source
+    reference_hash = args.reference_apk_sha256
+    require(bool(reference_source) == bool(reference_hash), "Reference source and APK digest must be supplied together")
+    if reference_source:
+        require(SHA.fullmatch(reference_source) and HASH.fullmatch(reference_hash), "Invalid reference source or APK digest")
+    controller = git(["rev-parse", "HEAD"], args.controller)
+    require(SHA.fullmatch(controller), "Invalid read-only controller source")
+    if os.environ.get("GITHUB_SHA"):
+        require(controller == os.environ["GITHUB_SHA"] and os.environ.get("GITHUB_REPOSITORY") == REPO,
+                "Read-only checkout differs from workflow source")
+    root = Path(args.directory); root.mkdir(parents=True, exist_ok=True)
+    api = GitHubRead(os.environ["GH_TOKEN"])
+    baseline = release_apk(api, "developer-latest", root)
+    require(baseline is not None, "No published baseline to inspect")
+    observed = None
+    try:
+        observed = verified_backup(api, baseline, root)
+        current_status = "VERIFIED" if observed and observed["verified"] else "BLOCKED"
+    except AuditFailure:
+        current_status = "BLOCKED"
+    result = dict(schemaVersion=1, scope="READ_ONLY_RECOVERY_DISCOVERY", controllerCommitSha=controller,
+                  status="PASSED", baseline=baseline, currentBackup=dict(status=current_status, facts=observed),
+                  promotionEligibility="NOT_ASSESSED", mutationPerformed=False, signingPerformed=False,
+                  installationPerformed=False)
+    if reference_source:
+        tag = "developer-recovery-" + reference_source
+        reference = release_apk(api, tag, root)
+        require(reference is not None and reference["sourceCommitSha"] == reference_source and
+                reference["apkSha256"] == reference_hash, "Historical reference does not match approved source and bytes")
+        copy = inspect_recovery_copy(api, reference, tag, root)
+        require(copy and copy["verified"], "Historical reference snapshot could not be verified")
+        result["historicalReference"] = dict(facts=copy, currentBaselineClaim=False)
+    require(same_backup(baseline, release_apk(api, "developer-latest", root)), "Published baseline changed during read-only audit")
+    write_json(root / "recovery-discovery.json", result)
+    print("Read-only recovery discovery completed; promotion eligibility was not assessed. No release/source writes, signing or installation were performed.")
 
 
 def resolve(args):
@@ -496,11 +617,9 @@ def sign(args):
     checkpoint("source-scope")
     source = validate_source(args.controller, candidate_sha, candidate_branch, baseline["sourceCommitSha"])
     backup = None
-    checkpoint("previous-backup")
+    checkpoint("verified-release-backup")
     try:
-        prior = release_apk(api, "developer-previous", output)
-        if prior is not None:
-            backup = dict(**prior, verified=same_backup(baseline, prior) and previous_tag(api, baseline["sourceCommitSha"]))
+        backup = verified_backup(api, baseline, output)
     except AuditFailure:
         # Missing/unverifiable backup is retained as BLOCKED, never converted to pass.
         backup = dict(**baseline, verified=False)
@@ -554,10 +673,13 @@ def sign(args):
 def main():
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="action", required=True)
-    for name in ("resolve", "sign"):
+    for name in ("resolve", "sign", "audit-recovery"):
         command = sub.add_parser(name)
         command.add_argument("--controller", required=True)
         command.add_argument("--directory", required=True)
+        if name == "audit-recovery":
+            command.add_argument("--reference-source", default="")
+            command.add_argument("--reference-apk-sha256", default="")
     for name in ("collect-candidate", "collect-recovery"):
         command = sub.add_parser(name)
         command.add_argument("--checkout", required=True)
@@ -575,7 +697,7 @@ def main():
         if args.action.startswith("collect-"):
             collect(args, args.action.removeprefix("collect-"))
         else:
-            {"resolve": resolve, "sign": sign, "probe-unsigned": probe_unsigned}[args.action](args)
+            {"resolve": resolve, "sign": sign, "probe-unsigned": probe_unsigned, "audit-recovery": audit_recovery}[args.action](args)
     except AuditFailure as error:
         # AuditFailure messages are fixed controller constants (or numeric HTTP
         # status); they never contain tool stderr, paths, URLs or remote bodies.

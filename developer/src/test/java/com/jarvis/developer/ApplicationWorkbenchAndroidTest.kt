@@ -139,6 +139,45 @@ class ApplicationWorkbenchAndroidTest {
         assertTrue(screen.launches.isEmpty())
     }
 
+    @Test fun checklistSelectionPreviewsRealFilesAndExportsOnlyAfterFreshExactReview() {
+        val screen = screen()
+        val counter = screen.generate()
+        screen.approve(counter)
+        screen.behavior.setSelection(AndroidApplicationBehavior.CHECKLIST.ordinal)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(screen.export.isEnabled)
+        assertFalse(screen.approval.isChecked)
+        assertEquals("", screen.confirmation.text.toString())
+        assertEquals("Sample application", screen.field(TITLE).text.toString())
+        screen.generateButton.performClick()
+        val plan = ApplicationScaffolds.plan(counter.specification.copy(androidBehavior = AndroidApplicationBehavior.CHECKLIST))
+        assertTrue(screen.texts().any { it.contains(plan.fingerprint) && it.contains("ChecklistState.kt") })
+        screen.approve(plan); screen.export.performClick()
+        screen.handle.onActivityResult(screen.requestCode, Activity.RESULT_OK, document())
+        assertEquals(1, screen.writes.size)
+        assertTrue(screen.status.contains("starter ZIP saved"))
+    }
+
+    @Test fun behaviorChangeDiscardsPendingExportAndNonAndroidSelectionResetsIt() {
+        val screen = screen()
+        screen.approve(screen.generate())
+        screen.export.performClick()
+        screen.behavior.setSelection(AndroidApplicationBehavior.CHECKLIST.ordinal)
+        shadowOf(Looper.getMainLooper()).idle()
+        screen.handle.onActivityResult(screen.requestCode, Activity.RESULT_OK, document())
+        assertTrue(screen.writes.isEmpty())
+        assertFalse(screen.export.isEnabled)
+        screen.platform.setSelection(ApplicationPlatform.BACKEND.ordinal)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(View.GONE, screen.behavior.visibility)
+        assertEquals(0, screen.behavior.selectedItemPosition)
+        screen.platform.setSelection(ApplicationPlatform.ANDROID.ordinal)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(View.VISIBLE, screen.behavior.visibility)
+        assertEquals(0, screen.behavior.selectedItemPosition)
+        assertEquals("Sample application", screen.field(TITLE).text.toString())
+    }
+
     @Test fun editedInputsDiscardPendingPickerResultAndRequireFreshReview() {
         val screen = screen()
         screen.approve(screen.generate())
@@ -303,7 +342,7 @@ class ApplicationWorkbenchAndroidTest {
     }
 
     @Test fun newSafWriteAndScaffoldApprovalBoundariesAreOutsideGeneratedPatchScope() {
-        listOf("ApplicationApprovalWorkbench.kt", "ApplicationScaffoldApproval.kt").forEach { file ->
+        listOf("ApplicationApprovalWorkbench.kt", "ApplicationScaffoldApproval.kt", "AndroidChecklistScaffold.kt").forEach { file ->
             val path = "developer/src/main/java/com/jarvis/developer/$file"
             assertFalse(path, PatchEngine.allowedPath(path))
             assertFalse(path, SelfDevelopment.allowedPath(path))
@@ -342,7 +381,8 @@ class ApplicationWorkbenchAndroidTest {
         }
         fun field(hint: String): EditText = descendants(root).filterIsInstance<EditText>()
             .single { it.hint.toString() == hint }
-        val platform: Spinner get() = descendants(root).filterIsInstance<Spinner>().single()
+        val platform: Spinner get() = descendants(root).filterIsInstance<Spinner>().single { it.contentDescription == "Application platform" }
+        val behavior: Spinner get() = descendants(root).filterIsInstance<Spinner>().single { it.contentDescription == "Android application behavior" }
         val approval: CheckBox get() = descendants(root).filterIsInstance<CheckBox>().single()
         val confirmation: EditText get() = field(CONFIRMATION)
         val generateButton: Button get() = button("Generate application preview")

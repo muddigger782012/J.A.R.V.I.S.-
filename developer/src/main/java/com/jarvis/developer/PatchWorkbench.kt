@@ -53,7 +53,8 @@ object PatchWorkbench {
         private val cancelPreviewAction: () -> Unit = {},
         private val disposeAction: () -> Unit = cancelPreviewAction,
         private val engineeringAction: (DevelopmentEngineering.Draft) -> Boolean = { false },
-        private val guidedAction: (String, String, List<String>, String, PatchEngine.Target) -> Boolean = { _, _, _, _, _ -> false }
+        private val guidedAction: (String, String, List<String>, String, PatchEngine.Target) -> Boolean = { _, _, _, _, _ -> false },
+        private val importAction: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false }
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
@@ -61,6 +62,8 @@ object PatchWorkbench {
         fun prepareRepair(ticket: RepairEngine.Ticket, observer: RepairObserver): Boolean = repairAction(ticket, observer)
         fun invalidate(): Boolean = invalidateAction()
         fun preparePersonal(review: PersonalRepair.Review): Boolean = personalAction(review)
+        internal fun importChatProposal(task: String, summary: String, edits: List<PatchEngine.Edit>, base: String) =
+            importAction(task, summary, edits, base)
         fun cancelPreview() = cancelPreviewAction()
         fun dispose() = disposeAction()
         internal fun prepareEngineering(draft: DevelopmentEngineering.Draft) = engineeringAction(draft)
@@ -186,6 +189,7 @@ object PatchWorkbench {
         var interruptedEngineering: DevelopmentEngineering.Write? = null
         var queuedContextNeedsRefresh = false
         var settingQueuedInputs = false
+        var chatImport: Pair<String, List<PatchEngine.Edit>>? = null
         var proposal: PatchEngine.Proposal? = null
         var proposalMetadata: Metadata? = null
         var proposalReport: String? = null
@@ -309,7 +313,10 @@ object PatchWorkbench {
             override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(text: Editable?) {
-                if (changesScope && !settingQueuedInputs) activeEngineering = null
+                if (changesScope && !settingQueuedInputs) {
+                    activeEngineering = null
+                    chatImport = null // Imported replacement files belong to the original task and scope only.
+                }
                 if (!settingQueuedInputs) failRepair(activeRepair, "approval")
                 if (changesScope && plannedBaseCommitSha != null && !settingQueuedInputs) {
                     queuedContextNeedsRefresh = true
@@ -319,6 +326,14 @@ object PatchWorkbench {
             }
         }
         listOf(taskId, task, allowedPaths).forEach { it.addTextChangedListener(inputChanges(true)) }
+        model.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                chatImport = null
+                activeEngineering = null
+            }
+        })
         model.addTextChangedListener(inputChanges(false))
         var selectedProvider = provider.selectedItem?.toString().orEmpty()
         val priorSelectionListener = provider.onItemSelectedListener
@@ -327,6 +342,8 @@ object PatchWorkbench {
                 val selected = provider.selectedItem?.toString().orEmpty()
                 if (selected != selectedProvider) {
                     selectedProvider = selected
+                    chatImport = null
+                    activeEngineering = null
                     failRepair(activeRepair, "approval")
                     invalidate()
                 }
@@ -334,6 +351,8 @@ object PatchWorkbench {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {
                 selectedProvider = ""
+                chatImport = null
+                activeEngineering = null
                 failRepair(activeRepair, "approval")
                 invalidate()
                 priorSelectionListener?.onNothingSelected(parent)
@@ -351,7 +370,7 @@ object PatchWorkbench {
             queuedSource.text = "Manual coding task: a new preview reads the current development branch."
             invalidate()
         }
-        manual.setOnClickListener { if (!busy) clearQueuedSource() }
+        manual.setOnClickListener { if (!busy) { chatImport = null; clearQueuedSource() } }
         followUpFile.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val path = selectedFollowUpPath()
@@ -445,7 +464,15 @@ object PatchWorkbench {
                     PatchEngine.validateRequest(request)
                     stage = "selected AI provider proposal"
                     cancellation.check()
-                    val generated = services.propose(key, request, cancellation)
+                    val imported = chatImport
+                    val generated = if (imported != null) {
+                        require(imported.second.map { it.path }.toSet() == request.allowedPaths.toSet())
+                        val payload = org.json.JSONObject().put("summary", imported.first).put("edits",
+                            org.json.JSONArray(imported.second.map { edit ->
+                                org.json.JSONObject().put("path", edit.path).put("content", edit.content)
+                            }))
+                        PatchEngine.parse(request, payload.toString())
+                    } else services.propose(key, request, cancellation)
                     cancellation.check()
                     stage = "complete diff validation"
                     PatchEngine.revalidate(generated)
@@ -831,6 +858,7 @@ object PatchWorkbench {
                 }
             if (busy || !alive() || !safe) return false
             activeEngineering = null
+            chatImport = null
             failRepair(activeRepair, "approval")
             invalidate()
             settingQueuedInputs = true
@@ -910,6 +938,18 @@ object PatchWorkbench {
         }, guidedAction = { id, description, paths, base, target ->
             prepareInputs(id, description, paths, base,
                 if (target == PatchEngine.Target.PERSONAL) "main" else "feature/jarvis-developer", target)
+        }, importAction = { taskText, summary, edits, base ->
+            if (edits.isEmpty() || edits.size > PatchEngine.MAX_FILES ||
+                edits.any { !PatchEngine.allowedPath(it.path) } || edits.map { it.path }.distinct().size != edits.size) false
+            else {
+                val id = "chat-" + UUID.randomUUID().toString().replace("-", "").take(16)
+                val ready = prepareInputs(id, taskText, edits.map { it.path }, base, "feature/jarvis-developer")
+                if (ready) {
+                    chatImport = summary to edits.map { it.copy() }
+                    status.text = "Chat replacement contents staged. Generate a verified diff; no second AI call is required."
+                }
+                ready
+            }
         }, engineeringAction = { draft ->
             if (prepareInputs(draft.taskId, draft.task, draft.paths, draft.base, draft.branch, draft.target)) {
                 activeEngineering = draft

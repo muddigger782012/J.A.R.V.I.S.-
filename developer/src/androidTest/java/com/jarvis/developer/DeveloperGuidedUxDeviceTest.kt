@@ -16,7 +16,8 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class DeveloperGuidedUxDeviceTest {
     private fun projectFixture(activity: MainActivity, project: String, pending: MutableList<() -> Unit>, configure: Boolean = true,
-        source: ((String, PatchEngine.Target) -> RepositoryCodingContext.Context)? = null): ProjectGenerationWorkbench.Handle {
+        source: ((String, PatchEngine.Target) -> RepositoryCodingContext.Context)? = null,
+        ask: ((String, RepositoryCodingContext.Context) -> String)? = null): ProjectGenerationWorkbench.Handle {
         val owner = MainActivity::class.java.getDeclaredField("projectGeneration").apply { isAccessible = true }
         (owner.get(activity) as? ProjectGenerationWorkbench.Handle)?.dispose()
         val active = MainActivity::class.java.getDeclaredField("activeProject").apply { isAccessible = true }
@@ -35,11 +36,55 @@ class DeveloperGuidedUxDeviceTest {
             { target.selectedItemPosition }, { target }, { active.get(activity) as? String }, { active.set(activity, it) },
             ProjectGenerationStore(activity.getSharedPreferences("developer_local_projects_v1", android.content.Context.MODE_PRIVATE)),
             { button(activity, "Refresh saved projects").performClick() },
-            ProjectGenerationWorkbench.Services(worker = { pending.add(it) }, ask = { _, _, _, task, _, _ -> "Fixture reply for $task" },
-                context = { task, product, _, _, _ -> source?.invoke(task, product) ?: RepositoryCodingContext.unavailable(task, product) }))
+            ProjectGenerationWorkbench.Services(worker = { pending.add(it) }, ask = { _, _, _, task, _, context ->
+                ask?.invoke(task, context) ?: "Fixture reply for $task"
+            }, context = { task, product, _, _, _ -> source?.invoke(task, product) ?: RepositoryCodingContext.unavailable(task, product) }),
+            forget = button(activity, "Forget coding discussion"))
         // Instance-local test transport: the real Activity destruction hook owns its cleanup.
         owner.set(activity, handle)
         return handle
+    }
+
+    @Test fun nativeFollowUpSurvivesNavigationAndCanBeForgottenAfterRecreation() {
+        val project = "native-discussion-" + java.util.UUID.randomUUID()
+        val pending = mutableListOf<() -> Unit>()
+        val sent = mutableListOf<org.json.JSONObject>()
+        val prefs = instrumentation.targetContext.getSharedPreferences("developer_local_projects_v1", android.content.Context.MODE_PRIVATE)
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                settle(scenario)
+                scenario.onActivity { activity ->
+                    projectFixture(activity, project, pending, ask = { task, context ->
+                        sent.add(org.json.JSONObject(context.data(task))); "Recorded discussion fixture reply"
+                    })
+                    views(activity.window.decorView).filterIsInstance<Spinner>()
+                        .single { it.contentDescription == "Application to improve" }.setSelection(0)
+                    field(activity, PROMPT).setText("Repair voice network latency")
+                    button(activity, "Ask Jarvis / save instructions").performClick(); pending.removeAt(0).invoke()
+                    button(activity, "Projects").performClick(); button(activity, "Home").performClick()
+                    field(activity, PROMPT).setText("What about the tests?")
+                    button(activity, "Ask Jarvis / save instructions").performClick()
+                    assertFalse(button(activity, "Forget coding discussion").isEnabled)
+                    pending.removeAt(0).invoke()
+                    assertTrue(button(activity, "Forget coding discussion").isEnabled)
+                    assertFalse(sent[0].has("priorDiscussion"))
+                    assertEquals("Repair voice network latency", sent[1].getJSONObject("priorDiscussion")
+                        .getJSONArray("turns").getJSONObject(0).getString("ownerRequest"))
+                    assertEquals("unavailable", sent[1].getString("status")); assertFalse(sent[1].has("commitSha"))
+                }
+                scenario.recreate(); settle(scenario)
+                scenario.onActivity { activity ->
+                    assertEquals("What about the tests?", field(activity, PROMPT).text.toString())
+                    button(activity, "Forget coding discussion").performClick()
+                    val record = org.json.JSONObject(prefs.getString("project_$project", "{}")!!)
+                    assertFalse(record.has("discussion")); assertFalse(record.has("approval"))
+                    assertEquals("What about the tests?", record.getString("description"))
+                    assertTrue(record.getString("response").contains("Recorded discussion fixture reply"))
+                    assertFalse(record.toString().contains("native-provider-fixture-42"))
+                    assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+                }
+            }
+        } finally { prefs.edit().remove("project_$project").commit() }
     }
     @Test fun nativeHomeRetainsVerifiedReplyProvenanceAndLabelsInstructionsOnlyFallback() {
         val project = "native-context-" + java.util.UUID.randomUUID()
@@ -174,7 +219,7 @@ class DeveloperGuidedUxDeviceTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             settle(scenario)
             scenario.onActivity { activity ->
-                for ((label, index) in listOf("Home" to 0, "Projects" to 1, "Activity" to 2, "Settings" to 3)) {
+                for ((label, index) in listOf("Home" to 0, "Projects" to 1, "Track" to 2, "Settings" to 3)) {
                     button(activity, label).performClick()
                     assertEquals("developer-page-$index", scroll(activity).tag)
                 }
@@ -199,7 +244,7 @@ class DeveloperGuidedUxDeviceTest {
                 field(activity, PROMPT).setText("Fix a weather date problem")
                 field(activity, SOURCE).setText("developer/src/main/java/com/jarvis/developer/RepositoryAnalysis.kt")
                 field(activity, "Paste your API key here (not a model name)").setText("fixture-never-save")
-                button(activity, "Activity").performClick()
+                button(activity, "Track").performClick()
             }
             scenario.recreate(); settle(scenario)
             scenario.onActivity { activity ->
@@ -226,7 +271,7 @@ class DeveloperGuidedUxDeviceTest {
                 view.scrollTo(0, (view.getChildAt(0).height - view.height).coerceAtLeast(0))
                 position = view.scrollY
                 assertTrue("Legacy tools must be scrollable", position > 0)
-                button(activity, "Activity").performClick()
+                button(activity, "Track").performClick()
                 activity.onBackPressed()
             }
             settle(scenario)
@@ -245,9 +290,9 @@ class DeveloperGuidedUxDeviceTest {
             scenario.onActivity { activity ->
                 button(activity, "Settings").performClick(); button(activity, "Advanced tools").performClick()
                 button(activity, "Connections and source browsing").performClick()
-                button(activity, "Analyze task and preview file plan (read-only)").performClick()
+                button(activity, "Analyze this task (read-only)").performClick()
                 assertTrue(views(scroll(activity)).filterIsInstance<TextView>().any {
-                    it.text.toString() == "Describe a task on Home before analyzing it here."
+                    it.text.toString() == "Describe your task in the box above, then tap Analyze this task."
                 })
                 button(activity, "Home").performClick()
                 assertTrue(views(scroll(activity)).filterIsInstance<TextView>().any {

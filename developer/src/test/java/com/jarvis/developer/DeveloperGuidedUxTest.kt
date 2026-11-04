@@ -52,12 +52,94 @@ class DeveloperGuidedUxTest {
         assertEquals("developer-page-3", page(activity))
         activity.onBackPressed(); idle()
         assertEquals("developer-page-0", page(activity))
-        button(activity, "Review progress").performClick(); idle()
+        button(activity, "Track").performClick(); idle()
         assertEquals("developer-page-2", page(activity))
         assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
         assertFalse(views(activity).filterIsInstance<CheckBox>().single { it.text.toString().startsWith("I reviewed this exact diff") }.isChecked)
         assertEquals(description, field(activity, PROMPT).text.toString())
         assertTrue(views(activity).filterIsInstance<Button>().none { it.text.toString() == "Tools" })
+    }
+
+    @Test fun trackTabRefreshesOnNavigationAndResumeWithoutGrantingApproval() {
+        val activity = start()
+        button(activity, "Track").performClick(); idle()
+        assertEquals("developer-page-2", page(activity))
+        assertTrue(views(activity).filterIsInstance<TextView>().any {
+            it.text.toString() == "Track"
+        })
+        controller!!.pause().resume(); idle()
+        assertEquals("developer-page-2", page(activity))
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+        button(activity, "Home").performClick(); idle()
+        button(activity, "Track").performClick(); idle()
+        assertEquals("developer-page-2", page(activity))
+    }
+
+    @Test fun homeRepositoryAnalysisValidatesEmptyTaskWithoutLeavingConversation() {
+        val activity = start()
+        assertEquals("developer-page-0", page(activity))
+        button(activity, "Analyze repository request (read-only)").performClick()
+        idle()
+        assertEquals("developer-page-0", page(activity))
+        assertTrue(views(activity).filterIsInstance<TextView>().any {
+            it.tag == "project-generation-reply" &&
+                it.text.toString() == "Describe what to inspect in the task box above."
+        })
+        assertTrue(button(activity, "Analyze repository request (read-only)").isEnabled)
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+    }
+
+    @Test fun homeReviewShortcutRemainsLockedUntilAnalysisCompletes() {
+        val activity = start()
+        val review = button(activity, "Review changes on Home")
+        assertFalse(review.isEnabled)
+        field(activity, PROMPT).setText("Inspect the repository parser")
+        assertFalse(review.isEnabled)
+        button(activity, "Analyze repository request (read-only)").isEnabled.let { assertTrue(it) }
+        assertEquals("developer-page-0", page(activity))
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+    }
+
+    @Test fun sourceFindingsRemainCollapsedUntilAnalysisSucceeds() {
+        val activity = start()
+        val expand = button(activity, "Show full source findings")
+        assertEquals(View.GONE, expand.visibility)
+        field(activity, PROMPT).setText("Review source dependencies")
+        assertEquals(View.GONE, expand.visibility)
+        assertFalse(button(activity, "Review changes on Home").isEnabled)
+        // The asynchronous repository response is deliberately not mocked.
+        // Verify the initial safe state without depending on network timing.
+        assertEquals(View.GONE, expand.visibility)
+        assertFalse(button(activity, "Review changes on Home").isEnabled)
+    }
+
+    @Test fun inlineCodeReviewOpensAndClosesOnHomeWithoutGrantingWriteApproval() {
+        val activity = start()
+        val open = button(activity, "Open inline code review")
+        assertEquals("developer-page-0", page(activity))
+        open.performClick(); idle()
+        assertEquals("developer-page-0", page(activity))
+        val close = button(activity, "Close inline code review")
+        assertTrue(views(activity).filterIsInstance<TextView>().any {
+            it.text.toString().contains("Scoped coding engine")
+        })
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+        close.performClick(); idle()
+        assertEquals("developer-page-0", page(activity))
+        assertEquals("Open inline code review", open.text.toString())
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+    }
+
+    @Test fun analyzedFileHandoffRequiresSuccessfulReadOnlyAnalysis() {
+        val activity = start()
+        val stage = button(activity, "Load analyzed files into code review")
+        assertEquals(View.GONE, stage.visibility)
+        assertFalse(stage.isEnabled)
+        field(activity, PROMPT).setText("Inspect the Developer Home workflow")
+        assertEquals(View.GONE, stage.visibility)
+        assertFalse(stage.isEnabled)
+        assertEquals("developer-page-0", page(activity))
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
     }
 
     @Test fun projectRestorationRetainsTheChosenAppAndInstructionsWithoutAnAiKey() {
@@ -94,8 +176,8 @@ class DeveloperGuidedUxTest {
         val activity = start()
         button(activity, "Settings").performClick(); button(activity, "Advanced tools").performClick()
         button(activity, "Connections and source browsing").performClick()
-        button(activity, "Analyze task and preview file plan (read-only)").performClick(); idle()
-        val feedback = views(activity).filterIsInstance<TextView>().single { it.text.toString() == "Describe a task on Home before analyzing it here." }
+        button(activity, "Analyze this task (read-only)").performClick(); idle()
+        val feedback = views(activity).filterIsInstance<TextView>().single { it.text.toString() == "Describe your task in the box above, then tap Analyze this task." }
         assertTrue(DeveloperUiState.descendants(views(activity).single { it.tag == "developer-page-4" }).any { it === feedback })
         assertTrue(views(activity).filterIsInstance<TextView>().any { it.text.toString() == "Your assistant’s response will appear here." })
     }

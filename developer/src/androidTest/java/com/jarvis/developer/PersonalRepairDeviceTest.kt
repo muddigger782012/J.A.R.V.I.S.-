@@ -50,7 +50,7 @@ class PersonalRepairDeviceTest {
     private fun button(activity: MainActivity, text: String) = buttons(activity).single { it.text.toString() == text }
     private fun openTools(activity: MainActivity, sectionName: String = "Assistant diagnostics") {
         if (sectionName == "Code changes and review") {
-            button(activity, "Activity").performClick()
+            button(activity, "Track").performClick()
             assertTrue(button(activity, "Load private repair history (local only)").isShown)
             return
         }
@@ -126,7 +126,7 @@ class PersonalRepairDeviceTest {
         RepairHistoryStore(directory).save(entry)
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
             scenario.onActivity { activity ->
-                openTools(activity, "Code changes and review"); noApproval(activity)
+                openTools(activity, "Assistant diagnostics"); noApproval(activity)
                 assertFalse(button(activity, "Recheck selected saved build diagnostics (GET only)").isEnabled)
                 button(activity, "Load private repair history (local only)").performClick()
             }
@@ -153,7 +153,7 @@ class PersonalRepairDeviceTest {
             scenario.onActivity { assertTrue(button(it, "Recheck selected saved build diagnostics (GET only)").isEnabled) }
             scenario.recreate()
             scenario.onActivity { activity ->
-                openTools(activity, "Code changes and review")
+                openTools(activity, "Assistant diagnostics")
                 noApproval(activity)
                 assertFalse(button(activity, "Recheck selected saved build diagnostics (GET only)").isEnabled)
                 button(activity, "Save current verified task commit bookmark").performClick()

@@ -90,11 +90,14 @@ class ScreenAccessProvider : ContentProvider() {
             }
         }
         val token = epoch.token()
-        val deadline = SystemClock.uptimeMillis() + 3000
+        val enqueuedAt = SystemClock.uptimeMillis()
+        val deadline = enqueuedAt + 3000
         fun execute(): Bundle {
+            val queuedMillis = (SystemClock.uptimeMillis() - enqueuedAt).coerceAtLeast(0)
             applyCancellation()
             if (!epoch.valid(token)) return cancelledReply()
-            val result = AndroidScreenPlatform.withDeadline(deadline, { !epoch.valid(token) }) {
+            val result = AndroidScreenPlatform.withDeadline(deadline, { !epoch.valid(token) },
+                queueWaitMillis = queuedMillis, readKind = command?.kind?.takeIf { taskCommand == null }) {
                 val beforeKey = controls.taskKey
                 val wasConfirming = controls.confirming
                 val step = controls.currentStep
@@ -122,11 +125,11 @@ class ScreenAccessProvider : ContentProvider() {
             task.cancel(false) // A queued command cannot execute later after a timeout.
             epoch.timeout(token)
             clearCancelledState()
-            Bundle().apply { putString("reply", "Screen request outcome is uncertain. Check the screen before trying again; no automatic retry was made.") }
+            Bundle().apply { putString("reply", "Screen request outcome is uncertain. Check the screen before trying again; no automatic action retry was made.") }
         }
     }
     private fun cancelledReply() = Bundle().apply {
-        putString("reply", "Screen request cancelled. Check the screen if an Android action was already submitted; no automatic retry was made.")
+        putString("reply", "Screen request cancelled. Check the screen if an Android action was already submitted; no automatic action retry was made.")
     }
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor? = throw UnsupportedOperationException()
     override fun getType(uri: Uri): String? = null

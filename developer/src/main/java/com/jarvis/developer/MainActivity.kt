@@ -45,6 +45,13 @@ class MainActivity : Activity() {
     private var artifactInstallWhenFocused: (() -> Unit)? = null
     private var pendingArtifactInstall: Pair<Long, String>? = null
 
+    // A job may complete while Developer is in the background. Reconcile Track
+    // with the persisted inbox whenever the activity becomes visible again.
+    override fun onResume() {
+        super.onResume()
+        if (activePage == 2) developmentHistory?.refreshNow()
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("developer_active_page", activePage)
         outState.putIntArray("developer_page_history", pageHistory.takeLast(32).toIntArray())
@@ -113,18 +120,12 @@ class MainActivity : Activity() {
         root.addView(status)
         val setupHint = TextView(this).apply {
             text = if (ProviderCredentialStore.load(this@MainActivity) != null)
-                "AI connection saved. Test your connection in Settings before starting a project."
+                "AI connection saved. Connection checks run automatically; manage credentials in Settings."
                 else "New here? Connect an AI provider in Settings to get started."
             setTextColor(getColor(R.color.developer_secondary))
             setPadding(0, 16, 0, 8)
         }
-        root.addView(setupHint)
-        val setupButton = Button(this).apply {
-            text = "Set up AI connection"
-            isAllCaps = false
-            contentDescription = "Open Settings to enter your AI provider credentials"
-        }
-        root.addView(setupButton)
+        if (ProviderCredentialStore.load(this@MainActivity) == null) root.addView(setupHint)
         lateinit var updateConnectionSetup: () -> Unit
         val key = field("Paste your API key here (not a model name)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -163,8 +164,148 @@ class MainActivity : Activity() {
             setTextIsSelectable(true)
             text = "Your assistant’s response will appear here."
         }
+        val proposeCodePatch = android.widget.CheckBox(this).apply {
+            text = "Prepare reviewable code changes"
+            isChecked = true
+            setTextColor(getColor(R.color.developer_text))
+            contentDescription = "Request a reviewable code patch proposal, not an automatic code change"
+        }
+        root.addView(proposeCodePatch)
         val send = Button(this).apply { text = "Ask Jarvis / save instructions"; isAllCaps = false }
         root.addView(send)
+        // Keep read-only repository analysis on Home beside the conversational task.
+        // This does not grant patch, branch, commit, or installation authority.
+        val analyzeFromHome = Button(this).apply {
+            text = "Analyze repository request (read-only)"
+            isAllCaps = false
+            contentDescription = "Inspect repository source for the Home task without modifying files"
+        }
+        (send.parent as? android.view.ViewGroup)?.removeView(send)
+        val composerActions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(analyzeFromHome, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(send, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        root.addView(composerActions)
+        val reviewHomeAnalysis = Button(this).apply {
+            text = "Review changes on Home"
+            isAllCaps = false
+            isEnabled = false
+            contentDescription = "Open the inline patch review on Home; no changes are approved automatically"
+        }
+        // The separate review launcher is redundant; the successful analysis stages review.
+        reviewHomeAnalysis.visibility = View.GONE
+        root.addView(reviewHomeAnalysis)
+        var fullHomeAnalysis: String? = null
+        var homeAnalysisPlan: RepositoryAnalysis.AnalysisPlan? = null
+        var stageHomeAnalysis: (() -> Unit)? = null
+        val stageHomeAnalysisButton = Button(this).apply {
+            text = "Load analyzed files into code review"
+            isAllCaps = false
+            isEnabled = false
+            visibility = View.GONE
+            setOnClickListener { stageHomeAnalysis?.invoke() }
+        }
+        root.addView(stageHomeAnalysisButton)
+        val homeHandoffStatus = TextView(this).apply {
+            tag = "home-analysis-handoff-status"
+            setTextColor(getColor(R.color.developer_secondary))
+            visibility = View.GONE
+        }
+        root.addView(homeHandoffStatus)
+        var homeAnalysisRevision = 0L
+        val expandHomeAnalysis = Button(this).apply {
+            text = "Show full source findings"
+            isAllCaps = false
+            visibility = View.GONE
+        }
+        root.addView(expandHomeAnalysis)
+        expandHomeAnalysis.setOnClickListener {
+            val full = fullHomeAnalysis ?: return@setOnClickListener
+            val expanded = expandHomeAnalysis.text.toString() == "Show full source findings"
+            output.text = if (expanded) full else full.lineSequence().take(12).joinToString("\n") +
+                "\n\nMore findings are available below."
+            expandHomeAnalysis.text = if (expanded) "Collapse source findings" else "Show full source findings"
+        }
+        var openInlineReview: (() -> Unit)? = null
+        reviewHomeAnalysis.setOnClickListener { openInlineReview?.invoke() }
+        prompt.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                homeAnalysisRevision++
+                reviewHomeAnalysis.isEnabled = false
+                fullHomeAnalysis = null
+                homeAnalysisPlan = null
+                stageHomeAnalysisButton.isEnabled = false
+                stageHomeAnalysisButton.visibility = View.GONE
+                homeHandoffStatus.visibility = View.GONE
+                expandHomeAnalysis.visibility = View.GONE
+            }
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
+        analyzeFromHome.setOnClickListener {
+            val task = prompt.text.toString().trim()
+            if (task.isBlank()) {
+                output.text = "Describe what to inspect in the task box above."
+                return@setOnClickListener
+            }
+            val requestRevision = ++homeAnalysisRevision
+            analyzeFromHome.isEnabled = false
+            reviewHomeAnalysis.isEnabled = false
+            fullHomeAnalysis = null
+            homeAnalysisPlan = null
+            stageHomeAnalysisButton.isEnabled = false
+            stageHomeAnalysisButton.visibility = View.GONE
+            homeHandoffStatus.visibility = View.GONE
+            expandHomeAnalysis.visibility = View.GONE
+            output.text = "Inspecting repository sources for your request..."
+            thread(name = "DeveloperHomeRepositoryAnalysis") {
+                val result = runCatching {
+                    val token = ProviderCredentialStore.loadGithub(this@MainActivity).orEmpty()
+                    val (_, plan) = RepositoryIntelligence.analyzeSnapshot(token, task)
+                    plan to RepositoryAnalysis.render(plan)
+                }
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        // A completed background request must never replace the response
+                        // for a newer task entered while the analysis was running.
+                        if (homeAnalysisRevision != requestRevision || prompt.text.toString().trim() != task) {
+                            analyzeFromHome.isEnabled = true
+                            return@runOnUiThread
+                        }
+                        output.text = result.fold(onSuccess = { it.second }, onFailure = { error ->
+                            val message = error.message.orEmpty()
+                            when {
+                                "401" in message -> "GitHub authentication failed. Check your saved connection."
+                                "403" in message -> "GitHub access denied or rate limited."
+                                "404" in message -> "Repository or branch unavailable."
+                                else -> "Repository analysis could not complete. Check your connection and retry."
+                            } + " No files were changed."
+                        })
+                        val isCurrent = prompt.text.toString().trim() == task
+                        if (result.isSuccess && isCurrent) {
+                            homeAnalysisPlan = result.getOrNull()?.first
+                            stageHomeAnalysisButton.isEnabled = homeAnalysisPlan?.files?.isNotEmpty() == true
+                            // Successful read-only analysis automatically stages eligible source paths.
+                            // This only prepares a review; it never generates or approves a write.
+                            stageHomeAnalysisButton.visibility = View.GONE
+                            if (stageHomeAnalysisButton.isEnabled) stageHomeAnalysis?.invoke()
+                            fullHomeAnalysis = result.getOrNull()?.second
+                            val full = fullHomeAnalysis.orEmpty()
+                            val lines = full.lineSequence().toList()
+                            if (lines.size > 12) {
+                                output.text = lines.take(12).joinToString("\n") +
+                                    "\n\nMore findings are available below."
+                                expandHomeAnalysis.text = "Show full source findings"
+                                expandHomeAnalysis.visibility = View.VISIBLE
+                            }
+                        }
+                        reviewHomeAnalysis.isEnabled = result.isSuccess && isCurrent
+                        analyzeFromHome.isEnabled = true
+                    }
+                }
+            }
+        }
         val cancelGeneration = Button(this).apply {
             setText(R.string.project_generation_cancel); isAllCaps = false; isEnabled = false
             minHeight = dp(48)
@@ -172,6 +313,13 @@ class MainActivity : Activity() {
             backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_panel))
         }
         root.addView(cancelGeneration)
+        val forgetDiscussion = Button(this).apply {
+            setText(R.string.project_generation_forget_discussion); isAllCaps = false
+            minHeight = dp(48)
+            setTextColor(getColor(R.color.developer_primary))
+            backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_panel))
+        }
+        root.addView(forgetDiscussion)
         root.removeView(status)
         root.addView(status)
         root.addView(output)
@@ -209,9 +357,62 @@ class MainActivity : Activity() {
                         "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/workflows/release-jarvis-developer.yml")))
                 }.show()
         }
-        val githubToken = field("GitHub fine-grained token (not saved)").apply {
+        val githubToken = field("GitHub fine-grained token (encrypted on device)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            ProviderCredentialStore.loadGithub(this@MainActivity)?.let { setText(it) }
         }
+        // Keep the credential input and feedback beside its actions: the global status
+        // lives on Home and is not visible from the Advanced tools page.
+        val githubFeedback = TextView(this).apply {
+            text = "Paste your GitHub token, then save the encrypted connection."
+            setTextColor(getColor(R.color.developer_secondary))
+            textSize = 14f
+            setPadding(dp(4), dp(8), dp(4), dp(8))
+            setTextIsSelectable(false)
+        }
+        val pasteGithub = Button(this).apply {
+            text = "Paste GitHub token from clipboard"
+            isAllCaps = false
+            setOnClickListener {
+                val result = runCatching {
+                    val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.primaryClip?.getItemAt(0)?.coerceToText(this@MainActivity)?.toString()?.trim().orEmpty()
+                }
+                val pasted = result.getOrNull().orEmpty()
+                when {
+                    result.isFailure -> githubFeedback.text = "Unable to access clipboard. Copy the token again and retry."
+                    pasted.isBlank() -> githubFeedback.text = "Clipboard is empty. Copy your complete GitHub token first."
+                    pasted.length > 4096 || pasted.any { it.isISOControl() } ->
+                        githubFeedback.text = "Clipboard contains invalid token characters."
+                    else -> {
+                        githubToken.setText(pasted)
+                        githubToken.setSelection(githubToken.length())
+                        githubFeedback.text = "Pasted " + pasted.length + " characters. Tap Save GitHub connection securely."
+                    }
+                }
+            }
+        }
+        root.addView(pasteGithub)
+        root.addView(githubFeedback)
+        val saveGithub = Button(this).apply {
+            text = "Save GitHub connection securely"
+            isAllCaps = false
+            setOnClickListener {
+                val token = githubToken.text.toString().trim()
+                if (token.isBlank()) {
+                    ProviderCredentialStore.clearGithub(this@MainActivity)
+                    githubFeedback.text = "Saved GitHub connection cleared."
+                } else {
+                    val saved = runCatching { ProviderCredentialStore.saveGithub(this@MainActivity, token) }
+                    githubFeedback.text = if (saved.isSuccess) "GitHub token encrypted and saved on this device."
+                        else "Unable to save GitHub connection securely."
+                }
+            }
+        }
+        root.addView(saveGithub)
+        // Move the field immediately above the paste button in the same tools section.
+        root.removeView(githubToken)
+        root.addView(githubToken, root.indexOfChild(pasteGithub))
         val repositoryInfo = TextView(this).apply {
             text = "Codebase awareness: read-only inventory, source browsing and task plans. No AI key required; GitHub token is optional for public source."
         }
@@ -220,8 +421,15 @@ class MainActivity : Activity() {
         val sourceRange = field("Source line range, up to 200 lines").apply { setText("1-120") }
         val inventoryButton = Button(this).apply { text = "Browse source inventory (read-only)" }
         val sourceButton = Button(this).apply { text = "Read source lines (read-only)" }
-        val analyzeButton = Button(this).apply { text = "Analyze task and preview file plan (read-only)" }
+        val repositoryTask = field("Describe the source analysis task here").apply {
+            setText(prompt.text.toString())
+            minLines = 3
+            maxLines = 6
+        }
+        val analyzeButton = Button(this).apply { text = "Analyze this task (read-only)" }
         listOf(inventoryButton, sourceButton, analyzeButton).forEach { root.addView(it) }
+        root.removeView(repositoryTask)
+        root.addView(repositoryTask, root.indexOfChild(analyzeButton))
         val repositoryFeedback = TextView(this).apply {
             text = "Choose Browse source inventory to list available repository files."
             textSize = 14f
@@ -247,7 +455,7 @@ class MainActivity : Activity() {
                 } catch (e: Exception) {
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
-                            repositoryFeedback.text = "Repository preview failed. Check access, source path and line range, then retry. No source was changed."
+                            repositoryFeedback.text = when { e.message.orEmpty().contains("HTTP 401") -> "GitHub HTTP 401: authentication failed. Check the saved token."; e.message.orEmpty().contains("HTTP 403") -> "GitHub HTTP 403: permission denied or rate limited."; e.message.orEmpty().contains("HTTP 404") -> "GitHub HTTP 404: repository or branch not accessible."; e.message.orEmpty().contains("response exceeds read limit") -> "GitHub repository response exceeds the configured limit."; e.message.orEmpty().contains("Repository GET failed") -> "GitHub network request failed. Check connectivity."; else -> "Repository preview failed. Check access or source limits." } + " No source was changed."
                         }
                     }
                 } finally {
@@ -278,9 +486,9 @@ class MainActivity : Activity() {
         }
         analyzeButton.setOnClickListener {
             val token = githubToken.text.toString().trim()
-            val task = prompt.text.toString().trim()
+            val task = repositoryTask.text.toString().trim().ifBlank { prompt.text.toString().trim() }
             if (task.isBlank()) {
-                repositoryFeedback.text = "Describe a task on Home before analyzing it here."
+                repositoryFeedback.text = "Describe your task in the box above, then tap Analyze this task."
                 return@setOnClickListener
             }
             repositoryRead("Inspecting bounded source context and dependencies...") {
@@ -375,10 +583,17 @@ class MainActivity : Activity() {
         // never discard the user's description or the generated response.
         val projectPrefs = getSharedPreferences("developer_local_projects_v1", MODE_PRIVATE)
         var refreshSavedProjectsAfterChange: (() -> Unit)? = null
+        var revealImportedReview: (() -> Unit)? = null
         projectGeneration = ProjectGenerationWorkbench.attach(this, send, cancelGeneration, provider, key, model,
             prompt, output, status, { guidedTarget?.selectedItemPosition ?: 0 }, { guidedTarget },
             { activeProject }, { activeProject = it }, ProjectGenerationStore(projectPrefs),
-            { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() })
+            { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() }, forget = forgetDiscussion,
+            requestPatch = { proposeCodePatch.isChecked && (guidedTarget?.selectedItemPosition ?: 0) == 0 },
+            stageReview = { taskText, summary, edits, commitSha ->
+                val staged = patchWorkbench.importChatProposal(taskText, summary, edits, commitSha)
+                if (staged) revealImportedReview?.invoke()
+                staged
+            })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -447,6 +662,19 @@ class MainActivity : Activity() {
         }
         refreshSavedProjectsAfterChange = ::refreshSavedProjects
         refreshProjects.setOnClickListener { refreshSavedProjects() }
+        // The single Home review panel owns preview, approval and GitHub writes.
+        // Remove the legacy modal review path, which bypassed pinned existing-file reads.
+        val reviewFromChat = Button(this).apply {
+            text = "Review proposed changes"
+            isAllCaps = false
+            setOnClickListener {
+                val reveal = revealImportedReview
+                if (reveal != null) reveal() else
+                    status.text = "Generate a verified code proposal to open inline review."
+            }
+        }
+        val reviewPosition = root.indexOfChild(output)
+        root.addView(reviewFromChat, reviewPosition + 1)
         projects.addView(refreshProjects)
         projects.addView(savedProjects)
         refreshSavedProjects()
@@ -485,8 +713,6 @@ class MainActivity : Activity() {
         }
         fun renderConnection() {
             setupHint.text = connectionVerification.detail
-            setupButton.text = if (key.text.isNullOrBlank()) "Set up AI connection" else "Manage / test AI connection"
-            setupButton.contentDescription = "Open Settings to test or change the AI connection"
         }
         connectionVerification.onChanged = {
             renderConnection()
@@ -506,46 +732,36 @@ class MainActivity : Activity() {
         }
         listOf(key, model).forEach { it.addTextChangedListener(connectionChanges) }
         updateConnectionSetup()
-        val testConnection = Button(this).apply {
-            text = "Test AI connection"
-            isAllCaps = false
-        }
-        settings.addView(testConnection)
-        testConnection.setOnClickListener {
-            val selectedKey = key.text.toString().trim()
-            if (selectedKey.isBlank() || selectedKey.startsWith("gemini-") || selectedKey.startsWith("gpt-")) {
-                credentialStatus.text = "Enter an actual API key, not a model name."
-                return@setOnClickListener
-            }
-            val selectedProvider = provider.selectedItem.toString()
-            val selectedModel = model.text.toString().trim()
-            testConnection.isEnabled = false
-            updateConnectionSetup()
+        // Verify the saved provider automatically at startup. Connection status belongs in
+        // the existing Home status line, not behind a manual test button.
+        fun verifySavedConnection() {
+            val saved = ProviderCredentialStore.load(this@MainActivity) ?: return
+            val (savedProvider, savedKey, savedModel) = saved
+            if (savedKey.isBlank()) return
+            connectionVerification.select(savedProvider, savedKey, savedModel)
             val ticket = connectionVerification.begin()
             renderConnection()
-            credentialStatus.text = "Testing $selectedProvider connection..."
-            thread(name = "DeveloperConnectionTest") {
+            thread(name = "DeveloperAutomaticConnectionCheck") {
                 var successful = false
                 val message = try {
-                    CodingAssistantProvider.testConnection(selectedProvider, selectedKey, selectedModel) 
+                    CodingAssistantProvider.testConnection(savedProvider, savedKey, savedModel)
                     successful = true
-                    "$selectedProvider connection successful."
+                    "$savedProvider connection successful."
                 } catch (e: CodingAssistantProvider.ProviderFailure) {
                     e.message ?: "AI connection failed."
                 } catch (_: Exception) {
-                    "AI connection failed. Check provider and model."
+                    "AI connection failed. Check provider and model in Settings."
                 }
                 runOnUiThread {
-                    if (!isFinishing && !isDestroyed) {
-                        if (connectionVerification.finish(ticket, successful, message)) {
-                            credentialStatus.text = message
-                            renderConnection()
-                        }
-                        testConnection.isEnabled = true
+                    if (!isFinishing && !isDestroyed &&
+                        connectionVerification.finish(ticket, successful, message)) {
+                        credentialStatus.text = message
+                        renderConnection()
                     }
                 }
             }
         }
+        verifySavedConnection()
         val discoverModels = Button(this).apply {
             text = "Find models available to my API key"
             isAllCaps = false
@@ -609,8 +825,9 @@ class MainActivity : Activity() {
                 try {
                     ProviderCredentialStore.save(this, provider.selectedItem.toString(),
                         selectedKey, model.text.toString().trim())
-                    credentialStatus.text = "Connection saved securely. You can now start a project."
+                    credentialStatus.text = "Connection saved securely. Checking connection..."
                     updateConnectionSetup()
+                    verifySavedConnection()
                 } catch (_: Exception) {
                     credentialStatus.text = "Unable to save securely. Check device security settings."
                 }
@@ -823,7 +1040,68 @@ class MainActivity : Activity() {
                 visibility = View.GONE
             }
         }
+        // Reuse the actual patch engine controls on Home. The panel starts
+        // collapsed, retaining its existing preview, diff, approval and commit gates.
+        val homeCodeReview = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        val homeCodeReviewToggle = Button(this).apply {
+            text = "Open inline code review"
+            isAllCaps = false
+            setOnClickListener {
+                val opening = homeCodeReview.visibility != View.VISIBLE
+                homeCodeReview.visibility = if (opening) View.VISIBLE else View.GONE
+                text = if (opening) "Close inline code review" else "Open inline code review"
+            }
+        }
+        root.addView(homeCodeReviewToggle)
+        root.addView(homeCodeReview)
+        revealImportedReview = {
+            homeCodeReview.visibility = View.VISIBLE
+            homeCodeReviewToggle.text = "Close inline code review"
+            homeCodeReviewToggle.post { homeCodeReviewToggle.requestRectangleOnScreen(
+                android.graphics.Rect(0, 0, homeCodeReviewToggle.width, homeCodeReviewToggle.height), false) }
+        }
+        stageHomeAnalysis = {
+            val plan = homeAnalysisPlan
+            if (plan != null && plan.task == prompt.text.toString().trim() &&
+                plan.files.isNotEmpty() && plan.files.size <= RepositoryAnalysis.MAX_PLANNED_FILES) {
+                // Lexical analysis can select documentation, protected files, or other paths
+                // outside the explicitly scoped patch engine. Never send those paths to
+                // the coding provider or weaken PatchEngine.allowedPath to accommodate them.
+                val eligiblePaths = plan.files.map { it.path }.distinct().filter {
+                    PatchEngine.allowedPath(it, PatchEngine.Target.DEVELOPER)
+                }.take(PatchEngine.MAX_FILES)
+                val excludedCount = plan.files.size - eligiblePaths.size
+                val loaded = eligiblePaths.isNotEmpty() && patchWorkbench.prepareGuided(
+                    "analysis-" + plan.analysisId.take(16), plan.task,
+                    eligiblePaths, plan.commitSha, PatchEngine.Target.DEVELOPER)
+                if (loaded) {
+                    homeCodeReview.visibility = View.VISIBLE
+                    homeCodeReviewToggle.text = "Close inline code review"
+                    stageHomeAnalysisButton.isEnabled = false
+                    homeHandoffStatus.text = "Loaded ${eligiblePaths.size} editable source files at ${plan.commitSha.take(12)}; ${excludedCount} analysis-only paths excluded. Generate a fresh diff and explicitly approve it before any write."
+                    homeHandoffStatus.visibility = View.VISIBLE
+                } else {
+                    homeHandoffStatus.text = if (eligiblePaths.isEmpty()) "Analysis found no files eligible for the protected coding scope. Refine the task to Developer Kotlin, Java, or supported XML source. No files were modified." else "Code review could not stage ${eligiblePaths.size} eligible files (workbench busy or source validation rejected). No files were modified."
+                    homeHandoffStatus.visibility = View.VISIBLE
+                }
+            }
+        }
+        openInlineReview = {
+            homeCodeReview.visibility = View.VISIBLE
+            homeCodeReviewToggle.text = "Close inline code review"
+            homeCodeReviewToggle.post {
+                homeCodeReviewToggle.requestRectangleOnScreen(
+                    android.graphics.Rect(0, 0, homeCodeReviewToggle.width, homeCodeReviewToggle.height), false)
+            }
+        }
         advancedChildren.forEach { child ->
+            if (child in codingWidgets) {
+                homeCodeReview.addView(child)
+                return@forEach
+            }
             val section = when (child) {
                 in codingWidgets -> 1
                 in planningWidgets -> 2
@@ -853,7 +1131,7 @@ class MainActivity : Activity() {
         val codingViews = (0 until sectionGroups[1].childCount).map { sectionGroups[1].getChildAt(it) }
         codingViews.forEach { sectionGroups[1].removeView(it); activityPage.addView(it) }
         sectionGroups[1].addView(Button(this).apply {
-            text = "Open code review in Activity"; isAllCaps = false
+            text = "Open code review in Track"; isAllCaps = false
             setOnClickListener { selectPage?.invoke(2) }
         })
         // Always give a clear route back to the category overview.
@@ -907,59 +1185,11 @@ class MainActivity : Activity() {
             isAllCaps = false
             contentDescription = "Open project creation tools"
         }
-        listOf(setupButton, send, createProject).forEach { button ->
+        listOf(send, createProject).forEach { button ->
             button.isAllCaps = false
             button.setTextColor(0xFF071B25.toInt())
             button.backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_primary))
         }
-        // Reference-style quick actions, backed by existing functional screens.
-        val quickHeading = TextView(this).apply {
-            text = "Quick actions"
-            textSize = 19f
-            setTextColor(getColor(R.color.developer_text))
-            setPadding(0, dp(20), 0, dp(12))
-        }
-        root.addView(quickHeading)
-        fun quickAction(label: String, destination: Int, action: (() -> Unit)? = null): Button =
-            Button(this).apply {
-                text = label
-                textSize = 14f
-                typeface = Typeface.DEFAULT_BOLD
-                minHeight = dp(92)
-                gravity = Gravity.CENTER_VERTICAL or Gravity.START
-                setPadding(dp(14), dp(12), dp(8), dp(12))
-                isAllCaps = false
-                setTextColor(getColor(R.color.developer_text))
-                background = GradientDrawable().apply {
-                    setColor(0xFF142F3B.toInt())
-                    cornerRadius = dp(16).toFloat()
-                    setStroke(2, 0xFF285563.toInt())
-                }
-                setOnClickListener {
-                    if (action != null) action() else selectPage?.invoke(destination)
-                }
-            }
-        fun quickRow(first: Button, second: Button): LinearLayout =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 0, 0, dp(10))
-                addView(first, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginEnd = dp(5)
-                })
-                addView(second, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginStart = dp(5)
-                })
-            }
-        root.addView(quickRow(
-            quickAction("Fix a problem", 0) { selectPage?.invoke(0); prompt.requestFocus() },
-            quickAction("Create something", 1) {
-                DeveloperUiState.descendants(projects).filterIsInstance<EditText>()
-                    .firstOrNull { it.hint?.toString() == "Written application specification (up to 4000 characters)" }
-                    ?.let { if (it.text.isNullOrBlank()) it.setText(prompt.text.toString().take(4_000)) }
-                selectPage?.invoke(1)
-            }
-        ))
-        root.addView(quickRow(quickAction("My projects", 1), quickAction("Review progress", 2)))
         fun openCodeReview() {
             selectPage?.invoke(2)
             codingWidgets.firstOrNull()?.let { first -> first.post {
@@ -970,7 +1200,7 @@ class MainActivity : Activity() {
             savedInstanceState?.getInt("developer_guided_target", 0) ?: 0, ::openCodeReview)
         guidedTarget = guidance.first
         disposeGuidance = guidance.second
-        sectionIntro(activityPage, "Activity", "Review jobs, analysis, approvals, errors and actual verification results. Generate a diff, review all files, approve explicitly, then verify. Queued work is not a completed repair.")
+        sectionIntro(activityPage, "Track", "Live development job history, reviews, failures, and verified results. Pending work is not marked complete.")
         settings.addView(Button(this).apply {
             text = "Advanced tools"; isAllCaps = false
             setOnClickListener { selectPage?.invoke(4) }
@@ -1027,11 +1257,14 @@ class MainActivity : Activity() {
         fun showPage(index: Int, remember: Boolean = true) {
             val next = index.coerceIn(0, pages.lastIndex)
             if (next != activePage) {
+                DeveloperUpdater.cancel(this, report = true)
                 dismissKeyboard()
                 positions[activePage] = pages[activePage].scrollY
                 if (remember) pageHistory.add(activePage)
             }
+            val enteringTrack = next == 2 && activePage != 2
             activePage = next
+            if (enteringTrack) developmentHistory?.refreshNow()
             pages.forEachIndexed { pageIndex, page ->
                 page.visibility = if (pageIndex == activePage) View.VISIBLE else View.GONE
             }
@@ -1084,10 +1317,6 @@ class MainActivity : Activity() {
             navigation.addView(this, LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         }
-        setupButton.setOnClickListener {
-            showPage(3)
-            key.requestFocus()
-        }
         createProject.setOnClickListener {
             if (!patchWorkbench.invalidate()) {
                 status.setText(R.string.project_generation_finish_code_operation)
@@ -1102,7 +1331,7 @@ class MainActivity : Activity() {
         }
         tab("Home", 0, android.R.drawable.ic_menu_view)
         tab("Projects", 1, android.R.drawable.ic_menu_agenda)
-        tab("Activity", 2, android.R.drawable.ic_menu_recent_history)
+        tab("Track", 2, android.R.drawable.ic_menu_recent_history)
         tab("Settings", 3, android.R.drawable.ic_menu_preferences)
         showPage(activePage, false)
         pages.forEach { page ->
@@ -1226,7 +1455,13 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
     }
 
+    override fun onPause() {
+        DeveloperUpdater.onBackground(this)
+        super.onPause()
+    }
+
     override fun onDestroy() {
+        DeveloperUpdater.cancel(this)
         projectGeneration?.dispose()
         projectGeneration = null
         artifactReviewGeneration++

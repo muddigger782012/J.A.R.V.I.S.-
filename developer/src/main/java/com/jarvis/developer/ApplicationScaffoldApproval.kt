@@ -9,13 +9,15 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 enum class ApplicationPlatform { ANDROID, BACKEND, WINDOWS }
+enum class AndroidApplicationBehavior { COUNTER, CHECKLIST }
 
 data class ApplicationSpecification(
     val title: String,
     val writtenSpec: String,
     val platform: ApplicationPlatform,
     val projectName: String,
-    val packageName: String
+    val packageName: String,
+    val androidBehavior: AndroidApplicationBehavior = AndroidApplicationBehavior.COUNTER
 )
 
 data class GeneratedApplicationFile(val path: String, val content: String)
@@ -26,6 +28,7 @@ class ApplicationScaffoldPlan internal constructor(
     val fingerprint: String
 ) {
     val files: List<GeneratedApplicationFile> = Collections.unmodifiableList(files.toList())
+    val templateVersion: String get() = ApplicationScaffolds.templateVersion(specification)
 }
 
 class ApplicationScaffoldApproval private constructor(internal val fingerprint: String) {
@@ -45,6 +48,10 @@ object ApplicationScaffolds {
     const val MAX_BYTES = 512 * 1024
     const val MAX_SPEC_CHARACTERS = 4000
     const val TEMPLATE_VERSION = "jarvis-starter-v1"
+    const val CHECKLIST_TEMPLATE_VERSION = "jarvis-checklist-v1"
+    internal fun templateVersion(spec: ApplicationSpecification) =
+        if (spec.platform == ApplicationPlatform.ANDROID && spec.androidBehavior == AndroidApplicationBehavior.CHECKLIST)
+            CHECKLIST_TEMPLATE_VERSION else TEMPLATE_VERSION
     private val packagePattern = Regex("[a-z][a-z0-9]{0,29}(?:\\.[a-z][a-z0-9]{0,29}){1,5}")
     private val reserved = setOf("class", "object", "fun", "val", "var", "when", "in", "is", "as",
         "if", "else", "for", "while", "do", "try", "catch", "finally", "throw", "return", "break",
@@ -65,13 +72,15 @@ object ApplicationScaffolds {
     fun review(plan: ApplicationScaffoldPlan): String {
         validatePlan(plan)
         return buildString {
-            append("Fixed starter template: ").append(TEMPLATE_VERSION).append('\n')
+            append("Fixed starter template: ").append(plan.templateVersion).append('\n')
             append("Platform: ").append(plan.specification.platform).append('\n')
             append("Project: ").append(plan.specification.projectName).append('\n')
             append("Package: ").append(plan.specification.packageName).append('\n')
             append("Fingerprint SHA-256: ").append(plan.fingerprint).append('\n')
             append("Approval permits ZIP export only. No build, install, publication, repository write or provider request.\n")
-            append("The written specification is displayed by a fixed starter; arbitrary requested features are not implemented.\n")
+            if (plan.specification.androidBehavior == AndroidApplicationBehavior.CHECKLIST)
+                append("Implemented behavior: offline task list; add, complete and confirm removal of completed tasks; private local persistence and confirmed reset. Other written requirements are not implemented.\n")
+            else append("The written specification is displayed by a fixed starter; arbitrary requested features are not implemented.\n")
             for (file in plan.files) {
                 append("\n=== ").append(file.path).append(" (")
                     .append(file.content.toByteArray(StandardCharsets.UTF_8).size).append(" UTF-8 bytes) ===\n")
@@ -119,6 +128,9 @@ object ApplicationScaffolds {
     }
 
     private fun validateSpecification(spec: ApplicationSpecification) {
+        require(spec.platform == ApplicationPlatform.ANDROID || spec.androidBehavior == AndroidApplicationBehavior.COUNTER) {
+            "Task-list behavior requires the Android platform"
+        }
         require(spec.title.isNotBlank() && spec.title.length <= 80 && spec.title == spec.title.trim() &&
             spec.title.none { it in "\n\t\u0085\u2028\u2029" }) { "Title must contain 1–80 visible characters" }
         require(spec.writtenSpec.isNotBlank() && spec.writtenSpec.length <= MAX_SPEC_CHARACTERS) {
@@ -166,7 +178,7 @@ object ApplicationScaffolds {
             digest.update(':'.code.toByte())
             digest.update(bytes)
         }
-        listOf(TEMPLATE_VERSION, spec.platform.name, spec.title, spec.writtenSpec, spec.projectName, spec.packageName).forEach(::part)
+        listOf(templateVersion(spec), spec.platform.name, spec.title, spec.writtenSpec, spec.projectName, spec.packageName).forEach(::part)
         files.forEach { part(it.path); part(it.content) }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
@@ -177,6 +189,7 @@ object ApplicationScaffolds {
             ApplicationPlatform.BACKEND -> backend(spec)
             ApplicationPlatform.WINDOWS -> windows(spec)
         }
+        if (spec.platform == ApplicationPlatform.ANDROID && spec.androidBehavior == AndroidApplicationBehavior.CHECKLIST) return files
         return files + GeneratedApplicationFile("README.md", """
             # ${spec.projectName} — generated starter
 
@@ -204,7 +217,7 @@ object ApplicationScaffolds {
         val base = "app/src/main/java/${spec.packageName.replace('.', '/')}"
         val title = literal(spec.title)
         val description = literal(spec.writtenSpec)
-        return listOf(
+        val counter = listOf(
             file("settings.gradle.kts", """
                 pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
                 dependencyResolutionManagement {
@@ -344,6 +357,8 @@ object ApplicationScaffolds {
                 }
             """)
         )
+        return if (spec.androidBehavior == AndroidApplicationBehavior.CHECKLIST)
+            AndroidChecklistScaffold.generate(spec, counter, title, description) else counter
     }
 
     private fun backend(spec: ApplicationSpecification): List<GeneratedApplicationFile> = listOf(

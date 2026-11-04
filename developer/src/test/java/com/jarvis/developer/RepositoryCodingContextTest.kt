@@ -69,6 +69,34 @@ class RepositoryCodingContextTest {
         .put("role", "assistant").put("status", "completed").put("content", JSONArray()
             .put(JSONObject().put("type", "output_text").put("text", "Review the cited voice source."))))).toString().toByteArray()
 
+    @Test fun smallVerifiedSourceIsProvidedWholeWithoutTruncation() {
+        val git = Git()
+        val context = git.collect()
+        assertTrue(context.verified)
+        val evidence = JSONObject(context.data(task))
+        val file = evidence.getJSONArray("files").getJSONObject(0)
+        val excerpts = file.getJSONArray("excerpts")
+        assertEquals(1, excerpts.length())
+        val full = excerpts.getJSONObject(0)
+        assertEquals(1, full.getInt("startLine"))
+        assertFalse(full.getBoolean("shortened"))
+        assertEquals(text, full.getString("source"))
+        assertEquals(hash(text), file.getString("blobSha"))
+    }
+
+    @Test fun targetedSixKilobyteFileUsesCompleteVerifiedContext() {
+        val expanded = text + ("// voice network latency diagnostic detail\n".repeat(95))
+        assertTrue(expanded.toByteArray().size > RepositoryCodingContext.MAX_EXCERPT_BYTES)
+        assertTrue(expanded.toByteArray().size <= RepositoryCodingContext.MAX_FULL_FILE_BYTES)
+        val context = Git(mapOf(path to expanded)).collect()
+        assertTrue(context.verified)
+        val file = JSONObject(context.data(task)).getJSONArray("files").getJSONObject(0)
+        val source = file.getJSONArray("excerpts").getJSONObject(0)
+        assertFalse(source.getBoolean("shortened"))
+        assertEquals(expanded, source.getString("source"))
+        assertEquals(hash(expanded), file.getString("blobSha"))
+    }
+
     @Test fun actualPinnedGitReadsReachGeminiAndOpenAiAsSeparateDataParts() {
         for (provider in listOf("Gemini", "OpenAI")) {
             val git = Git(); val context = git.collect()
@@ -211,6 +239,33 @@ class RepositoryCodingContextTest {
                 assertFalse(source.endsWith("\ud83d"))
             }
         }
+    }
+
+    @Test fun discussionAndFreshSourceShareOneBudgetWithoutRestoringOldEvidenceOrAuthority() {
+        var discussion = ProjectGenerationDiscussion.empty("project-a", 0)
+        repeat(3) { discussion = discussion.append(task, "Earlier unverified reply " + "\"\\😀".repeat(400), emptyList()) }
+        val followUp = "What about the tests?"
+        val lookup = discussion.lookupTask(followUp)
+        val code = (1..12).joinToString("\n") { "// voice network " + "\"\\😀".repeat(400) }
+        val sources = (1..8).associate { "developer/src/main/java/com/jarvis/developer/VoiceNetwork$it.kt" to code }
+        val files = sources.map { (path, text) -> RepositoryAnalysis.SourceFile(path, hash(text), text.toByteArray().size.toLong()) }
+        val inventory = RepositoryAnalysis.Inventory(files, false, commit)
+        val plan = RepositoryAnalysis.analyze(lookup, inventory) { sources.getValue(it) }
+        val fresh = RepositoryCodingContext.fromAnalysis(lookup, PatchEngine.Target.DEVELOPER, inventory, plan, sources, emptyList())
+        val current = fresh.withDiscussion(followUp, discussion)
+        val encoded = current.data(followUp)
+        val data = JSONObject(encoded)
+        assertTrue(encoded.toByteArray().size <= RepositoryCodingContext.MAX_CONTEXT_BYTES)
+        assertTrue(current.verified); assertEquals(commit, data.getString("commitSha"))
+        assertEquals(current.paths, (0 until data.getJSONArray("files").length()).map {
+            data.getJSONArray("files").getJSONObject(it).getString("path")
+        })
+        assertTrue(data.getJSONObject("priorDiscussion").getJSONArray("turns").length() in 1..3)
+        assertFalse(data.has("approval")); assertTrue(data.getJSONObject("priorDiscussion").getString("notice").contains("Untrusted"))
+        assertThrows(IllegalArgumentException::class.java) { fresh.withDiscussion("A different request", discussion) }
+        val unavailable = RepositoryCodingContext.unavailable(lookup, PatchEngine.Target.DEVELOPER).withDiscussion(followUp, discussion)
+        assertFalse(unavailable.verified); assertNull(unavailable.commit); assertTrue(unavailable.paths.isEmpty())
+        assertFalse(JSONObject(unavailable.data(followUp)).has("files"))
     }
 
     @Test fun aCitationInsideASecretBlockIsRedactedUsingTheFullVerifiedFile() {

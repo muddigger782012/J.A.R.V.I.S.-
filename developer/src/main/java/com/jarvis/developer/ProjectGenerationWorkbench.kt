@@ -22,7 +22,9 @@ internal object ProjectGenerationWorkbench {
     fun attach(activity: Activity, send: Button, cancel: Button, provider: Spinner, key: EditText, model: EditText,
         prompt: EditText, output: TextView, status: TextView, target: () -> Int, targetView: () -> View?,
         selected: () -> String?, select: (String) -> Unit, store: ProjectGenerationStore,
-        changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }): Handle {
+        changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }, forget: Button? = null,
+        requestPatch: () -> Boolean = { false },
+        stageReview: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var disposed = false
@@ -30,6 +32,7 @@ internal object ProjectGenerationWorkbench {
             listOf(send, provider, key, model, prompt).forEach { it.isEnabled = enabled }
             targetView()?.isEnabled = enabled
             cancel.isEnabled = !enabled
+            forget?.isEnabled = enabled
         }
         fun alive() = !disposed && !activity.isFinishing && !activity.isDestroyed
         fun current(run: Running) = alive() && running === run && !run.cancellation.isCancelled
@@ -49,6 +52,12 @@ internal object ProjectGenerationWorkbench {
         }
         cancel.isEnabled = false
         cancel.setOnClickListener { stop(false) }
+        forget?.setOnClickListener {
+            if (!alive() || running != null) return@setOnClickListener
+            val project = selected()
+            status.setText(if (project == null || store.forgetDiscussion(project)) R.string.project_generation_discussion_cleared
+                else R.string.project_generation_discussion_clear_failed)
+        }
         send.setOnClickListener {
             if (!alive() || running != null) return@setOnClickListener
             val task = prompt.text.toString().trim()
@@ -57,6 +66,11 @@ internal object ProjectGenerationWorkbench {
             val readToken = githubToken().trim()
             if ((secret.isNotEmpty() && task.contains(secret)) || (readToken.isNotEmpty() && task.contains(readToken))) {
                 status.setText(R.string.project_generation_remove_key); return@setOnClickListener
+            }
+            val wantsPatch = requestPatch()
+            if (wantsPatch && target() != 0) {
+                status.text = "Code patch proposals are limited to the Developer target."
+                return@setOnClickListener
             }
             val project = selected() ?: java.util.UUID.randomUUID().toString()
             val product = target()
@@ -67,6 +81,15 @@ internal object ProjectGenerationWorkbench {
                 } else status.setText(R.string.project_generation_save_failed)
                 return@setOnClickListener
             }
+            val secrets = listOf(secret, readToken)
+            val discussion = runCatching { store.discussion(project, product, secrets) }.getOrElse {
+                status.setText(R.string.project_generation_save_failed); return@setOnClickListener
+            }
+            val instruction = if (!wantsPatch) task else task +
+                "\n\nCODE PATCH MODE (proposal only, never execute): Return ONLY a JSON object with summary (string) and edits (array of path and content strings). " +
+                "Every edit must be a complete replacement Kotlin or Java source file under developer/src/main/java/com/jarvis/developer/ or developer/src/test/java/com/jarvis/developer/. Existing files may be modified only when their current contents were provided in verified repository context. " +
+                "Do not modify protected components, build configuration, permissions, credentials, or releases. Split work into further requests when it exceeds the provider response budget. Explicit user approval is required separately. No Markdown fences."
+            val lookupTask = discussion.lookupTask(instruction)
             val ticket = store.begin(project, task, product)
             if (ticket == null) { status.setText(R.string.project_generation_save_failed); return@setOnClickListener }
             select(project); changed()
@@ -76,36 +99,99 @@ internal object ProjectGenerationWorkbench {
             val productTarget = if (product == 1) PatchEngine.Target.PERSONAL else PatchEngine.Target.DEVELOPER
             val work: () -> Unit = {
                 var sourceSummary = ""
+                var nextDiscussion: ProjectGenerationDiscussion? = null
+                var reviewScope: Triple<String, List<PatchEngine.Edit>, String>? = null
                 val reply = runCatching {
                     run.cancellation.check()
-                    val context = try { services.context(task, productTarget, readToken, secret, run.cancellation) }
-                        catch (_: Exception) { run.cancellation.check(); RepositoryCodingContext.unavailable(task, productTarget) }
+                    val source = try { services.context(lookupTask, productTarget, readToken, secret, run.cancellation) }
+                        catch (_: Exception) { run.cancellation.check(); RepositoryCodingContext.unavailable(lookupTask, productTarget) }
                     run.cancellation.check()
+                    // A patch must be grounded in verified repository contents. A missing
+                    // GitHub token, failed source read, or unavailable branch must never
+                    // silently turn a code-change request into an ungrounded AI proposal.
+                    if (wantsPatch && !source.verified) {
+                        throw IllegalStateException("Repository source could not be verified. Connect GitHub and retry before requesting code changes.")
+                    }
+                    val context = source.withDiscussion(instruction, discussion)
                     require(context.target == productTarget)
-                    context.data(task) // Reject a stale or mismatched fixture before any provider request.
+                    context.data(instruction) // Context must bind to the exact provider request, including patch-mode instructions.
                     sourceSummary = context.summary()
                     activity.runOnUiThread { if (current(run)) status.text = activity.getString(
                         if (context.verified) R.string.project_generation_context_ready else R.string.project_generation_context_unavailable, providerName) }
-                    val text = services.ask(providerName, secret, modelName, task, run.cancellation, context)
+                    val text = services.ask(providerName, secret, modelName, instruction, run.cancellation, context)
                     run.cancellation.check()
+                    if (wantsPatch) {
+                        // Reject free-form prose and unsafe edits before saving a proposal.
+                        // This is validation only; publication still requires explicit approval.
+                        val proposal = runCatching { org.json.JSONObject(text.trim()) }.getOrElse {
+                            throw IllegalArgumentException("Code proposal must be a JSON object.")
+                        }
+                        require(proposal.optString("summary").isNotBlank()) { "Code proposal has no summary." }
+                        val edits = proposal.optJSONArray("edits")
+                            ?: throw IllegalArgumentException("Code proposal has no edits array.")
+                        require(edits.length() > 0) { "Code proposal must contain at least one file." }
+                        require(edits.length() <= PatchEngine.MAX_FILES) { "Code proposal exceeds the review engine file limit (${PatchEngine.MAX_FILES}). Request a smaller scoped repair." }
+                        require(text.toByteArray(Charsets.UTF_8).size <= 512_000) { "Code proposal exceeds the response byte budget." }
+                        val seen = mutableSetOf<String>()
+                        for (i in 0 until edits.length()) {
+                            val edit = edits.optJSONObject(i)
+                                ?: throw IllegalArgumentException("Invalid code proposal edit.")
+                            val path = edit.optString("path")
+                            require((path.startsWith("developer/src/main/java/com/jarvis/developer/") ||
+                                path.startsWith("developer/src/test/java/com/jarvis/developer/")) &&
+                                PatchEngine.allowedPath(path, PatchEngine.Target.DEVELOPER)) {
+                                "Code proposal contains an out-of-scope path."
+                            }
+                            require(!path.contains("..") && !path.contains(92.toChar()) &&
+                                (path.endsWith(".kt") || path.endsWith(".java")) && seen.add(path)) {
+                                "Code proposal contains an unsafe or duplicate path."
+                            }
+                            require(edit.optString("content").isNotBlank()) { "Code proposal contains an empty file." }
+                            require(path in context.paths) { "Proposal path was not among the verified repository files. Select existing source files through repository inspection; do not invent new paths." }
+                        }
+                        reviewScope = Triple(proposal.getString("summary"), (0 until edits.length()).map { index ->
+                            val edit = edits.getJSONObject(index)
+                            PatchEngine.Edit(edit.getString("path"), edit.getString("content"))
+                        }, requireNotNull(context.commit))
+                    }
+                    nextDiscussion = discussion.append(task, text, secrets)
                     sourceSummary + "\n\n" + text
                 }
                 if (!run.cancellation.isCancelled) {
-                    val saved = store.finish(ticket, if (reply.isSuccess) "generated" else "generation_failed", reply.getOrNull())
+                    val saved = store.finish(ticket, if (reply.isSuccess) "generated" else "generation_failed", reply.getOrNull(),
+                        nextDiscussion.takeIf { reply.isSuccess })
                     activity.runOnUiThread {
                         if (!current(run)) return@runOnUiThread
                         running = null; inputs(true); changed()
                         if (selected() != project || saved == ProjectGenerationStore.Result.STALE) {
                             status.setText(R.string.project_generation_changed)
                         } else reply.onSuccess { text ->
-                            output.text = text
-                            status.text = if (saved == ProjectGenerationStore.Result.SAVED)
+                            val scope = reviewScope
+                            if (scope != null) {
+                                val staged = stageReview(task, scope.first, scope.second, scope.third)
+                                val names = scope.second.joinToString("\n") { "• " + it.path.substringAfterLast('/') }
+                                output.text = buildString {
+                                    append("Jarvis proposes:\n").append(scope.first)
+                                    append("\n\nFiles (").append(scope.second.size).append("):\n").append(names)
+                                    append("\n\nSource revision: ").append(scope.third.take(12))
+                                    append(if (staged) "\n\nCode changes staged for verified diff review. Nothing committed." else
+                                        "\n\nReview staging unavailable. No source files changed.")
+                                }
+                                status.text = if (staged) "Proposal staged for review; explicit approval required." else
+                                    "Review staging rejected. No repository write requested."
+                            } else output.text = text
+                            if (scope == null) status.text = if (saved == ProjectGenerationStore.Result.SAVED)
                                 activity.getString(R.string.project_generation_received, providerName)
                                 else activity.getString(R.string.project_generation_response_unsaved)
                         }.onFailure { failure ->
                             status.setText(R.string.project_generation_failed)
-                            val reason = if (failure is CodingAssistantProvider.ProviderFailure) failure.message.orEmpty()
-                                else activity.getString(R.string.project_generation_check_connection)
+                            val reason = when (failure) {
+                                is CodingAssistantProvider.ProviderFailure -> failure.message.orEmpty()
+                                is IllegalArgumentException -> "AI request or response format validation failed. Check the selected model and request limits."
+                                is IllegalStateException -> failure.message?.takeIf { it.startsWith("Repository source could not be verified.") }
+                                    ?: "AI response processing failed. Check model compatibility and output limits."
+                                else -> activity.getString(R.string.project_generation_check_connection)
+                            }
                             val detail = if (sourceSummary.isBlank()) reason else sourceSummary + "\n\n" + reason
                             output.text = activity.getString(R.string.project_generation_failure_detail, detail,
                                 activity.getString(R.string.project_generation_description_kept))

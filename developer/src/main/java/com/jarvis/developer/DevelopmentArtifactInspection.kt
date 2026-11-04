@@ -23,23 +23,35 @@ internal object DevelopmentArtifactInspection {
     internal fun version(info: PackageInfo) = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
     fun inspect(context: Context, file: File, record: DevelopmentArtifact.Record) {
         DevelopmentArtifact.validate(record)
-        if (file.length() != record.bytes || DevelopmentArtifactFiles.sha256(file) != record.apkSha256)
+        inspectArchive(context, file, record.bytes, record.apkSha256, record.packageName, record.versionCode,
+            record.versionName, record.signerSha256)
+    }
+    /** Updater provenance never fabricates a CI artifact/run record or an installation result. */
+    fun inspectUpdate(context: Context, file: File, release: DeveloperUpdateRelease.Release) {
+        DeveloperUpdateRelease.validate(release)
+        require(context.packageName == DeveloperUpdateRelease.PACKAGE)
+        inspectArchive(context, file, release.bytes, release.sha256, DeveloperUpdateRelease.PACKAGE,
+            release.version, release.versionName, DeveloperUpdateRelease.SIGNER)
+    }
+    private fun inspectArchive(context: Context, file: File, bytes: Long, sha256: String, packageName: String,
+        versionCode: Long, versionName: String, signerSha256: String) {
+        if (file.length() != bytes || DevelopmentArtifactFiles.sha256(file) != sha256)
             throw DevelopmentArtifact.Failure(DevelopmentArtifact.Problem.STORAGE)
         val signers = verifiedSigners(file, Build.VERSION.SDK_INT)
         val pm = context.packageManager
         val trusted = certificates(pm.getPackageInfo(context.packageName, flags()))
-        if (signers != setOf(record.signerSha256) || signers != trusted)
+        if (signers != setOf(signerSha256) || signers != trusted)
             throw DevelopmentArtifact.Failure(DevelopmentArtifact.Problem.SIGNATURE)
         val archive = pm.getPackageArchiveInfo(file.absolutePath, flags())
             ?: throw DevelopmentArtifact.Failure(DevelopmentArtifact.Problem.COMPATIBILITY)
-        val installed = try { pm.getPackageInfo(record.packageName, flags()) } catch (_: PackageManager.NameNotFoundException) { null }
-        if (archive.packageName != record.packageName || version(archive) != record.versionCode ||
-            archive.versionName != record.versionName || certificates(archive) != signers ||
+        val installed = try { pm.getPackageInfo(packageName, flags()) } catch (_: PackageManager.NameNotFoundException) { null }
+        if (archive.packageName != packageName || version(archive) != versionCode ||
+            archive.versionName != versionName || certificates(archive) != signers ||
             archive.applicationInfo.minSdkVersion > Build.VERSION.SDK_INT ||
-            installed != null && (version(installed) > record.versionCode || certificates(installed) != signers))
+            installed != null && (version(installed) > versionCode || certificates(installed) != signers))
             throw DevelopmentArtifact.Failure(DevelopmentArtifact.Problem.COMPATIBILITY)
         ZipFile(file).use { zip ->
-            val names = zip.entries().asSequence().map { it.name }.toList()
+            val names = zip.entries().asSequence().take(30_001).map { it.name }.toList()
             require(names.size <= 30_000 && names.distinct().size == names.size)
             val abis = names.filter { it.startsWith("lib/") && it.endsWith(".so") }.map { it.split('/')[1] }.toSet()
             if (abis.isNotEmpty() && Build.SUPPORTED_ABIS.none { it in abis })

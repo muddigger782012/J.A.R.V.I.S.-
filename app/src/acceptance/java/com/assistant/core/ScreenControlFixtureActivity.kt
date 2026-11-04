@@ -1,12 +1,17 @@
 package com.assistant.core
 
 import android.os.Bundle
+import android.os.SystemClock
 import android.text.InputType
+import android.view.View
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Disposable, themed UI for real Accessibility actions; excluded from release and Beta. */
 class ScreenControlFixtureActivity : ThemedActivity() {
@@ -15,6 +20,10 @@ class ScreenControlFixtureActivity : ThemedActivity() {
     lateinit var output: TextView; private set
     lateinit var scroll: ScrollView; private set
     private lateinit var panel: LinearLayout
+    private val delayNextNode = AtomicBoolean(false)
+    private val delayedNodes = AtomicInteger(0)
+    val delayedReadCount get() = delayedNodes.get()
+    fun delayNextAccessibilityRead() { delayNextNode.set(true) }
     fun changeContext() { output.text = "Changed fixture context" }
     private fun flowLabel(value: String) = TextView(this).apply {
         text = value
@@ -87,6 +96,15 @@ class ScreenControlFixtureActivity : ThemedActivity() {
         panel.addView(Button(this).apply {
             text = "Practice button"
             setOnClickListener { tapCount++; output.text = "Sample tap count $tapCount" }
+            accessibilityDelegate = object : View.AccessibilityDelegate() {
+                override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                    super.onInitializeAccessibilityNodeInfo(host, info)
+                    if (delayNextNode.compareAndSet(true, false)) {
+                        delayedNodes.incrementAndGet()
+                        SystemClock.sleep(1550) // Disposable fixture only; exceed one traversal budget once.
+                    }
+                }
+            }
         })
         panel.addView(LinearLayout(this).apply {
             addView(label("Nested sample"))

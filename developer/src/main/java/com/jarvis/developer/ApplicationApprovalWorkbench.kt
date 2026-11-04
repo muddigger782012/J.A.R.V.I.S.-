@@ -63,6 +63,7 @@ object ApplicationApprovalWorkbench {
         }
         private val platforms = ApplicationPlatform.values().toList()
         private val platform = Spinner(context)
+        private val behavior = Spinner(context)
         private val title = input("Application title (up to 80 characters)", 80)
         private val projectName = input("Project name (for example MyApplication)", 40)
         private val packageName = input("Independent package (for example org.example.myapp)", 190)
@@ -84,6 +85,7 @@ object ApplicationApprovalWorkbench {
         @Volatile private var disposed = false
         @Volatile private var inputRevision = 0L
         private var selectedPlatform = 0
+        private var selectedBehavior = 0
 
         private data class PendingExport(val fingerprint: String, val bytes: ByteArray)
 
@@ -120,7 +122,10 @@ object ApplicationApprovalWorkbench {
             platform.adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item,
                 listOf("Android app", "Backend service", "Windows app"))
             platform.contentDescription = "Application platform"
-            listOf<View>(platform, title, projectName, packageName, specification, generate, review,
+            behavior.adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item,
+                listOf("Counter", "Offline task list (saved on this device)"))
+            behavior.contentDescription = "Android application behavior"
+            listOf<View>(platform, behavior, title, projectName, packageName, specification, generate, review,
                 confirmation, approved, export, status).forEach {
                 container.addView(it, LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -138,7 +143,21 @@ object ApplicationApprovalWorkbench {
                 override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                     if (position != selectedPlatform) {
                         selectedPlatform = position
+                        behavior.visibility = if (platforms[position] == ApplicationPlatform.ANDROID) View.VISIBLE else View.GONE
+                        if (platforms[position] != ApplicationPlatform.ANDROID) {
+                            selectedBehavior = 0
+                            behavior.setSelection(0)
+                        }
                         invalidate("Application platform changed. Generate and review a fresh preview.")
+                    }
+                }
+            }
+            behavior.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    if (position != selectedBehavior) {
+                        selectedBehavior = position
+                        invalidate("Application behavior changed. Generate and review a fresh preview.")
                     }
                 }
             }
@@ -196,7 +215,9 @@ object ApplicationApprovalWorkbench {
             try {
                 val generated = ApplicationScaffolds.plan(ApplicationSpecification(
                     title.text.toString(), specification.text.toString(), platforms[platform.selectedItemPosition],
-                    projectName.text.toString(), packageName.text.toString()))
+                    projectName.text.toString(), packageName.text.toString(),
+                    if (platforms[platform.selectedItemPosition] == ApplicationPlatform.ANDROID)
+                        AndroidApplicationBehavior.values()[behavior.selectedItemPosition] else AndroidApplicationBehavior.COUNTER))
                 val preview = ApplicationScaffolds.review(generated)
                 if (!alive()) return
                 plan = generated

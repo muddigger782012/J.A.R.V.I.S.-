@@ -1,0 +1,101 @@
+name: Prepare or preserve approved Developer recovery snapshot
+on:
+  pull_request:
+    paths:
+      - 'scripts/developer_release.py'
+      - 'scripts/tests/test_developer_release*.py'
+      - '.github/workflows/developer-approved-recovery-snapshot.yml'
+  push:
+    branches: [feature/jarvis-developer, 'feature/jarvis-developer-task/**']
+    paths:
+      - 'scripts/developer_release.py'
+      - 'scripts/tests/test_developer_release*.py'
+      - '.github/workflows/developer-approved-recovery-snapshot.yml'
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: 'Exact published source SHA from a fresh recovery snapshot plan'
+        type: string
+        required: false
+      approved_apk_sha256:
+        description: 'Exact published APK checksum from that plan'
+        type: string
+        required: false
+      approve_snapshot:
+        description: 'Approve preserving ONLY this exact published APK as an immutable recovery snapshot'
+        type: boolean
+        default: false
+        required: true
+permissions:
+  contents: read
+jobs:
+  audit:
+    name: Test and prepare read-only snapshot plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test existing publication and explicit snapshot approval contracts
+        run: python3 -m unittest discover -s scripts/tests -p 'test_developer_release*.py' -v
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Install independent APK verification tools
+        run: sdkmanager 'build-tools;34.0.0'
+      - name: Inspect the published APK and propose its exact immutable destination
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/developer_release.py audit-recovery-plan --evidence "$RUNNER_TEMP/recovery-plan"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Developer-recovery-snapshot-readonly-plan
+          path: ${{ runner.temp }}/recovery-plan/recovery-snapshot-plan.json
+          if-no-files-found: warn
+  preserve:
+    name: Preserve explicitly approved current APK without publishing an update
+    needs: audit
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'muddigger782012/J.A.R.V.I.S.-' && github.ref == 'refs/heads/feature/jarvis-developer' && inputs.approve_snapshot == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: write
+    # Serialize with the existing publisher, without cancelling either operation.
+    concurrency:
+      group: developer-release-channel
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Install independent APK verification tools
+        run: sdkmanager 'build-tools;34.0.0'
+      - name: Recheck exact owner approval and preserve only immutable APK bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVED_SOURCE_SHA: ${{ inputs.approved_source_sha }}
+          APPROVED_APK_SHA256: ${{ inputs.approved_apk_sha256 }}
+          APPROVE_SNAPSHOT: ${{ inputs.approve_snapshot }}
+        run: python3 scripts/developer_release.py preserve-approved-recovery --evidence "$RUNNER_TEMP/recovery-result"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Developer-approved-recovery-snapshot-result
+          path: ${{ runner.temp }}/recovery-result/recovery-snapshot-plan.json
+          if-no-files-found: warn
