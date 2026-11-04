@@ -2,11 +2,15 @@ package com.jarvis.developer
 
 /** Compact owner-facing receipts: never copy untrusted source or logs into primary chat. */
 internal object DeveloperChatBuildReceipt {
-    fun preview(taskId: String, files: Int): String {
+    fun preview(taskId: String, files: Int, proposalId: String? = null): String {
         require(taskId.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,47}")) && files in 1..PatchEngine.MAX_FILES)
+        if (proposalId != null) require(proposalId.matches(Regex("[a-f0-9]{64}")))
+        val approval = if (proposalId == null) "" else
+            "\nAFTER reviewing the complete diff, approve this specific proposal in chat by typing: " +
+                "Approve Developer diff ${proposalId.take(16)}"
         return "Diff ready: $files scoped file(s). Review the complete change in the inline panel " +
-            "and explicitly approve the task branch before any write. " +
-            "No source write, passing test, signed release or installation is implied."
+            "before separately approving the isolated branch. " +
+            "No source write, passing test, signed release or installation is implied." + approval
     }
 
     fun commit(result: PatchPublisher.CommitResult, ci: PatchPublisher.CiStatus?,

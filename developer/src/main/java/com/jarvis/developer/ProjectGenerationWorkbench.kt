@@ -29,7 +29,8 @@ internal object ProjectGenerationWorkbench {
         requestDeveloperRepair: () -> Boolean = { false },
         requestDeveloperBuild: () -> Boolean = { false },
         saveDeveloperTask: () -> Boolean = { false },
-        readSavedDeveloperBuild: () -> Boolean = { false }): Handle {
+        readSavedDeveloperBuild: () -> Boolean = { false },
+        approveDeveloperDiff: (String) -> Boolean = { false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
@@ -82,6 +83,29 @@ internal object ProjectGenerationWorkbench {
             val readToken = githubToken().trim()
             if ((secret.isNotEmpty() && task.contains(secret)) || (readToken.isNotEmpty() && task.contains(readToken))) {
                 status.setText(R.string.project_generation_remove_key); return@setOnClickListener
+            }
+            // Only a complete owner-typed 16-hex proposal fingerprint can approve a
+            // new isolated task-branch write. Partial commands are refused locally.
+            if (DeveloperDiffApprovalCommand.isAttempt(task)) {
+                val prefix = DeveloperDiffApprovalCommand.parse(task)
+                if (target() != 0) {
+                    output.text = "Developer diff approval is unavailable for the Personal Jarvis target."
+                    status.text = "No Developer source write started."
+                } else if (prefix == null) {
+                    output.text = "Use the exact 16-character fingerprint displayed after reviewing the diff. " +
+                        "Example: Approve Developer diff 0123456789abcdef. No write started."
+                    status.text = "Invalid exact Developer approval command."
+                } else {
+                    val started = runCatching { approveDeveloperDiff(prefix) }.getOrDefault(false)
+                    output.text = if (started)
+                        "Exact Developer diff approved. Creating only its isolated task branch. " +
+                            "CI results will appear separately. No merge, signed update or installation was approved."
+                    else "Approval refused: the fingerprint is not the currently reviewed, unconsumed " +
+                        "source-verified Developer diff, or the commit gate is unavailable. No write started."
+                    status.text = if (started) "Exact user-approved task branch commit started."
+                        else "Developer diff approval refused; review current pinned proposal."
+                }
+                return@setOnClickListener
             }
             val savedBuildCommand = DeveloperSavedBuildChatCommand.match(task)
             if (savedBuildCommand != null) {
