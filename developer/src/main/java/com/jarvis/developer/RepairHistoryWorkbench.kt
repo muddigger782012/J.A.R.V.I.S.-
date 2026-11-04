@@ -92,24 +92,42 @@ object RepairHistoryWorkbench {
             activeRead = cancellation
             result.text = "Reading or updating private metadata. No source write or approval is requested."
             refresh()
-            services.worker {
-                val message = try {
-                    cancellation?.check()
-                    action().also { cancellation?.check() }
-                } catch (failure: Exception) {
-                    BuildFeedback.explainFailure(failure) ?: "Repair history operation could not be verified. Check access or explicitly clear damaged local history. No approval, source change or retry was created."
-                }
-                activity.runOnUiThread {
-                    if (alive()) {
-                        result.text = if (cancellation?.isCancelled == true)
-                            "Saved build read cancelled. Its evidence was discarded. Choose and recheck explicitly; no retry, source change or approval was created."
-                        else if (isCurrent()) message else
-                            "Saved selection changed. The old build response was discarded; choose and recheck explicitly."
-                        busy = false
-                        activeRead = null
-                        end()
-                        refresh()
+            // An activity may be destroyed while the background read is running.
+            // Release the shared coding-operation slot even when its UI is gone.
+            // A rejected worker launch must release that same slot exactly once.
+            var slotReleased = false
+            fun releaseSlot() {
+                if (slotReleased) return
+                slotReleased = true
+                busy = false
+                activeRead = null
+                end()
+            }
+            try {
+                services.worker {
+                    val message = try {
+                        cancellation?.check()
+                        action().also { cancellation?.check() }
+                    } catch (failure: Exception) {
+                        BuildFeedback.explainFailure(failure)
+                            ?: "Repair history operation could not be verified. Check access or explicitly clear damaged local history. No approval, source change or retry was created."
                     }
+                    activity.runOnUiThread {
+                        releaseSlot()
+                        if (alive()) {
+                            result.text = if (cancellation?.isCancelled == true)
+                                "Saved build read cancelled. Its evidence was discarded. Choose and recheck explicitly; no retry, source change or approval was created."
+                            else if (isCurrent()) message else
+                                "Saved selection changed. The old build response was discarded; choose and recheck explicitly."
+                            refresh()
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                releaseSlot()
+                if (alive()) {
+                    result.text = "Repair history operation could not start. No source, approval or build action was requested."
+                    refresh()
                 }
             }
         }
