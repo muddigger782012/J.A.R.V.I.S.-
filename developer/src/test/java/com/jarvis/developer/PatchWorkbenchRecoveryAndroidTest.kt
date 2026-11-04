@@ -223,6 +223,48 @@ class PatchWorkbenchRecoveryAndroidTest {
         }
     }
 
+    @Test fun failedCiAutomaticallyShowsOnlyMatchingBoundedEvidenceWithNoAdditionalWrite() {
+        val h = Harness()
+        try {
+            h.successfulWrite = true
+            h.ciStatus = PatchPublisher.CiStatus(PatchPublisher.CiState.FAILED,
+                "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/23", "failure")
+            h.preview(); h.approval.isChecked = true
+            h.button("Create task branch").performClick(); h.finish()
+            assertEquals(1, h.ciReads); assertEquals(1, h.feedbacks)
+            assertEquals(1, h.writes); assertEquals(1, h.providers)
+            assertTrue(h.output.text.contains("Exact-run failure diagnostics"))
+            assertTrue(h.output.text.contains("Unresolved reference; check imports"))
+            assertTrue(h.status.text.contains("diagnostics ready"))
+            assertFalse(h.approval.isEnabled); assertFalse(h.approval.isChecked)
+            assertTrue(h.pending.isEmpty())
+        } finally { h.close() }
+    }
+
+    @Test fun failedCiWithAnotherSourceOrRunMustDiscardTheUnverifiedDiagnostics() {
+        for (mismatch in listOf("sha", "run", "report-error")) {
+            val h = Harness()
+            try {
+                h.successfulWrite = true
+                h.ciStatus = PatchPublisher.CiStatus(PatchPublisher.CiState.FAILED,
+                    "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/" +
+                        if (mismatch == "run") "99" else "23", "failure")
+                if (mismatch == "sha") h.wrongFeedback = 2
+                if (mismatch == "report-error") h.feedbackFailure =
+                    BuildFeedback.Failure(BuildFeedback.Stage.LOG_READ, BuildFeedback.Problem.HTTP, 403)
+                h.preview(); h.approval.isChecked = true
+                h.button("Create task branch").performClick(); h.finish()
+                assertEquals(1, h.ciReads); assertEquals(1, h.feedbacks)
+                assertEquals(1, h.writes); assertEquals(1, h.providers)
+                assertTrue(h.output.text.contains("details could not be verified"))
+                assertFalse(h.output.text.contains("Unresolved reference; check imports"))
+                assertFalse(h.output.text.contains("HTTP 403"))
+                assertFalse(h.approval.isEnabled)
+                assertTrue(h.button("Read exact task build").isEnabled)
+            } finally { h.close() }
+        }
+    }
+
     @Test fun ciTransportFailureCannotUndoRecordedCommitOrInventPassingTests() {
         val h = Harness()
         try {

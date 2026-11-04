@@ -594,24 +594,57 @@ object PatchWorkbench {
                         check(services.inbox(activity).finishEngineering(write, result))
                         services.engineeringRecovery(activity)
                     }
-                    // A completed approved write is now followed by one GET-only CI
-                    // lookup for this exact branch and SHA. CI can still be queued,
-                    // missing or unavailable; none of those imply a passing build.
-                    // No retry, repair, workflow dispatch or source write is automatic.
+                    // After an approved, validated commit perform one exact-source CI read.
+                    // If that run failed, perform one bounded GET-only build-log read and
+                    // display its sanitized diagnostics in the same chat/review response.
+                    // Neither read can retry a write, start a repair, or restore approval.
                     val checked = if (alive()) runCatching { services.ci(token, result) }.getOrNull() else null
                     val ciText = checked?.let(::ciSummary) ?:
                         "CI status could not be verified for this exact commit. Use Check CI to retry the read-only lookup."
-                    val report = renderCommit(result, checked) + if (checked == null) "\n\n$ciText" else ""
+                    if (checked?.state == PatchPublisher.CiState.FAILED) {
+                        activity.runOnUiThread {
+                            if (alive()) {
+                                status.text = "Task branch committed; checking bounded failure evidence for the exact CI run."
+                                output.text = commitAudit(result) + "\n" + ciText + "\nReading failure details; no repair or additional write."
+                            }
+                        }
+                    }
+                    val failureReport = if (checked?.state == PatchPublisher.CiState.FAILED && alive()) {
+                        runCatching {
+                            val cancellation = PatchPreviewCancellation()
+                            val evidence = services.feedback(token, result, cancellation)
+                            BuildDiagnostics.validateReport(evidence)
+                            require(evidence.target == result.target && evidence.branch == result.branch &&
+                                evidence.commitSha == result.commitSha && evidence.status == "completed" &&
+                                evidence.conclusion == checked.conclusion && evidence.conclusion != "success")
+                            // A later workflow attempt must not be mistaken for the CI run just checked.
+                            require(checked.runUrl != null &&
+                                evidence.runUrl.startsWith(checked.runUrl + "/attempts/"))
+                            evidence
+                        }.getOrNull()
+                    } else null
+                    val failureText = if (checked?.state != PatchPublisher.CiState.FAILED) "" else
+                        if (failureReport != null)
+                            "\n\nExact-run failure diagnostics (untrusted build evidence):\n" +
+                                BuildDiagnostics.render(failureReport) +
+                                "\nNo repair, provider request, source write or retry was started."
+                        else "\n\nFailed build details could not be verified for this CI run. " +
+                            "Use Read exact task build to retry the bounded diagnostic read. " +
+                            "No repair or source write was started."
+                    val report = renderCommit(result, checked) +
+                        (if (checked == null) "\n\n$ciText" else "") + failureText
                     activity.runOnUiThread {
                         if (alive()) {
                             lastCommit = result
                             interruptedAttempt = null
                             interruptedEngineering = null
                             review.text = report
-                            output.text = commitAudit(result) + "\n" + ciText
+                            output.text = commitAudit(result) + "\n" + ciText + failureText
                             status.text = when (checked?.state) {
                                 PatchPublisher.CiState.PASSED -> "Task branch committed; exact-source debug CI passed"
-                                PatchPublisher.CiState.FAILED -> "Task branch committed; exact-source CI failed. Inspect diagnostics before a new approved repair."
+                                PatchPublisher.CiState.FAILED -> if (failureReport != null)
+                                    "Task branch committed; exact-run failure diagnostics ready for review."
+                                else "Task branch committed; CI failed, but detailed evidence remains unverified."
                                 PatchPublisher.CiState.RUNNING -> "Task branch committed; CI running. Use Check CI to refresh."
                                 PatchPublisher.CiState.QUEUED -> "Task branch committed; CI queued. Use Check CI to refresh."
                                 PatchPublisher.CiState.MISSING -> "Task branch committed; no matching CI run yet. No tests are assumed."
