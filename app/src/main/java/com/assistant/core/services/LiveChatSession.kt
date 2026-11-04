@@ -45,7 +45,8 @@ class LiveChatSession(private val maxSilentTurns: Int = Int.MAX_VALUE,
         phase = Phase.SPEAKING
         return true
     }
-    fun speechFinished(turn: Long = token): Boolean {
+    /** Only the callback that owns this turn may finish its speech. */
+    fun speechFinished(turn: Long): Boolean {
         if (turn != token || phase != Phase.SPEAKING) return false
         lastActivity = now()
         phase = Phase.WAITING
