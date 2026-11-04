@@ -89,7 +89,16 @@ internal object RepositoryCodingContext {
             require(digest.digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) } == file.source.sha)
             val lines = RepositoryRedaction.source(source, secrets).split('\n')
             val excerpts = JSONArray()
-            for (citation in file.citations.take(2)) {
+            // Supply complete, verified, redacted small files for accurate targeted repairs.
+            // Large files retain bounded cited excerpts; the final serialized request budget
+            // still applies to every file and the existing credential checks remain mandatory.
+            val fullRedacted = lines.joinToString("\n")
+            if (fullRedacted.toByteArray(Charsets.UTF_8).size <= MAX_EXCERPT_BYTES) {
+                excerpts.put(JSONObject().put("startLine", 1).put("endLine", lines.size)
+                    .put("shortened", false).put("source", fullRedacted))
+            }
+
+            for (citation in if (excerpts.length() == 0) file.citations.take(2) else emptyList()) {
                 require(citation.path == file.path && citation.commitSha == inventory.commitSha && citation.blobSha == file.source.sha)
                 require(citation.startLine >= 1 && citation.endLine in citation.startLine..lines.size)
                 require(citation.endLine - citation.startLine < RepositoryAnalysis.MAX_SNIPPET_LINES)
