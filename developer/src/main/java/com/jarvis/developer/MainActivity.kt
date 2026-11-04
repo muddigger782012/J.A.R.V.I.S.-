@@ -590,10 +590,6 @@ class MainActivity : Activity() {
             requestPatch = { proposeCodePatch.isChecked && (guidedTarget?.selectedItemPosition ?: 0) == 0 },
             stageReview = { taskText, summary, edits, commitSha ->
                 val staged = patchWorkbench.importChatProposal(taskText, summary, edits, commitSha)
-                if (staged) {
-                    homeCodeReview.visibility = View.VISIBLE
-                    homeCodeReviewToggle.text = "Close inline code review"
-                }
                 staged
             })
         // Preserve all existing controls while separating the beginner home from tools.
