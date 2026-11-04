@@ -1,0 +1,37 @@
+{
+  "version": "3.6.576",
+  "buildRunId": 41777701184,
+  "buildCommit": "afdb004be0d9faa77a5bdd01ab83760cd6dcab5c",
+  "apks": [
+    {
+      "artifact": "app-arm64-v8a-release.apk",
+      "abi": "arm64-v8a",
+      "versionCode": 576,
+      "versionName": "3.6.576",
+      "bytes": 52414255,
+      "sha256": "b88d42bae645a7df24d0babff7d4fbff9a0272d68abaa0dd45a2e5ddd3cd59bc",
+      "productionSignerMatchesBaseline": true,
+      "wakeModelsAndRuntimePresent": true
+    },
+    {
+      "artifact": "app-armeabi-v7a-release.apk",
+      "abi": "armeabi-v7a",
+      "versionCode": 576,
+      "versionName": "3.6.576",
+      "bytes": 42764595,
+      "sha256": "413b573021b8a0c611436dde3aa47f9a5d76680875d70719ddc8da1f6d2cb1cd",
+      "productionSignerMatchesBaseline": true,
+      "wakeModelsAndRuntimePresent": true
+    },
+    {
+      "artifact": "app-x86_64-release.apk",
+      "abi": "x86_64",
+      "versionCode": 576,
+      "versionName": "3.6.576",
+      "bytes": 56628379,
+      "sha256": "0bb7bbb5d73923a68b0ede0fb8d3203bceeda502ceb362616deca19249c785d5",
+      "productionSignerMatchesBaseline": true,
+      "wakeModelsAndRuntimePresent": true
+    }
+  ]
+}
