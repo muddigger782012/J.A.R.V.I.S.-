@@ -326,6 +326,14 @@ object PatchWorkbench {
             }
         }
         listOf(taskId, task, allowedPaths).forEach { it.addTextChangedListener(inputChanges(true)) }
+        model.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                chatImport = null
+                activeEngineering = null
+            }
+        })
         model.addTextChangedListener(inputChanges(false))
         var selectedProvider = provider.selectedItem?.toString().orEmpty()
         val priorSelectionListener = provider.onItemSelectedListener
@@ -334,6 +342,8 @@ object PatchWorkbench {
                 val selected = provider.selectedItem?.toString().orEmpty()
                 if (selected != selectedProvider) {
                     selectedProvider = selected
+                    chatImport = null
+                    activeEngineering = null
                     failRepair(activeRepair, "approval")
                     invalidate()
                 }
@@ -341,6 +351,8 @@ object PatchWorkbench {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {
                 selectedProvider = ""
+                chatImport = null
+                activeEngineering = null
                 failRepair(activeRepair, "approval")
                 invalidate()
                 priorSelectionListener?.onNothingSelected(parent)
