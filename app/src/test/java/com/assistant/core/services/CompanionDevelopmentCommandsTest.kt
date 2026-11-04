@@ -34,6 +34,19 @@ class CompanionDevelopmentCommandsTest {
         assertNull(DevelopmentCommands.parse("Ask developer to " + "x".repeat(1501)))
     }
 
+    @Test fun conversationalFollowUpsUseExistingJobInsteadOfSubmittingDuplicateWork() {
+        assertEquals(DevelopmentCommands.Kind.STATUS,
+            DevelopmentCommands.parse("Where did we leave off with development?"))
+        assertEquals(DevelopmentCommands.Kind.STATUS,
+            DevelopmentCommands.parse("What happened with my developer task?"))
+        assertEquals(DevelopmentCommands.Kind.STATUS,
+            DevelopmentCommands.parse("What is the Developer working on?"))
+        assertEquals(DevelopmentCommands.Kind.RESUME,
+            DevelopmentCommands.parse("Continue the paused developer job"))
+        assertNull(DevelopmentCommands.submission("Where did we leave off with development?"))
+        assertNull(DevelopmentCommands.parse("Continue our conversation"))
+    }
+
     @Test fun approvalAndInstallationRemainExplicit() {
         assertNull(DevelopmentCommands.parse("yes"))
         assertNull(DevelopmentCommands.parse("approve"))
