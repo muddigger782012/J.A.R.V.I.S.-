@@ -928,7 +928,7 @@ object PatchWorkbench {
                 edits.any { !PatchEngine.allowedPath(it.path) } || edits.map { it.path }.distinct().size != edits.size) false
             else {
                 val id = "chat-" + UUID.randomUUID().toString().replace("-", "").take(16)
-                val ready = prepareInputs(id, taskText, edits.map { it.path }, base, "feature/jarvis-developer"
+                val ready = prepareInputs(id, taskText, edits.map { it.path }, base, "feature/jarvis-developer")
                 if (ready) {
                     chatImport = summary to edits.map { it.copy() }
                     status.text = "Chat replacement contents staged. Generate a verified diff; no second AI call is required."
