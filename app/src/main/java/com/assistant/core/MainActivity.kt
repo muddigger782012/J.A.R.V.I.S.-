@@ -1453,7 +1453,8 @@ class MainActivity : ThemedActivity() {
         clearSubmittedComposer()
         appendOutput("You: ${if (commandText.isBlank()) "(status request)" else commandText}")
         if (handleLiveChatControl(commandText)) return
-        if (liveChatStarted) return
+        // Live voice is an additional input channel, not a lock on the chat composer.
+        // Allow typed requests and developer tasks while the microphone session runs.
         handleAssistantWithLocation(commandText) { reply ->
             runOnUiThread {
                 appendOutput("J.A.R.V.I.S.: ${reply.text}")
@@ -2353,8 +2354,8 @@ class MainActivity : ThemedActivity() {
             text = "Starting live chat…"
             visibility = View.VISIBLE
         }
-        commandInput.isEnabled = false
-        findViewById<Button>(R.id.btnRunAssistantCommand).isEnabled = false
+        commandInput.isEnabled = true
+        findViewById<Button>(R.id.btnRunAssistantCommand).isEnabled = true
         voiceButton.isEnabled = true
         try {
             VoiceForegroundService.startLiveChat(this, conversationSessionId, resumeWake)
@@ -2380,8 +2381,9 @@ class MainActivity : ThemedActivity() {
         }
         findViewById<TextView>(R.id.tvLiveChatStatus).text = state.optString("message", "Live chat continues outside the app. Say “end live chat” to finish.")
         findViewById<TextView>(R.id.tvLiveChatStatus).visibility = if (liveChatStarted) View.VISIBLE else View.GONE
-        commandInput.isEnabled = !liveChatStarted
-        findViewById<Button>(R.id.btnRunAssistantCommand).isEnabled = !liveChatStarted
+        // Keep text input available even when the foreground voice session is active.
+        commandInput.isEnabled = true
+        findViewById<Button>(R.id.btnRunAssistantCommand).isEnabled = true
         val phase = runCatching { VoiceInteractionState.valueOf(state.optString("phase", "IDLE")) }.getOrDefault(VoiceInteractionState.IDLE)
         updateVoiceInteractionState(if (liveChatStarted) phase else VoiceInteractionState.IDLE)
         importLiveChatMessages()
