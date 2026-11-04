@@ -27,7 +27,9 @@ class ProjectGenerationTest {
         progressRead: (() -> String)? = null,
         ask: ((String, String, String, String, PatchPreviewCancellation) -> String)? = null,
         repair: (() -> Boolean)? = null,
-        buildCheck: (() -> Boolean)? = null) : AutoCloseable {
+        buildCheck: (() -> Boolean)? = null,
+        save: (() -> Boolean)? = null,
+        readSaved: (() -> Boolean)? = null) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -50,11 +52,50 @@ class ProjectGenerationTest {
                 }, context = { task, product, _, _, _ -> RepositoryCodingContext.unavailable(task, product) },
                 progress = { _ -> progressRead?.invoke() ?: "Verified local progress fixture" }),
             requestDeveloperRepair = { repair?.invoke() ?: false },
-            requestDeveloperBuild = { buildCheck?.invoke() ?: false })
+            requestDeveloperBuild = { buildCheck?.invoke() ?: false },
+            saveDeveloperTask = { save?.invoke() ?: false },
+            readSavedDeveloperBuild = { readSaved?.invoke() ?: false })
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun explicitSavedTaskChatCommandsDoNotCallProviderOrPersistProjectDiscussion() {
+        var saves = 0
+        var reads = 0
+        Screen(save = { saves++; true }, readSaved = { reads++; true },
+            ask = { _, _, _, _, _ -> error("Provider must never run for saved build") }).use { s ->
+            s.prompt.setText("Save Developer task")
+            s.send.performClick()
+            assertEquals(1, saves)
+            assertEquals(0, reads)
+            assertTrue(s.output.text.contains("private local history"))
+            s.prompt.setText("Check saved Developer build")
+            s.send.performClick()
+            assertEquals(1, reads)
+            assertTrue(s.output.text.contains("exact CI evidence"))
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.pending.isEmpty())
+        }
+    }
+
+    @Test fun savedTaskChatDoesNotLeakIntoPersonalJarvisOrInventMissingBookmarks() {
+        var calls = 0
+        Screen(save = { calls++; true }, readSaved = { calls++; true }).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("Check saved Developer build")
+            s.send.performClick()
+            assertEquals(0, calls)
+            assertTrue(s.output.text.contains("unavailable for the Personal"))
+        }
+        Screen(save = { calls++; false }).use { s ->
+            s.prompt.setText("Save Developer task")
+            s.send.performClick()
+            assertEquals(1, calls)
+            assertTrue(s.output.text.contains("No eligible Developer task"))
+            assertTrue(s.prefs.all.isEmpty())
+        }
+    }
+
     @Test fun chatBuildCheckUsesExistingExactCommitReadWithoutAIOrWrites() {
         var checks = 0
         Screen(buildCheck = { checks++; true }, ask = { _, _, _, _, _ -> error("No AI request allowed") }).use { s ->

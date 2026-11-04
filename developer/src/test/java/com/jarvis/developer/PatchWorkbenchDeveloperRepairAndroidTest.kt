@@ -40,7 +40,8 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
             ("blob ${bytes.size}\u0000").toByteArray(Charsets.UTF_8) + bytes
         ).joinToString("") { "%02x".format(it.toInt() and 255) }
     }
-    private inner class Screen(val infrastructureFailure: Boolean = false) {
+    private inner class Screen(val infrastructureFailure: Boolean = false,
+        val historyDirectory: java.io.File = java.nio.file.Files.createTempDirectory("developer-bookmark-").toFile()) {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
@@ -59,6 +60,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
         var writes = 0
         var ciReads = 0
         var ciState = PatchPublisher.CiState.FAILED
+        val chatUpdates = mutableListOf<String>()
         var logReads = 0
         var movedTaskSha = false
         val handle: PatchWorkbench.Handle
@@ -120,7 +122,15 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
                             else "e: $path:2:1 Unresolved reference: untrusted-contents\n",
                             result.target)
                     },
-                    worker = { queued.add(it) }
+                    worker = { queued.add(it) },
+                    history = RepairHistoryWorkbench.Services(
+                        directory = { historyDirectory },
+                        feedback = { _, bookmark, cancellation ->
+                            cancellation.check()
+                            BuildDiagnostics.parse(bookmark.commitSha, bookmark.branch, 77, 1,
+                                "completed", "success", "", bookmark.target)
+                        }),
+                    chatStatus = { chatUpdates.add(it) }
                 ))
             shadowOf(Looper.getMainLooper()).idle()
         }
@@ -146,6 +156,44 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
         }
         fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun savedDeveloperTaskCanBeReadAfterActivityRecreationWithoutRevivingWritePermissions() {
+        val directory = java.nio.file.Files.createTempDirectory("developer-shared-bookmark-").toFile()
+        val first = Screen(historyDirectory = directory)
+        try {
+            first.initialFailure()
+            assertTrue(first.handle.saveDeveloperBookmark())
+            assertEquals(1, first.queued.size)
+            first.finish()
+            assertTrue(first.chatUpdates.last().contains("saved privately"))
+            assertEquals(1, first.writes)
+        } finally { first.close() }
+        val reopened = Screen(historyDirectory = directory)
+        try {
+            assertTrue(reopened.handle.readSavedDeveloperBuild())
+            assertEquals(1, reopened.queued.size)
+            reopened.finish()
+            assertTrue(reopened.chatUpdates.last().contains("Saved Developer build"))
+            assertTrue(reopened.chatUpdates.last().contains("CI: success"))
+            assertFalse(reopened.chatUpdates.last().contains("installed"))
+            assertEquals(0, reopened.writes)
+            assertEquals(0, reopened.providerCalls)
+            assertFalse(reopened.approval().isEnabled)
+            assertFalse(reopened.handle.refreshDeveloperCi())
+            assertFalse(reopened.handle.prepareDeveloperRepair())
+        } finally { reopened.close() }
+    }
+
+    @Test fun unsavedDeveloperHistoryCannotBeMistakenForSuccessfulBuild() {
+        val s = Screen()
+        try {
+            assertTrue(s.handle.readSavedDeveloperBuild())
+            s.finish()
+            assertTrue(s.chatUpdates.last().contains("No explicitly saved"))
+            assertEquals(0, s.writes)
+            assertEquals(0, s.providerCalls)
+        } finally { s.close() }
+    }
+
     @Test fun queuedOrMissingTaskCIUpdatesFromChatWithoutSecondSourceWriteOrProviderCall() {
         val s = Screen()
         try {

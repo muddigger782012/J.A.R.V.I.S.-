@@ -27,7 +27,9 @@ internal object ProjectGenerationWorkbench {
         requestPatch: () -> Boolean = { false },
         stageReview: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false },
         requestDeveloperRepair: () -> Boolean = { false },
-        requestDeveloperBuild: () -> Boolean = { false }): Handle {
+        requestDeveloperBuild: () -> Boolean = { false },
+        saveDeveloperTask: () -> Boolean = { false },
+        readSavedDeveloperBuild: () -> Boolean = { false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
@@ -80,6 +82,31 @@ internal object ProjectGenerationWorkbench {
             val readToken = githubToken().trim()
             if ((secret.isNotEmpty() && task.contains(secret)) || (readToken.isNotEmpty() && task.contains(readToken))) {
                 status.setText(R.string.project_generation_remove_key); return@setOnClickListener
+            }
+            val savedBuildCommand = DeveloperSavedBuildChatCommand.match(task)
+            if (savedBuildCommand != null) {
+                if (target() != 0) {
+                    output.text = "Developer task history is unavailable for the Personal Jarvis target."
+                    status.text = "No Developer history operation was started."
+                } else {
+                    val started = runCatching {
+                        when (savedBuildCommand) {
+                            DeveloperSavedBuildChatCommand.Action.SAVE -> saveDeveloperTask()
+                            DeveloperSavedBuildChatCommand.Action.READ -> readSavedDeveloperBuild()
+                        }
+                    }.getOrDefault(false)
+                    output.text = if (started)
+                        if (savedBuildCommand == DeveloperSavedBuildChatCommand.Action.SAVE)
+                            "Saving only the current verified Developer task's branch and commit " +
+                                "in private local history. No credentials, code or approval are saved."
+                        else "Reading the latest explicitly saved Developer task's exact CI evidence. " +
+                            "This cannot restore approval or start a source write."
+                    else "No eligible Developer task or saved history operation is ready. " +
+                        "No approval, source change, or passing CI was assumed."
+                    status.text = if (started) "Developer history operation started from chat"
+                        else "Developer history operation not started"
+                }
+                return@setOnClickListener
             }
             // Read-only exact-task CI follow-up. A queued first lookup can be refreshed
             // from chat without another menu, model call or source write.

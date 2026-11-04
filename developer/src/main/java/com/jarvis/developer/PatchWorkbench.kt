@@ -57,7 +57,9 @@ object PatchWorkbench {
         private val guidedAction: (String, String, List<String>, String, PatchEngine.Target) -> Boolean = { _, _, _, _, _ -> false },
         private val importAction: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false },
         private val developerRepairAction: () -> Boolean = { false },
-        private val exactDeveloperCiAction: () -> Boolean = { false }
+        private val exactDeveloperCiAction: () -> Boolean = { false },
+        private val saveDeveloperBookmarkAction: () -> Boolean = { false },
+        private val readDeveloperBookmarkAction: () -> Boolean = { false }
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
@@ -67,6 +69,10 @@ object PatchWorkbench {
         fun prepareDeveloperRepair(): Boolean = developerRepairAction()
         /** User-initiated exact task CI refresh: GET-only, no provider or repository writes. */
         fun refreshDeveloperCi(): Boolean = exactDeveloperCiAction()
+        /** Saves only commit identity, never source, credentials or approval. */
+        fun saveDeveloperBookmark(): Boolean = saveDeveloperBookmarkAction()
+        /** Explicit bounded GET-only read after Activity recreation. Never revives a writer. */
+        fun readSavedDeveloperBuild(): Boolean = readDeveloperBookmarkAction()
         fun invalidate(): Boolean = invalidateAction()
         fun preparePersonal(review: PersonalRepair.Review): Boolean = personalAction(review)
         internal fun importChatProposal(task: String, summary: String, edits: List<PatchEngine.Edit>, base: String) =
@@ -975,6 +981,97 @@ object PatchWorkbench {
             return launched
         }
         ci.setOnClickListener { startExactCiCheck() }
+        fun saveDeveloperTaskBookmark(): Boolean {
+            val result = lastCommit?.takeIf { it.target == PatchEngine.Target.DEVELOPER } ?: return false
+            if (busy || !alive()) return false
+            val bookmark = runCatching { RepairHistoryStore.bookmark(result) }.getOrNull() ?: return false
+            busy = true
+            refresh()
+            val started = runCatching {
+                services.worker {
+                    // The owner explicitly requested this local write. Never save
+                    // source, diff, token or approval, even if the Activity dies.
+                    val saved = runCatching {
+                        RepairHistoryStore(services.history.directory(activity)).save(bookmark)
+                    }.isSuccess
+                    activity.runOnUiThread {
+                        if (alive()) {
+                            val message = if (saved)
+                                "Developer task bookmark saved privately (branch + commit only). " +
+                                    "After reopening Developer, say 'Check saved Developer build' " +
+                                    "to read its exact CI evidence. No approval or write access was saved."
+                            else "Developer task bookmark could not be saved. No persistence or " +
+                                "future recovery has been assumed; check private storage."
+                            runCatching { services.chatStatus(message) }
+                            status.text = if (saved) "Developer task bookmark saved; no build or release action"
+                                else "Developer task bookmark save failed"
+                            busy = false
+                            refresh()
+                        }
+                    }
+                }
+            }.isSuccess
+            if (!started) {
+                busy = false
+                refresh()
+                status.text = "Bookmark worker could not start. No bookmark was assumed saved."
+            }
+            return started
+        }
+
+        fun readSavedDeveloperBuild(): Boolean {
+            if (busy || !alive()) return false
+            val cancellation = PatchPreviewCancellation()
+            val token = githubToken.text.toString().trim()
+            activeRead = cancellation
+            busy = true
+            refresh()
+            status.text = "Reading the latest explicitly saved Developer task; no source change"
+            val started = runCatching {
+                services.worker {
+                    val message = runCatching {
+                        cancellation.check()
+                        val bookmark = RepairHistoryStore(services.history.directory(activity))
+                            .load().firstOrNull { it.target == PatchEngine.Target.DEVELOPER }
+                            ?: return@runCatching "No explicitly saved Developer task bookmark is available. " +
+                                "Finish an approved task and say 'Save Developer task' before restarting. " +
+                                "No CI, source or installation result was inferred."
+                        RepairHistoryStore.validate(bookmark)
+                        cancellation.check()
+                        val evidence = services.history.feedback(token, bookmark, cancellation)
+                        cancellation.check()
+                        BuildDiagnostics.validateReport(evidence)
+                        require(evidence.target == bookmark.target &&
+                            evidence.branch == bookmark.branch &&
+                            evidence.commitSha == bookmark.commitSha)
+                        DeveloperSavedBuildReceipt.render(bookmark, evidence)
+                    }.getOrElse {
+                        "Saved Developer task build could not be verified. " +
+                            "The bookmark is not proof of an approved change or a successful build. " +
+                            "Check GitHub access or saved history; no source write or retry was started."
+                    }
+                    activity.runOnUiThread {
+                        if (alive()) {
+                            if (!cancellation.isCancelled) {
+                                runCatching { services.chatStatus(message) }
+                                status.text = "Saved Developer build read complete; no approval restored"
+                            } else status.text = "Saved build read cancelled; evidence discarded"
+                            activeRead = null
+                            busy = false
+                            refresh()
+                        }
+                    }
+                }
+            }.isSuccess
+            if (!started) {
+                activeRead = null
+                busy = false
+                refresh()
+                status.text = "Saved build reader could not start. No result was inferred."
+            }
+            return started
+        }
+
         fun prepareInputs(id: String, description: String, paths: List<String>, base: String,
             sourceBranch: String, target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): Boolean {
             val safe = id.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,47}")) &&
@@ -1119,7 +1216,9 @@ object PatchWorkbench {
         }, developerRepairAction = ::startDeveloperRepair,
             exactDeveloperCiAction = {
                 lastCommit?.target == PatchEngine.Target.DEVELOPER && startExactCiCheck()
-            }, engineeringAction = { draft ->
+            }, saveDeveloperBookmarkAction = ::saveDeveloperTaskBookmark,
+            readDeveloperBookmarkAction = ::readSavedDeveloperBuild,
+            engineeringAction = { draft ->
             if (prepareInputs(draft.taskId, draft.task, draft.paths, draft.base, draft.branch, draft.target)) {
                 activeEngineering = draft
                 status.text = "Assistant job staged. Generate and approve its exact diff; progress will be recorded in the development inbox."
