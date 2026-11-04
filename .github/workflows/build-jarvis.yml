@@ -242,3 +242,41 @@ jobs:
       # The separate Personal publisher waits for source-equivalent unit,
       # gateway, real Accessibility and theme checks before updating the APK.
       # Beta's existing signing, packaging and distribution remain independent.
+
+  companion-install-smoke:
+    name: Install signed Companion candidate on Android emulator
+    if: github.ref == 'refs/heads/feature/companion-integrated'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Jarvis-release-APK
+          path: signed-apks
+      - name: Verify signed candidate exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s signed-apks/app-x86_64-release.apk
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          emulator-boot-timeout: 300
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r signed-apks/app-x86_64-release.apk
+            adb shell pm path com.assistant.core | grep -q 'package:'
+            adb shell monkey -p com.assistant.core -c android.intent.category.LAUNCHER 1
+            sleep 8
+            adb shell pidof com.assistant.core | grep -Eq '[0-9]+'
+            echo 'Signed Companion candidate installed and launched successfully.'
