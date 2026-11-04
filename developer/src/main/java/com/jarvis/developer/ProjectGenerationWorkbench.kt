@@ -24,7 +24,7 @@ internal object ProjectGenerationWorkbench {
         selected: () -> String?, select: (String) -> Unit, store: ProjectGenerationStore,
         changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }, forget: Button? = null,
         requestPatch: () -> Boolean = { false },
-        stageReview: (String, List<String>, String) -> Boolean = { _, _, _ -> false }): Handle {
+        stageReview: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var disposed = false
@@ -100,7 +100,7 @@ internal object ProjectGenerationWorkbench {
             val work: () -> Unit = {
                 var sourceSummary = ""
                 var nextDiscussion: ProjectGenerationDiscussion? = null
-                var reviewScope: Pair<List<String>, String>? = null
+                var reviewScope: Triple<String, List<PatchEngine.Edit>, String>? = null
                 val reply = runCatching {
                     run.cancellation.check()
                     val source = try { services.context(lookupTask, productTarget, readToken, secret, run.cancellation) }
@@ -147,7 +147,10 @@ internal object ProjectGenerationWorkbench {
                             require(edit.optString("content").isNotBlank()) { "Code proposal contains an empty file." }
                             require(path in context.paths) { "Proposal file was not included in verified source context." }
                         }
-                        reviewScope = seen.toList() to requireNotNull(context.commit)
+                        reviewScope = Triple(proposal.getString("summary"), (0 until edits.length()).map { index ->
+                            val edit = edits.getJSONObject(index)
+                            PatchEngine.Edit(edit.getString("path"), edit.getString("content"))
+                        }, requireNotNull(context.commit))
                     }
                     nextDiscussion = discussion.append(task, text, secrets)
                     sourceSummary + "\n\n" + text
@@ -164,7 +167,7 @@ internal object ProjectGenerationWorkbench {
                             output.text = text
                             val scope = reviewScope
                             if (scope != null) {
-                                val staged = stageReview(task, scope.first.take(PatchEngine.MAX_FILES), scope.second)
+                                val staged = stageReview(task, scope.first, scope.second, scope.third)
                                 status.text = if (staged) "Proposal received. Scoped review staged; generate a fresh verified diff and approve before writing." else "Proposal received. Open code review to prepare a verified diff."
                             }
                             if (scope == null) status.text = if (saved == ProjectGenerationStore.Result.SAVED)
