@@ -1,7 +1,7 @@
 name: Build Jarvis APK
 on:
   push:
-    branches: [main]
+    branches: [main, feature/companion-integrated]
     paths-ignore:
       - 'artifacts/**'
   workflow_dispatch:
@@ -52,6 +52,19 @@ jobs:
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Permanent signing secrets are not configured; publishing is disabled for this run."
           fi
+      - name: Require permanent signing for Companion release candidates
+        if: github.ref == 'refs/heads/feature/companion-integrated' && steps.signing.outputs.configured != 'true'
+        shell: bash
+        run: |
+          echo '::error::Companion candidate cannot be produced without the existing permanent Personal signing credentials.'
+          exit 1
+      - name: Verify Companion candidate source branch
+        if: github.ref == 'refs/heads/feature/companion-integrated'
+        shell: bash
+        run: |
+          test "$GITHUB_REF_NAME" = 'feature/companion-integrated'
+          test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
+          echo "Companion candidate source: $GITHUB_SHA"
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
       - name: Prepare sherpa-onnx Android runtime
@@ -229,3 +242,41 @@ jobs:
       # The separate Personal publisher waits for source-equivalent unit,
       # gateway, real Accessibility and theme checks before updating the APK.
       # Beta's existing signing, packaging and distribution remain independent.
+
+  companion-install-smoke:
+    name: Install signed Companion candidate on Android emulator
+    if: github.ref == 'refs/heads/feature/companion-integrated'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Jarvis-release-APK
+          path: signed-apks
+      - name: Verify signed candidate exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s signed-apks/app-x86_64-release.apk
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          emulator-boot-timeout: 300
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            set -eu
+            adb install -r signed-apks/app-x86_64-release.apk
+            adb shell pm path com.assistant.core | grep -q 'package:'
+            adb shell monkey -p com.assistant.core -c android.intent.category.LAUNCHER 1
+            sleep 8
+            adb shell pidof com.assistant.core | grep -Eq '[0-9]+'
+            echo 'Signed Companion candidate installed and launched successfully.'

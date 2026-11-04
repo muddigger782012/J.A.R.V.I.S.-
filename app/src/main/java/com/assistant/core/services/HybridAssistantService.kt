@@ -126,8 +126,32 @@ class HybridAssistantService(
         return responseTurns.inTurn(turn) { handleUserInputWithinCurrentTurn(rawInput) }
     }
 
+    /** One conversational Track view for companion work; never executes or approves actions. */
+    private fun companionTrack(text: String): HybridAssistantReply? {
+        if (!personalAssistant || text.trim().lowercase() !in setOf(
+                "track", "track screen", "show track", "show my track",
+                "companion track", "companion dashboard", "what are we working on")) return null
+        val pending = runCatching { goalPlans?.pending() }.getOrNull()
+        val current = runCatching { goalPlans?.current() }.getOrNull()
+        val research = runCatching { researchBriefs.status() }.getOrElse { "Research status unavailable locally." }
+        val result = buildString {
+            appendLine("J.A.R.V.I.S. Companion — Track")
+            appendLine("Goal: " + when {
+                pending != null -> "Awaiting your approval: ${pending.kind.title} (${pending.actions.size} steps). Say 'review goal plan'."
+                current != null -> "Current: ${current.kind.title} (${current.actions.size} steps). Say 'goal plan status'."
+                else -> "No active goal plan. Ask me to plan a task."
+            })
+            appendLine("Research: " + research.take(500))
+            appendLine("Development: Say 'developer status' to inspect the linked Developer job. Source changes require separate approval.")
+            appendLine("Conversation: Use chat or live voice; existing conversation history is retained according to your settings.")
+            append("Nothing was started, approved or changed by this Track view.")
+        }
+        return HybridAssistantReply(result)
+    }
+
     private fun handleUserInputWithinCurrentTurn(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
+        companionTrack(userInput)?.let { return it }
         handleDevelopmentInput(userInput, developmentInstallConsent.take())?.let { return HybridAssistantReply(it) }
         hostInformation(userInput)?.let { return it }
         // Execute explicit provider diagnostics locally; never ask the conversational model to simulate a test.
@@ -268,6 +292,11 @@ class HybridAssistantService(
         val engineIntent = IntentClassifier().classify(userInput)
         if (personalAssistant) {
             ConversationMemoryCommands.parse(userInput)?.let { command ->
+                // Resuming is read-only: preserve any pending goal, routine or
+                // approval so reviewing context cannot silently cancel work.
+                if (command == ConversationMemoryCommands.Command.RESUME) {
+                    return HybridAssistantReply(ConversationMemoryCommands.reply(userInput, conversationMemory!!)!!)
+                }
                 runCatching { goalPlans?.discardPending() }
                 routineConfirmations.consume("")
                 volumeConfirmations.consume("")
@@ -1279,10 +1308,14 @@ class HybridAssistantService(
     }
 
     private fun handleUserInputWithinTurn(rawInput: String, turn: Long, callback: (HybridAssistantReply) -> Unit) {
+        companionTrack(rawInput)?.let { callback(it); return }
         val installationOffer = developmentInstallConsent.take()
         if (DevelopmentCommands.parse(rawInput) != null || installationOffer != null && ConfirmationWords.isConfirmation(rawInput)) {
             responseThread(turn, callback) {
-                callback(HybridAssistantReply(requireNotNull(handleDevelopmentInput(rawInput, installationOffer))))
+                val result = requireNotNull(handleDevelopmentInput(rawInput, installationOffer))
+                // handleDevelopmentInput already records the bridge response once.
+                // Do not duplicate it in the bounded conversation window.
+                callback(HybridAssistantReply(result))
             }.start()
             return
         }
@@ -1693,7 +1726,18 @@ class HybridAssistantService(
         val command = DevelopmentCommands.parse(input)
         val generalReply = offered != null && ConfirmationWords.isConfirmation(input)
         if (command == null && !generalReply) return null
-        if (responseTurns.mutate { clearPendingActionPrompts(); true } != true) return "The earlier development request was cancelled."
+        // Looking up a Developer job must not erase unrelated pending voice,
+        // routine, or device-action context. Only commands that change work
+        // or require explicit consent clear those pending prompts.
+        val readOnlyQuery = command in setOf(
+            DevelopmentCommands.Kind.STATUS,
+            DevelopmentCommands.Kind.LIST,
+            DevelopmentCommands.Kind.CAPABILITIES
+        )
+        if (responseTurns.mutate {
+                if (!readOnlyQuery) clearPendingActionPrompts()
+                true
+            } != true) return "The earlier development request was cancelled."
         val operations = DeveloperBridgeOperations(systemService.context())
         val current = { responseTurns.current() }
         val reply = runCatching {
@@ -1704,6 +1748,7 @@ class HybridAssistantService(
                 else "The APK installation request was cancelled. No installation approval was sent."
             }
             when (requireNotNull(command)) {
+                DevelopmentCommands.Kind.SUBMIT -> operations.submit(requireNotNull(DevelopmentCommands.submission(input)))
                 DevelopmentCommands.Kind.INSTALL_APK -> {
                     if (responseTurns.mutate { if (personalAssistant) {
                         screenAccess.discard(); appDiscovery.discard()

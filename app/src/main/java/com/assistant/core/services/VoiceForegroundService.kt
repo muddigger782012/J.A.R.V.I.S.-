@@ -330,6 +330,12 @@ class VoiceForegroundService : Service() {
         liveStatus(if (audible) VoiceInteractionState.SPEAKING else VoiceInteractionState.IDLE,
             if (audible) "Speaking…" else "Reply ready. Listening again…")
         val turn = liveSession.token
+        if (!audible) {
+            // Text-only Live Chat must not invoke TTS or wait for a speech
+            // completion callback that a muted engine may never deliver.
+            if (liveSession.silentResponseFinished(turn)) nextLiveTurn(650L)
+            return
+        }
         voiceService.speak(text, SpeechChannel.LIVE_CHAT, after = {
             // TTS completion may arrive on an engine callback thread. Serialize
             // session transitions with the main-thread capture and watchdog.
@@ -358,6 +364,19 @@ class VoiceForegroundService : Service() {
                 return@postDelayed
             }
             liveStatus(VoiceInteractionState.IDLE, "Starting speech capture; waiting for the recognizer.")
+            // A recognizer can hang without invoking onResult or onError.
+            // Recover only the same listening token, never a newer turn.
+            liveHandler.postDelayed({
+                if (liveChatActive && liveSession.token == turn &&
+                    liveSession.phase == LiveChatSession.Phase.LISTENING &&
+                    liveSession.recover(turn)) {
+                    liveCapture.stop()
+                    liveFailures++
+                    liveStatus(VoiceInteractionState.IDLE,
+                        "Speech recognizer did not respond. Restarting microphone capture…")
+                    nextLiveTurn((1000L * liveFailures).coerceAtMost(10_000L))
+                }
+            }, 30_000L)
             val captureScope = if (packageName == "com.assistant.core") screenAccess.voiceScope() else ""
             val developmentScope = DevelopmentInstallConsent.voiceScope()
             liveCapture.listen(currentConfig.preferOfflineCommandRecognition,
@@ -382,7 +401,11 @@ class VoiceForegroundService : Service() {
                             speakLiveReply("Live chat is already active.")
                         } else {
                             liveStatus(VoiceInteractionState.PROCESSING, "Thinking…")
-                            askAssistant(contextualLiveInput(text)) { reply ->
+                            // Send the original utterance through the shared assistant router.
+                            // It already supplies bounded conversation memory to the AI;
+                            // prepending a transcript here can hide actionable commands
+                            // (Developer tasks, reminders, confirmations) from parsers.
+                            askAssistant(text) { reply ->
                                 liveHandler.post {
                                     if (!liveChatActive || liveSession.token != turn ||
                                         liveSession.phase != LiveChatSession.Phase.THINKING) return@post
@@ -601,27 +624,8 @@ class VoiceForegroundService : Service() {
         publishEvent("Foreground voice service stopped.")
     }
 
-    // Companion mode is opt-in to the live session, not command recognition.
-    // Short follow-ups inherit recent conversation context without changing the displayed transcript.
-    private fun contextualLiveInput(text: String): String {
-        if (text.length > 160 || !LiveChatCompanionSettings.load(this).contextEnabled) return text
-        val history = LiveChatStore.messages(this)
-        val recent = mutableListOf<String>()
-        for (i in history.length() - 1 downTo 0) {
-            val item = history.optJSONObject(i) ?: continue
-            if (item.optString("conversation") != liveConversation) continue
-            val line = item.optString("text")
-            if (line == "You: $text" && recent.isEmpty()) continue // current turn is already recorded
-            if (line.startsWith("You: ") || line.startsWith("J.A.R.V.I.S.: ")) recent.add(line.take(500))
-            if (recent.size == 6) break
-        }
-        if (recent.isEmpty()) return text
-        return "Continue this conversation naturally. Be personable, concise, and helpful. " +
-            "Do not repeatedly ask about preferred conversational style. " +
-            "Offer a relevant suggestion or question when useful, without inventing facts or actions.\\n" +
-            recent.asReversed().joinToString("\\n") + "\\nYou: " + text
-    }
-
+    // Keep voice commands intact. HybridAssistantService supplies the bounded
+    // conversation history to online AI without rewriting the user's utterance.
     private fun askAssistant(text: String, callback: (HybridAssistantReply) -> Unit) {
         hybridAssistantService.handleUserInputAsync(text) { if (!it.cancelled) callback(it) }
     }

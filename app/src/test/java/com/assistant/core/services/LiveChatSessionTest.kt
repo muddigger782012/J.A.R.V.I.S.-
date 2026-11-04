@@ -15,6 +15,29 @@ class LiveChatSessionTest {
         assertTrue(session.speechFinished())
         assertNotNull(session.listen())
     }
+    @Test fun mutedReplyImmediatelyReturnsToListeningWithoutTtsCallback() {
+        val session = LiveChatSession()
+        session.start()
+        val turn = session.listen()!!
+        assertTrue(session.transcript(turn))
+        assertTrue(session.response(turn))
+        assertTrue(session.silentResponseFinished(turn))
+        assertEquals(LiveChatSession.Phase.WAITING, session.phase)
+        assertFalse(session.silentResponseFinished(turn))
+        assertNotNull(session.listen())
+    }
+    @Test fun lateMutedReplyCompletionCannotInterruptANewTurn() {
+        val session = LiveChatSession()
+        session.start()
+        val old = session.listen()!!
+        assertTrue(session.transcript(old))
+        assertTrue(session.response(old))
+        assertTrue(session.silentResponseFinished(old))
+        val next = session.listen()!!
+        assertTrue(session.transcript(next))
+        assertFalse(session.silentResponseFinished(old))
+        assertEquals(LiveChatSession.Phase.THINKING, session.phase)
+    }
     @Test fun staleRepliesAndDuplicateTranscriptsCannotRestartOrOverwriteSession() {
         val session = LiveChatSession()
         session.start()

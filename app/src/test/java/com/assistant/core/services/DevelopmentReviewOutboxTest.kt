@@ -35,6 +35,19 @@ class DevelopmentReviewOutboxTest {
         assertThrows(Wire.Rejected::class.java) { outbox().latestJob() }
         assertEquals(listOf(request), outbox().pending("supervised"))
     }
+    @Test fun latestDeveloperJobIsScopedToItsAuthorizationMode() {
+        val supervised = outbox().prepare("Inspect microphone", "supervised")
+        outbox().record(supervised, JSONObject(Wire.response(supervised.requestId, "OK",
+            JSONObject().put("id", "job_supervised"))))
+        val owner = outbox().prepare("Inspect source", "owner_development")
+        outbox().record(owner, JSONObject(Wire.response(owner.requestId, "OK",
+            JSONObject().put("id", "job_owner"))))
+        assertEquals("job_owner", outbox().latestJob())
+        assertEquals("job_supervised", outbox().latestJob("supervised"))
+        assertEquals("job_owner", outbox().latestJob("owner_development"))
+        assertThrows(Wire.Rejected::class.java) { outbox().latestJob("unknown") }
+    }
+
     @Test fun malformedOrFullOutboxIsPreservedInsteadOfResetOrSilentlyEvicted() {
         repeat(16) { outbox().prepare("Review $it", "supervised") }
         assertThrows(Wire.Rejected::class.java) { outbox().prepare("Overflow", "supervised") }

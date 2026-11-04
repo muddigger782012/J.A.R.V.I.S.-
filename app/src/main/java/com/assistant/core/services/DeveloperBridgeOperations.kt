@@ -70,8 +70,8 @@ class DeveloperBridgeOperations(private val context: Context) {
         return results.joinToString("\n") + if (queued.size > 3) "\nFurther retained reviews remain for the next retry." else ""
     }
     fun status(): String = render(call(Wire.Request(UUID.randomUUID().toString(), "task.status.request",
-        mode = selectedMode().wireValue, jobId = outbox.latestJob())))
-    fun reviewApk(isCurrent: () -> Boolean = { true }): String = reviewApkForJob(outbox.latestJob(), isCurrent)
+        mode = selectedMode().wireValue, jobId = outbox.latestJob(selectedMode().wireValue))))
+    fun reviewApk(isCurrent: () -> Boolean = { true }): String = reviewApkForJob(outbox.latestJob(selectedMode().wireValue), isCurrent)
     internal fun reviewApkForJob(job: String, isCurrent: () -> Boolean = { true }): String {
         if (!isCurrent()) throw Wire.Rejected("CANCELLED")
         val mode = selectedMode().wireValue
@@ -87,7 +87,7 @@ class DeveloperBridgeOperations(private val context: Context) {
         launchArtifactReview(ticket, Wire.ARTIFACT_REVIEW_ACTION, isCurrent)
         return "I requested Developer's verified APK review for this job. Review the APK there before approving installation. Android's permission and confirmation are still required; no installation was requested."
     }
-    fun prepareInstallation(isCurrent: () -> Boolean): DevelopmentInstallConsent.Offer = prepareInstallationForJob(outbox.latestJob(), isCurrent)
+    fun prepareInstallation(isCurrent: () -> Boolean): DevelopmentInstallConsent.Offer = prepareInstallationForJob(outbox.latestJob(selectedMode().wireValue), isCurrent)
     internal fun prepareInstallationForJob(job: String, isCurrent: () -> Boolean = { true }): DevelopmentInstallConsent.Offer {
         if (context.packageName != "com.assistant.core") throw Wire.Rejected("POLICY_REQUIRED")
         if (!isCurrent()) throw Wire.Rejected("CANCELLED")
@@ -101,7 +101,7 @@ class DeveloperBridgeOperations(private val context: Context) {
     }
     fun approveInstallation(offer: DevelopmentInstallConsent.Offer, isCurrent: () -> Boolean): String {
         if (context.packageName != "com.assistant.core" || selectedMode().wireValue != offer.mode) throw Wire.Rejected("POLICY_REQUIRED")
-        if (!isCurrent() || outbox.latestJob() != offer.job || offer.expires - System.currentTimeMillis() !in 1..120_000L) throw Wire.Rejected("CANCELLED")
+        if (!isCurrent() || outbox.latestJob(selectedMode().wireValue) != offer.job || offer.expires - System.currentTimeMillis() !in 1..120_000L) throw Wire.Rejected("CANCELLED")
         val state = call(Wire.Request(UUID.randomUUID().toString(), "task.status.request", mode = offer.mode, jobId = offer.job))
         if (state.getLong("revision") != offer.revision) throw Wire.Rejected("CONFLICT")
         if (!isCurrent() || selectedMode().wireValue != offer.mode) throw Wire.Rejected("CANCELLED")
@@ -110,7 +110,7 @@ class DeveloperBridgeOperations(private val context: Context) {
     }
     fun cancelInstallation(isCurrent: () -> Boolean): String {
         if (!isCurrent()) throw Wire.Rejected("CANCELLED")
-        val job = outbox.latestJob(); val mode = selectedMode().wireValue
+        val job = outbox.latestJob(selectedMode().wireValue); val mode = selectedMode().wireValue
         val state = call(Wire.Request(UUID.randomUUID().toString(), "task.status.request", mode = mode, jobId = job))
         if (!isCurrent()) throw Wire.Rejected("CANCELLED")
         val pending = state.optJSONObject("artifactReview")?.let { it.optString("purpose") == "installation" && !it.optBoolean("consumed") && !it.optBoolean("cancelled") } == true ||
@@ -123,7 +123,7 @@ class DeveloperBridgeOperations(private val context: Context) {
     }
     fun checkInstalledApk(isCurrent: () -> Boolean): String {
         if (!isCurrent()) throw Wire.Rejected("CANCELLED")
-        val job = outbox.latestJob(); val mode = selectedMode().wireValue
+        val job = outbox.latestJob(selectedMode().wireValue); val mode = selectedMode().wireValue
         val current = call(Wire.Request(UUID.randomUUID().toString(), "task.status.request", mode = mode, jobId = job))
         if (!isCurrent()) throw Wire.Rejected("CANCELLED")
         val result = call(Wire.Request(UUID.randomUUID().toString(), Wire.INSTALLED_APK_CHECK,
@@ -147,12 +147,14 @@ class DeveloperBridgeOperations(private val context: Context) {
     }
     fun control(kind: String): String {
         require(kind in setOf("task.cancel.request", "task.pause.request", "task.resume.request", "task.retry.request"))
-        val jobId = outbox.latestJob()
+        val jobId = outbox.latestJob(selectedMode().wireValue)
         val state = call(Wire.Request(UUID.randomUUID().toString(), "task.status.request", mode = selectedMode().wireValue, jobId = jobId))
         return render(call(Wire.Request(UUID.randomUUID().toString(), kind, mode = selectedMode().wireValue,
             jobId = jobId, expectedRevision = state.getLong("revision"))))
     }
-    private fun render(value: JSONObject): String = "Task state: ${value.getString("state")}. " +
+    private fun render(value: JSONObject): String =
+        (value.optString("id").takeIf { it.isNotBlank() }?.let { "Developer job: $it.\n" } ?: "") +
+        "Task state: ${value.getString("state")}. " +
         "Attempt ${value.getInt("attempts")}." + when (value.optString("phase")) {
             "DISCOVERY" -> " Repository discovery started."
             "INDEXING" -> " Source indexing started."

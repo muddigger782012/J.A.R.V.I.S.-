@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - feature/companion-integrated
       - improve/grounded-technical-search
       - fix/voice-default-tts-fallback-20261102
   workflow_dispatch:

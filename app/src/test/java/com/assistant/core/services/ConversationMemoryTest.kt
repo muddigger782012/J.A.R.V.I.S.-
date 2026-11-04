@@ -291,6 +291,23 @@ class ConversationMemoryTest {
         assertTrue(disk.memory { time }.snapshot().isEmpty())
     }
 
+    @Test fun resumeConversationUsesRecentDialogueWithoutExecutingOrChangingMemory() {
+        val disk = Disk()
+        val memory = disk.memory { time }
+        assertEquals(ConversationMemoryCommands.Command.RESUME,
+            ConversationMemoryCommands.parse("Where did we leave off?"))
+        assertTrue(ConversationMemoryCommands.reply("Where were we?", memory)!!.contains("don't have recent"))
+        assertTrue(memory.record("Inspect the microphone", "I will review the code."))
+        assertTrue(memory.record("What is the job status?", "Developer reported a queued review."))
+        val before = disk.value
+        val resumed = ConversationMemoryCommands.reply("Pick up where we left off", memory)!!
+        assertTrue(resumed.contains("Inspect the microphone"))
+        assertTrue(resumed.contains("Developer reported a queued review"))
+        assertTrue(resumed.contains("not an approval or an action"))
+        assertEquals(before, disk.value)
+        assertNull(ConversationMemoryCommands.parse("Don't resume our conversation"))
+    }
+
     @Test fun clearReplyDoesNotClaimDeletionWhenStorageRejectsOrThrows() {
         val disk = Disk()
         val memory = disk.memory { time }
