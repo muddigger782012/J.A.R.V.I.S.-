@@ -577,6 +577,7 @@ class MainActivity : Activity() {
         // never discard the user's description or the generated response.
         val projectPrefs = getSharedPreferences("developer_local_projects_v1", MODE_PRIVATE)
         var refreshSavedProjectsAfterChange: (() -> Unit)? = null
+        var revealImportedReview: (() -> Unit)? = null
         projectGeneration = ProjectGenerationWorkbench.attach(this, send, cancelGeneration, provider, key, model,
             prompt, output, status, { guidedTarget?.selectedItemPosition ?: 0 }, { guidedTarget },
             { activeProject }, { activeProject = it }, ProjectGenerationStore(projectPrefs),
@@ -584,6 +585,7 @@ class MainActivity : Activity() {
             requestPatch = { proposeCodePatch.isChecked && (guidedTarget?.selectedItemPosition ?: 0) == 0 },
             stageReview = { taskText, summary, edits, commitSha ->
                 val staged = patchWorkbench.importChatProposal(taskText, summary, edits, commitSha)
+                if (staged) revealImportedReview?.invoke()
                 staged
             })
         // Preserve all existing controls while separating the beginner home from tools.
@@ -1244,6 +1246,12 @@ class MainActivity : Activity() {
         }
         root.addView(homeCodeReviewToggle)
         root.addView(homeCodeReview)
+        revealImportedReview = {
+            homeCodeReview.visibility = View.VISIBLE
+            homeCodeReviewToggle.text = "Close inline code review"
+            homeCodeReviewToggle.post { homeCodeReviewToggle.requestRectangleOnScreen(
+                android.graphics.Rect(0, 0, homeCodeReviewToggle.width, homeCodeReviewToggle.height), false) }
+        }
         stageHomeAnalysis = {
             val plan = homeAnalysisPlan
             if (plan != null && plan.task == prompt.text.toString().trim() &&
