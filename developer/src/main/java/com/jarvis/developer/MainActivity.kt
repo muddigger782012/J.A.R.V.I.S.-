@@ -154,7 +154,7 @@ class MainActivity : Activity() {
             setTextColor(getColor(R.color.developer_secondary))
             setPadding(0, 0, 0, dp(12))
         })
-        val prompt = field("Ask Jarvis to inspect, build, or repair code…", true)
+        val prompt = field("Example: Build me an app to track equipment maintenance.", true)
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             prompt.setText(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
         }
