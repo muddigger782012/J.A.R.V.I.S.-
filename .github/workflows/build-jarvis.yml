@@ -273,7 +273,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
             adb install -r signed-apks/app-x86_64-release.apk
             adb shell pm path com.assistant.core | grep -q 'package:'
             adb shell monkey -p com.assistant.core -c android.intent.category.LAUNCHER 1
