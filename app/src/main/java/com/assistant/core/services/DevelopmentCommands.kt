@@ -6,7 +6,9 @@ object DevelopmentCommands {
     private val apkInstall = Regex("""^(?:(?:please|can you|could you|would you) )?install (?:the |my |this )?(?:latest |verified )?apk (?:that )?developer (?:just )?built$""")
     private val installedCheck = Regex("""^(?:(?:please|can you|could you|would you) )?(?:(?:check|recheck|verify) (?:the |my |this )?apk (?:that )?developer (?:just )?installed|(?:run|repeat) (?:the )?installed apk checks)$""")
     fun submission(input: String): String? {
-        val body = Regex("""(?is)^\s*(?:developer task|development request):\s*(.+?)\s*$""")
+        // Only explicit requests addressed to Developer are submitted. Ordinary
+        // conversation and short acknowledgements must never create jobs.
+        val body = Regex("""(?is)^\s*(?:(?:developer task|development request):\s*|(?:please\s+)?(?:ask|tell)\s+(?:jarvis\s+)?developer\s+to\s+|(?:please\s+)?have\s+(?:jarvis\s+)?developer\s+)(.+?)\s*$""")
             .matchEntire(input)?.groupValues?.get(1)?.trim() ?: return null
         return body.takeIf { it.length in 12..1500 && it.none { ch -> ch.code == 0 } }
     }
