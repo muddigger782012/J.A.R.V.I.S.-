@@ -388,7 +388,11 @@ class VoiceForegroundService : Service() {
                             speakLiveReply("Live chat is already active.")
                         } else {
                             liveStatus(VoiceInteractionState.PROCESSING, "Thinking…")
-                            askAssistant(contextualLiveInput(text)) { reply ->
+                            // Send the original utterance through the shared assistant router.
+                            // It already supplies bounded conversation memory to the AI;
+                            // prepending a transcript here can hide actionable commands
+                            // (Developer tasks, reminders, confirmations) from parsers.
+                            askAssistant(text) { reply ->
                                 liveHandler.post {
                                     if (!liveChatActive || liveSession.token != turn ||
                                         liveSession.phase != LiveChatSession.Phase.THINKING) return@post
