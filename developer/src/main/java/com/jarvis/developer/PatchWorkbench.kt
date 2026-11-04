@@ -355,7 +355,7 @@ object PatchWorkbench {
             queuedSource.text = "Manual coding task: a new preview reads the current development branch."
             invalidate()
         }
-        manual.setOnClickListener { if (!busy) clearQueuedSource() }
+        manual.setOnClickListener { if (!busy) { chatImport = null; clearQueuedSource() } }
         followUpFile.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val path = selectedFollowUpPath()
@@ -843,6 +843,7 @@ object PatchWorkbench {
                 }
             if (busy || !alive() || !safe) return false
             activeEngineering = null
+            chatImport = null
             failRepair(activeRepair, "approval")
             invalidate()
             settingQueuedInputs = true
