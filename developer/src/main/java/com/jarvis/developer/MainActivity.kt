@@ -120,18 +120,12 @@ class MainActivity : Activity() {
         root.addView(status)
         val setupHint = TextView(this).apply {
             text = if (ProviderCredentialStore.load(this@MainActivity) != null)
-                "AI connection saved. Test your connection in Settings before starting a project."
+                "AI connection saved. Connection checks run automatically; manage credentials in Settings."
                 else "New here? Connect an AI provider in Settings to get started."
             setTextColor(getColor(R.color.developer_secondary))
             setPadding(0, 16, 0, 8)
         }
         root.addView(setupHint)
-        val setupButton = Button(this).apply {
-            text = "Set up AI connection"
-            isAllCaps = false
-            contentDescription = "Open Settings to enter your AI provider credentials"
-        }
-        root.addView(setupButton)
         lateinit var updateConnectionSetup: () -> Unit
         val key = field("Paste your API key here (not a model name)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -906,8 +900,6 @@ class MainActivity : Activity() {
         }
         fun renderConnection() {
             setupHint.text = connectionVerification.detail
-            setupButton.text = if (key.text.isNullOrBlank()) "Set up AI connection" else "Manage / test AI connection"
-            setupButton.contentDescription = "Open Settings to test or change the AI connection"
         }
         connectionVerification.onChanged = {
             renderConnection()
@@ -1505,10 +1497,6 @@ class MainActivity : Activity() {
             tabs.add(this)
             navigation.addView(this, LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        }
-        setupButton.setOnClickListener {
-            showPage(3)
-            key.requestFocus()
         }
         createProject.setOnClickListener {
             if (!patchWorkbench.invalidate()) {
