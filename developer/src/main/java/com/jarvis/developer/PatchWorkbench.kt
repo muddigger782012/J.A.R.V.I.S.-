@@ -594,15 +594,29 @@ object PatchWorkbench {
                         check(services.inbox(activity).finishEngineering(write, result))
                         services.engineeringRecovery(activity)
                     }
-                    val report = renderCommit(result, null)
+                    // A completed approved write is now followed by one GET-only CI
+                    // lookup for this exact branch and SHA. CI can still be queued,
+                    // missing or unavailable; none of those imply a passing build.
+                    // No retry, repair, workflow dispatch or source write is automatic.
+                    val checked = if (alive()) runCatching { services.ci(token, result) }.getOrNull() else null
+                    val ciText = checked?.let(::ciSummary) ?:
+                        "CI status could not be verified for this exact commit. Use Check CI to retry the read-only lookup."
+                    val report = renderCommit(result, checked) + if (checked == null) "\n\n$ciText" else ""
                     activity.runOnUiThread {
                         if (alive()) {
                             lastCommit = result
                             interruptedAttempt = null
                             interruptedEngineering = null
                             review.text = report
-                            output.text = commitAudit(result) + "\nCI has not been checked."
-                            status.text = "Task branch committed; CI status is unverified"
+                            output.text = commitAudit(result) + "\n" + ciText
+                            status.text = when (checked?.state) {
+                                PatchPublisher.CiState.PASSED -> "Task branch committed; exact-source debug CI passed"
+                                PatchPublisher.CiState.FAILED -> "Task branch committed; exact-source CI failed. Inspect diagnostics before a new approved repair."
+                                PatchPublisher.CiState.RUNNING -> "Task branch committed; CI running. Use Check CI to refresh."
+                                PatchPublisher.CiState.QUEUED -> "Task branch committed; CI queued. Use Check CI to refresh."
+                                PatchPublisher.CiState.MISSING -> "Task branch committed; no matching CI run yet. No tests are assumed."
+                                null -> "Task branch committed; CI lookup unavailable. Commit recorded; tests unverified."
+                            }
                             repair?.let { pair ->
                                 activeRepair = null
                                 closeRepairContext()

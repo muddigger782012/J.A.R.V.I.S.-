@@ -52,6 +52,9 @@ class PatchWorkbenchRecoveryAndroidTest {
         var afterProposal: (() -> Unit)? = null
         var writes = 0
         var successfulWrite = false
+        var ciReads = 0
+        var ciStatus = PatchPublisher.CiStatus(PatchPublisher.CiState.MISSING)
+        var ciUnavailable = false
         var engineeringRecoveries = 0
         val engineeringDirectory = java.io.File(temporary.newFolder(), "inbox")
         fun inbox() = DevelopmentJobInbox(engineeringDirectory)
@@ -116,7 +119,12 @@ class PatchWorkbenchRecoveryAndroidTest {
                             PatchEngine.branchName(proposal), proposal.diff, request.baseBranch, request.target)
                     }
                 },
-                ci = { _, _ -> error("CI must remain an explicit later action") },
+                ci = { _, result ->
+                    ciReads++
+                    assertEquals(created, result.commitSha)
+                    if (ciUnavailable) error("private CI transport response")
+                    ciStatus
+                },
                 feedback = { _, result, cancellation ->
                     feedbacks++
                     feedbackTokens += cancellation
@@ -188,6 +196,48 @@ class PatchWorkbenchRecoveryAndroidTest {
             check(inbox().finishAnalysis(inbox().claimAnalysis(job, true)!!, plan))
             return inbox().stageEngineering(job, 2, listOf(path), true)
         }
+    }
+
+    @Test fun anApprovedCommitReadsExactCiOnceAndNeverGrantsFurtherWriteApproval() {
+        for (state in listOf(PatchPublisher.CiState.PASSED, PatchPublisher.CiState.FAILED,
+                PatchPublisher.CiState.RUNNING, PatchPublisher.CiState.QUEUED, PatchPublisher.CiState.MISSING)) {
+            val h = Harness()
+            try {
+                h.successfulWrite = true
+                h.ciStatus = PatchPublisher.CiStatus(state,
+                    if (state == PatchPublisher.CiState.MISSING) null
+                    else "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/123",
+                    if (state == PatchPublisher.CiState.FAILED) "failure" else null)
+                h.preview(); h.approval.isChecked = true
+                h.button("Create task branch").performClick(); h.finish()
+                assertEquals(1, h.writes)
+                assertEquals(1, h.ciReads)
+                assertEquals(1, h.providers)
+                assertTrue(h.output.text.contains("CI status:"))
+                assertFalse(h.approval.isEnabled)
+                assertFalse(h.approval.isChecked)
+                assertTrue(h.button("Check CI").isEnabled)
+                if (state == PatchPublisher.CiState.MISSING) assertTrue(h.status.text.contains("no matching CI"))
+                if (state == PatchPublisher.CiState.FAILED) assertTrue(h.status.text.contains("CI failed"))
+            } finally { h.close() }
+        }
+    }
+
+    @Test fun ciTransportFailureCannotUndoRecordedCommitOrInventPassingTests() {
+        val h = Harness()
+        try {
+            h.successfulWrite = true
+            h.ciUnavailable = true
+            h.preview(); h.approval.isChecked = true
+            h.button("Create task branch").performClick(); h.finish()
+            assertEquals(1, h.writes)
+            assertEquals(1, h.ciReads)
+            assertTrue(h.output.text.contains("could not be verified"))
+            assertFalse(h.output.text.contains("private CI transport"))
+            assertFalse(h.output.text.contains("debug CI passed"))
+            assertTrue(h.button("Check CI").isEnabled)
+            assertFalse(h.approval.isEnabled)
+        } finally { h.close() }
     }
 
     @Test fun anApprovedJobRecordsItsOutcomeAfterTheActivityIsDestroyed() {
