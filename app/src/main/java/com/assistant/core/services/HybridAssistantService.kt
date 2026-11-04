@@ -1307,7 +1307,12 @@ class HybridAssistantService(
         val installationOffer = developmentInstallConsent.take()
         if (DevelopmentCommands.parse(rawInput) != null || installationOffer != null && ConfirmationWords.isConfirmation(rawInput)) {
             responseThread(turn, callback) {
-                callback(HybridAssistantReply(requireNotNull(handleDevelopmentInput(rawInput, installationOffer))))
+                val result = requireNotNull(handleDevelopmentInput(rawInput, installationOffer))
+                // Retain the actual bridge acknowledgement/status in conversational
+                // context, so follow-up discussion can refer to the development job.
+                // This is dialogue only; it must never replay approvals or actions.
+                remember(rawInput, result)
+                callback(HybridAssistantReply(result))
             }.start()
             return
         }
