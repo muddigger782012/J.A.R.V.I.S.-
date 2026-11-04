@@ -38,10 +38,12 @@ class DevelopmentReviewOutbox(private val storage: PersonalStateFile) {
         row.put("transport", if (acknowledged) "ACKNOWLEDGED" else "UNCONFIRMED")
         if (!write(records.toString())) throw Wire.Rejected("STORAGE_UNAVAILABLE")
     }
-    fun latestJob(): String = storage.access {
+    fun latestJob(mode: String? = null): String = storage.access {
         val records = rows(read())
-        (records.length() - 1 downTo 0).map { records.getJSONObject(it) }.firstOrNull { it.has("job") }?.getString("job")
-            ?: throw Wire.Rejected("NOT_FOUND")
+        (records.length() - 1 downTo 0).map { records.getJSONObject(it) }
+            .firstOrNull { row ->
+                row.has("job") && (mode == null || Wire.decode(row.getString("request")).mode == mode)
+            }?.getString("job") ?: throw Wire.Rejected("NOT_FOUND")
     }
     fun pending(mode: String): List<Wire.Request> = storage.access {
         val records = rows(read())
