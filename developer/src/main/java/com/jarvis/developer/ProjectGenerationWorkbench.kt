@@ -130,6 +130,7 @@ internal object ProjectGenerationWorkbench {
                         val edits = proposal.optJSONArray("edits")
                             ?: throw IllegalArgumentException("Code proposal has no edits array.")
                         require(edits.length() > 0) { "Code proposal must contain at least one file." }
+                        require(edits.length() <= PatchEngine.MAX_FILES) { "Code proposal exceeds the review engine file limit (${PatchEngine.MAX_FILES}). Request a smaller scoped repair." }
                         require(text.toByteArray(Charsets.UTF_8).size <= 512_000) { "Code proposal exceeds the response byte budget." }
                         val seen = mutableSetOf<String>()
                         for (i in 0 until edits.length()) {
@@ -146,7 +147,7 @@ internal object ProjectGenerationWorkbench {
                                 "Code proposal contains an unsafe or duplicate path."
                             }
                             require(edit.optString("content").isNotBlank()) { "Code proposal contains an empty file." }
-                            require(path in context.paths) { "Proposal file was not included in verified source context." }
+                            require(path in context.paths) { "Proposal path was not among the verified repository files. Select existing source files through repository inspection; do not invent new paths." }
                         }
                         reviewScope = Triple(proposal.getString("summary"), (0 until edits.length()).map { index ->
                             val edit = edits.getJSONObject(index)
