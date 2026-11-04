@@ -153,7 +153,7 @@ class DeveloperBridgeOperations(private val context: Context) {
             jobId = jobId, expectedRevision = state.getLong("revision"))))
     }
     private fun render(value: JSONObject): String =
-        (value.optString("id").takeIf { it.isNotBlank() }?.let { "Developer job: $it.\\n" } ?: "") +
+        (value.optString("id").takeIf { it.isNotBlank() }?.let { "Developer job: $it.\n" } ?: "") +
         "Task state: ${value.getString("state")}. " +
         "Attempt ${value.getInt("attempts")}." + when (value.optString("phase")) {
             "DISCOVERY" -> " Repository discovery started."
