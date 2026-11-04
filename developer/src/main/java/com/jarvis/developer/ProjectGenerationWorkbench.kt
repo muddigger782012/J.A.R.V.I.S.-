@@ -165,12 +165,20 @@ internal object ProjectGenerationWorkbench {
                         if (selected() != project || saved == ProjectGenerationStore.Result.STALE) {
                             status.setText(R.string.project_generation_changed)
                         } else reply.onSuccess { text ->
-                            output.text = text
                             val scope = reviewScope
                             if (scope != null) {
                                 val staged = stageReview(task, scope.first, scope.second, scope.third)
-                                status.text = if (staged) "Proposal received. Scoped review staged; generate a fresh verified diff and approve before writing." else "Proposal received. Open code review to prepare a verified diff."
-                            }
+                                val names = scope.second.joinToString("\n") { "• " + it.path.substringAfterLast('/') }
+                                output.text = buildString {
+                                    append("Jarvis proposes:\n").append(scope.first)
+                                    append("\n\nFiles (").append(scope.second.size).append("):\n").append(names)
+                                    append("\n\nSource revision: ").append(scope.third.take(12))
+                                    append(if (staged) "\n\nCode changes staged for verified diff review. Nothing committed." else
+                                        "\n\nReview staging unavailable. No source files changed.")
+                                }
+                                status.text = if (staged) "Proposal staged for review; explicit approval required." else
+                                    "Review staging rejected. No repository write requested."
+                            } else output.text = text
                             if (scope == null) status.text = if (saved == ProjectGenerationStore.Result.SAVED)
                                 activity.getString(R.string.project_generation_received, providerName)
                                 else activity.getString(R.string.project_generation_response_unsaved)
