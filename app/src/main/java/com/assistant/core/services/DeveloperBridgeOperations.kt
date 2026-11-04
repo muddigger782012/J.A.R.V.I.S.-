@@ -152,7 +152,9 @@ class DeveloperBridgeOperations(private val context: Context) {
         return render(call(Wire.Request(UUID.randomUUID().toString(), kind, mode = selectedMode().wireValue,
             jobId = jobId, expectedRevision = state.getLong("revision"))))
     }
-    private fun render(value: JSONObject): String = "Task state: ${value.getString("state")}. " +
+    private fun render(value: JSONObject): String =
+        (value.optString("id").takeIf { it.isNotBlank() }?.let { "Developer job: $it.\\n" } ?: "") +
+        "Task state: ${value.getString("state")}. " +
         "Attempt ${value.getInt("attempts")}." + when (value.optString("phase")) {
             "DISCOVERY" -> " Repository discovery started."
             "INDEXING" -> " Source indexing started."
