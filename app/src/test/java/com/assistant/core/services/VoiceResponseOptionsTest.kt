@@ -24,7 +24,7 @@ class VoiceResponseOptionsTest {
         assertTrue(session.transcript(turn))
         assertTrue(session.response(turn))
         assertFalse(VoiceResponseOptions(liveSpeech = false).allowsSpeech(SpeechChannel.LIVE_CHAT))
-        assertTrue(session.speechFinished())
+        assertTrue(session.speechFinished(turn))
         assertNotNull(session.listen())
         assertFalse(session.response(turn))
     }
