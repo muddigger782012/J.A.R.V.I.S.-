@@ -128,6 +128,47 @@ class VoiceCaptureAcceptanceTest {
         }
     }
 
+    @Test fun aSecondMicTapRecoversFromFinishingAndRejectsTheOldTranscript() {
+        instrumentation.runOnMainSync {
+            val engines = Engines()
+            val capture = LiveSpeechCapture(context, engines)
+            val conversation = LiveChatSession()
+            val heard = mutableListOf<String>()
+            try {
+                conversation.start()
+                val firstTurn = conversation.listen()!!
+                capture.listen(true, {}, heard::add, { fail("Unexpected initial capture error $it") })
+                val stale = engines.sessions.single()
+                assertEquals(LiveChatSession.MicrophoneTap.FINISH_CAPTURE,
+                    conversation.microphoneTapped(capture.isActive && !capture.isFinishing))
+                capture.finish()
+                assertTrue(stale.finished)
+                assertTrue(capture.isActive)
+                assertTrue(capture.isFinishing)
+
+                // An unanswered stopListening request must not trap subsequent taps.
+                assertEquals(LiveChatSession.MicrophoneTap.RESTART_LISTENING,
+                    conversation.microphoneTapped(capture.isActive && !capture.isFinishing))
+                capture.stop()
+                assertFalse(capture.isFinishing)
+                assertTrue(stale.cancelled && stale.destroyed)
+                stale.listener.onResults(results("stale private speech"))
+                assertFalse(conversation.transcript(firstTurn))
+                assertTrue(heard.isEmpty())
+
+                val nextTurn = conversation.listen()!!
+                capture.listen(true, {}, { text ->
+                    if (conversation.transcript(nextTurn)) heard.add(text)
+                }, { fail("Unexpected restarted capture error $it") })
+                val restarted = engines.sessions.last()
+                assertFalse(capture.isFinishing)
+                restarted.listener.onResults(results("new voice command"))
+                assertEquals(listOf("new voice command"), heard)
+                assertFalse(capture.isActive)
+            } finally { capture.stop() }
+        }
+    }
+
     @Test fun offlineCaptureWorksWithoutASystemProviderAndKeepsTranscriptScoresPaired() {
         instrumentation.runOnMainSync {
             val platform = Engines(system = false)
