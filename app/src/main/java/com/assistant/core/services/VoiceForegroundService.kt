@@ -116,18 +116,24 @@ class VoiceForegroundService : Service() {
         when (intent?.action) {
             ACTION_PUSH_TO_TALK -> {
                 if (liveChatActive) {
-                    // The mic button must remain useful while Live Chat owns the recognizer.
-                    // Do not start a competing command recognizer or discard an active turn.
-                    if (liveSession.phase == LiveChatSession.Phase.LISTENING && liveCapture.isActive) {
-                        liveStatus(VoiceInteractionState.LISTENING, "Listening…")
-                    } else if (liveSession.interrupt()) {
-                        hybridAssistantService.cancelActiveResponse()
-                        liveCapture.stop()
-                        if (::voiceService.isInitialized) voiceService.stopSpeaking()
-                        liveHandler.removeCallbacksAndMessages(null)
-                        liveStatus(VoiceInteractionState.IDLE, "Microphone requested; listening again…")
-                        liveHandler.post(heartbeat)
-                        nextLiveTurn(150L)
+                    // The service, not the Activity's potentially stale label,
+                    // determines what a mic tap does. Finish an active utterance;
+                    // otherwise interrupt pending TTS/replies and rearm capture.
+                    when (liveSession.microphoneTapped(liveCapture.isActive)) {
+                        LiveChatSession.MicrophoneTap.FINISH_CAPTURE -> {
+                            liveCapture.finish()
+                            liveStatus(VoiceInteractionState.TRANSCRIBING, "Finishing voice input…")
+                        }
+                        LiveChatSession.MicrophoneTap.RESTART_LISTENING -> {
+                            hybridAssistantService.cancelActiveResponse()
+                            liveCapture.stop()
+                            if (::voiceService.isInitialized) voiceService.stopSpeaking()
+                            liveHandler.removeCallbacksAndMessages(null)
+                            liveStatus(VoiceInteractionState.IDLE, "Microphone requested; listening again…")
+                            liveHandler.post(heartbeat)
+                            nextLiveTurn(150L)
+                        }
+                        LiveChatSession.MicrophoneTap.IGNORE -> Unit
                     }
                     return START_NOT_STICKY
                 }
@@ -364,19 +370,11 @@ class VoiceForegroundService : Service() {
                 return@postDelayed
             }
             liveStatus(VoiceInteractionState.IDLE, "Starting speech capture; waiting for the recognizer.")
-            // A recognizer can hang without invoking onResult or onError.
-            // Recover only the same listening token, never a newer turn.
-            liveHandler.postDelayed({
-                if (liveChatActive && liveSession.token == turn &&
-                    liveSession.phase == LiveChatSession.Phase.LISTENING &&
-                    liveSession.recover(turn)) {
-                    liveCapture.stop()
-                    liveFailures++
-                    liveStatus(VoiceInteractionState.IDLE,
-                        "Speech recognizer did not respond. Restarting microphone capture…")
-                    nextLiveTurn((1000L * liveFailures).coerceAtMost(10_000L))
-                }
-            }, 30_000L)
+            // LiveSpeechCapture owns the activity-aware recognizer watchdog:
+            // it expires idle or stalled providers, but permits active speech
+            // (including long dictation) until the configured maximum.
+            // Do not install a second absolute 30-second timer here: it would
+            // cancel an actively speaking user before results can be delivered.
             val captureScope = if (packageName == "com.assistant.core") screenAccess.voiceScope() else ""
             val developmentScope = DevelopmentInstallConsent.voiceScope()
             liveCapture.listen(currentConfig.preferOfflineCommandRecognition,

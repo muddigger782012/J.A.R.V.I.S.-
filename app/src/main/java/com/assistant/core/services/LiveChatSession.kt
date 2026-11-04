@@ -6,6 +6,7 @@ class LiveChatSession(private val maxSilentTurns: Int = Int.MAX_VALUE,
     private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
     enum class Phase { OFF, WAITING, LISTENING, THINKING, SPEAKING }
     enum class ReplyRecovery { STALE, RETRY, EXPIRED }
+    enum class MicrophoneTap { FINISH_CAPTURE, RESTART_LISTENING, IGNORE }
     var phase = Phase.OFF
         private set
     var token = 0L
@@ -14,6 +15,13 @@ class LiveChatSession(private val maxSilentTurns: Int = Int.MAX_VALUE,
     private var lastActivity = now()
     val active get() = phase != Phase.OFF
     fun configureIdleTimeout(millis: Long) { idleTimeoutMillis = millis.coerceIn(60_000, 1_800_000) }
+    /** Mic taps use the recognizer's actual state, not a delayed UI status label. */
+    fun microphoneTapped(captureActive: Boolean): MicrophoneTap = when {
+        !active -> MicrophoneTap.IGNORE
+        phase == Phase.LISTENING && captureActive -> MicrophoneTap.FINISH_CAPTURE
+        interrupt() -> MicrophoneTap.RESTART_LISTENING
+        else -> MicrophoneTap.IGNORE
+    }
     fun interrupt(): Boolean {
         if (!active) return false
         token++; silentTurns = 0; lastActivity = now(); phase = Phase.WAITING

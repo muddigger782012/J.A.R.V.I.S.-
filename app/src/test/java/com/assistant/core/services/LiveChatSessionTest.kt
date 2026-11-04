@@ -15,6 +15,37 @@ class LiveChatSessionTest {
         assertTrue(session.speechFinished())
         assertNotNull(session.listen())
     }
+    @Test fun micTapDuringActiveListeningFinishesWithoutInvalidatingTheTranscript() {
+        val session = LiveChatSession()
+        session.start()
+        val turn = session.listen()!!
+        assertEquals(LiveChatSession.MicrophoneTap.FINISH_CAPTURE, session.microphoneTapped(true))
+        assertEquals(turn, session.token)
+        assertEquals(LiveChatSession.Phase.LISTENING, session.phase)
+        assertTrue(session.transcript(turn))
+    }
+
+    @Test fun micTapWithStalledCaptureRestartsAndRejectsOldCallbacks() {
+        val session = LiveChatSession()
+        assertEquals(LiveChatSession.MicrophoneTap.IGNORE, session.microphoneTapped(false))
+        session.start()
+        val stale = session.listen()!!
+        assertEquals(LiveChatSession.MicrophoneTap.RESTART_LISTENING, session.microphoneTapped(false))
+        assertEquals(LiveChatSession.Phase.WAITING, session.phase)
+        assertFalse(session.transcript(stale))
+        val current = session.listen()!!
+        assertTrue(session.transcript(current))
+        assertEquals(LiveChatSession.MicrophoneTap.RESTART_LISTENING, session.microphoneTapped(false))
+        assertEquals(LiveChatSession.Phase.WAITING, session.phase)
+        assertFalse(session.response(current))
+        val speaking = session.listen()!!
+        assertTrue(session.transcript(speaking))
+        assertTrue(session.response(speaking))
+        assertEquals(LiveChatSession.MicrophoneTap.RESTART_LISTENING, session.microphoneTapped(false))
+        assertFalse(session.speechFinished(speaking))
+        assertNotNull(session.listen())
+    }
+
     @Test fun mutedReplyImmediatelyReturnsToListeningWithoutTtsCallback() {
         val session = LiveChatSession()
         session.start()

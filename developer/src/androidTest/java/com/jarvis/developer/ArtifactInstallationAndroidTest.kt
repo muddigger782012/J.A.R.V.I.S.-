@@ -141,7 +141,16 @@ class ArtifactInstallationAndroidTest {
                     await("Android installation-source settings did not open", 45) {
                         observedForeground = instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString()
                             ?: "<no active window>"
-                        observedForeground == "com.android.settings"
+                        observedForeground == "com.android.settings" ||
+                            // Android 14's Settings SPA can expose a framework-owned
+                            // accessibility root ("android") even while Settings is
+                            // the top resumed activity. Verify the actual foreground
+                            // component rather than weakening the install review gate.
+                            (observedForeground == "android" &&
+                                shell("dumpsys activity activities").lineSequence().any { line ->
+                                    (line.contains("topResumedActivity") || line.contains("Resumed:")) &&
+                                        line.contains("com.android.settings/")
+                                })
                     }
                 } catch (failure: AssertionError) {
                     val activityState = shell("dumpsys activity activities")
