@@ -50,7 +50,7 @@ class PersonalRepairDeviceTest {
     private fun button(activity: MainActivity, text: String) = buttons(activity).single { it.text.toString() == text }
     private fun openTools(activity: MainActivity, sectionName: String = "Assistant diagnostics") {
         if (sectionName == "Code changes and review") {
-            button(activity, "Activity").performClick()
+            button(activity, "Track").performClick()
             assertTrue(button(activity, "Load private repair history (local only)").isShown)
             return
         }
