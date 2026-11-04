@@ -114,6 +114,11 @@ internal object ProjectGenerationWorkbench {
                     }
                     val context = source.withDiscussion(instruction, discussion)
                     require(context.target == productTarget)
+                    // A longer conversation may exhaust the bounded context budget and
+                    // remove the source excerpts. Never generate a patch without them.
+                    if (wantsPatch && (!context.verified || context.paths.isEmpty())) {
+                        throw IllegalStateException("Repository source could not be verified. Connect GitHub and retry before requesting code changes.")
+                    }
                     context.data(instruction) // Context must bind to the exact provider request, including patch-mode instructions.
                     sourceSummary = context.summary()
                     activity.runOnUiThread { if (current(run)) status.text = activity.getString(
@@ -167,7 +172,12 @@ internal object ProjectGenerationWorkbench {
                             status.setText(R.string.project_generation_changed)
                         } else reply.onSuccess { text ->
                             val scope = reviewScope
-                            if (scope != null) {
+                            if (scope != null && saved != ProjectGenerationStore.Result.SAVED) {
+                                // A source-bound review must not outlive a failed local task receipt.
+                                // Discard the proposal and require a fresh, traceable request.
+                                output.text = "The generated code proposal could not be saved. Its unapproved review was discarded; retry the task. No files were changed."
+                                status.text = "Code proposal not staged: project save failed."
+                            } else if (scope != null) {
                                 val staged = stageReview(task, scope.first, scope.second, scope.third)
                                 val names = scope.second.joinToString("\n") { "• " + it.path.substringAfterLast('/') }
                                 output.text = buildString {

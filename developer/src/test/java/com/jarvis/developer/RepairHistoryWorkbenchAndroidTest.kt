@@ -182,7 +182,7 @@ class RepairHistoryWorkbenchAndroidTest {
         assertFalse(h.button("Recheck selected").isEnabled)
         h.button("Load private").performClick(); assertEquals(1, h.pending.size)
         h.close(); val before = h.text(); h.finish()
-        assertEquals(before, h.text()); assertEquals(1, h.finishes)
+        assertEquals(before, h.text()); assertEquals(2, h.starts); assertEquals(h.starts, h.finishes)
     }
 
     @Test fun damagedHistoryRequiresExplicitClearWithoutAutomaticReadsOrStaleSelection() {
@@ -281,7 +281,7 @@ class RepairHistoryWorkbenchAndroidTest {
             val before = h.text()
             h.finish()
             assertEquals(0, h.reads); assertEquals(before, h.text())
-            assertEquals(1, h.finishes)
+            assertEquals(2, h.starts); assertEquals(h.starts, h.finishes)
             assertEquals(listOf(entry), RepairHistoryStore(directory).load())
             assertNull(h.current)
         } finally { h.close() }
