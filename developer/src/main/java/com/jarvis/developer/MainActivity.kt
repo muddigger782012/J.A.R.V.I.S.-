@@ -501,8 +501,17 @@ class MainActivity : Activity() {
             TextView(this).apply { setTextColor(getColor(R.color.developer_secondary)); accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE })
         fun addFeedback(pair: Pair<TextView, TextView>) { root.addView(pair.second); root.addView(pair.first) }
         val codingStart = root.childCount
+        // The chat composer is NOT an approved code-task field: typing a follow-up
+        // must never invalidate a pinned, already-reviewed diff or change its scope.
+        val scopedCodingTask = EditText(this).apply {
+            hint = "Code change under review (independent of the main chat)"
+            setText(prompt.text.toString().trim())
+            minLines = 2
+            setSingleLine(false)
+        }
+        root.addView(scopedCodingTask)
         val codingFeedback = feedback()
-        val patchWorkbench = PatchWorkbench.attach(this, root, prompt, key, provider, model, githubToken,
+        val patchWorkbench = PatchWorkbench.attach(this, root, scopedCodingTask, key, provider, model, githubToken,
             codingFeedback.first, codingFeedback.second,
             { health.getInt("confirmed_version", -1) == currentCode },
             { update -> output.text = update })

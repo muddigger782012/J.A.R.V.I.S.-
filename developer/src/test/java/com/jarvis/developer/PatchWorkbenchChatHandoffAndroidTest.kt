@@ -46,6 +46,9 @@ class PatchWorkbenchChatHandoffAndroidTest {
         val activity = controller.get()
         val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         val prompt = EditText(activity).apply { setText("Fix voice response delay") }
+        // The production Activity must keep the primary chat separate from the
+        // exact task/scope editor used by PatchWorkbench.
+        val chatComposer = EditText(activity).apply { setText("Write the initial code") }
         val key = EditText(activity).apply { setText("example-provider-key") }
         val github = EditText(activity).apply { setText("example-github-token") }
         val model = EditText(activity).apply { setText("gpt-4.1-mini") }
@@ -118,6 +121,28 @@ class PatchWorkbenchChatHandoffAndroidTest {
             assertTrue(screen.output.text.toString().contains("Scoped preview ready"))
             assertEquals(0, screen.providerCalls)
             assertEquals(0, screen.writes)
+        } finally { screen.close() }
+    }
+
+    @Test fun chatFollowUpCannotInvalidateAnExistingExactDiffButScopeChangesStillDo() {
+        val screen = Screen()
+        try {
+            assertTrue(screen.import())
+            screen.finish()
+            assertTrue(screen.approval().isEnabled)
+            assertFalse(screen.approval().isChecked)
+            val reads = screen.sourceReads
+            screen.chatComposer.setText("Check Developer build")
+            screen.chatComposer.setText("Prepare Developer repair")
+            assertTrue(screen.approval().isEnabled)
+            assertFalse(screen.approval().isChecked)
+            assertTrue(screen.button("Create task branch").isEnabled == false)
+            assertEquals(reads, screen.sourceReads)
+            assertEquals(0, screen.providerCalls)
+            assertEquals(0, screen.writes)
+            screen.prompt.setText("This is a different scoped engineering task")
+            assertFalse(screen.approval().isEnabled)
+            assertTrue(screen.status.text.toString().contains("invalidated"))
         } finally { screen.close() }
     }
 
