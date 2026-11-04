@@ -53,7 +53,8 @@ object PatchWorkbench {
         private val cancelPreviewAction: () -> Unit = {},
         private val disposeAction: () -> Unit = cancelPreviewAction,
         private val engineeringAction: (DevelopmentEngineering.Draft) -> Boolean = { false },
-        private val guidedAction: (String, String, List<String>, String, PatchEngine.Target) -> Boolean = { _, _, _, _, _ -> false }
+        private val guidedAction: (String, String, List<String>, String, PatchEngine.Target) -> Boolean = { _, _, _, _, _ -> false },
+        private val importAction: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false }
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
@@ -61,6 +62,8 @@ object PatchWorkbench {
         fun prepareRepair(ticket: RepairEngine.Ticket, observer: RepairObserver): Boolean = repairAction(ticket, observer)
         fun invalidate(): Boolean = invalidateAction()
         fun preparePersonal(review: PersonalRepair.Review): Boolean = personalAction(review)
+        internal fun importChatProposal(task: String, summary: String, edits: List<PatchEngine.Edit>, base: String) =
+            importAction(task, summary, edits, base)
         fun cancelPreview() = cancelPreviewAction()
         fun dispose() = disposeAction()
         internal fun prepareEngineering(draft: DevelopmentEngineering.Draft) = engineeringAction(draft)
@@ -186,6 +189,7 @@ object PatchWorkbench {
         var interruptedEngineering: DevelopmentEngineering.Write? = null
         var queuedContextNeedsRefresh = false
         var settingQueuedInputs = false
+        var chatImport: Pair<String, List<PatchEngine.Edit>>? = null
         var proposal: PatchEngine.Proposal? = null
         var proposalMetadata: Metadata? = null
         var proposalReport: String? = null
@@ -445,7 +449,15 @@ object PatchWorkbench {
                     PatchEngine.validateRequest(request)
                     stage = "selected AI provider proposal"
                     cancellation.check()
-                    val generated = services.propose(key, request, cancellation)
+                    val imported = chatImport
+                    val generated = if (imported != null) {
+                        require(imported.second.map { it.path }.toSet() == request.allowedPaths.toSet())
+                        val payload = org.json.JSONObject().put("summary", imported.first).put("edits",
+                            org.json.JSONArray(imported.second.map { edit ->
+                                org.json.JSONObject().put("path", edit.path).put("content", edit.content)
+                            }))
+                        PatchEngine.parse(request, payload.toString())
+                    } else services.propose(key, request, cancellation)
                     cancellation.check()
                     stage = "complete diff validation"
                     PatchEngine.revalidate(generated)
@@ -910,6 +922,18 @@ object PatchWorkbench {
         }, guidedAction = { id, description, paths, base, target ->
             prepareInputs(id, description, paths, base,
                 if (target == PatchEngine.Target.PERSONAL) "main" else "feature/jarvis-developer", target)
+        }, importAction = { taskText, summary, edits, base ->
+            if (edits.isEmpty() || edits.size > PatchEngine.MAX_FILES ||
+                edits.any { !PatchEngine.allowedPath(it.path) } || edits.map { it.path }.distinct().size != edits.size) false
+            else {
+                val id = "chat-" + UUID.randomUUID().toString().replace("-", "").take(16)
+                val ready = prepareInputs(id, taskText, edits.map { it.path }, base)
+                if (ready) {
+                    chatImport = summary to edits.map { it.copy() }
+                    status.text = "Chat replacement contents staged. Generate a verified diff; no second AI call is required."
+                }
+                ready
+            }
         }, engineeringAction = { draft ->
             if (prepareInputs(draft.taskId, draft.task, draft.paths, draft.base, draft.branch, draft.target)) {
                 activeEngineering = draft
