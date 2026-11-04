@@ -21,6 +21,33 @@ class VoiceCaptureWindowTest {
         time = 50_000; assertFalse(window.expired())
         time = 56_000; assertTrue(window.expired())
     }
+    @Test fun liveSpeechCanContinuePastThirtySecondsUntilTheRecognizerReportsEndOfSpeech() {
+        var time = 0L
+        val window = VoiceCaptureWindow({ time }, idleMillis = 30_000, finalMillis = 20_000,
+            maximumMillis = 180_000)
+        time = 5_000
+        window.speechStarted()
+        // A fixed 30-second foreground timer previously cancelled this active utterance.
+        time = 31_000
+        assertFalse(window.expired())
+        time = 75_000
+        assertFalse(window.expired())
+        window.endOfSpeech()
+        time = 94_999
+        assertFalse(window.expired())
+        time = 95_000
+        assertTrue(window.expired())
+    }
+
+    @Test fun liveSpeechProviderThatNeverStartsOrReturnsStillTimesOut() {
+        var time = 0L
+        val window = VoiceCaptureWindow({ time }, idleMillis = 30_000, maximumMillis = 180_000)
+        time = 29_999
+        assertFalse(window.expired())
+        time = 30_000
+        assertTrue(window.expired())
+    }
+
     @Test fun providerReportedContinuousSpeechCanExceedIdleLimitWithoutPartialTranscripts() {
         var time = 0L
         val window = VoiceCaptureWindow({ time })
