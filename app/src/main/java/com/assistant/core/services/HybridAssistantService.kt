@@ -292,6 +292,11 @@ class HybridAssistantService(
         val engineIntent = IntentClassifier().classify(userInput)
         if (personalAssistant) {
             ConversationMemoryCommands.parse(userInput)?.let { command ->
+                // Resuming is read-only: preserve any pending goal, routine or
+                // approval so reviewing context cannot silently cancel work.
+                if (command == ConversationMemoryCommands.Command.RESUME) {
+                    return HybridAssistantReply(ConversationMemoryCommands.reply(userInput, conversationMemory!!)!!)
+                }
                 runCatching { goalPlans?.discardPending() }
                 routineConfirmations.consume("")
                 volumeConfirmations.consume("")
