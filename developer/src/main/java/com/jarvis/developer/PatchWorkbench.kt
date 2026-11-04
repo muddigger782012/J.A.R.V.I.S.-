@@ -944,11 +944,20 @@ object PatchWorkbench {
             else {
                 val id = "chat-" + UUID.randomUUID().toString().replace("-", "").take(16)
                 val ready = prepareInputs(id, taskText, edits.map { it.path }, base, "feature/jarvis-developer")
-                if (ready) {
+                if (!ready) false else {
+                    // The owner already requested this proposal in chat. Preparing its
+                    // exact diff is read-only and needs no additional menu action or AI call.
+                    // The existing checkbox and commit button still require a separate
+                    // explicit approval before any repository write.
                     chatImport = summary to edits.map { it.copy() }
-                    status.text = "Chat replacement contents staged. Generate a verified diff; no second AI call is required."
+                    preview.performClick()
+                    val started = busy && activePreview != null
+                    if (!started) {
+                        chatImport = null
+                        status.text = "Chat proposal could not start the pinned source validation. Review the source connection and retry; no repository write or approval occurred."
+                    }
+                    started
                 }
-                ready
             }
         }, engineeringAction = { draft ->
             if (prepareInputs(draft.taskId, draft.task, draft.paths, draft.base, draft.branch, draft.target)) {
