@@ -52,6 +52,19 @@ jobs:
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Permanent signing secrets are not configured; publishing is disabled for this run."
           fi
+      - name: Require permanent signing for Companion release candidates
+        if: github.ref == 'refs/heads/feature/companion-integrated' && steps.signing.outputs.configured != 'true'
+        shell: bash
+        run: |
+          echo '::error::Companion candidate cannot be produced without the existing permanent Personal signing credentials.'
+          exit 1
+      - name: Verify Companion candidate source branch
+        if: github.ref == 'refs/heads/feature/companion-integrated'
+        shell: bash
+        run: |
+          test "$GITHUB_REF_NAME" = 'feature/companion-integrated'
+          test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
+          echo "Companion candidate source: $GITHUB_SHA"
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
       - name: Prepare sherpa-onnx Android runtime
