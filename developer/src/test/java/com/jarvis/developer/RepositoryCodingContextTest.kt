@@ -84,6 +84,19 @@ class RepositoryCodingContextTest {
         assertEquals(hash(text), file.getString("blobSha"))
     }
 
+    @Test fun targetedSixKilobyteFileUsesCompleteVerifiedContext() {
+        val expanded = text + ("// voice network latency diagnostic detail\n".repeat(95))
+        assertTrue(expanded.toByteArray().size > RepositoryCodingContext.MAX_EXCERPT_BYTES)
+        assertTrue(expanded.toByteArray().size <= RepositoryCodingContext.MAX_FULL_FILE_BYTES)
+        val context = Git(mapOf(path to expanded)).collect()
+        assertTrue(context.verified)
+        val file = JSONObject(context.data(task)).getJSONArray("files").getJSONObject(0)
+        val source = file.getJSONArray("excerpts").getJSONObject(0)
+        assertFalse(source.getBoolean("shortened"))
+        assertEquals(expanded, source.getString("source"))
+        assertEquals(hash(expanded), file.getString("blobSha"))
+    }
+
     @Test fun actualPinnedGitReadsReachGeminiAndOpenAiAsSeparateDataParts() {
         for (provider in listOf("Gemini", "OpenAI")) {
             val git = Git(); val context = git.collect()
