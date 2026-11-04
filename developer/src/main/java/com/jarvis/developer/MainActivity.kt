@@ -162,7 +162,7 @@ class MainActivity : Activity() {
             tag = "project-generation-reply"
             setTextColor(getColor(R.color.developer_text))
             setTextIsSelectable(true)
-            text = "Development conversation ready. Describe what you want changed."
+            text = "Your assistant’s response will appear here."
         }
         val proposeCodePatch = android.widget.CheckBox(this).apply {
             text = "Prepare reviewable code changes"
@@ -171,12 +171,12 @@ class MainActivity : Activity() {
             contentDescription = "Request a reviewable code patch proposal, not an automatic code change"
         }
         root.addView(proposeCodePatch)
-        val send = Button(this).apply { text = "Send to Jarvis"; isAllCaps = false }
+        val send = Button(this).apply { text = "Ask Jarvis / save instructions"; isAllCaps = false }
         root.addView(send)
         // Keep read-only repository analysis on Home beside the conversational task.
         // This does not grant patch, branch, commit, or installation authority.
         val analyzeFromHome = Button(this).apply {
-            text = "Inspect source (read-only)"
+            text = "Analyze repository request (read-only)"
             isAllCaps = false
             contentDescription = "Inspect repository source for the Home task without modifying files"
         }
