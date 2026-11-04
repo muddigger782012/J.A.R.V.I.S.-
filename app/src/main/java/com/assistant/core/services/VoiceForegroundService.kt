@@ -119,17 +119,21 @@ class VoiceForegroundService : Service() {
                     // The service, not the Activity's potentially stale label,
                     // determines what a mic tap does. Finish an active utterance;
                     // otherwise interrupt pending TTS/replies and rearm capture.
-                    if (liveSession.phase == LiveChatSession.Phase.LISTENING && liveCapture.isActive) {
-                        liveCapture.finish()
-                        liveStatus(VoiceInteractionState.TRANSCRIBING, "Finishing voice input…")
-                    } else if (liveSession.interrupt()) {
-                        hybridAssistantService.cancelActiveResponse()
-                        liveCapture.stop()
-                        if (::voiceService.isInitialized) voiceService.stopSpeaking()
-                        liveHandler.removeCallbacksAndMessages(null)
-                        liveStatus(VoiceInteractionState.IDLE, "Microphone requested; listening again…")
-                        liveHandler.post(heartbeat)
-                        nextLiveTurn(150L)
+                    when (liveSession.microphoneTapped(liveCapture.isActive)) {
+                        LiveChatSession.MicrophoneTap.FINISH_CAPTURE -> {
+                            liveCapture.finish()
+                            liveStatus(VoiceInteractionState.TRANSCRIBING, "Finishing voice input…")
+                        }
+                        LiveChatSession.MicrophoneTap.RESTART_LISTENING -> {
+                            hybridAssistantService.cancelActiveResponse()
+                            liveCapture.stop()
+                            if (::voiceService.isInitialized) voiceService.stopSpeaking()
+                            liveHandler.removeCallbacksAndMessages(null)
+                            liveStatus(VoiceInteractionState.IDLE, "Microphone requested; listening again…")
+                            liveHandler.post(heartbeat)
+                            nextLiveTurn(150L)
+                        }
+                        LiveChatSession.MicrophoneTap.IGNORE -> Unit
                     }
                     return START_NOT_STICKY
                 }
