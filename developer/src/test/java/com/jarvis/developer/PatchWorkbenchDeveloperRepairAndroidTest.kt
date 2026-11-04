@@ -141,7 +141,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
             finish()
             assertEquals(1, writes)
             assertEquals(1, ciReads)
-            assertEquals(1, logReads)
+            assertEquals(if (ciState == PatchPublisher.CiState.FAILED) 1 else 0, logReads)
             assertFalse(approval().isEnabled)
         }
         fun close() { handle.dispose(); controller.pause().stop().destroy() }
