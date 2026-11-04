@@ -624,8 +624,8 @@ class VoiceForegroundService : Service() {
         if (recent.isEmpty()) return text
         return "Continue this conversation naturally. Be personable, concise, and helpful. " +
             "Do not repeatedly ask about preferred conversational style. " +
-            "Offer a relevant suggestion or question when useful, without inventing facts or actions.\\n" +
-            recent.asReversed().joinToString("\\n") + "\\nYou: " + text
+            "Offer a relevant suggestion or question when useful, without inventing facts or actions.\n" +
+            recent.asReversed().joinToString("\n") + "\nYou: " + text
     }
 
     private fun askAssistant(text: String, callback: (HybridAssistantReply) -> Unit) {
