@@ -1726,7 +1726,18 @@ class HybridAssistantService(
         val command = DevelopmentCommands.parse(input)
         val generalReply = offered != null && ConfirmationWords.isConfirmation(input)
         if (command == null && !generalReply) return null
-        if (responseTurns.mutate { clearPendingActionPrompts(); true } != true) return "The earlier development request was cancelled."
+        // Looking up a Developer job must not erase unrelated pending voice,
+        // routine, or device-action context. Only commands that change work
+        // or require explicit consent clear those pending prompts.
+        val readOnlyQuery = command in setOf(
+            DevelopmentCommands.Kind.STATUS,
+            DevelopmentCommands.Kind.LIST,
+            DevelopmentCommands.Kind.CAPABILITIES
+        )
+        if (responseTurns.mutate {
+                if (!readOnlyQuery) clearPendingActionPrompts()
+                true
+            } != true) return "The earlier development request was cancelled."
         val operations = DeveloperBridgeOperations(systemService.context())
         val current = { responseTurns.current() }
         val reply = runCatching {
