@@ -154,6 +154,11 @@ object PatchWorkbench {
             isEnabled = false
         }
         root.addView(feedback)
+        val prepareDeveloperRepair = Button(context).apply {
+            text = "Prepare Developer repair from verified failure"
+            isEnabled = false
+        }
+        root.addView(prepareDeveloperRepair)
         val cancelRead = Button(context).apply { text = "Cancel task diagnostics / source read"; isEnabled = false }
         root.addView(cancelRead)
         root.addView(TextView(context).apply {
@@ -196,6 +201,7 @@ object PatchWorkbench {
         var lastCommit: PatchPublisher.CommitResult? = null
         var interruptedAttempt: PatchEngine.Proposal? = null
         var lastFeedback: Pair<PatchPublisher.CommitResult, BuildDiagnostics.Report>? = null
+        var developerRepairCandidate: DeveloperFailureRepairDraft.Candidate? = null
         var followUpPaths = emptyList<String>()
         var followUpReview: PersonalRepair.Review? = null
         var selectedFollowUp: String? = null
@@ -235,6 +241,7 @@ object PatchWorkbench {
             inspectOutcome.isEnabled = !busy && interruptedAttempt != null
             ci.isEnabled = !busy && lastCommit != null
             feedback.isEnabled = !busy && lastCommit != null
+            prepareDeveloperRepair.isEnabled = !busy && developerRepairCandidate != null
             followUpFile.isEnabled = !busy && followUpPaths.isNotEmpty()
             readFollowUp.isEnabled = !busy && selectedFollowUpPath() != null
             stageFollowUp.isEnabled = !busy && followUpReview != null
@@ -265,6 +272,7 @@ object PatchWorkbench {
             refresh()
         }
         fun setFeedbackContext(value: Pair<PatchPublisher.CommitResult, BuildDiagnostics.Report>?) {
+            developerRepairCandidate = null
             followUpReview = null
             selectedFollowUp = null
             lastFeedback = value
@@ -623,6 +631,15 @@ object PatchWorkbench {
                             evidence
                         }.getOrNull()
                     } else null
+                    val repairDraft = if (checked != null && failureReport != null)
+                        runCatching { DeveloperFailureRepairDraft.from(result, checked, failureReport) }.getOrNull()
+                    else null
+                    val repairHint = if (checked?.state != PatchPublisher.CiState.FAILED) "" else
+                        if (repairDraft != null)
+                            "\n\nCompiler-only follow-up available. Select Prepare Developer repair from verified failure. " +
+                                "A fresh pinned-source diff will be generated for your review; no prior approval is reused."
+                        else "\n\nNo source-scoped compiler repair could be safely inferred. " +
+                            "Review the verified tests/infrastructure diagnostics before starting another task."
                     val failureText = if (checked?.state != PatchPublisher.CiState.FAILED) "" else
                         if (failureReport != null)
                             "\n\nExact-run failure diagnostics (untrusted build evidence):\n" +
@@ -632,14 +649,15 @@ object PatchWorkbench {
                             "Use Read exact task build to retry the bounded diagnostic read. " +
                             "No repair or source write was started."
                     val report = renderCommit(result, checked) +
-                        (if (checked == null) "\n\n$ciText" else "") + failureText
+                        (if (checked == null) "\n\n$ciText" else "") + failureText + repairHint
                     activity.runOnUiThread {
                         if (alive()) {
                             lastCommit = result
+                            developerRepairCandidate = repairDraft
                             interruptedAttempt = null
                             interruptedEngineering = null
                             review.text = report
-                            output.text = commitAudit(result) + "\n" + ciText + failureText
+                            output.text = commitAudit(result) + "\n" + ciText + failureText + repairHint
                             status.text = when (checked?.state) {
                                 PatchPublisher.CiState.PASSED -> "Task branch committed; exact-source debug CI passed"
                                 PatchPublisher.CiState.FAILED -> if (failureReport != null)
@@ -924,6 +942,28 @@ object PatchWorkbench {
             status.text = "Queued step prepared for a new diff; no provider call or Git write requested"
             refresh()
             return true
+        }
+        prepareDeveloperRepair.setOnClickListener {
+            val candidate = developerRepairCandidate ?: return@setOnClickListener
+            val committed = lastCommit
+            if (!alive() || busy || committed == null ||
+                committed.commitSha != candidate.base || committed.branch != candidate.branch) {
+                developerRepairCandidate = null
+                status.text = "Failed-build context changed. Re-read the exact task evidence before preparing a repair."
+                refresh()
+                return@setOnClickListener
+            }
+            val taskId = "repair-" + UUID.randomUUID().toString().replace("-", "").take(16)
+            if (!prepareInputs(taskId, candidate.task, candidate.paths, candidate.base, candidate.branch)) {
+                status.text = "Repair could not be prepared from the pinned source. No new approval or write occurred."
+                return@setOnClickListener
+            }
+            developerRepairCandidate = null
+            // This button is an explicit user action. It may ask the configured AI
+            // to propose a new exact diff, but cannot reuse approval or commit it.
+            preview.performClick()
+            if (busy) status.text = "Reading failed Developer source and requesting a NEW bounded repair diff. No write authorized."
+            refresh()
         }
         stageFollowUp.setOnClickListener {
             val selected = followUpReview ?: return@setOnClickListener
