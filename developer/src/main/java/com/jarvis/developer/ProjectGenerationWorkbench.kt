@@ -13,7 +13,8 @@ internal object ProjectGenerationWorkbench {
     internal class Services(
         val worker: (() -> Unit) -> Unit = { work -> thread(name = "DeveloperCodingAssistant", isDaemon = true) { work() }; Unit },
         val ask: (String, String, String, String, PatchPreviewCancellation, RepositoryCodingContext.Context) -> String = CodingAssistantProvider::ask,
-        val context: (String, PatchEngine.Target, String, String, PatchPreviewCancellation) -> RepositoryCodingContext.Context = RepositoryIntelligence::codingContext
+        val context: (String, PatchEngine.Target, String, String, PatchPreviewCancellation) -> RepositoryCodingContext.Context = RepositoryIntelligence::codingContext,
+        val progress: (Activity) -> String = DeveloperProgressReport::read
     )
     class Handle internal constructor(private val stop: (Boolean) -> Unit) {
         fun cancel() = stop(false)
@@ -27,6 +28,7 @@ internal object ProjectGenerationWorkbench {
         stageReview: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
+        var localProgressRead: PatchPreviewCancellation? = null
         var disposed = false
         fun inputs(enabled: Boolean) {
             listOf(send, provider, key, model, prompt).forEach { it.isEnabled = enabled }
@@ -38,6 +40,16 @@ internal object ProjectGenerationWorkbench {
         fun current(run: Running) = alive() && running === run && !run.cancellation.isCancelled
         fun stop(interrupted: Boolean) {
             if (interrupted) disposed = true
+            val read = localProgressRead
+            if (read != null) {
+                localProgressRead = null
+                read.cancel()
+                if (alive()) {
+                    inputs(true)
+                    status.text = "Local development progress read cancelled. No task or approval was changed."
+                }
+                return
+            }
             val run = running ?: return
             running = null; run.cancellation.cancel()
             val result = store.finish(run.ticket, if (interrupted) "generation_interrupted" else "generation_cancelled")
@@ -59,13 +71,46 @@ internal object ProjectGenerationWorkbench {
                 else R.string.project_generation_discussion_clear_failed)
         }
         send.setOnClickListener {
-            if (!alive() || running != null) return@setOnClickListener
+            if (!alive() || running != null || localProgressRead != null) return@setOnClickListener
             val task = prompt.text.toString().trim()
             if (task.isEmpty()) { status.setText(R.string.project_generation_describe); prompt.requestFocus(); return@setOnClickListener }
             val secret = key.text.toString().trim()
             val readToken = githubToken().trim()
             if ((secret.isNotEmpty() && task.contains(secret)) || (readToken.isNotEmpty() && task.contains(readToken))) {
                 status.setText(R.string.project_generation_remove_key); return@setOnClickListener
+            }
+            // A direct chat request for progress reads only verified local storage.
+            // It never starts the AI provider, changes task checkpoints, or grants approval.
+            if (DeveloperProgressReport.isRequest(task)) {
+                val cancellation = PatchPreviewCancellation()
+                localProgressRead = cancellation
+                inputs(false)
+                status.text = "Reading local development plans and jobs; no network or source write."
+                val work: () -> Unit = {
+                    val report = runCatching {
+                        cancellation.check()
+                        services.progress(activity).also { cancellation.check() }
+                    }
+                    activity.runOnUiThread {
+                        if (!alive() || localProgressRead !== cancellation || cancellation.isCancelled) return@runOnUiThread
+                        localProgressRead = null
+                        inputs(true)
+                        report.onSuccess {
+                            output.text = it
+                            status.text = "Read-only local development progress loaded. CI and installed APK are not inferred."
+                        }.onFailure {
+                            output.text = "Saved development status could not be verified. No empty-progress fallback was used."
+                            status.text = "Local progress read failed. Repair storage or inspect Track; no records were changed."
+                        }
+                    }
+                }
+                runCatching { services.worker(work) }.onFailure {
+                    cancellation.cancel()
+                    localProgressRead = null
+                    inputs(true)
+                    status.text = "Local progress worker could not start; no records were changed."
+                }
+                return@setOnClickListener
             }
             val wantsPatch = requestPatch()
             if (wantsPatch && target() != 0) {

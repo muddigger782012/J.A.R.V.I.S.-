@@ -24,6 +24,7 @@ class ProjectGenerationTest {
         .getSharedPreferences("generation-fixture-" + UUID.randomUUID(), Context.MODE_PRIVATE)
     private inner class Screen(val prefs: android.content.SharedPreferences = preferences(),
         launchFails: Boolean = false, failure: Exception? = null,
+        progressRead: (() -> String)? = null,
         ask: ((String, String, String, String, PatchPreviewCancellation) -> String)? = null) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
@@ -44,11 +45,58 @@ class ProjectGenerationTest {
                 ask = { providerName, apiKey, modelName, task, cancellation, _ ->
                     ask?.invoke(providerName, apiKey, modelName, task, cancellation)
                         ?: if (failure != null) throw failure else "Reply for $task"
-                }, context = { task, product, _, _, _ -> RepositoryCodingContext.unavailable(task, product) }))
+                }, context = { task, product, _, _, _ -> RepositoryCodingContext.unavailable(task, product) },
+                progress = { _ -> progressRead?.invoke() ?: "Verified local progress fixture" }))
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun localProgressRequestRunsWithoutProviderOrPersistingAnApproval() {
+        var reports = 0
+        Screen(progressRead = { reports++; "Local plans: 1; next step: review" }).use { s ->
+            s.prompt.setText("Show development progress")
+            s.send.performClick()
+            assertEquals(1, s.pending.size)
+            assertEquals(0, reports)
+            assertFalse(s.send.isEnabled)
+            assertTrue(s.cancel.isEnabled)
+            assertTrue(s.prefs.all.isEmpty())
+            s.complete()
+            assertEquals(1, reports)
+            assertEquals("Local plans: 1; next step: review", s.output.text.toString())
+            assertTrue(s.send.isEnabled)
+            assertFalse(s.cancel.isEnabled)
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.status.text.contains("Read-only"))
+        }
+    }
+
+    @Test fun cancelledLocalProgressDropsStaleResultsAndRestoresChat() {
+        var reads = 0
+        Screen(progressRead = { reads++; "Late stale local progress" }).use { s ->
+            s.prompt.setText("Show my development tasks")
+            s.send.performClick()
+            s.cancel.performClick()
+            s.complete()
+            assertEquals(0, reads)
+            assertEquals("Previous display", s.output.text.toString())
+            assertTrue(s.send.isEnabled)
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.status.text.contains("cancelled"))
+        }
+    }
+
+    @Test fun localProgressFailureDoesNotPretendThatZeroTasksExist() {
+        Screen(progressRead = { error("private corrupted store fixture") }).use { s ->
+            s.prompt.setText("Show development status")
+            s.send.performClick(); s.complete()
+            assertTrue(s.output.text.contains("could not be verified"))
+            assertFalse(s.output.text.contains("private corrupted"))
+            assertTrue(s.send.isEnabled)
+            assertTrue(s.prefs.all.isEmpty())
+        }
+    }
+
     @Test fun cancelledAndSupersededTicketsCannotOverwriteANewerProject() {
         val prefs = preferences(); val store = ProjectGenerationStore(prefs)
         val first = store.begin("project-a", "Earlier instructions", 0)!!
