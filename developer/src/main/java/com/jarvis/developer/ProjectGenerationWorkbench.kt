@@ -129,7 +129,8 @@ internal object ProjectGenerationWorkbench {
                         require(proposal.optString("summary").isNotBlank()) { "Code proposal has no summary." }
                         val edits = proposal.optJSONArray("edits")
                             ?: throw IllegalArgumentException("Code proposal has no edits array.")
-                        require(edits.length() > 0) { "Code proposal must contain at least one file." }\n                        require(text.toByteArray(Charsets.UTF_8).size <= 512_000) { "Code proposal exceeds the response byte budget." }
+                        require(edits.length() > 0) { "Code proposal must contain at least one file." }
+                        require(text.toByteArray(Charsets.UTF_8).size <= 512_000) { "Code proposal exceeds the response byte budget." }
                         val seen = mutableSetOf<String>()
                         for (i in 0 until edits.length()) {
                             val edit = edits.optJSONObject(i)
