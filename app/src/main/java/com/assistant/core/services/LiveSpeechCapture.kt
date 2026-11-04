@@ -16,7 +16,10 @@ class LiveSpeechCapture(private val context: Context,
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private var trace = 0L
     private var finishCapture: (() -> Unit)? = null
+    private var finishRequested = false
     val isActive get() = recognizer != null
+    /** A second mic tap can recover a recognizer stuck after stopListening(). */
+    val isFinishing get() = recognizer != null && finishRequested
     fun finish() { finishCapture?.invoke() }
     fun stop() = release(cancelled = true)
     private fun release(cancelled: Boolean) {
@@ -25,6 +28,7 @@ class LiveSpeechCapture(private val context: Context,
         val previous = recognizer
         recognizer = null
         finishCapture = null
+        finishRequested = false
         runCatching { previous?.cancel() }
         runCatching { previous?.destroy() }
         if (cancelled && previous != null) VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.CANCELLED, trace)
@@ -114,7 +118,6 @@ class LiveSpeechCapture(private val context: Context,
                 val engine = platform.create(provider, listener)
                 if (current != generation) { runCatching { engine.cancel() }; runCatching { engine.destroy() }; return }
                 recognizer = engine
-                var finishRequested = false
                 finishCapture = {
                     if (current == generation && !finishRequested) {
                         finishRequested = true
