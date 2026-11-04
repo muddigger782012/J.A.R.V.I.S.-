@@ -587,7 +587,17 @@ class MainActivity : Activity() {
             prompt, output, status, { guidedTarget?.selectedItemPosition ?: 0 }, { guidedTarget },
             { activeProject }, { activeProject = it }, ProjectGenerationStore(projectPrefs),
             { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() }, forget = forgetDiscussion,
-            requestPatch = { proposeCodePatch.isChecked && (guidedTarget?.selectedItemPosition ?: 0) == 0 })
+            requestPatch = { proposeCodePatch.isChecked && (guidedTarget?.selectedItemPosition ?: 0) == 0 },
+            stageReview = { taskText, paths, commitSha ->
+                val staged = patchWorkbench.prepareGuided(
+                    "chat-" + java.util.UUID.randomUUID().toString().replace("-", "").take(16),
+                    taskText, paths, commitSha, PatchEngine.Target.DEVELOPER)
+                if (staged) {
+                    homeCodeReview.visibility = View.VISIBLE
+                    homeCodeReviewToggle.text = "Close inline code review"
+                }
+                staged
+            })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
