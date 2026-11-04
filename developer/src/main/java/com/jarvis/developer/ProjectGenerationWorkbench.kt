@@ -23,7 +23,8 @@ internal object ProjectGenerationWorkbench {
         prompt: EditText, output: TextView, status: TextView, target: () -> Int, targetView: () -> View?,
         selected: () -> String?, select: (String) -> Unit, store: ProjectGenerationStore,
         changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }, forget: Button? = null,
-        requestPatch: () -> Boolean = { false }): Handle {
+        requestPatch: () -> Boolean = { false },
+        stageReview: (String, List<String>, String) -> Boolean = { _, _, _ -> false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var disposed = false
@@ -99,6 +100,7 @@ internal object ProjectGenerationWorkbench {
             val work: () -> Unit = {
                 var sourceSummary = ""
                 var nextDiscussion: ProjectGenerationDiscussion? = null
+                var reviewScope: Pair<List<String>, String>? = null
                 val reply = runCatching {
                     run.cancellation.check()
                     val source = try { services.context(lookupTask, productTarget, readToken, secret, run.cancellation) }
@@ -143,7 +145,9 @@ internal object ProjectGenerationWorkbench {
                                 "Code proposal contains an unsafe or duplicate path."
                             }
                             require(edit.optString("content").isNotBlank()) { "Code proposal contains an empty file." }
+                            require(path in context.paths) { "Proposal file was not included in verified source context." }
                         }
+                        reviewScope = seen.toList() to requireNotNull(context.commit)
                     }
                     nextDiscussion = discussion.append(task, text, secrets)
                     sourceSummary + "\n\n" + text
@@ -158,7 +162,12 @@ internal object ProjectGenerationWorkbench {
                             status.setText(R.string.project_generation_changed)
                         } else reply.onSuccess { text ->
                             output.text = text
-                            status.text = if (saved == ProjectGenerationStore.Result.SAVED)
+                            val scope = reviewScope
+                            if (scope != null) {
+                                val staged = stageReview(task, scope.first.take(PatchEngine.MAX_FILES), scope.second)
+                                status.text = if (staged) "Proposal received. Scoped review staged; generate a fresh verified diff and approve before writing." else "Proposal received. Open code review to prepare a verified diff."
+                            }
+                            if (scope == null) status.text = if (saved == ProjectGenerationStore.Result.SAVED)
                                 activity.getString(R.string.project_generation_received, providerName)
                                 else activity.getString(R.string.project_generation_response_unsaved)
                         }.onFailure { failure ->
