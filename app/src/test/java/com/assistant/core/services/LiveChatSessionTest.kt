@@ -12,9 +12,25 @@ class LiveChatSessionTest {
         assertNull(session.listen())
         assertTrue(session.response(turn))
         assertNull(session.listen())
-        assertTrue(session.speechFinished())
+        assertTrue(session.speechFinished(turn))
         assertNotNull(session.listen())
     }
+    @Test fun aCancelledTtsCompletionCannotFinishAnotherReplyThatIsNowSpeaking() {
+        val session = LiveChatSession()
+        session.start()
+        val first = session.listen()!!
+        assertTrue(session.transcript(first))
+        assertTrue(session.response(first))
+        assertTrue(session.interrupt())
+        val second = session.listen()!!
+        assertTrue(session.transcript(second))
+        assertTrue(session.response(second))
+        assertFalse(session.speechFinished(first))
+        assertEquals(LiveChatSession.Phase.SPEAKING, session.phase)
+        assertTrue(session.speechFinished(second))
+        assertEquals(LiveChatSession.Phase.WAITING, session.phase)
+    }
+
     @Test fun micTapDuringActiveListeningFinishesWithoutInvalidatingTheTranscript() {
         val session = LiveChatSession()
         session.start()
@@ -77,7 +93,7 @@ class LiveChatSessionTest {
         assertFalse(session.transcript(turn))
         session.stop()
         assertFalse(session.response(turn))
-        assertFalse(session.speechFinished())
+        assertFalse(session.speechFinished(turn))
         session.start()
         session.listen()
         assertFalse(session.response(turn))
@@ -88,7 +104,7 @@ class LiveChatSessionTest {
         session.start()
         repeat(2) { assertTrue(session.silence(session.listen()!!)) }
         val turn = session.listen()!!
-        assertTrue(session.transcript(turn)); assertTrue(session.response(turn)); session.speechFinished()
+        assertTrue(session.transcript(turn)); assertTrue(session.response(turn)); session.speechFinished(turn)
         repeat(2) { assertTrue(session.silence(session.listen()!!)) }
         assertFalse(session.silence(session.listen()!!))
         assertFalse(session.active)
