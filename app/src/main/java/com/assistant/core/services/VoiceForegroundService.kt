@@ -330,6 +330,12 @@ class VoiceForegroundService : Service() {
         liveStatus(if (audible) VoiceInteractionState.SPEAKING else VoiceInteractionState.IDLE,
             if (audible) "Speaking…" else "Reply ready. Listening again…")
         val turn = liveSession.token
+        if (!audible) {
+            // Text-only Live Chat must not invoke TTS or wait for a speech
+            // completion callback that a muted engine may never deliver.
+            if (liveSession.speechFinished(turn)) nextLiveTurn(650L)
+            return
+        }
         voiceService.speak(text, SpeechChannel.LIVE_CHAT, after = {
             // TTS completion may arrive on an engine callback thread. Serialize
             // session transitions with the main-thread capture and watchdog.
