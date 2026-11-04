@@ -43,6 +43,8 @@ class LiveChatSession(private val maxSilentTurns: Int = Int.MAX_VALUE,
         phase = Phase.WAITING
         return true
     }
+    /** A muted response is complete immediately; no TTS callback is required. */
+    fun silentResponseFinished(turn: Long): Boolean = speechFinished(turn)
     fun silence(turn: Long): Boolean {
         if (turn != token || phase != Phase.LISTENING) return false
         if (++silentTurns >= maxSilentTurns || expired()) { stop(); return false }
