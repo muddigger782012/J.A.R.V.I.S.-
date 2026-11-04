@@ -364,19 +364,11 @@ class VoiceForegroundService : Service() {
                 return@postDelayed
             }
             liveStatus(VoiceInteractionState.IDLE, "Starting speech capture; waiting for the recognizer.")
-            // A recognizer can hang without invoking onResult or onError.
-            // Recover only the same listening token, never a newer turn.
-            liveHandler.postDelayed({
-                if (liveChatActive && liveSession.token == turn &&
-                    liveSession.phase == LiveChatSession.Phase.LISTENING &&
-                    liveSession.recover(turn)) {
-                    liveCapture.stop()
-                    liveFailures++
-                    liveStatus(VoiceInteractionState.IDLE,
-                        "Speech recognizer did not respond. Restarting microphone capture…")
-                    nextLiveTurn((1000L * liveFailures).coerceAtMost(10_000L))
-                }
-            }, 30_000L)
+            // LiveSpeechCapture owns the activity-aware recognizer watchdog:
+            // it expires idle or stalled providers, but permits active speech
+            // (including long dictation) until the configured maximum.
+            // Do not install a second absolute 30-second timer here: it would
+            // cancel an actively speaking user before results can be delivered.
             val captureScope = if (packageName == "com.assistant.core") screenAccess.voiceScope() else ""
             val developmentScope = DevelopmentInstallConsent.voiceScope()
             liveCapture.listen(currentConfig.preferOfflineCommandRecognition,
