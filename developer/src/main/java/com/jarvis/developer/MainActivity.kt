@@ -125,7 +125,7 @@ class MainActivity : Activity() {
             setTextColor(getColor(R.color.developer_secondary))
             setPadding(0, 16, 0, 8)
         }
-        root.addView(setupHint)
+        if (ProviderCredentialStore.load(this@MainActivity) == null) root.addView(setupHint)
         lateinit var updateConnectionSetup: () -> Unit
         val key = field("Paste your API key here (not a model name)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -154,7 +154,7 @@ class MainActivity : Activity() {
             setTextColor(getColor(R.color.developer_secondary))
             setPadding(0, 0, 0, dp(12))
         })
-        val prompt = field("Example: Build me an app to track equipment maintenance.", true)
+        val prompt = field("Ask Jarvis to inspect, build, or repair code…", true)
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             prompt.setText(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
         }
@@ -162,7 +162,7 @@ class MainActivity : Activity() {
             tag = "project-generation-reply"
             setTextColor(getColor(R.color.developer_text))
             setTextIsSelectable(true)
-            text = "Your assistant’s response will appear here."
+            text = "Development conversation ready. Describe what you want changed."
         }
         val proposeCodePatch = android.widget.CheckBox(this).apply {
             text = "Prepare reviewable code changes"
@@ -171,16 +171,22 @@ class MainActivity : Activity() {
             contentDescription = "Request a reviewable code patch proposal, not an automatic code change"
         }
         root.addView(proposeCodePatch)
-        val send = Button(this).apply { text = "Ask Jarvis / save instructions"; isAllCaps = false }
+        val send = Button(this).apply { text = "Send to Jarvis"; isAllCaps = false }
         root.addView(send)
         // Keep read-only repository analysis on Home beside the conversational task.
         // This does not grant patch, branch, commit, or installation authority.
         val analyzeFromHome = Button(this).apply {
-            text = "Analyze repository request (read-only)"
+            text = "Inspect source (read-only)"
             isAllCaps = false
             contentDescription = "Inspect repository source for the Home task without modifying files"
         }
-        root.addView(analyzeFromHome)
+        (send.parent as? android.view.ViewGroup)?.removeView(send)
+        val composerActions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(analyzeFromHome, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(send, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        root.addView(composerActions)
         val reviewHomeAnalysis = Button(this).apply {
             text = "Review changes on Home"
             isAllCaps = false
