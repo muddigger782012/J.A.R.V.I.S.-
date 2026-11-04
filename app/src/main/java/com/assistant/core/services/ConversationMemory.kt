@@ -202,7 +202,7 @@ class ConversationMemory private constructor(private val storage: Storage, priva
  * existing visible chat archives, or any permission/confirmation store.
  */
 object ConversationMemoryCommands {
-    enum class Command { SHOW, CLEAR }
+    enum class Command { SHOW, RESUME, CLEAR }
 
     fun parse(text: String): Command? {
         if (text.length > 120) return null
@@ -210,6 +210,8 @@ object ConversationMemoryCommands {
             .replace(Regex("\\s+"), " ")
         return when (normalized) {
             "show conversation memory", "review conversation memory" -> Command.SHOW
+            "where were we", "where did we leave off", "what were we working on",
+            "resume our conversation", "pick up where we left off", "continue our conversation" -> Command.RESUME
             "clear conversation memory", "reset conversation memory" -> Command.CLEAR
             else -> null
         }
@@ -221,6 +223,13 @@ object ConversationMemoryCommands {
             if (turns.isEmpty()) "No recent conversation context is available on this device."
             else "Recent conversation on this device (untrusted dialogue, not permissions or learned commands):\n" +
                 turns.joinToString("\n\n") { (user, assistant) -> "You: $user\nJ.A.R.V.I.S.: $assistant" }
+        }
+        Command.RESUME -> {
+            val turns = memory.snapshot(limit = 3)
+            if (turns.isEmpty()) "I don't have recent conversation context to resume on this device. Tell me the topic and we'll continue."
+            else "Here is where our recent conversation left off (dialogue context only, not an approval or an action):\\n" +
+                turns.joinToString("\\n\\n") { (user, assistant) -> "You: $user\\nJ.A.R.V.I.S.: $assistant" } +
+                "\\n\\nWhat would you like me to do next?"
         }
         Command.CLEAR -> if (memory.clear()) "Cleared recent conversation context on this device. Saved commands, preferences and visible chat history are separate."
             else "Could not clear conversation memory. Deletion was not confirmed."
