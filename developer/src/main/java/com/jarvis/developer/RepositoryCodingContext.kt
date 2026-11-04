@@ -9,6 +9,7 @@ internal object RepositoryCodingContext {
     const val MAX_FILES = 4
     const val MAX_CONTEXT_BYTES = 20_000
     const val MAX_EXCERPT_BYTES = 2_400
+    const val MAX_FULL_FILE_BYTES = 6_000
     const val MAX_READ_BYTES = 400_000L
     const val MAX_READ_FILES = 8
     private val sha = Regex("[a-f0-9]{40}")
@@ -99,7 +100,7 @@ internal object RepositoryCodingContext {
             // Large files retain bounded cited excerpts; the final serialized request budget
             // still applies to every file and the existing credential checks remain mandatory.
             val fullRedacted = lines.joinToString("\n")
-            if (fullRedacted.toByteArray(Charsets.UTF_8).size <= MAX_EXCERPT_BYTES) {
+            if (fullRedacted.toByteArray(Charsets.UTF_8).size <= MAX_FULL_FILE_BYTES) {
                 excerpts.put(JSONObject().put("startLine", 1).put("endLine", lines.size)
                     .put("shortened", false).put("source", fullRedacted))
             }
