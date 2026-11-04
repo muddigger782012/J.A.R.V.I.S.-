@@ -116,10 +116,12 @@ class VoiceForegroundService : Service() {
         when (intent?.action) {
             ACTION_PUSH_TO_TALK -> {
                 if (liveChatActive) {
-                    // The mic button must remain useful while Live Chat owns the recognizer.
-                    // Do not start a competing command recognizer or discard an active turn.
+                    // The service, not the Activity's potentially stale label,
+                    // determines what a mic tap does. Finish an active utterance;
+                    // otherwise interrupt pending TTS/replies and rearm capture.
                     if (liveSession.phase == LiveChatSession.Phase.LISTENING && liveCapture.isActive) {
-                        liveStatus(VoiceInteractionState.LISTENING, "Listening…")
+                        liveCapture.finish()
+                        liveStatus(VoiceInteractionState.TRANSCRIBING, "Finishing voice input…")
                     } else if (liveSession.interrupt()) {
                         hybridAssistantService.cancelActiveResponse()
                         liveCapture.stop()
