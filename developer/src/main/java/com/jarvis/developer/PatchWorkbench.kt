@@ -36,7 +36,8 @@ object PatchWorkbench {
         val history: RepairHistoryWorkbench.Services = RepairHistoryWorkbench.Services(),
         val inbox: (Activity) -> DevelopmentJobInbox = { DevelopmentJobInbox(java.io.File(it.noBackupFilesDir.canonicalFile, "development-inbox")) },
         val engineeringRecovery: (Activity) -> Unit = DevelopmentEngineeringScheduler::recover,
-        val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit }
+        val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit },
+        val chatStatus: (String) -> Unit = { }
     )
 
     interface RepairObserver {
@@ -86,6 +87,13 @@ object PatchWorkbench {
         status: TextView,
         canWrite: () -> Boolean
     ): Handle = attach(activity, root, task, aiKey, provider, model, githubToken, output, status, canWrite, Services())
+
+    /** Reports audited development outcomes to the primary conversation, not to a second coding engine. */
+    fun attach(activity: Activity, root: LinearLayout, task: EditText, aiKey: EditText,
+        provider: Spinner, model: EditText, githubToken: EditText, output: TextView,
+        status: TextView, canWrite: () -> Boolean, onChatStatus: (String) -> Unit): Handle =
+        attach(activity, root, task, aiKey, provider, model, githubToken, output, status,
+            canWrite, Services(chatStatus = onChatStatus))
 
     internal fun attach(
         activity: Activity, root: LinearLayout, task: EditText, aiKey: EditText,
@@ -509,6 +517,8 @@ object PatchWorkbench {
                                 review.text = report
                                 output.text = "Scoped preview ready. Task: ${frozen.taskId}\nBase SHA: ${generated.request.baseCommitSha}\nProposal: ${generated.id}\nReview the full diff beside the approval controls."
                                 status.text = "Diff ready for explicit review; no repository write requested"
+                                runCatching { services.chatStatus(DeveloperChatBuildReceipt.preview(
+                                    generated.request.taskId, generated.edits.size)) }
                             }
                         }
                     }
@@ -661,6 +671,8 @@ object PatchWorkbench {
                             interruptedEngineering = null
                             review.text = report
                             output.text = commitAudit(result) + "\n" + ciText + failureText + repairHint
+                            runCatching { services.chatStatus(DeveloperChatBuildReceipt.commit(
+                                result, checked, failureReport, repairDraft != null)) }
                             status.text = when (checked?.state) {
                                 PatchPublisher.CiState.PASSED -> "Task branch committed; exact-source debug CI passed"
                                 PatchPublisher.CiState.FAILED -> if (failureReport != null)
@@ -696,6 +708,7 @@ object PatchWorkbench {
                                 "\n\nCOMMIT ATTEMPT STOPPED\n$detail\nApproval was consumed. Use Verify interrupted commit outcome for a read-only check of this exact proposal, or inspect GitHub manually. Rollback is not assumed and no retry will run automatically."
                             output.text = "Task: ${selected.request.taskId}\nBase SHA: ${selected.request.baseCommitSha}\nProposal: ${selected.id}\nExpected branch: ${PatchEngine.branchName(selected)}\n$detail\nApproval consumed; inspect GitHub before a new attempt."
                             status.text = "Commit stopped; review the recorded outcome before proceeding"
+                            runCatching { services.chatStatus(DeveloperChatBuildReceipt.uncertain()) }
                             failRepair(repair, "commit")
                         }
                     }

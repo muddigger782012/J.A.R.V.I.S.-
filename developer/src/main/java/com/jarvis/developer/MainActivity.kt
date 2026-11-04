@@ -503,7 +503,9 @@ class MainActivity : Activity() {
         val codingStart = root.childCount
         val codingFeedback = feedback()
         val patchWorkbench = PatchWorkbench.attach(this, root, prompt, key, provider, model, githubToken,
-            codingFeedback.first, codingFeedback.second) { health.getInt("confirmed_version", -1) == currentCode }
+            codingFeedback.first, codingFeedback.second,
+            { health.getInt("confirmed_version", -1) == currentCode },
+            { update -> output.text = update })
         addFeedback(codingFeedback)
         patchPreview = patchWorkbench
         val planningStart = root.childCount

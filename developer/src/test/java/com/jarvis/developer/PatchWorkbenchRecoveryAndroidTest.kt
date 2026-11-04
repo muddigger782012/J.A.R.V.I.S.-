@@ -52,6 +52,7 @@ class PatchWorkbenchRecoveryAndroidTest {
         var afterProposal: (() -> Unit)? = null
         var writes = 0
         var successfulWrite = false
+        val chatUpdates = mutableListOf<String>()
         var ciReads = 0
         var ciStatus = PatchPublisher.CiStatus(PatchPublisher.CiState.MISSING)
         var ciUnavailable = false
@@ -155,7 +156,7 @@ class PatchWorkbenchRecoveryAndroidTest {
                         BuildDiagnostics.parse(entry.commitSha, entry.branch, 23, 1, "completed", "failure", "", entry.target)
                     }, worker = { pending.add(it) }),
                 inbox = { inbox() }, engineeringRecovery = { engineeringRecoveries++ },
-                worker = { pending.add(it) }
+                worker = { pending.add(it) }, chatStatus = { chatUpdates.add(it) }
             )
             handle = PatchWorkbench.attach(activity, root, task,
                 EditText(activity).apply { setText("simulated-provider-key") }, provider,
@@ -196,6 +197,40 @@ class PatchWorkbenchRecoveryAndroidTest {
             check(inbox().finishAnalysis(inbox().claimAnalysis(job, true)!!, plan))
             return inbox().stageEngineering(job, 2, listOf(path), true)
         }
+    }
+
+    @Test fun exactTaskCIIsReportedBackToChatWithoutImplyingSignedPublication() {
+        val h = Harness()
+        try {
+            h.successfulWrite = true
+            h.ciStatus = PatchPublisher.CiStatus(PatchPublisher.CiState.PASSED)
+            h.preview()
+            assertEquals(1, h.chatUpdates.size)
+            assertTrue(h.chatUpdates.last().contains("Diff ready"))
+            h.approval.isChecked = true
+            h.button("Create task branch").performClick(); h.finish()
+            assertEquals(2, h.chatUpdates.size)
+            assertTrue(h.chatUpdates.last().contains("Commit: " + created.take(12)))
+            assertTrue(h.chatUpdates.last().contains("CI: passed"))
+            assertTrue(h.chatUpdates.last().contains("NOT published"))
+            assertEquals(1, h.writes)
+        } finally { h.close() }
+    }
+
+    @Test fun mismatchedFailedCIIsNotShownAsVerifiedInChat() {
+        val h = Harness()
+        try {
+            h.successfulWrite = true
+            h.ciStatus = PatchPublisher.CiStatus(PatchPublisher.CiState.FAILED,
+                "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/99", "failure")
+            h.preview(); h.approval.isChecked = true
+            h.button("Create task branch").performClick(); h.finish()
+            assertEquals(2, h.chatUpdates.size)
+            assertTrue(h.chatUpdates.last().contains("failure evidence unverified"))
+            assertFalse(h.chatUpdates.last().contains("private"))
+            assertTrue(h.chatUpdates.last().contains("NOT published"))
+            assertEquals(1, h.writes)
+        } finally { h.close() }
     }
 
     @Test fun anApprovedCommitReadsExactCiOnceAndNeverGrantsFurtherWriteApproval() {
