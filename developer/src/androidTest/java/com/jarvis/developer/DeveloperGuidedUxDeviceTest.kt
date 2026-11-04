@@ -219,7 +219,7 @@ class DeveloperGuidedUxDeviceTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             settle(scenario)
             scenario.onActivity { activity ->
-                for ((label, index) in listOf("Home" to 0, "Projects" to 1, "Activity" to 2, "Settings" to 3)) {
+                for ((label, index) in listOf("Home" to 0, "Projects" to 1, "Track" to 2, "Settings" to 3)) {
                     button(activity, label).performClick()
                     assertEquals("developer-page-$index", scroll(activity).tag)
                 }
@@ -244,7 +244,7 @@ class DeveloperGuidedUxDeviceTest {
                 field(activity, PROMPT).setText("Fix a weather date problem")
                 field(activity, SOURCE).setText("developer/src/main/java/com/jarvis/developer/RepositoryAnalysis.kt")
                 field(activity, "Paste your API key here (not a model name)").setText("fixture-never-save")
-                button(activity, "Activity").performClick()
+                button(activity, "Track").performClick()
             }
             scenario.recreate(); settle(scenario)
             scenario.onActivity { activity ->
@@ -271,7 +271,7 @@ class DeveloperGuidedUxDeviceTest {
                 view.scrollTo(0, (view.getChildAt(0).height - view.height).coerceAtLeast(0))
                 position = view.scrollY
                 assertTrue("Legacy tools must be scrollable", position > 0)
-                button(activity, "Activity").performClick()
+                button(activity, "Track").performClick()
                 activity.onBackPressed()
             }
             settle(scenario)
@@ -290,9 +290,9 @@ class DeveloperGuidedUxDeviceTest {
             scenario.onActivity { activity ->
                 button(activity, "Settings").performClick(); button(activity, "Advanced tools").performClick()
                 button(activity, "Connections and source browsing").performClick()
-                button(activity, "Analyze task and preview file plan (read-only)").performClick()
+                button(activity, "Analyze this task (read-only)").performClick()
                 assertTrue(views(scroll(activity)).filterIsInstance<TextView>().any {
-                    it.text.toString() == "Describe a task on Home before analyzing it here."
+                    it.text.toString() == "Describe your task in the box above, then tap Analyze this task."
                 })
                 button(activity, "Home").performClick()
                 assertTrue(views(scroll(activity)).filterIsInstance<TextView>().any {
