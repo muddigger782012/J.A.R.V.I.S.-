@@ -22,6 +22,18 @@ class CompanionDevelopmentCommandsTest {
         assertNull(DevelopmentCommands.submission("Developer task: " + "a".repeat(1501)))
     }
 
+    @Test fun naturalLanguageDeveloperRequestsKeepConversationAndApprovalsSeparate() {
+        val task = "inspect the conversation memory and propose a continuity fix"
+        assertEquals(task, DevelopmentCommands.submission("Ask Jarvis Developer to $task"))
+        assertEquals(task, DevelopmentCommands.submission("Please tell developer to $task"))
+        assertEquals(task, DevelopmentCommands.submission("Have developer $task"))
+        assertEquals(DevelopmentCommands.Kind.SUBMIT,
+            DevelopmentCommands.parse("Ask developer to $task"))
+        assertNull(DevelopmentCommands.parse("Can you inspect the conversation memory?"))
+        assertNull(DevelopmentCommands.parse("Ask developer to approve"))
+        assertNull(DevelopmentCommands.parse("Ask developer to " + "x".repeat(1501)))
+    }
+
     @Test fun approvalAndInstallationRemainExplicit() {
         assertNull(DevelopmentCommands.parse("yes"))
         assertNull(DevelopmentCommands.parse("approve"))
