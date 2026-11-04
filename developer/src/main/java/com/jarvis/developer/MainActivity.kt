@@ -1366,7 +1366,7 @@ class MainActivity : Activity() {
             isAllCaps = false
             contentDescription = "Open project creation tools"
         }
-        listOf(setupButton, send, createProject).forEach { button ->
+        listOf(send, createProject).forEach { button ->
             button.isAllCaps = false
             button.setTextColor(0xFF071B25.toInt())
             button.backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_primary))
