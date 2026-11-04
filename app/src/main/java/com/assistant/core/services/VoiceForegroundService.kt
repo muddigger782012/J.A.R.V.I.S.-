@@ -333,7 +333,7 @@ class VoiceForegroundService : Service() {
         if (!audible) {
             // Text-only Live Chat must not invoke TTS or wait for a speech
             // completion callback that a muted engine may never deliver.
-            if (liveSession.speechFinished(turn)) nextLiveTurn(650L)
+            if (liveSession.silentResponseFinished(turn)) nextLiveTurn(650L)
             return
         }
         voiceService.speak(text, SpeechChannel.LIVE_CHAT, after = {
