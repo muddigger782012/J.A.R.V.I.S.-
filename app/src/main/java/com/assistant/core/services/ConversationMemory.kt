@@ -227,9 +227,9 @@ object ConversationMemoryCommands {
         Command.RESUME -> {
             val turns = memory.snapshot(limit = 3)
             if (turns.isEmpty()) "I don't have recent conversation context to resume on this device. Tell me the topic and we'll continue."
-            else "Here is where our recent conversation left off (dialogue context only, not an approval or an action):\\n" +
-                turns.joinToString("\\n\\n") { (user, assistant) -> "You: $user\\nJ.A.R.V.I.S.: $assistant" } +
-                "\\n\\nWhat would you like me to do next?"
+            else "Here is where our recent conversation left off (dialogue context only, not an approval or an action):\n" +
+                turns.joinToString("\n\n") { (user, assistant) -> "You: $user\nJ.A.R.V.I.S.: $assistant" } +
+                "\n\nWhat would you like me to do next?"
         }
         Command.CLEAR -> if (memory.clear()) "Cleared recent conversation context on this device. Saved commands, preferences and visible chat history are separate."
             else "Could not clear conversation memory. Deletion was not confirmed."
