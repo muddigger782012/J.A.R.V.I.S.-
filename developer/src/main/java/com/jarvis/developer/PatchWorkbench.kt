@@ -313,7 +313,10 @@ object PatchWorkbench {
             override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(text: Editable?) {
-                if (changesScope && !settingQueuedInputs) activeEngineering = null
+                if (changesScope && !settingQueuedInputs) {
+                    activeEngineering = null
+                    chatImport = null // Imported replacement files belong to the original task and scope only.
+                }
                 if (!settingQueuedInputs) failRepair(activeRepair, "approval")
                 if (changesScope && plannedBaseCommitSha != null && !settingQueuedInputs) {
                     queuedContextNeedsRefresh = true
