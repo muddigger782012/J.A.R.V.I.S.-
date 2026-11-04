@@ -156,6 +156,44 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
         }
         fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun exactChatApprovalConsumesOnlyItsOwnVerifiedDiffOnce() {
+        val s = Screen()
+        try {
+            assertTrue(s.handle.importChatProposal("Improve the voice response delay", "Reduce delay",
+                listOf(PatchEngine.Edit(path, firstEdit)), sourceSha))
+            s.finish()
+            val approvalMessage = s.chatUpdates.last()
+            val prefix = Regex("Approve Developer diff ([a-f0-9]{16})")
+                .find(approvalMessage)!!.groupValues[1]
+            assertFalse(s.handle.approveDeveloperDiff("0000000000000000"))
+            assertFalse(s.approval().isChecked)
+            assertEquals(0, s.writes)
+            assertTrue(s.handle.approveDeveloperDiff(prefix))
+            assertFalse(s.approval().isChecked)
+            assertEquals(1, s.queued.size)
+            s.finish()
+            assertEquals(1, s.writes)
+            assertEquals(1, s.ciReads)
+            assertFalse(s.handle.approveDeveloperDiff(prefix))
+            assertEquals(1, s.writes)
+        } finally { s.close() }
+    }
+
+    @Test fun changedCodeTaskRevokesUnusedChatFingerprint() {
+        val s = Screen()
+        try {
+            assertTrue(s.handle.importChatProposal("Improve the voice response delay", "Reduce delay",
+                listOf(PatchEngine.Edit(path, firstEdit)), sourceSha))
+            s.finish()
+            val code = Regex("Approve Developer diff ([a-f0-9]{16})")
+                .find(s.chatUpdates.last())!!.groupValues[1]
+            s.prompt.setText("Changed source task")
+            assertFalse(s.handle.approveDeveloperDiff(code))
+            assertEquals(0, s.writes)
+            assertTrue(s.queued.isEmpty())
+        } finally { s.close() }
+    }
+
     @Test fun savedDeveloperTaskCanBeReadAfterActivityRecreationWithoutRevivingWritePermissions() {
         val directory = java.nio.file.Files.createTempDirectory("developer-shared-bookmark-").toFile()
         val first = Screen(historyDirectory = directory)

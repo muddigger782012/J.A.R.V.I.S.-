@@ -10,6 +10,15 @@ class DeveloperChatBuildReceiptTest {
         listOf("developer/src/main/java/com/jarvis/developer/VoiceLatency.kt"),
         "b".repeat(40), "c".repeat(40), branch, "private source material", "feature/jarvis-developer")
 
+    @Test fun fullSourceValidatedFingerprintIsShownForExplicitChatApproval() {
+        val message = DeveloperChatBuildReceipt.preview("task", 2, "a".repeat(64))
+        assertTrue(message.contains("Approve Developer diff " + "a".repeat(16)))
+        assertTrue(message.contains("AFTER reviewing"))
+        assertThrows(IllegalArgumentException::class.java) {
+            DeveloperChatBuildReceipt.preview("task", 2, "b".repeat(12))
+        }
+    }
+
     @Test fun passAndPreviewRemainSeparateFromReleaseClaims() {
         assertTrue(DeveloperChatBuildReceipt.preview("sample", 1).contains("No source write"))
         assertThrows(IllegalArgumentException::class.java) {

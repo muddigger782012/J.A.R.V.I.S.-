@@ -29,7 +29,8 @@ class ProjectGenerationTest {
         repair: (() -> Boolean)? = null,
         buildCheck: (() -> Boolean)? = null,
         save: (() -> Boolean)? = null,
-        readSaved: (() -> Boolean)? = null) : AutoCloseable {
+        readSaved: (() -> Boolean)? = null,
+        approve: ((String) -> Boolean)? = null) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -54,7 +55,8 @@ class ProjectGenerationTest {
             requestDeveloperRepair = { repair?.invoke() ?: false },
             requestDeveloperBuild = { buildCheck?.invoke() ?: false },
             saveDeveloperTask = { save?.invoke() ?: false },
-            readSavedDeveloperBuild = { readSaved?.invoke() ?: false })
+            readSavedDeveloperBuild = { readSaved?.invoke() ?: false },
+            approveDeveloperDiff = { prefix -> approve?.invoke(prefix) ?: false })
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
@@ -124,6 +126,38 @@ class ProjectGenerationTest {
             assertEquals(1, calls)
             assertTrue(s.output.text.contains("No completed Developer task commit"))
             assertTrue(s.pending.isEmpty())
+            assertTrue(s.prefs.all.isEmpty())
+        }
+    }
+
+    @Test fun exactTypedDiffApprovalUsesWorkbenchOnlyAndNeverCallsProvider() {
+        var calls = 0
+        Screen(approve = { prefix ->
+            calls++
+            assertEquals("0123456789abcdef", prefix)
+            true
+        }, ask = { _, _, _, _, _ -> error("No provider call permitted") }).use { s ->
+            s.prompt.setText("Approve Developer diff 0123456789abcdef")
+            s.send.performClick()
+            assertEquals(1, calls)
+            assertTrue(s.output.text.contains("Exact Developer diff approved"))
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.pending.isEmpty())
+        }
+    }
+
+    @Test fun incompleteAndPersonalDiffApprovalCannotInvokeWrite() {
+        var calls = 0
+        Screen(approve = { calls++; true }).use { s ->
+            s.prompt.setText("Approve Developer diff invalid")
+            s.send.performClick()
+            assertEquals(0, calls)
+            assertTrue(s.output.text.contains("16-character"))
+            s.target.setSelection(1)
+            s.prompt.setText("Approve Developer diff 0123456789abcdef")
+            s.send.performClick()
+            assertEquals(0, calls)
+            assertTrue(s.output.text.contains("unavailable for the Personal"))
             assertTrue(s.prefs.all.isEmpty())
         }
     }
