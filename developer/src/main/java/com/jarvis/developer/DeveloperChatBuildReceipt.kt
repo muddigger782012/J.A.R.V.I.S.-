@@ -8,8 +8,8 @@ internal object DeveloperChatBuildReceipt {
         val approval = if (proposalId == null) "" else
             "\nAFTER reviewing the complete diff, approve this specific proposal in chat by typing: " +
                 "Approve Developer diff ${proposalId.take(16)}"
-        return "Diff ready: $files scoped file(s). Review the complete change in the inline panel " +
-            "before separately approving the isolated branch. " +
+        return "Diff ready: $files scoped file(s). Type 'Show Developer diff' to read the " +
+            "complete verified changes in chat before approving the isolated branch. " +
             "No source write, passing test, signed release or installation is implied." + approval
     }
 

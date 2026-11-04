@@ -166,7 +166,11 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
             val prefix = Regex("Approve Developer diff ([a-f0-9]{16})")
                 .find(approvalMessage)!!.groupValues[1]
             assertFalse(s.handle.approveDeveloperDiff("0000000000000000"))
+            assertFalse(s.handle.approveDeveloperDiff(prefix))
             assertFalse(s.approval().isChecked)
+            val reviewedDiff = s.handle.showDeveloperDiff()
+            assertNotNull(reviewedDiff)
+            assertTrue(reviewedDiff!!.contains("Complete reviewable diff"))
             assertEquals(0, s.writes)
             assertTrue(s.handle.approveDeveloperDiff(prefix))
             assertFalse(s.approval().isChecked)
@@ -187,6 +191,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
             s.finish()
             val code = Regex("Approve Developer diff ([a-f0-9]{16})")
                 .find(s.chatUpdates.last())!!.groupValues[1]
+            assertNotNull(s.handle.showDeveloperDiff())
             s.prompt.setText("Changed source task")
             assertFalse(s.handle.approveDeveloperDiff(code))
             assertEquals(0, s.writes)

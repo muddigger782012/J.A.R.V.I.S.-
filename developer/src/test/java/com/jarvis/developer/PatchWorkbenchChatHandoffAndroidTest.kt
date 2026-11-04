@@ -146,6 +146,30 @@ class PatchWorkbenchChatHandoffAndroidTest {
         } finally { screen.close() }
     }
 
+    @Test fun currentDeveloperDiffCanBeShownWithoutExtraProviderCallAndRevokesAfterTaskEdit() {
+        val screen = Screen()
+        try {
+            assertNull(screen.handle.showDeveloperDiff())
+            assertTrue(screen.import())
+            assertNull(screen.handle.showDeveloperDiff())
+            screen.finish()
+            val review = screen.handle.showDeveloperDiff()
+            assertNotNull(review)
+            assertTrue(review!!.contains("Complete reviewable diff"))
+            assertTrue(review.contains("Approve Developer diff"))
+            assertTrue(review.contains("Base commit SHA: " + sha))
+            assertEquals(1, screen.sourceReads)
+            assertEquals(0, screen.providerCalls)
+            assertEquals(0, screen.writes)
+            screen.chatComposer.setText("Show Developer diff")
+            assertEquals(review, screen.handle.showDeveloperDiff())
+            screen.prompt.setText("Different source-bound task")
+            assertNull(screen.handle.showDeveloperDiff())
+            assertFalse(screen.approval().isEnabled)
+            assertEquals(0, screen.writes)
+        } finally { screen.close() }
+    }
+
     @Test fun movedBaseCannotProduceAnApprovableDiffOrInvokeProvider() {
         val screen = Screen()
         try {

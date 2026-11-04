@@ -30,7 +30,8 @@ class ProjectGenerationTest {
         buildCheck: (() -> Boolean)? = null,
         save: (() -> Boolean)? = null,
         readSaved: (() -> Boolean)? = null,
-        approve: ((String) -> Boolean)? = null) : AutoCloseable {
+        approve: ((String) -> Boolean)? = null,
+        showDiff: (() -> String?)? = null) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -56,7 +57,8 @@ class ProjectGenerationTest {
             requestDeveloperBuild = { buildCheck?.invoke() ?: false },
             saveDeveloperTask = { save?.invoke() ?: false },
             readSavedDeveloperBuild = { readSaved?.invoke() ?: false },
-            approveDeveloperDiff = { prefix -> approve?.invoke(prefix) ?: false })
+            approveDeveloperDiff = { prefix -> approve?.invoke(prefix) ?: false },
+            showDeveloperDiff = { showDiff?.invoke() })
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
@@ -127,6 +129,41 @@ class ProjectGenerationTest {
             assertTrue(s.output.text.contains("No completed Developer task commit"))
             assertTrue(s.pending.isEmpty())
             assertTrue(s.prefs.all.isEmpty())
+        }
+    }
+
+    @Test fun fullVerifiedDiffCanBeShownThroughMainChatWithoutProviderOrSourceWrite() {
+        var reads = 0
+        val full = "Task: scoped change\nComplete reviewable diff:\n- old\n+ new"
+        Screen(showDiff = { reads++; full },
+            ask = { _, _, _, _, _ -> error("Diff review must not call AI") }).use { s ->
+            s.prompt.setText("Show Developer diff")
+            s.send.performClick()
+            assertEquals(1, reads)
+            assertEquals(full, s.output.text.toString())
+            assertTrue(s.status.text.contains("No write started"))
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.pending.isEmpty())
+        }
+    }
+
+    @Test fun missingDiffAndWrongProductReturnNoReviewOrApproval() {
+        var reads = 0
+        Screen(showDiff = { reads++; "private developer diff" }).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("Show Developer diff")
+            s.send.performClick()
+            assertEquals(0, reads)
+            assertTrue(s.output.text.contains("not available for the Personal"))
+            assertFalse(s.output.text.contains("private developer diff"))
+        }
+        Screen(showDiff = { reads++; null }).use { s ->
+            s.prompt.setText("Show Developer diff")
+            s.send.performClick()
+            assertEquals(1, reads)
+            assertTrue(s.output.text.contains("No complete, current"))
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.pending.isEmpty())
         }
     }
 

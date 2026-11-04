@@ -611,7 +611,8 @@ class MainActivity : Activity() {
             }, requestDeveloperBuild = { patchWorkbench.refreshDeveloperCi() },
             saveDeveloperTask = { patchWorkbench.saveDeveloperBookmark() },
             readSavedDeveloperBuild = { patchWorkbench.readSavedDeveloperBuild() },
-            approveDeveloperDiff = { fingerprint -> patchWorkbench.approveDeveloperDiff(fingerprint) })
+            approveDeveloperDiff = { fingerprint -> patchWorkbench.approveDeveloperDiff(fingerprint) },
+            showDeveloperDiff = { patchWorkbench.showDeveloperDiff() })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

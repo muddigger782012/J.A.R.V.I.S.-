@@ -30,7 +30,8 @@ internal object ProjectGenerationWorkbench {
         requestDeveloperBuild: () -> Boolean = { false },
         saveDeveloperTask: () -> Boolean = { false },
         readSavedDeveloperBuild: () -> Boolean = { false },
-        approveDeveloperDiff: (String) -> Boolean = { false }): Handle {
+        approveDeveloperDiff: (String) -> Boolean = { false },
+        showDeveloperDiff: () -> String? = { null }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
@@ -84,6 +85,22 @@ internal object ProjectGenerationWorkbench {
             if ((secret.isNotEmpty() && task.contains(secret)) || (readToken.isNotEmpty() && task.contains(readToken))) {
                 status.setText(R.string.project_generation_remove_key); return@setOnClickListener
             }
+            // Full exact-diff review is read directly from verified in-memory proposal
+            // state. The chat provider, saved discussion, and GitHub are not touched.
+            if (DeveloperDiffChatCommand.isRequest(task)) {
+                if (target() != 0) {
+                    output.text = "Developer code review is not available for the Personal Jarvis target."
+                    status.text = "No Developer diff was exposed or approved."
+                } else {
+                    val report = runCatching { showDeveloperDiff() }.getOrNull()
+                    output.text = report ?: "No complete, current, source-verified Developer diff is ready. " +
+                        "Generate a scoped code proposal first; no approval or write occurred."
+                    status.text = if (report != null)
+                        "Full source-verified Developer diff displayed for explicit chat review. No write started."
+                    else "No current Developer diff available for chat review."
+                }
+                return@setOnClickListener
+            }
             // Only a complete owner-typed 16-hex proposal fingerprint can approve a
             // new isolated task-branch write. Partial commands are refused locally.
             if (DeveloperDiffApprovalCommand.isAttempt(task)) {
@@ -92,7 +109,7 @@ internal object ProjectGenerationWorkbench {
                     output.text = "Developer diff approval is unavailable for the Personal Jarvis target."
                     status.text = "No Developer source write started."
                 } else if (prefix == null) {
-                    output.text = "Use the exact 16-character fingerprint displayed after reviewing the diff. " +
+                    output.text = "First type Show Developer diff and review the full change, then use the exact 16-character fingerprint. " +
                         "Example: Approve Developer diff 0123456789abcdef. No write started."
                     status.text = "Invalid exact Developer approval command."
                 } else {

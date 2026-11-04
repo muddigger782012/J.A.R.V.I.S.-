@@ -60,7 +60,8 @@ object PatchWorkbench {
         private val exactDeveloperCiAction: () -> Boolean = { false },
         private val saveDeveloperBookmarkAction: () -> Boolean = { false },
         private val readDeveloperBookmarkAction: () -> Boolean = { false },
-        private val approveDeveloperDiffAction: (String) -> Boolean = { false }
+        private val approveDeveloperDiffAction: (String) -> Boolean = { false },
+        private val showDeveloperDiffAction: () -> String? = { null }
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
@@ -76,6 +77,8 @@ object PatchWorkbench {
         fun readSavedDeveloperBuild(): Boolean = readDeveloperBookmarkAction()
         /** Explicit code-specific user authorization, not implicit chat approval. */
         fun approveDeveloperDiff(prefix: String): Boolean = approveDeveloperDiffAction(prefix)
+        /** Returns a currently verified, complete Developer diff; no network call or write. */
+        fun showDeveloperDiff(): String? = showDeveloperDiffAction()
         fun invalidate(): Boolean = invalidateAction()
         fun preparePersonal(review: PersonalRepair.Review): Boolean = personalAction(review)
         internal fun importChatProposal(task: String, summary: String, edits: List<PatchEngine.Edit>, base: String) =
@@ -221,6 +224,7 @@ object PatchWorkbench {
         var proposal: PatchEngine.Proposal? = null
         var proposalMetadata: Metadata? = null
         var proposalReport: String? = null
+        var chatReviewedProposalId: String? = null
         var lastCommit: PatchPublisher.CommitResult? = null
         var interruptedAttempt: PatchEngine.Proposal? = null
         var lastFeedback: Pair<PatchPublisher.CommitResult, BuildDiagnostics.Report>? = null
@@ -287,6 +291,7 @@ object PatchWorkbench {
             proposal = null
             proposalMetadata = null
             proposalReport = null
+            chatReviewedProposalId = null
             approve.isChecked = false
             if (hadPreview) {
                 review.text = "The task, model or explicit source scope changed. Generate and review a fresh diff before approving a write."
@@ -614,6 +619,7 @@ object PatchWorkbench {
             proposal = null
             proposalMetadata = null
             proposalReport = null
+            chatReviewedProposalId = null
             approve.isChecked = false
             busy = true
             refresh()
@@ -1166,12 +1172,26 @@ object PatchWorkbench {
                 }
             }, end = { busy = false; refresh() }, services = services.history)
 
+        fun showDeveloperDiffInChat(): String? {
+            val selected = proposal ?: return null
+            if (!alive() || busy || selected.request.target != PatchEngine.Target.DEVELOPER ||
+                !current()) return null
+            val complete = proposalReport ?: return null
+            // Only a currently source-verified complete diff can be exposed.
+            // Its exact fingerprint is now eligible for a distinct explicit chat approval.
+            chatReviewedProposalId = selected.id
+            return complete + "\n\nFor this exact reviewed diff only, type: Approve Developer diff " +
+                selected.id.take(16) +
+                "\nThis does not merge, publish a signed update, or install an APK."
+        }
+
         fun approveDeveloperDiffFromChat(prefix: String): Boolean {
             val selected = proposal ?: return false
             // A typed fingerprint must bind to the exact, current complete diff.
             // There is no chat-side AI interpretation of permission and no reused approval.
             if (!alive() || busy || selected.request.target != PatchEngine.Target.DEVELOPER ||
                 !DeveloperDiffApprovalCommand.matches(prefix, selected.id) ||
+                chatReviewedProposalId != selected.id ||
                 !current() || !canWrite() || githubToken.text.toString().trim().isEmpty()) return false
             approve.isChecked = true
             refresh()
@@ -1246,6 +1266,7 @@ object PatchWorkbench {
             }, saveDeveloperBookmarkAction = ::saveDeveloperTaskBookmark,
             readDeveloperBookmarkAction = ::readSavedDeveloperBuild,
             approveDeveloperDiffAction = ::approveDeveloperDiffFromChat,
+            showDeveloperDiffAction = ::showDeveloperDiffInChat,
             engineeringAction = { draft ->
             if (prepareInputs(draft.taskId, draft.task, draft.paths, draft.base, draft.branch, draft.target)) {
                 activeEngineering = draft
