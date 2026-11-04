@@ -69,6 +69,21 @@ class RepositoryCodingContextTest {
         .put("role", "assistant").put("status", "completed").put("content", JSONArray()
             .put(JSONObject().put("type", "output_text").put("text", "Review the cited voice source."))))).toString().toByteArray()
 
+    @Test fun smallVerifiedSourceIsProvidedWholeWithoutTruncation() {
+        val git = Git()
+        val context = git.collect()
+        assertTrue(context.verified)
+        val evidence = JSONObject(context.data(task))
+        val file = evidence.getJSONArray("files").getJSONObject(0)
+        val excerpts = file.getJSONArray("excerpts")
+        assertEquals(1, excerpts.length())
+        val full = excerpts.getJSONObject(0)
+        assertEquals(1, full.getInt("startLine"))
+        assertFalse(full.getBoolean("shortened"))
+        assertEquals(text, full.getString("source"))
+        assertEquals(hash(text), file.getString("blobSha"))
+    }
+
     @Test fun actualPinnedGitReadsReachGeminiAndOpenAiAsSeparateDataParts() {
         for (provider in listOf("Gemini", "OpenAI")) {
             val git = Git(); val context = git.collect()
