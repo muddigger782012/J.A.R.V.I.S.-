@@ -88,6 +88,12 @@ internal object RepositoryCodingContext {
             digest.update("blob ${bytes.size}\u0000".toByteArray(Charsets.UTF_8))
             require(digest.digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) } == file.source.sha)
             val lines = RepositoryRedaction.source(source, secrets).split('\n')
+            // Full-file context must validate every citation against the pinned revision too.
+            for (citation in file.citations.take(2)) {
+                require(citation.path == file.path && citation.commitSha == inventory.commitSha && citation.blobSha == file.source.sha)
+                require(citation.startLine >= 1 && citation.endLine in citation.startLine..lines.size)
+                require(citation.endLine - citation.startLine < RepositoryAnalysis.MAX_SNIPPET_LINES)
+            }
             val excerpts = JSONArray()
             // Supply complete, verified, redacted small files for accurate targeted repairs.
             // Large files retain bounded cited excerpts; the final serialized request budget
