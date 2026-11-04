@@ -2445,13 +2445,20 @@ class MainActivity : ThemedActivity() {
 
     private fun ensureMicPermissionAndPushToTalk() {
         if (hasMicrophonePermission()) {
-            val foregroundOwnsWake = currentVoiceConfig.useForegroundServiceMode || liveChatStarted
+            if (liveChatStarted) {
+                // The foreground Live Chat service owns the real recognizer phase.
+                // The Activity's displayed state can lag behind it, so route taps
+                // to the owner rather than blindly finishing or cancelling capture.
+                VoiceForegroundService.captureCommand(this,
+                    resumeWake = voiceEnabled || voicePreferences.isForegroundServiceRunning())
+                return
+            }
+            val foregroundOwnsWake = currentVoiceConfig.useForegroundServiceMode
             if (displayedVoiceState in listOf(VoiceInteractionState.LISTENING, VoiceInteractionState.TRANSCRIBING)) {
                 if (foregroundOwnsWake) VoiceForegroundService.finishCapture(this)
                 else voiceService.finishCapture()
                 return
             }
-            if (liveChatStarted) { VoiceForegroundService.cancelCapture(this); return }
             hybridAssistantService.interruptActiveResponse()
             if (attachmentAnalysisPending) {
                 attachmentAnalysisGeneration++
