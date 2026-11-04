@@ -14,11 +14,12 @@ object DevelopmentCommands {
     }
 
     fun parse(input: String): Kind? {
-        if (submission(input) != null) return Kind.SUBMIT
         val text = input.lowercase(java.util.Locale.ROOT).replace('’', '\'').trim().trimEnd('.', '?', '!').replace(Regex("""\s+"""), " ")
         if (apkReview.matches(text)) return Kind.REVIEW_APK
         if (apkInstall.matches(text)) return Kind.INSTALL_APK
         if (installedCheck.matches(text)) return Kind.CHECK_INSTALLED_APK
+        if (text == "ask developer to inspect your source") return Kind.ANALYZE_PERSONAL
+        if (submission(input) != null) return Kind.SUBMIT
         return when (text) {
             "approve this apk installation", "confirm this apk installation" -> Kind.APPROVE_INSTALL_APK
             "cancel apk installation", "cancel this apk installation" -> Kind.CANCEL_INSTALL_APK
