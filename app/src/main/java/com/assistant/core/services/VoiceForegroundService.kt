@@ -568,9 +568,10 @@ class VoiceForegroundService : Service() {
             },
             onSpeechFinished = {
                 publishEvent("Voice diagnostic: spoken response playback finished.")
-                if (liveChatActive) {
-                    if (liveSession.speechFinished()) nextLiveTurn(650L)
-                } else {
+                // Generic TTS completions have no Live Chat turn token and may
+                // belong to speech cancelled by a newer turn. Only speakLiveReply's
+                // turn-scoped callback (or its timeout) can rearm live capture.
+                if (!liveChatActive) {
                     val state = if (packageName == "com.assistant.core") screenAccess.taskState() else ScreenAccessClient.TaskState()
                     val follow = followUpScreen && state.awaitingInput && state.contextKey == spokenScreenContext
                     followUpScreen = false
