@@ -54,12 +54,15 @@ object PatchWorkbench {
         private val disposeAction: () -> Unit = cancelPreviewAction,
         private val engineeringAction: (DevelopmentEngineering.Draft) -> Boolean = { false },
         private val guidedAction: (String, String, List<String>, String, PatchEngine.Target) -> Boolean = { _, _, _, _, _ -> false },
-        private val importAction: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false }
+        private val importAction: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false },
+        private val developerRepairAction: () -> Boolean = { false }
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
             prepareAction(taskId, task, paths, baseCommitSha, baseBranch)
         fun prepareRepair(ticket: RepairEngine.Ticket, observer: RepairObserver): Boolean = repairAction(ticket, observer)
+        /** User-initiated chat/inline repair handoff: preview only, never approval or write. */
+        fun prepareDeveloperRepair(): Boolean = developerRepairAction()
         fun invalidate(): Boolean = invalidateAction()
         fun preparePersonal(review: PersonalRepair.Review): Boolean = personalAction(review)
         internal fun importChatProposal(task: String, summary: String, edits: List<PatchEngine.Edit>, base: String) =
@@ -943,28 +946,32 @@ object PatchWorkbench {
             refresh()
             return true
         }
-        prepareDeveloperRepair.setOnClickListener {
-            val candidate = developerRepairCandidate ?: return@setOnClickListener
+        fun startDeveloperRepair(): Boolean {
+            val candidate = developerRepairCandidate ?: return false
             val committed = lastCommit
             if (!alive() || busy || committed == null ||
                 committed.commitSha != candidate.base || committed.branch != candidate.branch) {
                 developerRepairCandidate = null
                 status.text = "Failed-build context changed. Re-read the exact task evidence before preparing a repair."
                 refresh()
-                return@setOnClickListener
+                return false
             }
             val taskId = "repair-" + UUID.randomUUID().toString().replace("-", "").take(16)
             if (!prepareInputs(taskId, candidate.task, candidate.paths, candidate.base, candidate.branch)) {
                 status.text = "Repair could not be prepared from the pinned source. No new approval or write occurred."
-                return@setOnClickListener
+                return false
             }
             developerRepairCandidate = null
-            // This button is an explicit user action. It may ask the configured AI
-            // to propose a new exact diff, but cannot reuse approval or commit it.
+            // A user-initiated button or explicit chat request is a preview action only.
+            // The failed build's consumed approval cannot authorize a second Git write.
             preview.performClick()
-            if (busy) status.text = "Reading failed Developer source and requesting a NEW bounded repair diff. No write authorized."
+            val started = busy && activePreview != null
+            if (started) status.text = "Reading failed Developer source and requesting a NEW bounded repair diff. No write authorized."
+            else status.text = "Repair preview could not be started. No approval or source write occurred."
             refresh()
+            return started
         }
+        prepareDeveloperRepair.setOnClickListener { startDeveloperRepair() }
         stageFollowUp.setOnClickListener {
             val selected = followUpReview ?: return@setOnClickListener
             val sourceContext = lastFeedback ?: return@setOnClickListener
@@ -1046,7 +1053,7 @@ object PatchWorkbench {
                     started
                 }
             }
-        }, engineeringAction = { draft ->
+        }, developerRepairAction = ::startDeveloperRepair, engineeringAction = { draft ->
             if (prepareInputs(draft.taskId, draft.task, draft.paths, draft.base, draft.branch, draft.target)) {
                 activeEngineering = draft
                 status.text = "Assistant job staged. Generate and approve its exact diff; progress will be recorded in the development inbox."

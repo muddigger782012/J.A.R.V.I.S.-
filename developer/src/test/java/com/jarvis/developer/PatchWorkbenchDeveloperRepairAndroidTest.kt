@@ -143,6 +143,22 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
         }
         fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun explicitChatRouteUsesTheSameApprovalGatedDiffAsTheInlineButton() {
+        val s = Screen()
+        try {
+            assertFalse(s.handle.prepareDeveloperRepair())
+            s.initialFailure()
+            assertTrue(s.handle.prepareDeveloperRepair())
+            assertEquals(1, s.queued.size)
+            s.finish()
+            assertEquals(1, s.providerCalls)
+            assertEquals(1, s.writes)
+            assertTrue(s.approval().isEnabled)
+            assertFalse(s.approval().isChecked)
+            assertFalse(s.button("Create task branch").isEnabled)
+        } finally { s.close() }
+    }
+
     @Test fun confirmedCompilerFailureRequiresNewUserActionThenBuildsNewDiffWithoutAnotherWrite() {
         val s = Screen()
         try {

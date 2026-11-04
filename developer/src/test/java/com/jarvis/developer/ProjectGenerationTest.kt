@@ -25,7 +25,8 @@ class ProjectGenerationTest {
     private inner class Screen(val prefs: android.content.SharedPreferences = preferences(),
         launchFails: Boolean = false, failure: Exception? = null,
         progressRead: (() -> String)? = null,
-        ask: ((String, String, String, String, PatchPreviewCancellation) -> String)? = null) : AutoCloseable {
+        ask: ((String, String, String, String, PatchPreviewCancellation) -> String)? = null,
+        repair: (() -> Boolean)? = null) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -46,11 +47,48 @@ class ProjectGenerationTest {
                     ask?.invoke(providerName, apiKey, modelName, task, cancellation)
                         ?: if (failure != null) throw failure else "Reply for $task"
                 }, context = { task, product, _, _, _ -> RepositoryCodingContext.unavailable(task, product) },
-                progress = { _ -> progressRead?.invoke() ?: "Verified local progress fixture" }))
+                progress = { _ -> progressRead?.invoke() ?: "Verified local progress fixture" }),
+            requestDeveloperRepair = { repair?.invoke() ?: false })
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun explicitChatRepairRequestCallsOnlyScopedReviewHandoff() {
+        var calls = 0
+        Screen(repair = { calls++; true }, ask = { _, _, _, _, _ -> error("AI chat must not start") }).use { s ->
+            s.prompt.setText("Prepare Developer repair")
+            s.send.performClick()
+            assertEquals(1, calls)
+            assertEquals(0, s.pending.size)
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.output.text.contains("NEW pinned-source repair diff"))
+            assertTrue(s.output.text.contains("explicitly approve"))
+            assertTrue(s.send.isEnabled)
+            assertFalse(s.cancel.isEnabled)
+        }
+    }
+
+    @Test fun chatRepairCannotCrossToPersonalOrClaimMissingFailureEvidence() {
+        var calls = 0
+        Screen(repair = { calls++; true }).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("Repair the failed Developer build")
+            s.send.performClick()
+            assertEquals(0, calls)
+            assertTrue(s.output.text.contains("not available for the Personal"))
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.pending.isEmpty())
+        }
+        Screen(repair = { calls++; false }).use { s ->
+            s.prompt.setText("Prepare Developer repair")
+            s.send.performClick()
+            assertEquals(1, calls)
+            assertTrue(s.output.text.contains("No verified, in-scope"))
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.pending.isEmpty())
+        }
+    }
+
     @Test fun localProgressRequestRunsWithoutProviderOrPersistingAnApproval() {
         var reports = 0
         Screen(progressRead = { reports++; "Local plans: 1; next step: review" }).use { s ->

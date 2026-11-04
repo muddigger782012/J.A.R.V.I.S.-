@@ -593,6 +593,10 @@ class MainActivity : Activity() {
                 val staged = patchWorkbench.importChatProposal(taskText, summary, edits, commitSha)
                 if (staged) revealImportedReview?.invoke()
                 staged
+            }, requestDeveloperRepair = {
+                val started = patchWorkbench.prepareDeveloperRepair()
+                if (started) revealImportedReview?.invoke()
+                started
             })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {

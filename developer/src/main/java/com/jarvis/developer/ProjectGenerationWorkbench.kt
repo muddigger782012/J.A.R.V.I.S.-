@@ -25,7 +25,8 @@ internal object ProjectGenerationWorkbench {
         selected: () -> String?, select: (String) -> Unit, store: ProjectGenerationStore,
         changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }, forget: Button? = null,
         requestPatch: () -> Boolean = { false },
-        stageReview: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false }): Handle {
+        stageReview: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false },
+        requestDeveloperRepair: () -> Boolean = { false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
@@ -78,6 +79,27 @@ internal object ProjectGenerationWorkbench {
             val readToken = githubToken().trim()
             if ((secret.isNotEmpty() && task.contains(secret)) || (readToken.isNotEmpty() && task.contains(readToken))) {
                 status.setText(R.string.project_generation_remove_key); return@setOnClickListener
+            }
+            // Direct, narrowly matched chat repair request. No stored discussion, AI
+            // request, or write is initiated here. A separate source-verified build
+            // failure must already exist in PatchWorkbench before any preview starts.
+            if (DeveloperRepairChatCommand.isRequest(task)) {
+                if (target() != 0) {
+                    output.text = "Developer compiler repair is not available for the Personal Jarvis target."
+                    status.text = "Switch to Developer before requesting a Developer repair; no work started."
+                } else {
+                    val started = runCatching { requestDeveloperRepair() }.getOrDefault(false)
+                    output.text = if (started)
+                        "Preparing a NEW pinned-source repair diff below this chat. " +
+                            "Review every change and explicitly approve it before any source write. " +
+                            "No prior approval was transferred."
+                    else "No verified, in-scope Developer compiler failure is ready for a repair. " +
+                        "Review the exact task's build evidence before requesting a new repair. " +
+                        "No provider request, approval or source write was started."
+                    status.text = if (started) "Developer repair preparation started from chat; exact diff review pending."
+                        else "Chat repair unavailable: a verified failed Developer source build is required."
+                }
+                return@setOnClickListener
             }
             // A direct chat request for progress reads only verified local storage.
             // It never starts the AI provider, changes task checkpoints, or grants approval.
