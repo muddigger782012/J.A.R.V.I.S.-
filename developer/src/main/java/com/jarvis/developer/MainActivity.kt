@@ -588,10 +588,8 @@ class MainActivity : Activity() {
             { activeProject }, { activeProject = it }, ProjectGenerationStore(projectPrefs),
             { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() }, forget = forgetDiscussion,
             requestPatch = { proposeCodePatch.isChecked && (guidedTarget?.selectedItemPosition ?: 0) == 0 },
-            stageReview = { taskText, paths, commitSha ->
-                val staged = patchWorkbench.prepareGuided(
-                    "chat-" + java.util.UUID.randomUUID().toString().replace("-", "").take(16),
-                    taskText, paths, commitSha, PatchEngine.Target.DEVELOPER)
+            stageReview = { taskText, summary, edits, commitSha ->
+                val staged = patchWorkbench.importChatProposal(taskText, summary, edits, commitSha)
                 if (staged) {
                     homeCodeReview.visibility = View.VISIBLE
                     homeCodeReviewToggle.text = "Close inline code review"
