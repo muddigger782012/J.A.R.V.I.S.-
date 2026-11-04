@@ -86,8 +86,8 @@ internal object ProjectGenerationWorkbench {
             }
             val instruction = if (!wantsPatch) task else task +
                 "\n\nCODE PATCH MODE (proposal only, never execute): Return ONLY a JSON object with summary (string) and edits (array of path and content strings). " +
-                "Every edit must be a complete NEW Kotlin or Java source file under developer/src/main/java/com/jarvis/developer/ or developer/src/test/java/com/jarvis/developer/. " +
-                "Do not modify existing files, protected components, build configuration, permissions, credentials, or releases. Split work into further requests when it exceeds the provider response budget. Explicit user approval is required separately. No Markdown fences."
+                "Every edit must be a complete replacement Kotlin or Java source file under developer/src/main/java/com/jarvis/developer/ or developer/src/test/java/com/jarvis/developer/. Existing files may be modified only when their current contents were provided in verified repository context. " +
+                "Do not modify protected components, build configuration, permissions, credentials, or releases. Split work into further requests when it exceeds the provider response budget. Explicit user approval is required separately. No Markdown fences."
             val lookupTask = discussion.lookupTask(instruction)
             val ticket = store.begin(project, task, product)
             if (ticket == null) { status.setText(R.string.project_generation_save_failed); return@setOnClickListener }
@@ -133,8 +133,9 @@ internal object ProjectGenerationWorkbench {
                             val edit = edits.optJSONObject(i)
                                 ?: throw IllegalArgumentException("Invalid code proposal edit.")
                             val path = edit.optString("path")
-                            require(path.startsWith("developer/src/main/java/com/jarvis/developer/") ||
-                                path.startsWith("developer/src/test/java/com/jarvis/developer/")) {
+                            require((path.startsWith("developer/src/main/java/com/jarvis/developer/") ||
+                                path.startsWith("developer/src/test/java/com/jarvis/developer/")) &&
+                                PatchEngine.allowedPath(path, PatchEngine.Target.DEVELOPER)) {
                                 "Code proposal contains an out-of-scope path."
                             }
                             require(!path.contains("..") && !path.contains(92.toChar()) &&
