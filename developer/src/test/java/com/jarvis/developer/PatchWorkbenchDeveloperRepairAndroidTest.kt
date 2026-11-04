@@ -58,6 +58,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
         var providerCalls = 0
         var writes = 0
         var ciReads = 0
+        var ciState = PatchPublisher.CiState.FAILED
         var logReads = 0
         var movedTaskSha = false
         val handle: PatchWorkbench.Handle
@@ -106,8 +107,10 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
                     },
                     ci = { _, result ->
                         ciReads++; assertEquals(failedCommit, result.commitSha)
-                        PatchPublisher.CiStatus(PatchPublisher.CiState.FAILED,
-                            "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/23", "failure")
+                        PatchPublisher.CiStatus(ciState,
+                            if (ciState == PatchPublisher.CiState.MISSING) null else
+                                "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/23",
+                            if (ciState == PatchPublisher.CiState.FAILED) "failure" else null)
                     },
                     feedback = { _, result, cancellation ->
                         cancellation.check(); logReads++
@@ -143,6 +146,41 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
         }
         fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun queuedOrMissingTaskCIUpdatesFromChatWithoutSecondSourceWriteOrProviderCall() {
+        val s = Screen()
+        try {
+            s.ciState = PatchPublisher.CiState.MISSING
+            s.initialFailure()
+            assertEquals(0, s.logReads) // Missing CI is never treated as failed.
+            assertEquals(1, s.ciReads)
+            s.ciState = PatchPublisher.CiState.PASSED
+            assertTrue(s.handle.refreshDeveloperCi())
+            assertEquals(1, s.queued.size)
+            s.finish()
+            assertEquals(2, s.ciReads)
+            assertEquals(0, s.logReads)
+            assertEquals(0, s.providerCalls)
+            assertEquals(1, s.writes)
+            assertFalse(s.approval().isEnabled)
+            assertFalse(s.button("Prepare Developer repair").isEnabled)
+        } finally { s.close() }
+    }
+
+    @Test fun failedCIRefreshReturnsVerifiedDiagnosticEvidenceNotAnotherWrite() {
+        val s = Screen()
+        try {
+            s.initialFailure()
+            assertTrue(s.handle.refreshDeveloperCi())
+            s.finish()
+            assertEquals(2, s.ciReads)
+            assertEquals(2, s.logReads)
+            assertEquals(1, s.writes)
+            assertEquals(0, s.providerCalls)
+            assertTrue(s.button("Prepare Developer repair").isEnabled)
+            assertTrue(s.output.text.contains("Verified exact-run diagnostics"))
+        } finally { s.close() }
+    }
+
     @Test fun explicitChatRouteUsesTheSameApprovalGatedDiffAsTheInlineButton() {
         val s = Screen()
         try {

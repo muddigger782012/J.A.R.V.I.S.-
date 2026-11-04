@@ -26,7 +26,8 @@ internal object ProjectGenerationWorkbench {
         changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }, forget: Button? = null,
         requestPatch: () -> Boolean = { false },
         stageReview: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false },
-        requestDeveloperRepair: () -> Boolean = { false }): Handle {
+        requestDeveloperRepair: () -> Boolean = { false },
+        requestDeveloperBuild: () -> Boolean = { false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
@@ -79,6 +80,25 @@ internal object ProjectGenerationWorkbench {
             val readToken = githubToken().trim()
             if ((secret.isNotEmpty() && task.contains(secret)) || (readToken.isNotEmpty() && task.contains(readToken))) {
                 status.setText(R.string.project_generation_remove_key); return@setOnClickListener
+            }
+            // Read-only exact-task CI follow-up. A queued first lookup can be refreshed
+            // from chat without another menu, model call or source write.
+            if (DeveloperBuildChatCommand.isRequest(task)) {
+                if (target() != 0) {
+                    output.text = "Developer build checks are unavailable for the Personal Jarvis target."
+                    status.text = "Switch to Developer to inspect a Developer task's build."
+                } else {
+                    val started = runCatching { requestDeveloperBuild() }.getOrDefault(false)
+                    output.text = if (started)
+                        "Checking the exact Developer task commit's current CI status. " +
+                            "Results and any verified failure diagnostics will appear here. " +
+                            "No AI request or source write was started."
+                    else "No completed Developer task commit is available for a build check, " +
+                        "or its GitHub connection is unavailable. No CI result was assumed."
+                    status.text = if (started) "Exact Developer task CI read started from chat."
+                        else "Developer build check not started; no source or approval changed."
+                }
+                return@setOnClickListener
             }
             // Direct, narrowly matched chat repair request. No stored discussion, AI
             // request, or write is initiated here. A separate source-verified build

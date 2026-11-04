@@ -599,7 +599,7 @@ class MainActivity : Activity() {
                 val started = patchWorkbench.prepareDeveloperRepair()
                 if (started) revealImportedReview?.invoke()
                 started
-            })
+            }, requestDeveloperBuild = { patchWorkbench.refreshDeveloperCi() })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

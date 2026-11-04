@@ -26,7 +26,8 @@ class ProjectGenerationTest {
         launchFails: Boolean = false, failure: Exception? = null,
         progressRead: (() -> String)? = null,
         ask: ((String, String, String, String, PatchPreviewCancellation) -> String)? = null,
-        repair: (() -> Boolean)? = null) : AutoCloseable {
+        repair: (() -> Boolean)? = null,
+        buildCheck: (() -> Boolean)? = null) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -48,11 +49,44 @@ class ProjectGenerationTest {
                         ?: if (failure != null) throw failure else "Reply for $task"
                 }, context = { task, product, _, _, _ -> RepositoryCodingContext.unavailable(task, product) },
                 progress = { _ -> progressRead?.invoke() ?: "Verified local progress fixture" }),
-            requestDeveloperRepair = { repair?.invoke() ?: false })
+            requestDeveloperRepair = { repair?.invoke() ?: false },
+            requestDeveloperBuild = { buildCheck?.invoke() ?: false })
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun chatBuildCheckUsesExistingExactCommitReadWithoutAIOrWrites() {
+        var checks = 0
+        Screen(buildCheck = { checks++; true }, ask = { _, _, _, _, _ -> error("No AI request allowed") }).use { s ->
+            s.prompt.setText("Check Developer build")
+            s.send.performClick()
+            assertEquals(1, checks)
+            assertTrue(s.output.text.contains("exact Developer task commit"))
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.pending.isEmpty())
+            assertTrue(s.send.isEnabled)
+        }
+    }
+
+    @Test fun chatBuildCheckRefusesWrongTargetAndMissingTask() {
+        var calls = 0
+        Screen(buildCheck = { calls++; true }).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("Check Developer CI")
+            s.send.performClick()
+            assertEquals(0, calls)
+            assertTrue(s.output.text.contains("unavailable for the Personal"))
+        }
+        Screen(buildCheck = { calls++; false }).use { s ->
+            s.prompt.setText("Check Developer build")
+            s.send.performClick()
+            assertEquals(1, calls)
+            assertTrue(s.output.text.contains("No completed Developer task commit"))
+            assertTrue(s.pending.isEmpty())
+            assertTrue(s.prefs.all.isEmpty())
+        }
+    }
+
     @Test fun explicitChatRepairRequestCallsOnlyScopedReviewHandoff() {
         var calls = 0
         Screen(repair = { calls++; true }, ask = { _, _, _, _, _ -> error("AI chat must not start") }).use { s ->
