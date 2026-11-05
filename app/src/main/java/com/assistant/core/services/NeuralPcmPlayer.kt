@@ -94,7 +94,9 @@ class NeuralPcmPlayer(context: Context) {
         }
 
         /** Finish only after the last queued PCM frame has actually played. */
-        fun drain(active: () -> Boolean, onPlaybackProgress: () -> Unit = {}) {
+        fun drain(active: () -> Boolean) = drain(active, onPlaybackProgress = {})
+
+        fun drain(active: () -> Boolean, onPlaybackProgress: () -> Unit) {
             val output = track ?: return
             if (timeline.framesQueued == 0L) return
             var deadline = SystemClock.elapsedRealtime() +
