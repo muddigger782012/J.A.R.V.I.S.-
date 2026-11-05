@@ -8,12 +8,14 @@ import java.io.RandomAccessFile
 import com.assistant.core.BuildConfig
 
 object NeuralVoiceDiagnostics {
-    fun record(context: Context, source: String, voice: String, event: String, firstAudioMs: Long = -1, cacheHits: Int = 0, error: String = "") {
+    fun record(context: Context, source: String, voice: String, event: String, firstAudioMs: Long = -1, cacheHits: Int = 0,
+               error: String = "", synthesisMillis: Long = -1L, generatedChunks: Int = -1, outputUnderruns: Int = -1) {
         if (source !in setOf("preview", "assistant")) return
         runCatching {
             val data = JSONObject().put("time_ms", System.currentTimeMillis()).put("source", source)
                 .put("voice", voice).put("event", event).put("first_queued_audio_ms", firstAudioMs).put("cache_hits", cacheHits)
-                .put("error", error.take(100))
+                .put("error", error.take(100)).put("synthesis_ms", synthesisMillis)
+                .put("generated_chunks", generatedChunks).put("output_underruns", outputUnderruns)
             val file = AtomicFile(File(context.filesDir, "voice-event-$source.json"))
             synchronized(writeLock) {
                 RandomAccessFile(File(context.filesDir, "voice-event-$source.lock"), "rw").use { lock ->
