@@ -9,12 +9,16 @@ import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /** Exact Kokoro male speaker IDs; no pitch shifting or Android gender guessing. */
 class NeuralAssistantSpeech(context: Context, private val source: String = "assistant") {
     private val app = context.applicationContext
     private val worker = Executors.newSingleThreadExecutor()
+    // Synthesize the next phrase while the preceding phrase is already playing.
+    private val playbackWorker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private val generation = AtomicLong()
     private val player = NeuralPcmPlayer(app)
@@ -32,6 +36,8 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
             var firstAudioMs = -1L
             var cacheHits = 0
             var terminalRecorded = false
+            val playbackAborted = AtomicBoolean(false)
+            val queuedPlayback = java.util.ArrayDeque<Future<*>>()
             try {
                 val pack = NeuralVoicePack(app)
                 check(pack.installed()) { "Offline voices are not installed" }
@@ -56,19 +62,31 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                     if (generation.get() != token || closed) return@execute
                     check(audio.samples.isNotEmpty() && audio.samples.all { it.isFinite() }) { "No valid audio was generated" }
                     if (key != null && cached == null) runCatching { cache.write(key, audio) }
-                    player.play(audio, active = { generation.get() == token && !closed }, firstQueued = {
-                        if (firstAudioMs < 0) {
-                            firstAudioMs = android.os.SystemClock.elapsedRealtime() - started
-                            NeuralVoiceDiagnostics.record(app, source, voice.id, "audio_queued", firstAudioMs, cacheHits)
-                            main.post { if (generation.get() == token && !closed) onAudio() }
+                    // Playback uses a dedicated queue. Keeping at most one phrase
+                    // prefetched removes synth-time gaps without buffering whole replies.
+                    queuedPlayback.addLast(playbackWorker.submit {
+                        if (generation.get() == token && !closed && !playbackAborted.get()) {
+                            player.play(audio, active = {
+                                generation.get() == token && !closed && !playbackAborted.get()
+                            }, firstQueued = {
+                                if (firstAudioMs < 0) {
+                                    firstAudioMs = android.os.SystemClock.elapsedRealtime() - started
+                                    NeuralVoiceDiagnostics.record(app, source, voice.id, "audio_queued", firstAudioMs, cacheHits)
+                                    main.post { if (generation.get() == token && !closed) onAudio() }
+                                }
+                            })
                         }
                     })
+                    if (queuedPlayback.size >= 2) queuedPlayback.removeFirst().get()
                 }
+                while (queuedPlayback.isNotEmpty()) queuedPlayback.removeFirst().get()
                 if (generation.get() != token || closed) return@execute
                 NeuralVoiceDiagnostics.record(app, source, voice.id, "completed", firstAudioMs, cacheHits)
                 terminalRecorded = true
                 main.post { if (generation.get() == token && !closed) done() }
             } catch (failure: Throwable) {
+                playbackAborted.set(true)
+                player.stop()
                 if (generation.get() == token && !closed) {
                     NeuralVoiceDiagnostics.record(app, source, voice.id, "error", firstAudioMs, cacheHits, failure.javaClass.simpleName)
                     terminalRecorded = true
@@ -90,6 +108,7 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
         stop()
         worker.execute { engine?.release(); engine = null }
         worker.shutdown()
+        playbackWorker.shutdown()
     }
 
     companion object {
