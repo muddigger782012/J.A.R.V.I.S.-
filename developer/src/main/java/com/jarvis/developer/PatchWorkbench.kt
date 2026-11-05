@@ -30,6 +30,9 @@ object PatchWorkbench {
         val ci: (String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus = PatchPublisher::ci,
         // Real builds use bounded waits; deterministic Robolectric fixtures can advance without sleeping.
         val ciWatchPause: (Long) -> Unit = Thread::sleep,
+        // Compiler-only exact-run failures may prepare a NEW review-only
+        // patch automatically. This never approves, commits, or retries a write.
+        val autoRepairPreview: Boolean = true,
         val feedback: (String, PatchPublisher.CommitResult, PatchPreviewCancellation) -> BuildDiagnostics.Report = { token, result, cancellation ->
             BuildFeedback.read(token, result.branch, result.commitSha, result.target, cancellation)
         },
@@ -701,8 +704,9 @@ object PatchWorkbench {
                     else null
                     val repairHint = if (checked?.state != PatchPublisher.CiState.FAILED) "" else
                         if (repairDraft != null)
-                            "\n\nCompiler-only follow-up available. Select Prepare Developer repair from verified failure. " +
-                                "A fresh pinned-source diff will be generated for your review; no prior approval is reused."
+                            "\n\nCompiler-only follow-up verified. A new pinned-source diff " +
+                                "will be prepared for your review when the coding slot is free; " +
+                                "no prior approval is reused or source write retried."
                         else "\n\nNo source-scoped compiler repair could be safely inferred. " +
                             "Review the verified tests/infrastructure diagnostics before starting another task."
                     val failureText = if (checked?.state != PatchPublisher.CiState.FAILED) "" else
@@ -768,7 +772,30 @@ object PatchWorkbench {
                     }
                 } finally {
                     activity.runOnUiThread {
-                        if (alive()) { busy = false; refresh() }
+                        if (alive()) {
+                            busy = false
+                            refresh()
+                            // Only the just-completed commit and its exact-run verified
+                            // compiler diagnostics can trigger the next read-only preview.
+                            // The button's existing gate consumes its candidate; it cannot
+                            // reuse the prior approval or run a second GitHub write.
+                            val ready = services.autoRepairPreview &&
+                                developerRepairCandidate != null && lastCommit != null &&
+                                interruptedAttempt == null && activePreview == null &&
+                                activeRead == null && activeEngineering == null &&
+                                prepareDeveloperRepair.isEnabled
+                            if (ready) {
+                                prepareDeveloperRepair.performClick()
+                                if (busy && activePreview != null) {
+                                    runCatching { services.chatStatus(
+                                        "Exact Developer compiler failure verified. A fresh repair diff " +
+                                        "preview started automatically from the failed commit's source. " +
+                                        "Review the new complete diff in chat; no code write, retry, " +
+                                        "merge or release is approved."
+                                    ) }
+                                }
+                            }
+                        }
                     }
                 }
             }
