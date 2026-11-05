@@ -35,6 +35,8 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
         worker.execute {
             var firstAudioMs = -1L
             var cacheHits = 0
+            var synthesisMillis = 0L
+            var generatedAudioMillis = 0L
             var terminalRecorded = false
             val playbackAborted = AtomicBoolean(false)
             val queuedPlayback = java.util.ArrayDeque<Future<*>>()
@@ -60,12 +62,15 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                         if (generation.get() != token || closed) return@execute
                         // Avoid the native-to-JVM callback boundary. Stop invalidates the token;
                         // a cancelled chunk is discarded before any playback or caching.
+                        val synthStart = android.os.SystemClock.elapsedRealtime()
                         val generated = synthesizer.generate(chunk, sid = voice.speaker, speed = 1.0f)
+                        synthesisMillis += android.os.SystemClock.elapsedRealtime() - synthStart
                         NeuralSpeechCache.Clip(generated.sampleRate, generated.samples)
                     }
                     if (cached != null) cacheHits++
                     if (generation.get() != token || closed) return@execute
                     check(audio.samples.isNotEmpty() && audio.samples.all { it.isFinite() }) { "No valid audio was generated" }
+                    generatedAudioMillis += audio.samples.size * 1000L / audio.sampleRate
                     if (key != null && cached == null) runCatching { cache.write(key, audio) }
                     // Playback uses a dedicated queue. Keeping at most one phrase
                     // prefetched removes synth-time gaps without buffering whole replies.
@@ -95,7 +100,9 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                     replySession.drain { generation.get() == token && !closed && !playbackAborted.get() }
                 }.get()
                 if (generation.get() != token || closed) return@execute
-                NeuralVoiceDiagnostics.record(app, source, voice.id, "completed", firstAudioMs, cacheHits)
+                NeuralVoiceDiagnostics.record(app, source, voice.id, "completed", firstAudioMs, cacheHits,
+                    synthesisMillis = synthesisMillis, generatedAudioMillis = generatedAudioMillis,
+                    underruns = replySession.underrunCount())
                 terminalRecorded = true
                 main.post { if (generation.get() == token && !closed) done() }
             } catch (failure: Throwable) {
@@ -104,7 +111,9 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                 // generation must never stop the next reply's audio.
                 session?.cancel()
                 if (generation.get() == token && !closed) {
-                    NeuralVoiceDiagnostics.record(app, source, voice.id, "error", firstAudioMs, cacheHits, failure.javaClass.simpleName)
+                    NeuralVoiceDiagnostics.record(app, source, voice.id, "error", firstAudioMs, cacheHits, failure.javaClass.simpleName,
+                        synthesisMillis = synthesisMillis, generatedAudioMillis = generatedAudioMillis,
+                        underruns = session?.underrunCount() ?: -1)
                     terminalRecorded = true
                     main.post { if (generation.get() == token && !closed) error(failure.javaClass.simpleName) }
                 }
