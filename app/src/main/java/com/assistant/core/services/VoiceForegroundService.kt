@@ -148,7 +148,9 @@ class VoiceForegroundService : Service() {
                     spokenScreenContext = null; followUpScreen = false
                     currentConfig = voicePreferences.load()
                     voiceService.updateConfig(currentConfig)
-                    pipelineStarted = pipelineStarted || intent.getBooleanExtra("resume_wake", false)
+                    val resumeWake = intent.getBooleanExtra("resume_wake", false)
+                    pipelineStarted = pipelineStarted || resumeWake
+                    if (resumeWake) voicePreferences.setForegroundServiceRunning(true)
                     commandSessionActive = true
                     voiceSession.beginCapture(VoiceSessionController.Trigger.PUSH_TO_TALK)
                     voiceService.startPushToTalk(returnToWake = pipelineStarted)
@@ -158,11 +160,13 @@ class VoiceForegroundService : Service() {
                     publishEvent("Command capture could not initialize. No speech was submitted.")
                     if (!pipelineStarted) stopSelf()
                 }
-                return START_NOT_STICKY
+                // A manual mic interaction must not revoke the previously enabled
+                // screen-off standby restart contract.
+                return if (WakeRestartPolicy.shouldRemainSticky(pipelineStarted)) START_STICKY else START_NOT_STICKY
             }
             ACTION_FINISH_CAPTURE -> {
                 if (liveChatActive) liveCapture.finish() else if (::voiceService.isInitialized) voiceService.finishCapture()
-                return START_NOT_STICKY
+                return if (WakeRestartPolicy.shouldRemainSticky(pipelineStarted)) START_STICKY else START_NOT_STICKY
             }
             ACTION_CANCEL_CAPTURE -> {
                 if (liveChatActive) {
@@ -178,7 +182,7 @@ class VoiceForegroundService : Service() {
                 val resume = pipelineStarted
                 if (::voiceService.isInitialized) stopVoicePipeline()
                 if (resume) startVoicePipeline() else stopSelf()
-                return START_NOT_STICKY
+                return if (WakeRestartPolicy.shouldRemainSticky(pipelineStarted)) START_STICKY else START_NOT_STICKY
             }
             ACTION_PRACTICE_PAUSE -> {
                 val token = intent.getStringExtra("token").orEmpty()
@@ -231,7 +235,7 @@ class VoiceForegroundService : Service() {
             ACTION_LIVE_STOP -> {
                 if (liveChatActive) finishLiveChat("Live chat ended.")
                 else if (!pipelineStarted) stopSelf()
-                return START_NOT_STICKY
+                return if (WakeRestartPolicy.shouldRemainSticky(pipelineStarted)) START_STICKY else START_NOT_STICKY
             }
             ACTION_STOP -> {
                 practiceToken = null
@@ -504,6 +508,11 @@ class VoiceForegroundService : Service() {
         if (resumeWakeAfterLive && ::voiceService.isInitialized) {
             resumeWakeAfterLive = false
             startVoicePipeline()
+            // A live-chat start was non-sticky while conversational capture
+            // owned the microphone. Restore sticky wake mode after the chat
+            // ends, including when it ends by a spoken command.
+            runCatching { startService(Intent(this, VoiceForegroundService::class.java).setAction(ACTION_START)) }
+                .onFailure { publishEvent("Wake restart contract could not be refreshed: ${it.javaClass.simpleName}") }
         } else {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
