@@ -37,7 +37,8 @@ internal object WakeAcknowledgement {
 internal class WakeAcknowledgementGate(private val minimumIntervalMillis: Long = 1500L) {
     private var lastAckAt = Long.MIN_VALUE
     @Synchronized fun shouldPlay(nowMillis: Long): Boolean {
-        if (nowMillis >= lastAckAt && nowMillis - lastAckAt < minimumIntervalMillis) return false
+        if (lastAckAt != Long.MIN_VALUE && nowMillis >= lastAckAt &&
+            nowMillis - lastAckAt < minimumIntervalMillis) return false
         lastAckAt = nowMillis
         return true
     }
