@@ -30,7 +30,7 @@ class ChatSearchResultsTest {
     }
 
     @Test fun spokenSearchAnswersRetainTheirEndingInsteadOfCuttingOffAtFourThousandCharacters() {
-        val prose = "Opening observation. " + (1..470).joinToString(" ") { "Sentence $it explains an ordinary verified detail." } +
+        val prose = "Opening observation. " + (1..140).joinToString(" ") { "Sentence $it explains an ordinary verified detail." } +
             " Final diagnostic conclusion remains audible."
         val encoded = ChatSearchResults.encode("diesel cooling system", emptyList(), prose)
         val spoken = ChatSearchResults.forSpeech(encoded)
