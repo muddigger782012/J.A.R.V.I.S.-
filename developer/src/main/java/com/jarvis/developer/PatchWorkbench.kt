@@ -28,6 +28,8 @@ object PatchWorkbench {
         val commit: (String, PatchEngine.ApprovedProposal) -> PatchPublisher.CommitResult = PatchPublisher::commit,
         val inspectOutcome: (String, PatchEngine.Proposal) -> PatchPublisher.CommitResult? = PatchPublisher::inspectOutcome,
         val ci: (String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus = PatchPublisher::ci,
+        // Real builds use bounded waits; deterministic Robolectric fixtures can advance without sleeping.
+        val ciWatchPause: (Long) -> Unit = Thread::sleep,
         val feedback: (String, PatchPublisher.CommitResult, PatchPreviewCancellation) -> BuildDiagnostics.Report = { token, result, cancellation ->
             BuildFeedback.read(token, result.branch, result.commitSha, result.target, cancellation)
         },
@@ -651,10 +653,12 @@ object PatchWorkbench {
                     // bounded read budget is exhausted. No repair, write or release can
                     // start from this watch; a destroyed Activity discards pending status.
                     val checked = if (alive()) runCatching {
-                        DeveloperCiWatch.follow(
-                            initial = services.ci(token, result),
+                        val initial = services.ci(token, result)
+                        if (result.target != PatchEngine.Target.DEVELOPER) initial else DeveloperCiWatch.follow(
+                            initial = initial,
                             poll = { services.ci(token, result) },
                             active = { alive() },
+                            pause = services.ciWatchPause,
                             onPending = { pending, read ->
                                 activity.runOnUiThread {
                                     if (alive()) status.text =
