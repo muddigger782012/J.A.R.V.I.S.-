@@ -42,6 +42,41 @@ class DeveloperPlanContinuationTest {
         assertEquals(suggestion, DeveloperPlanContinuation.suggest(listOf(ready)))
     }
 
+
+    @Test fun multiStepPlanPreparesOneCumulativeReviewedSourceChange() {
+        val second = "developer/src/main/java/com/jarvis/developer/Network.kt"
+        val baseline = plan()
+        val combined = baseline.copy(scope = listOf(path, second), steps = listOf(
+            baseline.steps[0],
+            baseline.steps[1],
+            TaskPlanner.Step("implement-2", "Repair network", "Edit network source",
+                listOf(second), listOf("implement-1")),
+            TaskPlanner.Step("validate", "Validate", "Build entire source together",
+                emptyList(), listOf("implement-1", "implement-2")),
+            TaskPlanner.Step("review", "Review", "Inspect source and CI",
+                emptyList(), listOf("validate"))
+        ))
+        TaskPlanner.validate(combined)
+        val analyzed = TaskPlanner.transition(combined, "analyze", TaskPlanner.Status.DONE,
+            "Owner reviewed complete scope", 1001)
+        val suggestion = DeveloperPlanContinuation.suggest(listOf(analyzed))
+        val packet = requireNotNull(suggestion.packet)
+        assertEquals(listOf(path, second).sorted(), packet.paths)
+        assertTrue(packet.task.contains("ONE cumulative source proposal"))
+        assertTrue(packet.task.contains("implement-2"))
+        assertTrue(suggestion.message.contains("cumulative"))
+        assertEquals(TaskPlanner.Status.PENDING, analyzed.steps[1].status)
+        assertEquals(TaskPlanner.Status.PENDING, analyzed.steps[2].status)
+        assertEquals(suggestion, DeveloperPlanContinuation.suggest(listOf(analyzed)))
+        // A manually reported partial implementation cannot be mistaken for
+        // the exact, whole-scope reviewed/CI-verified commit.
+        val partial = TaskPlanner.transition(analyzed, "implement-1", TaskPlanner.Status.DONE,
+            "Owner-reported partial source change (not CI proof)", 1002)
+        val blocked = DeveloperPlanContinuation.suggest(listOf(partial))
+        assertNull(blocked.packet)
+        assertTrue(blocked.message.contains("partial source checkpoints"))
+    }
+
     @Test fun pausedAndInterruptedPlansNeverAutomaticallyContinue() {
         val ready = TaskPlanner.transition(plan(), "analyze", TaskPlanner.Status.DONE, "Analysis checked", 1001)
         val paused = TaskPlanner.pause(ready, true, 1002)
