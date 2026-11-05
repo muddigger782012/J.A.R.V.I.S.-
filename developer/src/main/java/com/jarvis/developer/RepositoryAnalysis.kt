@@ -300,8 +300,15 @@ object RepositoryAnalysis {
             else -> 0.0
         }
         val priority = sourcePriority(path)
+        // Only an explicitly requested *document kind* merits elevation.
+        // Generic shared labels ("developer", "plan", "intelligence") occur
+        // across many documents; boosting them crowds actual app entry points
+        // out of the bounded final plan. E.g. a request for the roadmap should
+        // prioritize ROADMAP.md, but not every Developer planning document.
+        val documentKinds = setOf("roadmap", "readme", "requirements", "specification",
+            "architecture", "manual", "guide", "design")
         val directDocumentName = priority == 2 &&
-            terms(name).intersect(query.primary).isNotEmpty()
+            terms(name).intersect(query.primary).any { it in documentKinds }
         // Documentation is ordinarily supporting evidence, but an explicitly
         // task-named roadmap/plan is primary evidence of that request. Newly
         // added Developer plan sources must not crowd it out of the GET budget.
@@ -343,9 +350,11 @@ object RepositoryAnalysis {
         // General docs and copied requests remain supporting evidence. A
         // directly named document is different: when source text also matches
         // the task, its content must not vanish behind many generic plan files.
+        val documentKinds = setOf("roadmap", "readme", "requirements", "specification",
+            "architecture", "manual", "guide", "design")
         val namedDocument = doc.source.path.endsWith(".md") &&
             terms(doc.source.path.substringAfterLast('/').substringBeforeLast('.'))
-                .intersect(query.primary).isNotEmpty()
+                .intersect(query.primary).any { it in documentKinds }
         val multiplier = when {
             namedDocument -> 1.5
             doc.source.path.endsWith(".md") -> 0.7

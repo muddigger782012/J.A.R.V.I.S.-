@@ -48,6 +48,29 @@ class RepositoryAnalysisTest {
             plan.files.all { it.path in read })
     }
 
+    @Test fun roadmapEvidenceDoesNotCrowdOutTheActualApplicationEntryPoint() {
+        val roadmap = "developer/DEVELOPMENT_ROADMAP.md"
+        val main = "developer/src/main/java/com/jarvis/developer/MainActivity.kt"
+        val sources = linkedMapOf(
+            roadmap to "# Developer roadmap\nIntelligence Plan progress, implemented phases and pending work.\n",
+            main to "package com.jarvis.developer\nclass MainActivity { fun showIntelligencePlanProgress() = 1 }"
+        )
+        repeat(24) { index ->
+            sources["docs/development-plans/developer-phase$index-planning.md"] =
+                "# Developer plan intelligence progress\nEvidence of phase work and pending tasks."
+        }
+        val seen = mutableListOf<String>()
+        val plan = RepositoryAnalysis.analyzeControlled(
+            "Show Intelligence Plan progress using roadmap evidence of implemented and pending work",
+            inventory(sources), {}, {}, { path -> seen += path; sources.getValue(path) },
+            budget = RepositoryAnalysis.ReadBudget(files = 18, bytes = 2_000_000)
+        )
+        assertTrue("Roadmap evidence must be verified", roadmap in seen)
+        assertTrue("Application owner must be inspected", main in seen)
+        assertTrue("The roadmap and actual UI must survive the eight-file ranking",
+            plan.files.map { it.path }.containsAll(listOf(roadmap, main)))
+    }
+
     @Test fun cancellationAfterReadingStopsBeforePlanningOrAnotherSourceRead() {
         var reads = 0
         var planning = false
