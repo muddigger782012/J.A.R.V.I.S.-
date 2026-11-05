@@ -160,11 +160,39 @@ class DirectOnlineClient(private val context: Context) {
             throw error
         }
     }
+    /** Resolve only the verified explicitly named US place, never the saved home location. */
+    private fun namedWeatherPlace(place: WeatherPlaceQuery.Place): WeatherPlaceQuery.Candidate? {
+        // Open-Meteo geocoding searches by place name. Verify admin1/state
+        // separately against returned candidates rather than searching a
+        // combined city/state string that may produce zero results.
+        val encoded = java.net.URLEncoder.encode(place.city, "UTF-8")
+        val url = "https://geocoding-api.open-meteo.com/v1/search?name=$encoded&count=20&countryCode=US&language=en&format=json"
+        val response = request(url).second ?: return null
+        val results = response.optJSONArray("results") ?: return null
+        val candidates = (0 until results.length()).mapNotNull { index ->
+            val entry = results.optJSONObject(index) ?: return@mapNotNull null
+            WeatherPlaceQuery.Candidate(
+                city = entry.optString("name"),
+                state = entry.optString("admin1"),
+                country = entry.optString("country_code"),
+                latitude = entry.optDouble("latitude", Double.NaN),
+                longitude = entry.optDouble("longitude", Double.NaN)
+            )
+        }
+        return WeatherPlaceQuery.choose(place, candidates)
+    }
+
     fun weather(question: String): String {
-        if (OnlineAnswers.wantsDeviceLocation(question) && !RuntimeSettings.boolean(context, "jarvis_cloud_ai", "weather_device_location", true))
+        val named = WeatherPlaceQuery.parse(question)
+        if (named == null && OnlineAnswers.wantsDeviceLocation(question) &&
+            !RuntimeSettings.boolean(context, "jarvis_cloud_ai", "weather_device_location", true))
             return "Could not save the requested weather location mode. Review Weather and AI settings."
+        val selected = if (named != null) runCatching { namedWeatherPlace(named) }.getOrNull() else null
+        if (named != null && selected == null)
+            return "I couldn't verify ${named.city}${named.state?.let { ", $it" } ?: ""} with the US city geocoder. Please confirm the city and state; I won't substitute your saved weather location."
+
         val deviceMode = prefs.getBoolean("weather_device_location", false)
-        val coordinates = if (deviceMode) {
+        val coordinates = if (selected != null) selected.latitude to selected.longitude else if (deviceMode) {
             if (!location.hasPrecisePermission()) return "Allow Precise location for J.A.R.V.I.S. while using the app, then ask for weather again."
             val fix = location.current() ?: return "I couldn't get a fresh precise location. Turn on Location, keep J.A.R.V.I.S. open, and try again. GPS may need a clearer view of the sky."
             fix.latitude to fix.longitude
@@ -182,9 +210,10 @@ class DirectOnlineClient(private val context: Context) {
             require(url.protocol == "https" && url.host == "api.weather.gov" && url.port == -1)
             val data = request(forecastUrl).second ?: return "Live weather is unavailable right now. Try again shortly."
             val place = props.getJSONObject("relativeLocation").getJSONObject("properties")
+            val label = if (selected != null) "${selected.city}, ${selected.state}" else
+                "${place.getString("city")}, ${place.getString("state")}"
             OnlineAnswers.weatherSummary(data.getJSONObject("properties").getJSONArray("periods"), question,
-                "${place.getString("city")}, ${place.getString("state")}", timeZone =
-                    runCatching { java.time.ZoneId.of(props.getString("timeZone")) }.getOrNull())
+                label, timeZone = runCatching { java.time.ZoneId.of(props.getString("timeZone")) }.getOrNull())
         } catch (_: Exception) { "I couldn't retrieve live weather. Check your connection and try again." }
     }
     private val technicalAnswerGuidance = "For equipment maintenance and repair questions, identify the model and distinguish confirmed procedures from general suggestions. Do not invent specifications, fluid capacities, chemical compatibility, or service-manual instructions. Never suggest physically unsafe or impractical steps such as tilting heavy equipment to circulate cleaner. If technical evidence or live search is unavailable, say what requires verification rather than implying that sources were checked. Answer the actual question with concise steps when appropriate, maintain relevant conversational context, and avoid repetitive unrelated offers such as setting a timer. Do not fabricate citations or links. "

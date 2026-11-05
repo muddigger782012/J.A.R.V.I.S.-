@@ -26,6 +26,19 @@ object NeuralVoiceDiagnostics {
             }
         }
     }
+    /** Last recorded native output latency; this is not a microphone timing. */
+    fun lastAssistantSpeechTiming(context: Context): String {
+        val data = runCatching {
+            JSONObject(String(AtomicFile(File(context.filesDir, "voice-event-assistant.json"))
+                .readFully(), Charsets.UTF_8))
+        }.getOrNull() ?: return "No completed offline speech timing has been recorded on this device."
+        val delay = data.optLong("first_queued_audio_ms", -1L)
+        val event = data.optString("event")
+        return if (delay >= 0L)
+            "Last offline voice first audio queued after ${delay} ms (last event: $event; cache hits: ${data.optInt("cache_hits")}). This measures synthesis and queueing, not speaker hardware latency."
+        else "Last offline voice event: $event. First-audio time not recorded; inspect Voice diagnostics if speech did not start."
+    }
+
     private val writeLock = Any()
     fun report(context: Context): String = buildString {
         val saved = AssistantVoicePreferences(context).load()

@@ -44,7 +44,7 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                 val fingerprint = File(pack.root, ".ready").readText()
                 NeuralVoiceDiagnostics.record(app, source, voice.id, "preparing")
                 if (generation.get() != token || closed) return@execute
-                for (chunk in SpeechChunks.split(text, 180)) {
+                for (chunk in SpeechChunks.lowLatency(text)) {
                     if (generation.get() != token || closed) return@execute
                     val key = if (cachePhrase) cache.key(fingerprint, voice.id, chunk) else null
                     val cached = key?.let(cache::read)
