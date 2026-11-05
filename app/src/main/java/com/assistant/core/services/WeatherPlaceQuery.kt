@@ -51,7 +51,10 @@ internal object WeatherPlaceQuery {
                 RegexOption.IGNORE_CASE).containsMatchIn(input.trim())) return null
         val named = Regex("""\b(?:about|in|for|meant)\s+([A-Za-z][A-Za-z,.' -]{1,75})\s*[.!?]*$""",
             RegexOption.IGNORE_CASE).findAll(input).lastOrNull()?.groupValues?.get(1)?.trim() ?: return null
-        return parse("weather in $named")
+        val place = parse("weather in $named") ?: return null
+        // Without a state this could be "I meant next Sunday", a calendar
+        // correction rather than a named city. Keep those in ForecastDates.
+        return place.takeIf { it.state != null }
     }
 
     fun choose(place: Place, candidates: List<Candidate>): Candidate? {
