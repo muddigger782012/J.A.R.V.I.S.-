@@ -357,7 +357,7 @@ object RepositoryAnalysis {
                 .intersect(query.primary).any { it in documentKinds }
         val multiplier = when {
             namedDocument -> 1.5
-            doc.source.path.endsWith(".md") -> 0.7
+            doc.source.path.endsWith(".md") -> 0.5
             "/test/" in doc.source.path || "/androidTest/" in doc.source.path -> 0.35
             else -> 1.0
         }
