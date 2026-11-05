@@ -47,9 +47,9 @@ internal object WeatherPlaceQuery {
     }
 
     fun correctedLocation(input: String): Place? {
-        if (!Regex("""^(?:no[,.]?|sorry[,.]?|actually[,.]?|i (?:said|meant|mean|wanted)\\b)""",
+        if (!Regex("""^(?:no[,.]?|sorry[,.]?|actually[,.]?|i (?:said|meant|mean|wanted)\b)""",
                 RegexOption.IGNORE_CASE).containsMatchIn(input.trim())) return null
-        val named = Regex("""\\b(?:about|in|for|meant)\\s+([A-Za-z][A-Za-z,.' -]{1,75})\\s*[.!?]*$""",
+        val named = Regex("""\b(?:about|in|for|meant)\s+([A-Za-z][A-Za-z,.' -]{1,75})\s*[.!?]*$""",
             RegexOption.IGNORE_CASE).findAll(input).lastOrNull()?.groupValues?.get(1)?.trim() ?: return null
         return parse("weather in $named")
     }
