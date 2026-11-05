@@ -162,8 +162,10 @@ class DirectOnlineClient(private val context: Context) {
     }
     /** Resolve only the verified explicitly named US place, never the saved home location. */
     private fun namedWeatherPlace(place: WeatherPlaceQuery.Place): WeatherPlaceQuery.Candidate? {
-        val name = place.city + (place.state?.let { ", $it" } ?: "")
-        val encoded = java.net.URLEncoder.encode(name, "UTF-8")
+        // Open-Meteo geocoding searches by place name. Verify admin1/state
+        // separately against returned candidates rather than searching a
+        // combined city/state string that may produce zero results.
+        val encoded = java.net.URLEncoder.encode(place.city, "UTF-8")
         val url = "https://geocoding-api.open-meteo.com/v1/search?name=$encoded&count=20&countryCode=US&language=en&format=json"
         val response = request(url).second ?: return null
         val results = response.optJSONArray("results") ?: return null
