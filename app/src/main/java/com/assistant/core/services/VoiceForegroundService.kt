@@ -367,18 +367,25 @@ class VoiceForegroundService : Service() {
                 if (liveChatActive && liveSession.speechFinished(turn)) nextLiveTurn(650L)
             }
         })
-        // Some TTS engines never report completion after an audio failure.
-        // Bound the speaking phase so Live Chat cannot remain muted indefinitely.
-        // Long companion replies can exceed two minutes when generated on-device.
-        // Never cut off an otherwise healthy lengthy utterance at the old 120s cap.
-        val speechTimeoutMillis = (text.length * 120L + 20_000L).coerceIn(40_000L, 300_000L)
-        liveHandler.postDelayed({
-            if (liveChatActive && liveSession.speechFinished(turn)) {
-                liveStatus(VoiceInteractionState.IDLE, "Speech completion timed out; listening again…")
-                voiceService.stopSpeaking()
-                nextLiveTurn(650L)
+        // Do not cut off speech merely because a fixed text-length timeout
+        // elapsed. Kokoro synthesis and playback can run at different speeds.
+        // Watch for stalled progress instead; an actively sounding reply is safe.
+        val watchdog = object : Runnable {
+            override fun run() {
+                if (!liveChatActive || liveSession.token != turn ||
+                    liveSession.phase != LiveChatSession.Phase.SPEAKING) return
+                if (voiceService.hasRecentSpeechProgress(90_000L)) {
+                    liveHandler.postDelayed(this, 15_000L)
+                    return
+                }
+                if (liveSession.speechFinished(turn)) {
+                    liveStatus(VoiceInteractionState.IDLE, "Speech stopped making progress; listening again…")
+                    voiceService.stopSpeaking()
+                    nextLiveTurn(650L)
+                }
             }
-        }, speechTimeoutMillis)
+        }
+        liveHandler.postDelayed(watchdog, 15_000L)
     }
 
     private fun nextLiveTurn(delay: Long) {
