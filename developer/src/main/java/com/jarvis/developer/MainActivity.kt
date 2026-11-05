@@ -501,14 +501,35 @@ class MainActivity : Activity() {
             TextView(this).apply { setTextColor(getColor(R.color.developer_secondary)); accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE })
         fun addFeedback(pair: Pair<TextView, TextView>) { root.addView(pair.second); root.addView(pair.first) }
         val codingStart = root.childCount
+        // The chat composer is NOT an approved code-task field: typing a follow-up
+        // must never invalidate a pinned, already-reviewed diff or change its scope.
+        val scopedCodingTask = EditText(this).apply {
+            hint = "Code change under review (independent of the main chat)"
+            setText(prompt.text.toString().trim())
+            minLines = 2
+            setSingleLine(false)
+        }
+        root.addView(scopedCodingTask)
         val codingFeedback = feedback()
-        val patchWorkbench = PatchWorkbench.attach(this, root, prompt, key, provider, model, githubToken,
-            codingFeedback.first, codingFeedback.second) { health.getInt("confirmed_version", -1) == currentCode }
+        val patchWorkbench = PatchWorkbench.attach(this, root, scopedCodingTask, key, provider, model, githubToken,
+            codingFeedback.first, codingFeedback.second,
+            { health.getInt("confirmed_version", -1) == currentCode },
+            { update -> output.text = update })
         addFeedback(codingFeedback)
         patchPreview = patchWorkbench
         val planningStart = root.childCount
+        // Task-plan drafts are distinct from conversational follow-ups. The
+        // planning workbench watches its goal field and invalidates coding reviews
+        // on plan edits; it must never watch every message typed into chat.
+        val scopedPlanGoal = EditText(this).apply {
+            hint = "Development-plan goal (independent of the main chat)"
+            minLines = 2
+            setSingleLine(false)
+        }
+        root.addView(scopedPlanGoal)
         val planningFeedback = feedback()
-        TaskPlanningWorkbench.attach(this, root, prompt, githubToken, planningFeedback.first, planningFeedback.second, patchWorkbench)
+        TaskPlanningWorkbench.attach(this, root, scopedPlanGoal, githubToken,
+            planningFeedback.first, planningFeedback.second, patchWorkbench)
         addFeedback(planningFeedback)
         val repairStart = root.childCount
         val repairFeedback = feedback()
@@ -593,7 +614,21 @@ class MainActivity : Activity() {
                 val staged = patchWorkbench.importChatProposal(taskText, summary, edits, commitSha)
                 if (staged) revealImportedReview?.invoke()
                 staged
-            })
+            }, requestDeveloperRepair = {
+                val started = patchWorkbench.prepareDeveloperRepair()
+                if (started) revealImportedReview?.invoke()
+                started
+            }, requestDeveloperBuild = { patchWorkbench.refreshDeveloperCi() },
+            saveDeveloperTask = { patchWorkbench.saveDeveloperBookmark() },
+            readSavedDeveloperBuild = { patchWorkbench.readSavedDeveloperBuild() },
+            approveDeveloperDiff = { fingerprint -> patchWorkbench.approveDeveloperDiff(fingerprint) },
+            showDeveloperDiff = { patchWorkbench.showDeveloperDiff() },
+            continueDeveloperPlan = { id, description, paths, base ->
+                val started = patchWorkbench.continueDeveloperPlan(id, description, paths, base)
+                if (started) revealImportedReview?.invoke()
+                started
+            }, currentDeveloperCommit = { patchWorkbench.currentDeveloperCommit() },
+            mayReadSavedCompletion = { patchWorkbench.mayReadSavedCompletion() })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

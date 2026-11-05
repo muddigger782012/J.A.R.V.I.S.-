@@ -35,7 +35,7 @@ internal class ProjectGenerationDiscussion private constructor(
         } })
 
     companion object {
-        const val MAX_TURNS = 3
+        const val MAX_TURNS = 5
         const val MAX_BYTES = 10_000
         private const val MAX_REQUEST_BYTES = 800
         private const val MAX_REPLY_BYTES = 1_600

@@ -52,6 +52,10 @@ class PatchWorkbenchRecoveryAndroidTest {
         var afterProposal: (() -> Unit)? = null
         var writes = 0
         var successfulWrite = false
+        val chatUpdates = mutableListOf<String>()
+        var ciReads = 0
+        var ciStatus = PatchPublisher.CiStatus(PatchPublisher.CiState.MISSING)
+        var ciUnavailable = false
         var engineeringRecoveries = 0
         val engineeringDirectory = java.io.File(temporary.newFolder(), "inbox")
         fun inbox() = DevelopmentJobInbox(engineeringDirectory)
@@ -116,7 +120,12 @@ class PatchWorkbenchRecoveryAndroidTest {
                             PatchEngine.branchName(proposal), proposal.diff, request.baseBranch, request.target)
                     }
                 },
-                ci = { _, _ -> error("CI must remain an explicit later action") },
+                ci = { _, result ->
+                    ciReads++
+                    assertEquals(created, result.commitSha)
+                    if (ciUnavailable) error("private CI transport response")
+                    ciStatus
+                },
                 feedback = { _, result, cancellation ->
                     feedbacks++
                     feedbackTokens += cancellation
@@ -147,7 +156,7 @@ class PatchWorkbenchRecoveryAndroidTest {
                         BuildDiagnostics.parse(entry.commitSha, entry.branch, 23, 1, "completed", "failure", "", entry.target)
                     }, worker = { pending.add(it) }),
                 inbox = { inbox() }, engineeringRecovery = { engineeringRecoveries++ },
-                worker = { pending.add(it) }
+                worker = { pending.add(it) }, chatStatus = { chatUpdates.add(it) }
             )
             handle = PatchWorkbench.attach(activity, root, task,
                 EditText(activity).apply { setText("simulated-provider-key") }, provider,
@@ -188,6 +197,124 @@ class PatchWorkbenchRecoveryAndroidTest {
             check(inbox().finishAnalysis(inbox().claimAnalysis(job, true)!!, plan))
             return inbox().stageEngineering(job, 2, listOf(path), true)
         }
+    }
+
+    @Test fun exactTaskCIIsReportedBackToChatWithoutImplyingSignedPublication() {
+        val h = Harness()
+        try {
+            h.successfulWrite = true
+            h.ciStatus = PatchPublisher.CiStatus(PatchPublisher.CiState.PASSED)
+            h.preview()
+            assertEquals(1, h.chatUpdates.size)
+            assertTrue(h.chatUpdates.last().contains("Diff ready"))
+            h.approval.isChecked = true
+            h.button("Create task branch").performClick(); h.finish()
+            assertEquals(2, h.chatUpdates.size)
+            assertTrue(h.chatUpdates.last().contains("Commit: " + created.take(12)))
+            assertTrue(h.chatUpdates.last().contains("CI: passed"))
+            assertTrue(h.chatUpdates.last().contains("NOT published"))
+            assertEquals(1, h.writes)
+        } finally { h.close() }
+    }
+
+    @Test fun mismatchedFailedCIIsNotShownAsVerifiedInChat() {
+        val h = Harness()
+        try {
+            h.successfulWrite = true
+            h.ciStatus = PatchPublisher.CiStatus(PatchPublisher.CiState.FAILED,
+                "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/99", "failure")
+            h.preview(); h.approval.isChecked = true
+            h.button("Create task branch").performClick(); h.finish()
+            assertEquals(2, h.chatUpdates.size)
+            assertTrue(h.chatUpdates.last().contains("failure evidence unverified"))
+            assertFalse(h.chatUpdates.last().contains("private"))
+            assertTrue(h.chatUpdates.last().contains("NOT published"))
+            assertEquals(1, h.writes)
+        } finally { h.close() }
+    }
+
+    @Test fun anApprovedCommitReadsExactCiOnceAndNeverGrantsFurtherWriteApproval() {
+        for (state in listOf(PatchPublisher.CiState.PASSED, PatchPublisher.CiState.FAILED,
+                PatchPublisher.CiState.RUNNING, PatchPublisher.CiState.QUEUED, PatchPublisher.CiState.MISSING)) {
+            val h = Harness()
+            try {
+                h.successfulWrite = true
+                h.ciStatus = PatchPublisher.CiStatus(state,
+                    if (state == PatchPublisher.CiState.MISSING) null
+                    else "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/123",
+                    if (state == PatchPublisher.CiState.FAILED) "failure" else null)
+                h.preview(); h.approval.isChecked = true
+                h.button("Create task branch").performClick(); h.finish()
+                assertEquals(1, h.writes)
+                assertEquals(1, h.ciReads)
+                assertEquals(1, h.providers)
+                assertTrue(h.output.text.contains("CI status:"))
+                assertFalse(h.approval.isEnabled)
+                assertFalse(h.approval.isChecked)
+                assertTrue(h.button("Check CI").isEnabled)
+                if (state == PatchPublisher.CiState.MISSING) assertTrue(h.status.text.contains("no matching CI"))
+                if (state == PatchPublisher.CiState.FAILED) assertTrue(h.status.text.contains("CI failed"))
+            } finally { h.close() }
+        }
+    }
+
+    @Test fun failedCiAutomaticallyShowsOnlyMatchingBoundedEvidenceWithNoAdditionalWrite() {
+        val h = Harness()
+        try {
+            h.successfulWrite = true
+            h.ciStatus = PatchPublisher.CiStatus(PatchPublisher.CiState.FAILED,
+                "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/23", "failure")
+            h.preview(); h.approval.isChecked = true
+            h.button("Create task branch").performClick(); h.finish()
+            assertEquals(1, h.ciReads); assertEquals(1, h.feedbacks)
+            assertEquals(1, h.writes); assertEquals(1, h.providers)
+            assertTrue(h.output.text.contains("Exact-run failure diagnostics"))
+            assertTrue(h.output.text.contains("Unresolved reference; check imports"))
+            assertTrue(h.status.text.contains("diagnostics ready"))
+            assertFalse(h.approval.isEnabled); assertFalse(h.approval.isChecked)
+            assertTrue(h.pending.isEmpty())
+        } finally { h.close() }
+    }
+
+    @Test fun failedCiWithAnotherSourceOrRunMustDiscardTheUnverifiedDiagnostics() {
+        for (mismatch in listOf("sha", "run", "report-error")) {
+            val h = Harness()
+            try {
+                h.successfulWrite = true
+                h.ciStatus = PatchPublisher.CiStatus(PatchPublisher.CiState.FAILED,
+                    "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/" +
+                        if (mismatch == "run") "99" else "23", "failure")
+                if (mismatch == "sha") h.wrongFeedback = 2
+                if (mismatch == "report-error") h.feedbackFailure =
+                    BuildFeedback.Failure(BuildFeedback.Stage.LOG_READ, BuildFeedback.Problem.HTTP, 403)
+                h.preview(); h.approval.isChecked = true
+                h.button("Create task branch").performClick(); h.finish()
+                assertEquals(1, h.ciReads); assertEquals(1, h.feedbacks)
+                assertEquals(1, h.writes); assertEquals(1, h.providers)
+                assertTrue(h.output.text.contains("details could not be verified"))
+                assertFalse(h.output.text.contains("Unresolved reference; check imports"))
+                assertFalse(h.output.text.contains("HTTP 403"))
+                assertFalse(h.approval.isEnabled)
+                assertTrue(h.button("Read exact task build").isEnabled)
+            } finally { h.close() }
+        }
+    }
+
+    @Test fun ciTransportFailureCannotUndoRecordedCommitOrInventPassingTests() {
+        val h = Harness()
+        try {
+            h.successfulWrite = true
+            h.ciUnavailable = true
+            h.preview(); h.approval.isChecked = true
+            h.button("Create task branch").performClick(); h.finish()
+            assertEquals(1, h.writes)
+            assertEquals(1, h.ciReads)
+            assertTrue(h.output.text.contains("could not be verified"))
+            assertFalse(h.output.text.contains("private CI transport"))
+            assertFalse(h.output.text.contains("debug CI passed"))
+            assertTrue(h.button("Check CI").isEnabled)
+            assertFalse(h.approval.isEnabled)
+        } finally { h.close() }
     }
 
     @Test fun anApprovedJobRecordsItsOutcomeAfterTheActivityIsDestroyed() {

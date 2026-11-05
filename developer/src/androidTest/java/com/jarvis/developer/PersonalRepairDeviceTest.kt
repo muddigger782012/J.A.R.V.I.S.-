@@ -126,7 +126,7 @@ class PersonalRepairDeviceTest {
         RepairHistoryStore(directory).save(entry)
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
             scenario.onActivity { activity ->
-                openTools(activity, "Assistant diagnostics"); noApproval(activity)
+                openTools(activity, "Code changes and review"); noApproval(activity)
                 assertFalse(button(activity, "Recheck selected saved build diagnostics (GET only)").isEnabled)
                 button(activity, "Load private repair history (local only)").performClick()
             }
@@ -153,7 +153,7 @@ class PersonalRepairDeviceTest {
             scenario.onActivity { assertTrue(button(it, "Recheck selected saved build diagnostics (GET only)").isEnabled) }
             scenario.recreate()
             scenario.onActivity { activity ->
-                openTools(activity, "Assistant diagnostics")
+                openTools(activity, "Code changes and review")
                 noApproval(activity)
                 assertFalse(button(activity, "Recheck selected saved build diagnostics (GET only)").isEnabled)
                 button(activity, "Save current verified task commit bookmark").performClick()

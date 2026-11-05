@@ -138,6 +138,50 @@ object TaskPlanner {
         return change(plan, steps, plan.paused, stepId, message, nowMillis)
     }
 
+    /**
+     * One atomic CI-backed transition for the complete owner-reviewed source scope.
+     * All implementation paths must be in ONE isolated commit and pass ONE exact
+     * workflow. Never mistake separately built sibling branches for a tested tree.
+     * The caller must independently validate the exact approved commit and CI.
+     */
+    internal fun completeVerifiedScopedBuild(plan: Plan, implementationId: String,
+        implementationEvidence: String, validationEvidence: String, nowMillis: Long): Plan {
+        validate(plan)
+        require(!plan.paused && plan.steps.none { it.status == Status.RUNNING }) {
+            "Paused or interrupted plans cannot advance"
+        }
+        require(implementationEvidence.isNotBlank() && implementationEvidence.length <= 2_000 &&
+            validationEvidence.isNotBlank() && validationEvidence.length <= 2_000)
+        safeText(implementationEvidence); safeText(validationEvidence)
+        val ready = next(plan) ?: error("No eligible source step")
+        require(ready.id == implementationId && ready.status == Status.PENDING &&
+            ready.paths.isNotEmpty()) { "Only the next eligible source scope may advance" }
+        val implementations = plan.steps.filter { it.paths.isNotEmpty() }
+        require(implementations.isNotEmpty() &&
+            implementations.all { it.status == Status.PENDING } &&
+            implementations.flatMap { it.paths }.sorted() == plan.scope.sorted()) {
+            "All implementation steps must be pending and comprise the complete reviewed scope"
+        }
+        val validation = plan.steps.singleOrNull { it.id == "validate" }
+            ?: error("Missing validation step")
+        require(validation.status == Status.PENDING && validation.paths.isEmpty() &&
+            validation.dependsOn.toSet() == implementations.map { it.id }.toSet() &&
+            validation.dependsOn.size == implementations.size) {
+            "Validation must depend on every implementation in this exact tested source tree"
+        }
+        val implementationIds = implementations.map { it.id }.toSet()
+        val updated = plan.steps.map { step -> when {
+            step.id in implementationIds -> step.copy(status = Status.DONE, checkpoint = implementationEvidence)
+            step.id == validation.id -> step.copy(status = Status.DONE, checkpoint = validationEvidence)
+            else -> step
+        } }
+        return change(plan, updated, plan.paused, implementationId,
+            "Verified exact-source debug CI completed all ${implementationIds.size} scoped " +
+                "implementation steps in one cumulative reviewed commit, with their matching " +
+                "test/lint/build validation. This is not signed production, canonical " +
+                "integration, physical-device acceptance or release approval.", nowMillis)
+    }
+
     fun editStep(plan: Plan, stepId: String, title: String, detail: String, dependsOn: List<String>, nowMillis: Long): Plan {
         validate(plan)
         require(plan.steps.any { it.id == stepId }) { "Unknown step" }

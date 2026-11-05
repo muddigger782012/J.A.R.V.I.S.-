@@ -106,6 +106,37 @@ class RepairHistoryWorkbenchAndroidTest {
         } finally { reopened.close() }
     }
 
+    @Test fun workerLaunchFailureReleasesSharedSlotWithoutChangingSavedHistory() {
+        val directory = temporary.newFolder()
+        RepairHistoryStore(directory).save(entry)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        val activity = controller.get()
+        val root = LinearLayout(activity)
+        activity.setContentView(root)
+        var started = 0
+        var finished = 0
+        val dispose = RepairHistoryWorkbench.attach(activity, root, EditText(activity),
+            { null }, { started++; true }, { finished++ },
+            RepairHistoryWorkbench.Services(directory = { directory },
+                worker = { throw IllegalStateException("executor unavailable") }))
+        try {
+            val load = (0 until root.childCount).map(root::getChildAt)
+                .filterIsInstance<Button>().single { it.text.startsWith("Load private") }
+            load.performClick()
+            assertEquals(1, started)
+            assertEquals(1, finished)
+            assertTrue(load.isEnabled)
+            assertTrue((0 until root.childCount).map(root::getChildAt)
+                .filterIsInstance<TextView>().last().text.contains("could not start"))
+            assertEquals(listOf(entry), RepairHistoryStore(directory).load())
+            assertFalse((0 until root.childCount).map(root::getChildAt)
+                .filterIsInstance<Button>().single { it.text.startsWith("Recheck selected") }.isEnabled)
+        } finally {
+            dispose()
+            controller.pause().stop().destroy()
+        }
+    }
+
     @Test fun mismatchedReportsAndTransportFailuresAreNeverRenderedOrTurnedIntoRepairs() {
         for (mismatch in 1..4) {
             val directory = temporary.newFolder()
@@ -151,7 +182,7 @@ class RepairHistoryWorkbenchAndroidTest {
         assertFalse(h.button("Recheck selected").isEnabled)
         h.button("Load private").performClick(); assertEquals(1, h.pending.size)
         h.close(); val before = h.text(); h.finish()
-        assertEquals(before, h.text()); assertEquals(1, h.finishes)
+        assertEquals(before, h.text()); assertEquals(2, h.starts); assertEquals(h.starts, h.finishes)
     }
 
     @Test fun damagedHistoryRequiresExplicitClearWithoutAutomaticReadsOrStaleSelection() {
@@ -250,7 +281,7 @@ class RepairHistoryWorkbenchAndroidTest {
             val before = h.text()
             h.finish()
             assertEquals(0, h.reads); assertEquals(before, h.text())
-            assertEquals(1, h.finishes)
+            assertEquals(2, h.starts); assertEquals(h.starts, h.finishes)
             assertEquals(listOf(entry), RepairHistoryStore(directory).load())
             assertNull(h.current)
         } finally { h.close() }

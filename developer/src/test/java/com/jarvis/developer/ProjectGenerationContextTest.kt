@@ -51,6 +51,8 @@ class ProjectGenerationContextTest {
         var reader: (String, PatchEngine.Target) -> RepositoryCodingContext.Context = { task, target -> evidence(task, target) }
         var selected = "context-project"
         var providerFailure: Exception? = null
+        var replyText = "Use the voice evidence."
+        var stagedReviews = 0
         val handle = ProjectGenerationWorkbench.attach(activity, send, cancel, provider, key, model, prompt, output, status,
             { target.selectedItemPosition }, { target }, { selected }, { selected = it }, ProjectGenerationStore(prefs), {},
             ProjectGenerationWorkbench.Services(worker = { pending.add(it) }, context = { task, product, token, apiKey, stop ->
@@ -62,14 +64,15 @@ class ProjectGenerationContextTest {
                     providerFailure?.let { throw it }
                     val response = if (provider == "Gemini") JSONObject().put("candidates", JSONArray().put(JSONObject()
                         .put("finishReason", "STOP").put("content", JSONObject().put("role", "model")
-                            .put("parts", JSONArray().put(JSONObject().put("text", "Use the voice evidence."))))))
+                            .put("parts", JSONArray().put(JSONObject().put("text", replyText))))))
                     else JSONObject().put("status", "completed").put("output", JSONArray().put(JSONObject()
                         .put("type", "message").put("role", "assistant").put("status", "completed")
-                        .put("content", JSONArray().put(JSONObject().put("type", "output_text").put("text", "Use the voice evidence.")))))
+                        .put("content", JSONArray().put(JSONObject().put("type", "output_text").put("text", replyText)))))
                     val bytes = response.toString().toByteArray()
                     CodingAssistantProvider.PostResponse(200, bytes.size.toLong(), request.url, ByteArrayInputStream(bytes))
                 }, cancellation = stop).ask(provider, apiKey, selectedModel, task, context = context)
-            }), githubToken = { readToken }, forget = forget, requestPatch = { patchMode })
+            }), githubToken = { readToken }, forget = forget, requestPatch = { patchMode },
+            stageReview = { _, _, _, _ -> stagedReviews++; true })
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = prefs.getString("project_context-project", "")!!
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
@@ -97,6 +100,89 @@ class ProjectGenerationContextTest {
             assertFalse(s.record().contains(secret)); assertFalse(s.record().contains(readToken))
             assertEquals(2, JSONObject(s.record()).getJSONObject("discussion").getJSONArray("turns").length())
             assertTrue(s.forget.isEnabled)
+        }
+    }
+
+    @Test fun explicitDeveloperChangeAutomaticallyProducesAReviewedProposalWithoutAToggle() {
+        val json = JSONObject().put("summary", "Fix Developer voice network retry")
+            .put("edits", JSONArray().put(JSONObject()
+                .put("path", path)
+                .put("content", "package com.jarvis.developer\\nclass VoiceNetwork { fun voiceLatency() = 3 }")))
+            .toString()
+        Screen(patchMode = false).use { s ->
+            s.prompt.setText("Fix Developer voice network latency")
+            s.replyText = json
+            s.send.performClick()
+            assertTrue(s.requests.isEmpty())
+            assertEquals(0, s.stagedReviews)
+            s.complete()
+            assertEquals(1, s.stagedReviews)
+            assertEquals(1, s.requests.size)
+            assertTrue(s.requests.single().toString().contains("CODE PATCH MODE"))
+            assertTrue(s.output.text.contains("staged for verified diff review"))
+            assertFalse(s.output.text.contains("Task branch committed"))
+        }
+    }
+
+    @Test fun directCodeModeFailsClosedWhenSourceCannotBeVerified() {
+        Screen(patchMode = false).use { s ->
+            s.prompt.setText("Implement Developer voice network improvements")
+            s.reader = { task, target -> RepositoryCodingContext.unavailable(task, target) }
+            s.send.performClick()
+            s.complete()
+            assertTrue(s.requests.isEmpty())
+            assertEquals(0, s.stagedReviews)
+            assertTrue(s.output.text.contains("Repository source could not be verified"))
+        }
+    }
+
+    @Test fun explanatoryQuestionsDoNotSilentlySwitchToCodeProposalMode() {
+        Screen(patchMode = false).use { s ->
+            s.prompt.setText("How would you fix Developer voice latency?")
+            s.send.performClick()
+            s.complete()
+            assertEquals(0, s.stagedReviews)
+            assertEquals(1, s.requests.size)
+            assertFalse(s.requests.single().toString().contains("CODE PATCH MODE"))
+            assertTrue(s.output.text.contains("Use the voice evidence"))
+        }
+    }
+
+    @Test fun directDeveloperCodeInstructionCannotRunAgainstPersonalTarget() {
+        Screen(patchMode = false).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("Fix Developer voice network latency")
+            s.send.performClick()
+            assertTrue(s.pending.isEmpty())
+            assertTrue(s.requests.isEmpty())
+            assertTrue(s.reads.isEmpty())
+            assertTrue(s.output.text.contains("require the Developer target"))
+        }
+    }
+
+    @Test fun successfulChatPatchIsStagedButFailedReceiptDiscardsIt() {
+        val json = JSONObject().put("summary", "Repair voice network")
+            .put("edits", JSONArray().put(JSONObject()
+                .put("path", path)
+                .put("content", "package com.jarvis.developer\\nclass VoiceNetwork { fun voiceLatency() = 3 }")))
+            .toString()
+        Screen(patchMode = true).use { s ->
+            s.replyText = json
+            s.send.performClick(); s.complete()
+            assertEquals(1, s.stagedReviews)
+            assertEquals("generated", JSONObject(s.record()).getString("state"))
+            assertTrue(s.status.text.toString().contains("staged"))
+        }
+        Screen(patchMode = true).use { s ->
+            s.replyText = json
+            s.send.performClick()
+            // Simulate a failed local receipt write after a verified AI response.
+            s.prefs.edit().putString("project_context-project", "invalid-json-receipt").commit()
+            s.complete()
+            assertEquals(0, s.stagedReviews)
+            assertTrue(s.output.text.toString().contains("could not be saved"))
+            assertTrue(s.status.text.toString().contains("not staged"))
+            assertTrue(s.send.isEnabled)
         }
     }
 

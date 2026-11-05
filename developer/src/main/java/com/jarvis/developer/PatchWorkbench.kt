@@ -14,6 +14,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
+import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 import kotlin.concurrent.thread
@@ -28,15 +29,46 @@ object PatchWorkbench {
         val commit: (String, PatchEngine.ApprovedProposal) -> PatchPublisher.CommitResult = PatchPublisher::commit,
         val inspectOutcome: (String, PatchEngine.Proposal) -> PatchPublisher.CommitResult? = PatchPublisher::inspectOutcome,
         val ci: (String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus = PatchPublisher::ci,
+        // Real builds use bounded waits; deterministic Robolectric fixtures can advance without sleeping.
+        val ciWatchPause: (Long) -> Unit = Thread::sleep,
+        // Compiler-only exact-run failures may prepare a NEW review-only
+        // patch automatically. This never approves, commits, or retries a write.
+        val autoRepairPreview: Boolean = true,
         val feedback: (String, PatchPublisher.CommitResult, PatchPreviewCancellation) -> BuildDiagnostics.Report = { token, result, cancellation ->
             BuildFeedback.read(token, result.branch, result.commitSha, result.target, cancellation)
         },
         val followUpSource: (String, PatchPublisher.CommitResult, BuildDiagnostics.Report, String, PatchPreviewCancellation) -> PersonalRepair.Review =
             RepositoryIntelligence::personalFollowUp,
         val history: RepairHistoryWorkbench.Services = RepairHistoryWorkbench.Services(),
+        val recoveryDirectory: (Activity) -> File = {
+            File(it.noBackupFilesDir.canonicalFile, "developer-commit-recovery")
+        },
         val inbox: (Activity) -> DevelopmentJobInbox = { DevelopmentJobInbox(java.io.File(it.noBackupFilesDir.canonicalFile, "development-inbox")) },
         val engineeringRecovery: (Activity) -> Unit = DevelopmentEngineeringScheduler::recover,
-        val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit }
+        // Only a verified CI result for a single scoped, approved task can
+        // complete an implementation checkpoint; this never advances release.
+        val planCheckpoint: (Activity, PatchPublisher.CommitResult, PatchPublisher.CiStatus) -> String? =
+            DeveloperPlanBuildCheckpoint::record,
+        val planRepairCheckpoint: (Activity, DeveloperPlanRepairCheckpoint.Origin,
+            PatchPublisher.CommitResult, PatchPublisher.CiStatus) -> String? =
+            DeveloperPlanRepairCheckpoint::record,
+        val rememberCommit: (Activity, PatchPublisher.CommitResult) -> Unit = { activity, result ->
+            // Validate the publisher's exact commit outcome BEFORE this call.
+            // Retain identities only; never approval or source. A death during
+            // CI polling can now be rechecked after reopening Developer.
+            if (result.target == PatchEngine.Target.DEVELOPER) {
+                DeveloperCommitRecoveryStore(recoveryDirectory(activity)).save(result)
+                RepairHistoryStore(history.directory(activity)).save(
+                    RepairHistoryStore.bookmark(result))
+            }
+        },
+        val recoverCommit: (Activity, String, PatchPreviewCancellation) -> String =
+            { activity, token, cancel ->
+                DeveloperCommitRecovery.recheck(activity, token, cancel,
+                    directory = recoveryDirectory)
+            },
+        val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit },
+        val chatStatus: (String) -> Unit = { }
     )
 
     interface RepairObserver {
@@ -54,12 +86,40 @@ object PatchWorkbench {
         private val disposeAction: () -> Unit = cancelPreviewAction,
         private val engineeringAction: (DevelopmentEngineering.Draft) -> Boolean = { false },
         private val guidedAction: (String, String, List<String>, String, PatchEngine.Target) -> Boolean = { _, _, _, _, _ -> false },
-        private val importAction: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false }
+        private val importAction: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false },
+        private val developerRepairAction: () -> Boolean = { false },
+        private val exactDeveloperCiAction: () -> Boolean = { false },
+        private val saveDeveloperBookmarkAction: () -> Boolean = { false },
+        private val readDeveloperBookmarkAction: () -> Boolean = { false },
+        private val approveDeveloperDiffAction: (String) -> Boolean = { false },
+        private val showDeveloperDiffAction: () -> String? = { null },
+        private val continueDeveloperPlanAction: (String, String, List<String>, String) -> Boolean = { _, _, _, _ -> false },
+        private val currentDeveloperCommitAction: () -> PatchPublisher.CommitResult? = { null },
+        private val mayReadSavedCompletionAction: () -> Boolean = { false }
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
             prepareAction(taskId, task, paths, baseCommitSha, baseBranch)
         fun prepareRepair(ticket: RepairEngine.Ticket, observer: RepairObserver): Boolean = repairAction(ticket, observer)
+        /** User-initiated chat/inline repair handoff: preview only, never approval or write. */
+        fun prepareDeveloperRepair(): Boolean = developerRepairAction()
+        /** User-initiated exact task CI refresh: GET-only, no provider or repository writes. */
+        fun refreshDeveloperCi(): Boolean = exactDeveloperCiAction()
+        /** Saves only commit identity, never source, credentials or approval. */
+        fun saveDeveloperBookmark(): Boolean = saveDeveloperBookmarkAction()
+        /** Explicit bounded GET-only read after Activity recreation. Never revives a writer. */
+        fun readSavedDeveloperBuild(): Boolean = readDeveloperBookmarkAction()
+        /** Explicit code-specific user authorization, not implicit chat approval. */
+        fun approveDeveloperDiff(prefix: String): Boolean = approveDeveloperDiffAction(prefix)
+        /** Returns a currently verified, complete Developer diff; no network call or write. */
+        fun showDeveloperDiff(): String? = showDeveloperDiffAction()
+        /** Exact committed Developer identity only; no saved approval or writer. */
+        fun currentDeveloperCommit(): PatchPublisher.CommitResult? = currentDeveloperCommitAction()
+        /** Fail closed while any active/uncertain source review may own the coding slot. */
+        fun mayReadSavedCompletion(): Boolean = mayReadSavedCompletionAction()
+        /** Owner-requested next plan step: source-verified preview, never an automatic write. */
+        fun continueDeveloperPlan(id: String, task: String, paths: List<String>, base: String): Boolean =
+            continueDeveloperPlanAction(id, task, paths, base)
         fun invalidate(): Boolean = invalidateAction()
         fun preparePersonal(review: PersonalRepair.Review): Boolean = personalAction(review)
         internal fun importChatProposal(task: String, summary: String, edits: List<PatchEngine.Edit>, base: String) =
@@ -83,6 +143,13 @@ object PatchWorkbench {
         status: TextView,
         canWrite: () -> Boolean
     ): Handle = attach(activity, root, task, aiKey, provider, model, githubToken, output, status, canWrite, Services())
+
+    /** Reports audited development outcomes to the primary conversation, not to a second coding engine. */
+    fun attach(activity: Activity, root: LinearLayout, task: EditText, aiKey: EditText,
+        provider: Spinner, model: EditText, githubToken: EditText, output: TextView,
+        status: TextView, canWrite: () -> Boolean, onChatStatus: (String) -> Unit): Handle =
+        attach(activity, root, task, aiKey, provider, model, githubToken, output, status,
+            canWrite, Services(chatStatus = onChatStatus))
 
     internal fun attach(
         activity: Activity, root: LinearLayout, task: EditText, aiKey: EditText,
@@ -154,6 +221,11 @@ object PatchWorkbench {
             isEnabled = false
         }
         root.addView(feedback)
+        val prepareDeveloperRepair = Button(context).apply {
+            text = "Prepare Developer repair from verified failure"
+            isEnabled = false
+        }
+        root.addView(prepareDeveloperRepair)
         val cancelRead = Button(context).apply { text = "Cancel task diagnostics / source read"; isEnabled = false }
         root.addView(cancelRead)
         root.addView(TextView(context).apply {
@@ -193,9 +265,15 @@ object PatchWorkbench {
         var proposal: PatchEngine.Proposal? = null
         var proposalMetadata: Metadata? = null
         var proposalReport: String? = null
+        var chatReviewedProposalId: String? = null
         var lastCommit: PatchPublisher.CommitResult? = null
         var interruptedAttempt: PatchEngine.Proposal? = null
         var lastFeedback: Pair<PatchPublisher.CommitResult, BuildDiagnostics.Report>? = null
+        var developerRepairCandidate: DeveloperFailureRepairDraft.Candidate? = null
+        var developerRepairEvidence: DeveloperPlanRepairCheckpoint.Origin? = null
+        var stagedRepairOrigin: DeveloperPlanRepairCheckpoint.Origin? = null
+        var committedRepairOrigin: Pair<DeveloperPlanRepairCheckpoint.Origin,
+            PatchPublisher.CommitResult>? = null
         var followUpPaths = emptyList<String>()
         var followUpReview: PersonalRepair.Review? = null
         var selectedFollowUp: String? = null
@@ -235,11 +313,43 @@ object PatchWorkbench {
             inspectOutcome.isEnabled = !busy && interruptedAttempt != null
             ci.isEnabled = !busy && lastCommit != null
             feedback.isEnabled = !busy && lastCommit != null
+            prepareDeveloperRepair.isEnabled = !busy && developerRepairCandidate != null
             followUpFile.isEnabled = !busy && followUpPaths.isNotEmpty()
             readFollowUp.isEnabled = !busy && selectedFollowUpPath() != null
             stageFollowUp.isEnabled = !busy && followUpReview != null
             openReview.isEnabled = !busy && lastCommit != null
         }
+        fun maybeAutoPrepareCompilerRepair(source: PatchPublisher.CommitResult) {
+            val candidate = developerRepairCandidate
+            val currentCommit = lastCommit
+            if (!services.autoRepairPreview || !alive() || busy ||
+                candidate == null || currentCommit == null ||
+                source.target != PatchEngine.Target.DEVELOPER ||
+                // Bounded automatic repair: only the original canonical-rooted
+                // task may stage one repair. A repair commit is based on a
+                // task branch and cannot launch a further automatic AI loop.
+                source.baseBranch != "feature/jarvis-developer" ||
+                source.taskId.startsWith("repair-") ||
+                candidate.base != source.commitSha || candidate.branch != source.branch ||
+                currentCommit.commitSha != source.commitSha ||
+                currentCommit.branch != source.branch ||
+                interruptedAttempt != null || activePreview != null ||
+                activeRead != null || activeRepair != null || activeEngineering != null) return
+            refresh()
+            if (!prepareDeveloperRepair.isEnabled) return
+            // The existing button consumes the validated compiler candidate
+            // and starts a fresh, strictly pinned review-only diff request.
+            prepareDeveloperRepair.performClick()
+            if (busy && activePreview != null) {
+                runCatching { services.chatStatus(
+                    "Exact Developer compiler failure verified. A NEW repair diff " +
+                    "preview started automatically from the failed commit's source. " +
+                    "Review the complete diff in chat; no code write, retry, " +
+                    "merge or release is approved."
+                ) }
+            }
+        }
+
         fun cancelledRead(finished: Boolean) {
             followUpReview = null
             val message = if (finished)
@@ -257,6 +367,7 @@ object PatchWorkbench {
             proposal = null
             proposalMetadata = null
             proposalReport = null
+            chatReviewedProposalId = null
             approve.isChecked = false
             if (hadPreview) {
                 review.text = "The task, model or explicit source scope changed. Generate and review a fresh diff before approving a write."
@@ -265,6 +376,7 @@ object PatchWorkbench {
             refresh()
         }
         fun setFeedbackContext(value: Pair<PatchPublisher.CommitResult, BuildDiagnostics.Report>?) {
+            developerRepairCandidate = null
             followUpReview = null
             selectedFollowUp = null
             lastFeedback = value
@@ -498,6 +610,8 @@ object PatchWorkbench {
                                 review.text = report
                                 output.text = "Scoped preview ready. Task: ${frozen.taskId}\nBase SHA: ${generated.request.baseCommitSha}\nProposal: ${generated.id}\nReview the full diff beside the approval controls."
                                 status.text = "Diff ready for explicit review; no repository write requested"
+                                runCatching { services.chatStatus(DeveloperChatBuildReceipt.preview(
+                                    generated.request.taskId, generated.edits.size, generated.id)) }
                             }
                         }
                     }
@@ -572,6 +686,16 @@ object PatchWorkbench {
                 return@setOnClickListener
             }
             val repair = activeRepair
+            // Approval applies to this exact new repair proposal only. The
+            // failed original CI context is lineage evidence, not consent.
+            val repairOrigin = stagedRepairOrigin?.takeIf { origin ->
+                selected.request.target == PatchEngine.Target.DEVELOPER &&
+                    selected.request.taskId.startsWith("repair-") &&
+                    selected.request.baseBranch == origin.original.branch &&
+                    selected.request.baseCommitSha == origin.original.commitSha
+            }
+            stagedRepairOrigin = null
+            committedRepairOrigin = null
             activeEngineering = null
             interruptedEngineering = engineeringWrite
             attemptedProposalIds.add(selected.id)
@@ -581,6 +705,7 @@ object PatchWorkbench {
             proposal = null
             proposalMetadata = null
             proposalReport = null
+            chatReviewedProposalId = null
             approve.isChecked = false
             busy = true
             refresh()
@@ -589,20 +714,120 @@ object PatchWorkbench {
                 try {
                     val result = services.commit(token, approved)
                     PatchPublisher.validateOutcome(selected, result)
+                    // Only the exact already-verified commit identity is retained:
+                    // interrupted CI polling is recoverable, old source approvals aren't.
+                    val remembered = if (result.target == PatchEngine.Target.DEVELOPER)
+                        runCatching { services.rememberCommit(activity, result) }.isSuccess
+                    else false
                     // Persist real outcomes even when Back/recreation has destroyed the UI.
                     engineeringWrite?.let { write ->
                         check(services.inbox(activity).finishEngineering(write, result))
                         services.engineeringRecovery(activity)
                     }
-                    val report = renderCommit(result, null)
+                    // Follow the exact approved task commit until CI is terminal, or the
+                    // bounded read budget is exhausted. No repair, write or release can
+                    // start from this watch; a destroyed Activity discards pending status.
+                    val checked = if (alive()) runCatching {
+                        val initial = services.ci(token, result)
+                        if (result.target != PatchEngine.Target.DEVELOPER) initial else DeveloperCiWatch.follow(
+                            initial = initial,
+                            poll = { services.ci(token, result) },
+                            active = { alive() },
+                            pause = services.ciWatchPause,
+                            onPending = { pending, read ->
+                                activity.runOnUiThread {
+                                    if (alive()) status.text =
+                                        "Task branch committed; monitoring exact-source CI " +
+                                        "(${pending.state.name.lowercase()}, check " +
+                                        "$read/${DeveloperCiWatch.MAX_READS}). No extra write."
+                                }
+                            }
+                        )
+                    }.getOrNull() else null
+                    val ciText = checked?.let(::ciSummary) ?:
+                        "CI status could not be verified for this exact commit. Use Check CI to retry the read-only lookup."
+                    val planCheckpoint = if (checked?.state == PatchPublisher.CiState.PASSED && alive())
+                        runCatching {
+                            if (repairOrigin != null)
+                                services.planRepairCheckpoint(activity, repairOrigin, result, checked)
+                            else services.planCheckpoint(activity, result, checked)
+                        }.getOrNull()
+                    else null
+                    if (checked?.state == PatchPublisher.CiState.FAILED) {
+                        activity.runOnUiThread {
+                            if (alive()) {
+                                status.text = "Task branch committed; checking bounded failure evidence for the exact CI run."
+                                output.text = commitAudit(result) + "\n" + ciText + "\nReading failure details; no repair or additional write."
+                            }
+                        }
+                    }
+                    val failureReport = if (checked?.state == PatchPublisher.CiState.FAILED && alive()) {
+                        runCatching {
+                            val cancellation = PatchPreviewCancellation()
+                            val evidence = services.feedback(token, result, cancellation)
+                            BuildDiagnostics.validateReport(evidence)
+                            require(evidence.target == result.target && evidence.branch == result.branch &&
+                                evidence.commitSha == result.commitSha && evidence.status == "completed" &&
+                                evidence.conclusion == checked.conclusion && evidence.conclusion != "success")
+                            // A later workflow attempt must not be mistaken for the CI run just checked.
+                            require(checked.runUrl != null &&
+                                evidence.runUrl.startsWith(checked.runUrl + "/attempts/"))
+                            evidence
+                        }.getOrNull()
+                    } else null
+                    val repairDraft = if (checked != null && failureReport != null)
+                        runCatching { DeveloperFailureRepairDraft.from(result, checked, failureReport) }.getOrNull()
+                    else null
+                    val repairHint = if (checked?.state != PatchPublisher.CiState.FAILED) "" else
+                        if (repairDraft != null)
+                            "\n\nCompiler-only follow-up verified. A new pinned-source diff " +
+                                "will be prepared for your review when the coding slot is free; " +
+                                "no prior approval is reused or source write retried."
+                        else "\n\nNo source-scoped compiler repair could be safely inferred. " +
+                            "Review the verified tests/infrastructure diagnostics before starting another task."
+                    val failureText = if (checked?.state != PatchPublisher.CiState.FAILED) "" else
+                        if (failureReport != null)
+                            "\n\nExact-run failure diagnostics (untrusted build evidence):\n" +
+                                BuildDiagnostics.render(failureReport) +
+                                "\nNo repair, provider request, source write or retry was started."
+                        else "\n\nFailed build details could not be verified for this CI run. " +
+                            "Use Read exact task build to retry the bounded diagnostic read. " +
+                            "No repair or source write was started."
+                    val report = renderCommit(result, checked) +
+                        (if (checked == null) "\n\n$ciText" else "") + failureText + repairHint
                     activity.runOnUiThread {
                         if (alive()) {
                             lastCommit = result
+                            developerRepairCandidate = repairDraft
+                            developerRepairEvidence = if (repairDraft != null && checked != null && failureReport != null)
+                                DeveloperPlanRepairCheckpoint.Origin(result, checked, failureReport)
+                            else null
+                            committedRepairOrigin = repairOrigin?.let { it to result }
                             interruptedAttempt = null
                             interruptedEngineering = null
                             review.text = report
-                            output.text = commitAudit(result) + "\nCI has not been checked."
-                            status.text = "Task branch committed; CI status is unverified"
+                            output.text = commitAudit(result) + "\n" + ciText + failureText + repairHint +
+                                planCheckpoint?.let { "\n\n$it" }.orEmpty()
+                            runCatching { services.chatStatus(DeveloperChatBuildReceipt.commit(
+                                result, checked, failureReport, repairDraft != null) +
+                                planCheckpoint?.let { "\n\n$it" }.orEmpty() +
+                                if (result.target != PatchEngine.Target.DEVELOPER) ""
+                                else if (remembered)
+                                    "\n\nRead-only commit identity saved for recovery after restart. " +
+                                        "Say 'Check saved Developer build' to recheck exact CI. " +
+                                        "No write permission was saved."
+                                else "\n\nAutomatic recovery bookmark was NOT saved. " +
+                                    "Check private storage and GitHub manually.") }
+                            status.text = when (checked?.state) {
+                                PatchPublisher.CiState.PASSED -> "Task branch committed; exact-source debug CI passed"
+                                PatchPublisher.CiState.FAILED -> if (failureReport != null)
+                                    "Task branch committed; exact-run failure diagnostics ready for review."
+                                else "Task branch committed; CI failed, but detailed evidence remains unverified."
+                                PatchPublisher.CiState.RUNNING -> "Task branch committed; CI running. Use Check CI to refresh."
+                                PatchPublisher.CiState.QUEUED -> "Task branch committed; CI queued. Use Check CI to refresh."
+                                PatchPublisher.CiState.MISSING -> "Task branch committed; no matching CI run yet. No tests are assumed."
+                                null -> "Task branch committed; CI lookup unavailable. Commit recorded; tests unverified."
+                            }
                             repair?.let { pair ->
                                 activeRepair = null
                                 closeRepairContext()
@@ -628,12 +853,19 @@ object PatchWorkbench {
                                 "\n\nCOMMIT ATTEMPT STOPPED\n$detail\nApproval was consumed. Use Verify interrupted commit outcome for a read-only check of this exact proposal, or inspect GitHub manually. Rollback is not assumed and no retry will run automatically."
                             output.text = "Task: ${selected.request.taskId}\nBase SHA: ${selected.request.baseCommitSha}\nProposal: ${selected.id}\nExpected branch: ${PatchEngine.branchName(selected)}\n$detail\nApproval consumed; inspect GitHub before a new attempt."
                             status.text = "Commit stopped; review the recorded outcome before proceeding"
+                            runCatching { services.chatStatus(DeveloperChatBuildReceipt.uncertain()) }
                             failRepair(repair, "commit")
                         }
                     }
                 } finally {
                     activity.runOnUiThread {
-                        if (alive()) { busy = false; refresh() }
+                        if (alive()) {
+                            busy = false
+                            refresh()
+                            // No second source write: prepare only a new, review-only
+                            // proposal when this exact committed run has compiler evidence.
+                            lastCommit?.let(::maybeAutoPrepareCompilerRepair)
+                        }
                     }
                 }
             }
@@ -795,55 +1027,221 @@ object PatchWorkbench {
             }
         }
 
-        ci.setOnClickListener {
-            val result = lastCommit ?: return@setOnClickListener
-            if (busy) return@setOnClickListener
-            setFeedbackContext(null)
+        // Reused by the explicit Check CI button and the primary chat command.
+        // A task may have been QUEUED/MISSING at the one-time post-commit lookup,
+        // so subsequent owner-requested checks must be able to refresh the exact run.
+        fun startExactCiCheck(): Boolean {
+            val result = lastCommit ?: return false
+            if (busy || !alive()) return false
             val token = githubToken.text.toString().trim()
             if (token.isBlank()) {
-                status.text = "Enter an in-memory GitHub token to check this exact task commit."
-                return@setOnClickListener
+                status.text = "Enter a GitHub token to verify this exact task CI. No read was started."
+                return false
             }
-            // Checking a build replaces any later preview, so its old approval is invalidated.
+            setFeedbackContext(null)
+            // A CI check invalidates an uncommitted preview; it cannot reuse approval.
             failRepair(activeRepair, "approval")
             invalidate()
             busy = true
             refresh()
-            review.text = renderCommit(result, null) + "\n\nChecking the exact commit's current CI status…"
-            status.text = "Checking CI for ${result.commitSha}"
-            services.worker {
-                try {
-                    val build = services.ci(token, result)
-                    activity.runOnUiThread {
-                        if (alive()) {
-                            review.text = renderCommit(result, build)
-                            output.text = commitAudit(result) + "\n" + ciSummary(build)
-                            status.text = when (build.state) {
-                                PatchPublisher.CiState.PASSED -> "Exact task commit: debug CI passed"
-                                PatchPublisher.CiState.FAILED -> "Exact task commit: CI failed or did not succeed"
-                                PatchPublisher.CiState.MISSING -> "No matching CI run found for the exact task commit"
-                                PatchPublisher.CiState.QUEUED -> "Exact task commit: CI queued"
-                                PatchPublisher.CiState.RUNNING -> "Exact task commit: CI running"
+            review.text = renderCommit(result, null) + "\n\nReading current CI for this exact task commit."
+            status.text = "Checking exact task CI status; no provider or source write"
+            val launched = runCatching {
+                services.worker {
+                    try {
+                        val checked = services.ci(token, result)
+                        // A failed result is evidence of failure, not necessarily proof that
+                        // the logs belong to this particular attempt or commit.
+                        val failureReport = if (checked.state == PatchPublisher.CiState.FAILED)
+                            runCatching {
+                                val evidence = services.feedback(token, result, PatchPreviewCancellation())
+                                BuildDiagnostics.validateReport(evidence)
+                                require(evidence.target == result.target &&
+                                    evidence.branch == result.branch &&
+                                    evidence.commitSha == result.commitSha &&
+                                    evidence.status == "completed" &&
+                                    checked.conclusion == evidence.conclusion &&
+                                    evidence.conclusion != "success" &&
+                                    checked.runUrl != null &&
+                                    evidence.runUrl.startsWith(checked.runUrl + "/attempts/"))
+                                evidence
+                            }.getOrNull()
+                        else null
+                        val candidate = if (failureReport != null)
+                            runCatching {
+                                DeveloperFailureRepairDraft.from(result, checked, failureReport)
+                            }.getOrNull()
+                        else null
+                        val receipt = DeveloperChatBuildReceipt.commit(result, checked, failureReport,
+                            candidate != null)
+                        val planCheckpoint = if (checked.state == PatchPublisher.CiState.PASSED && alive())
+                            runCatching {
+                                val lineage = committedRepairOrigin?.takeIf { it.second == result }?.first
+                                if (lineage != null)
+                                    services.planRepairCheckpoint(activity, lineage, result, checked)
+                                else services.planCheckpoint(activity, result, checked)
+                            }.getOrNull()
+                        else null
+                        activity.runOnUiThread {
+                            if (alive()) {
+                                developerRepairCandidate = candidate
+                                developerRepairEvidence = if (candidate != null && failureReport != null)
+                                    DeveloperPlanRepairCheckpoint.Origin(result, checked, failureReport)
+                                else null
+                                val diagnostics = failureReport?.let {
+                                    "\n\nVerified exact-run diagnostics:\n" + BuildDiagnostics.render(it)
+                                } ?: if (checked.state == PatchPublisher.CiState.FAILED)
+                                    "\n\nDetailed build evidence could not be verified for this run."
+                                else ""
+                                review.text = renderCommit(result, checked) + diagnostics
+                                output.text = commitAudit(result) + "\n" + ciSummary(checked) + diagnostics +
+                                    planCheckpoint?.let { "\n\n$it" }.orEmpty()
+                                runCatching { services.chatStatus(receipt +
+                                    planCheckpoint?.let { "\n\n$it" }.orEmpty()) }
+                                status.text = when (checked.state) {
+                                    PatchPublisher.CiState.PASSED -> "Exact task debug CI passed; signed release not verified"
+                                    PatchPublisher.CiState.FAILED -> if (failureReport != null)
+                                        "Exact task CI failed; bounded verified diagnostics available"
+                                    else "Exact task CI failed; detailed evidence remains unverified"
+                                    PatchPublisher.CiState.MISSING -> "No matching exact-task CI run found yet"
+                                    PatchPublisher.CiState.QUEUED -> "Exact task CI queued; check again later"
+                                    PatchPublisher.CiState.RUNNING -> "Exact task CI running; check again later"
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {
+                        activity.runOnUiThread {
+                            if (alive()) {
+                                review.text = renderCommit(result, null) +
+                                    "\n\nCI status could not be verified. Check GitHub access and retry this read."
+                                output.text = commitAudit(result) + "\nCI status unverified."
+                                runCatching {
+                                    services.chatStatus(DeveloperChatBuildReceipt.commit(result, null, null, false))
+                                }
+                                status.text = "CI remains unverified for the exact task commit"
+                            }
+                        }
+                    } finally {
+                        activity.runOnUiThread {
+                            if (alive()) {
+                                busy = false
+                                refresh()
+                                // The original CI watch may have ended before a long
+                                // Android workflow completed. A later exact-run refresh
+                                // can still prepare the new compiler-only review diff.
+                                maybeAutoPrepareCompilerRepair(result)
                             }
                         }
                     }
-                } catch (_: Exception) {
+                }
+            }.isSuccess
+            if (!launched) {
+                busy = false
+                refresh()
+                status.text = "CI worker could not start. No source change or retry occurred."
+            }
+            return launched
+        }
+        ci.setOnClickListener { startExactCiCheck() }
+        fun saveDeveloperTaskBookmark(): Boolean {
+            val result = lastCommit?.takeIf { it.target == PatchEngine.Target.DEVELOPER } ?: return false
+            if (busy || !alive()) return false
+            val bookmark = runCatching { RepairHistoryStore.bookmark(result) }.getOrNull() ?: return false
+            busy = true
+            refresh()
+            val started = runCatching {
+                services.worker {
+                    // The owner explicitly requested this local write. Never save
+                    // source, diff, token or approval, even if the Activity dies.
+                    val saved = runCatching {
+                        RepairHistoryStore(services.history.directory(activity)).save(bookmark)
+                    }.isSuccess
                     activity.runOnUiThread {
                         if (alive()) {
-                            review.text = renderCommit(result, null) +
-                                "\n\nCI status could not be verified. Check GitHub access and retry the read-only status check."
-                            output.text = commitAudit(result) +
-                                "\nCI status could not be verified. Check GitHub access and retry the read-only status check."
-                            status.text = "CI status remains unverified for ${result.commitSha}"
+                            val message = if (saved)
+                                "Developer task bookmark saved privately (branch + commit only). " +
+                                    "After reopening Developer, say 'Check saved Developer build' " +
+                                    "to read its exact CI evidence. No approval or write access was saved."
+                            else "Developer task bookmark could not be saved. No persistence or " +
+                                "future recovery has been assumed; check private storage."
+                            runCatching { services.chatStatus(message) }
+                            status.text = if (saved) "Developer task bookmark saved; no build or release action"
+                                else "Developer task bookmark save failed"
+                            busy = false
+                            refresh()
                         }
                     }
-                } finally {
+                }
+            }.isSuccess
+            if (!started) {
+                busy = false
+                refresh()
+                status.text = "Bookmark worker could not start. No bookmark was assumed saved."
+            }
+            return started
+        }
+
+        fun readSavedDeveloperBuild(): Boolean {
+            if (busy || !alive()) return false
+            val cancellation = PatchPreviewCancellation()
+            val token = githubToken.text.toString().trim()
+            activeRead = cancellation
+            busy = true
+            refresh()
+            status.text = "Rechecking saved Developer commit identity and exact CI; no source write"
+            val started = runCatching {
+                services.worker {
+                    val message = runCatching {
+                        cancellation.check()
+                        val committed = DeveloperCommitRecoveryStore(
+                            services.recoveryDirectory(activity)).load()
+                        cancellation.check()
+                        if (committed.isNotEmpty()) {
+                            // This recovered identity can only READ GitHub; fresh
+                            // exact CI and the persisted plan determine checkpoints.
+                            return@runCatching services.recoverCommit(activity, token, cancellation)
+                        }
+                        val bookmark = RepairHistoryStore(services.history.directory(activity))
+                            .load().firstOrNull { it.target == PatchEngine.Target.DEVELOPER }
+                            ?: return@runCatching "No explicitly saved Developer task bookmark is available. " +
+                                "Finish an approved task and say 'Save Developer task' before restarting. " +
+                                "No CI, source or installation result was inferred."
+                        RepairHistoryStore.validate(bookmark)
+                        cancellation.check()
+                        val evidence = services.history.feedback(token, bookmark, cancellation)
+                        cancellation.check()
+                        BuildDiagnostics.validateReport(evidence)
+                        require(evidence.target == bookmark.target &&
+                            evidence.branch == bookmark.branch &&
+                            evidence.commitSha == bookmark.commitSha)
+                        DeveloperSavedBuildReceipt.render(bookmark, evidence)
+                    }.getOrElse {
+                        "Saved Developer task build could not be verified. " +
+                            "The bookmark is not proof of an approved change or a successful build. " +
+                            "Check GitHub access or saved history; no source write or retry was started."
+                    }
                     activity.runOnUiThread {
-                        if (alive()) { busy = false; refresh() }
+                        if (alive()) {
+                            if (!cancellation.isCancelled) {
+                                runCatching { services.chatStatus(message) }
+                                status.text = "Saved Developer build read complete; no approval restored"
+                            } else status.text = "Saved build read cancelled; evidence discarded"
+                            activeRead = null
+                            busy = false
+                            refresh()
+                        }
                     }
                 }
+            }.isSuccess
+            if (!started) {
+                activeRead = null
+                busy = false
+                refresh()
+                status.text = "Saved build reader could not start. No result was inferred."
             }
+            return started
         }
+
         fun prepareInputs(id: String, description: String, paths: List<String>, base: String,
             sourceBranch: String, target: PatchEngine.Target = PatchEngine.Target.DEVELOPER): Boolean {
             val safe = id.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,47}")) &&
@@ -878,6 +1276,40 @@ object PatchWorkbench {
             refresh()
             return true
         }
+        fun startDeveloperRepair(): Boolean {
+            val candidate = developerRepairCandidate ?: return false
+            val committed = lastCommit
+            if (!alive() || busy || committed == null ||
+                committed.commitSha != candidate.base || committed.branch != candidate.branch) {
+                developerRepairCandidate = null
+                status.text = "Failed-build context changed. Re-read the exact task evidence before preparing a repair."
+                refresh()
+                return false
+            }
+            val taskId = "repair-" + UUID.randomUUID().toString().replace("-", "").take(16)
+            if (!prepareInputs(taskId, candidate.task, candidate.paths, candidate.base, candidate.branch)) {
+                status.text = "Repair could not be prepared from the pinned source. No new approval or write occurred."
+                return false
+            }
+            stagedRepairOrigin = developerRepairEvidence?.takeIf {
+                it.original == committed && it.original.commitSha == candidate.base &&
+                    it.original.branch == candidate.branch
+            }
+            developerRepairCandidate = null
+            developerRepairEvidence = null
+            // A user-initiated button or explicit chat request is a preview action only.
+            // The failed build's consumed approval cannot authorize a second Git write.
+            preview.performClick()
+            val started = busy && activePreview != null
+            if (started) status.text = "Reading failed Developer source and requesting a NEW bounded repair diff. No write authorized."
+            else {
+                stagedRepairOrigin = null
+                status.text = "Repair preview could not be started. No approval or source write occurred."
+            }
+            refresh()
+            return started
+        }
+        prepareDeveloperRepair.setOnClickListener { startDeveloperRepair() }
         stageFollowUp.setOnClickListener {
             val selected = followUpReview ?: return@setOnClickListener
             val sourceContext = lastFeedback ?: return@setOnClickListener
@@ -908,6 +1340,54 @@ object PatchWorkbench {
                     true
                 }
             }, end = { busy = false; refresh() }, services = services.history)
+
+        fun showDeveloperDiffInChat(): String? {
+            val selected = proposal ?: return null
+            if (!alive() || busy || selected.request.target != PatchEngine.Target.DEVELOPER ||
+                !current()) return null
+            val complete = proposalReport ?: return null
+            // Only a currently source-verified complete diff can be exposed.
+            // Its exact fingerprint is now eligible for a distinct explicit chat approval.
+            chatReviewedProposalId = selected.id
+            return complete + "\n\nFor this exact reviewed diff only, type: Approve Developer diff " +
+                selected.id.take(16) +
+                "\nThis does not merge, publish a signed update, or install an APK."
+        }
+
+        fun continueDeveloperPlanStep(id: String, description: String, paths: List<String>, base: String): Boolean {
+            // Do not replace an unreviewed, approved or uncertain in-session diff
+            // merely because the owner asked which local plan step is next.
+            if (!alive() || busy || proposal != null || interruptedAttempt != null || activeRead != null ||
+                activePreview != null || activeRepair != null || activeEngineering != null) return false
+            if (!prepareInputs(id, description, paths, base, "feature/jarvis-developer")) return false
+            preview.performClick()
+            return busy && activePreview != null
+        }
+
+        fun approveDeveloperDiffFromChat(prefix: String): Boolean {
+            val selected = proposal ?: return false
+            // A typed fingerprint must bind to the exact, current complete diff.
+            // There is no chat-side AI interpretation of permission and no reused approval.
+            if (!alive() || busy || selected.request.target != PatchEngine.Target.DEVELOPER ||
+                !DeveloperDiffApprovalCommand.matches(prefix, selected.id) ||
+                chatReviewedProposalId != selected.id ||
+                !current() || !canWrite() || githubToken.text.toString().trim().isEmpty()) return false
+            approve.isChecked = true
+            refresh()
+            if (!commit.isEnabled) {
+                approve.isChecked = false
+                refresh()
+                return false
+            }
+            // Delegate to existing exact-SHA approval, audit and one-attempt commit.
+            commit.performClick()
+            val started = busy && selected.id in attemptedProposalIds
+            if (!started && !busy) {
+                approve.isChecked = false
+                refresh()
+            }
+            return started
+        }
 
         return Handle(prepareAction = { id, description, paths, base, branch -> prepareInputs(id, description, paths, base, branch) }, repairAction = { ticket, observer ->
             if (prepareInputs(ticket.taskId, ticket.task, ticket.scope, ticket.baseCommitSha, ticket.baseBranch)) {
@@ -944,13 +1424,39 @@ object PatchWorkbench {
             else {
                 val id = "chat-" + UUID.randomUUID().toString().replace("-", "").take(16)
                 val ready = prepareInputs(id, taskText, edits.map { it.path }, base, "feature/jarvis-developer")
-                if (ready) {
+                if (!ready) false else {
+                    // The owner already requested this proposal in chat. Preparing its
+                    // exact diff is read-only and needs no additional menu action or AI call.
+                    // The existing checkbox and commit button still require a separate
+                    // explicit approval before any repository write.
                     chatImport = summary to edits.map { it.copy() }
-                    status.text = "Chat replacement contents staged. Generate a verified diff; no second AI call is required."
+                    preview.performClick()
+                    val started = busy && activePreview != null
+                    if (!started) {
+                        chatImport = null
+                        status.text = "Chat proposal could not start the pinned source validation. Review the source connection and retry; no repository write or approval occurred."
+                    }
+                    started
                 }
-                ready
             }
-        }, engineeringAction = { draft ->
+        }, developerRepairAction = ::startDeveloperRepair,
+            exactDeveloperCiAction = {
+                lastCommit?.target == PatchEngine.Target.DEVELOPER && startExactCiCheck()
+            }, saveDeveloperBookmarkAction = ::saveDeveloperTaskBookmark,
+            readDeveloperBookmarkAction = ::readSavedDeveloperBuild,
+            approveDeveloperDiffAction = ::approveDeveloperDiffFromChat,
+            showDeveloperDiffAction = ::showDeveloperDiffInChat,
+            continueDeveloperPlanAction = ::continueDeveloperPlanStep,
+            currentDeveloperCommitAction = {
+                lastCommit?.takeIf { it.target == PatchEngine.Target.DEVELOPER &&
+                    !busy && proposal == null && interruptedAttempt == null && alive() }
+            },
+            mayReadSavedCompletionAction = {
+                alive() && !busy && proposal == null && interruptedAttempt == null &&
+                    activePreview == null && activeRead == null && activeRepair == null &&
+                    activeEngineering == null && interruptedEngineering == null
+            },
+            engineeringAction = { draft ->
             if (prepareInputs(draft.taskId, draft.task, draft.paths, draft.base, draft.branch, draft.target)) {
                 activeEngineering = draft
                 status.text = "Assistant job staged. Generate and approve its exact diff; progress will be recorded in the development inbox."

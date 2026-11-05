@@ -11,10 +11,10 @@ class ProjectGenerationDiscussionTest {
         var history = empty()
         repeat(6) { index -> history = history.append("Owner task $index", "AI suggestion $index", emptyList()) }
         val items = history.data().getJSONArray("turns")
-        assertEquals(3, items.length()); assertEquals("Owner task 3", items.getJSONObject(0).getString("ownerRequest"))
+        assertEquals(5, items.length()); assertEquals("Owner task 1", items.getJSONObject(0).getString("ownerRequest"))
         val lookup = history.lookupTask("What about tests?")
         assertTrue(lookup.startsWith("What about tests?")); assertTrue(lookup.contains("Owner task 5"))
-        assertFalse(lookup.contains("AI suggestion")); assertFalse(lookup.contains("Owner task 2"))
+        assertFalse(lookup.contains("AI suggestion")); assertFalse(lookup.contains("Owner task 0"))
         assertTrue(history.lookupTask("x".repeat(4_000)).length <= 4_000)
     }
 

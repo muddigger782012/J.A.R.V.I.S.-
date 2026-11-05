@@ -300,9 +300,26 @@ object RepositoryAnalysis {
             else -> 0.0
         }
         val priority = sourcePriority(path)
-        val supportWeight = when (priority) { 3 -> 0.25; 2 -> 0.65; else -> 1.0 }
-        // Test filenames share generic words such as "test" with diagnostic requests. Reserve
-        // the bounded read session for production evidence before supporting examples/docs.
+        // Only an explicitly requested *document kind* merits elevation.
+        // Generic shared labels ("developer", "plan", "intelligence") occur
+        // across many documents; boosting them crowds actual app entry points
+        // out of the bounded final plan. E.g. a request for the roadmap should
+        // prioritize ROADMAP.md, but not every Developer planning document.
+        val documentKinds = setOf("roadmap", "readme", "requirements", "specification",
+            "architecture", "manual", "guide", "design")
+        val directDocumentName = priority == 2 &&
+            terms(name).intersect(query.primary).any { it in documentKinds }
+        // Documentation is ordinarily supporting evidence, but an explicitly
+        // task-named roadmap/plan is primary evidence of that request. Newly
+        // added Developer plan sources must not crowd it out of the GET budget.
+        // Content is still retrieved and verified before it can enter the plan.
+        val supportWeight = when {
+            priority == 3 -> 0.25
+            directDocumentName -> 4.0
+            priority == 2 -> 0.65
+            else -> 1.0
+        }
+        // Test filenames share generic words such as "test" with diagnostic requests.
         return (pathScore(path, query) + if (priority < 2) entryPoint else 0.0) * supportWeight
     }
     private fun document(source: SourceFile, text: String): Document {
@@ -330,8 +347,20 @@ object RepositoryAnalysis {
         val declarations = doc.symbols.flatMap { terms(it.name) }.toSet()
         val raw = direct.size * 7.0 + semantic.size * 1.2 + pathScore(doc.source.path, query) +
             declarations.intersect(query.primary).size * 4.0 + declarations.intersect(query.expanded).size
-        // Quoted requests in tests/docs are useful supporting evidence but must not crowd out code.
-        val multiplier = if (doc.source.path.endsWith(".md")) 0.7 else if ("/test/" in doc.source.path || "/androidTest/" in doc.source.path) 0.35 else 1.0
+        // General docs and copied requests remain supporting evidence. A
+        // directly named document is different: when source text also matches
+        // the task, its content must not vanish behind many generic plan files.
+        val documentKinds = setOf("roadmap", "readme", "requirements", "specification",
+            "architecture", "manual", "guide", "design")
+        val namedDocument = doc.source.path.endsWith(".md") &&
+            terms(doc.source.path.substringAfterLast('/').substringBeforeLast('.'))
+                .intersect(query.primary).any { it in documentKinds }
+        val multiplier = when {
+            namedDocument -> 1.5
+            doc.source.path.endsWith(".md") -> 0.5
+            "/test/" in doc.source.path || "/androidTest/" in doc.source.path -> 0.35
+            else -> 1.0
+        }
         return raw * multiplier
     }
 

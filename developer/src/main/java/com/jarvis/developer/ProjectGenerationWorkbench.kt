@@ -13,7 +13,13 @@ internal object ProjectGenerationWorkbench {
     internal class Services(
         val worker: (() -> Unit) -> Unit = { work -> thread(name = "DeveloperCodingAssistant", isDaemon = true) { work() }; Unit },
         val ask: (String, String, String, String, PatchPreviewCancellation, RepositoryCodingContext.Context) -> String = CodingAssistantProvider::ask,
-        val context: (String, PatchEngine.Target, String, String, PatchPreviewCancellation) -> RepositoryCodingContext.Context = RepositoryIntelligence::codingContext
+        val context: (String, PatchEngine.Target, String, String, PatchPreviewCancellation) -> RepositoryCodingContext.Context = RepositoryIntelligence::codingContext,
+        val progress: (Activity) -> String = DeveloperProgressReport::read,
+        val nextPlan: (Activity) -> DeveloperPlanContinuation.Suggestion = DeveloperPlanContinuation::suggest,
+        val planAnalysis: DeveloperPlanAnalysisReview = DeveloperPlanAnalysisReview(),
+        val completion: DeveloperPlanCompletionReview = DeveloperPlanCompletionReview(),
+        val savedCompletion: DeveloperSavedCompletionReview = DeveloperSavedCompletionReview(),
+        val ci: (String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus = PatchPublisher::ci
     )
     class Handle internal constructor(private val stop: (Boolean) -> Unit) {
         fun cancel() = stop(false)
@@ -24,9 +30,19 @@ internal object ProjectGenerationWorkbench {
         selected: () -> String?, select: (String) -> Unit, store: ProjectGenerationStore,
         changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }, forget: Button? = null,
         requestPatch: () -> Boolean = { false },
-        stageReview: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false }): Handle {
+        stageReview: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false },
+        requestDeveloperRepair: () -> Boolean = { false },
+        requestDeveloperBuild: () -> Boolean = { false },
+        saveDeveloperTask: () -> Boolean = { false },
+        readSavedDeveloperBuild: () -> Boolean = { false },
+        approveDeveloperDiff: (String) -> Boolean = { false },
+        showDeveloperDiff: () -> String? = { null },
+        continueDeveloperPlan: (String, String, List<String>, String) -> Boolean = { _, _, _, _ -> false },
+        currentDeveloperCommit: () -> PatchPublisher.CommitResult? = { null },
+        mayReadSavedCompletion: () -> Boolean = { false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
+        var localProgressRead: PatchPreviewCancellation? = null
         var disposed = false
         fun inputs(enabled: Boolean) {
             listOf(send, provider, key, model, prompt).forEach { it.isEnabled = enabled }
@@ -38,6 +54,16 @@ internal object ProjectGenerationWorkbench {
         fun current(run: Running) = alive() && running === run && !run.cancellation.isCancelled
         fun stop(interrupted: Boolean) {
             if (interrupted) disposed = true
+            val read = localProgressRead
+            if (read != null) {
+                localProgressRead = null
+                read.cancel()
+                if (alive()) {
+                    inputs(true)
+                    status.text = "Local development progress read cancelled. No task or approval was changed."
+                }
+                return
+            }
             val run = running ?: return
             running = null; run.cancellation.cancel()
             val result = store.finish(run.ticket, if (interrupted) "generation_interrupted" else "generation_cancelled")
@@ -59,7 +85,7 @@ internal object ProjectGenerationWorkbench {
                 else R.string.project_generation_discussion_clear_failed)
         }
         send.setOnClickListener {
-            if (!alive() || running != null) return@setOnClickListener
+            if (!alive() || running != null || localProgressRead != null) return@setOnClickListener
             val task = prompt.text.toString().trim()
             if (task.isEmpty()) { status.setText(R.string.project_generation_describe); prompt.requestFocus(); return@setOnClickListener }
             val secret = key.text.toString().trim()
@@ -67,9 +93,344 @@ internal object ProjectGenerationWorkbench {
             if ((secret.isNotEmpty() && task.contains(secret)) || (readToken.isNotEmpty() && task.contains(readToken))) {
                 status.setText(R.string.project_generation_remove_key); return@setOnClickListener
             }
-            val wantsPatch = requestPatch()
+            // Full exact-diff review is read directly from verified in-memory proposal
+            // state. The chat provider, saved discussion, and GitHub are not touched.
+            if (DeveloperDiffChatCommand.isRequest(task)) {
+                if (target() != 0) {
+                    output.text = "Developer code review is not available for the Personal Jarvis target."
+                    status.text = "No Developer diff was exposed or approved."
+                } else {
+                    val report = runCatching { showDeveloperDiff() }.getOrNull()
+                    output.text = report ?: "No complete, current, source-verified Developer diff is ready. " +
+                        "Generate a scoped code proposal first; no approval or write occurred."
+                    status.text = if (report != null)
+                        "Full source-verified Developer diff displayed for explicit chat review. No write started."
+                    else "No current Developer diff available for chat review."
+                }
+                return@setOnClickListener
+            }
+            // Only a complete owner-typed 16-hex proposal fingerprint can approve a
+            // new isolated task-branch write. Partial commands are refused locally.
+            if (DeveloperDiffApprovalCommand.isAttempt(task)) {
+                val prefix = DeveloperDiffApprovalCommand.parse(task)
+                if (target() != 0) {
+                    output.text = "Developer diff approval is unavailable for the Personal Jarvis target."
+                    status.text = "No Developer source write started."
+                } else if (prefix == null) {
+                    output.text = "First type Show Developer diff and review the full change, " +
+                        "then send exactly: Approve Developer diff. Extra text cannot authorize a write."
+                    status.text = "Invalid exact Developer approval command."
+                } else {
+                    val started = runCatching { approveDeveloperDiff(prefix) }.getOrDefault(false)
+                    output.text = if (started)
+                        "Exact Developer diff approved. Creating only its isolated task branch. " +
+                            "CI results will appear separately. No merge, signed update or installation was approved."
+                    else "Approval refused: the fingerprint is not the currently reviewed, unconsumed " +
+                        "source-verified Developer diff, or the commit gate is unavailable. No write started."
+                    status.text = if (started) "Exact user-approved task branch commit started."
+                        else "Developer diff approval refused; review current pinned proposal."
+                }
+                return@setOnClickListener
+            }
+            val savedBuildCommand = DeveloperSavedBuildChatCommand.match(task)
+            if (savedBuildCommand != null) {
+                if (target() != 0) {
+                    output.text = "Developer task history is unavailable for the Personal Jarvis target."
+                    status.text = "No Developer history operation was started."
+                } else {
+                    val started = runCatching {
+                        when (savedBuildCommand) {
+                            DeveloperSavedBuildChatCommand.Action.SAVE -> saveDeveloperTask()
+                            DeveloperSavedBuildChatCommand.Action.READ -> readSavedDeveloperBuild()
+                        }
+                    }.getOrDefault(false)
+                    output.text = if (started)
+                        if (savedBuildCommand == DeveloperSavedBuildChatCommand.Action.SAVE)
+                            "Saving only the current verified Developer task's branch and commit " +
+                                "in private local history. No credentials, code or approval are saved."
+                        else "Reading the latest explicitly saved Developer task's exact CI evidence. " +
+                            "This cannot restore approval or start a source write."
+                    else "No eligible Developer task or saved history operation is ready. " +
+                        "No approval, source change, or passing CI was assumed."
+                    status.text = if (started) "Developer history operation started from chat"
+                        else "Developer history operation not started"
+                }
+                return@setOnClickListener
+            }
+            // Read-only exact-task CI follow-up. A queued first lookup can be refreshed
+            // from chat without another menu, model call or source write.
+            if (DeveloperBuildChatCommand.isRequest(task)) {
+                if (target() != 0) {
+                    output.text = "Developer build checks are unavailable for the Personal Jarvis target."
+                    status.text = "Switch to Developer to inspect a Developer task's build."
+                } else {
+                    val started = runCatching { requestDeveloperBuild() }.getOrDefault(false)
+                    output.text = if (started)
+                        "Checking the exact Developer task commit's current CI status. " +
+                            "Results and any verified failure diagnostics will appear here. " +
+                            "No AI request or source write was started."
+                    else "No completed Developer task commit is available for a build check, " +
+                        "or its GitHub connection is unavailable. No CI result was assumed."
+                    status.text = if (started) "Exact Developer task CI read started from chat."
+                        else "Developer build check not started; no source or approval changed."
+                }
+                return@setOnClickListener
+            }
+            // Direct, narrowly matched chat repair request. No stored discussion, AI
+            // request, or write is initiated here. A separate source-verified build
+            // failure must already exist in PatchWorkbench before any preview starts.
+            if (DeveloperRepairChatCommand.isRequest(task)) {
+                if (target() != 0) {
+                    output.text = "Developer compiler repair is not available for the Personal Jarvis target."
+                    status.text = "Switch to Developer before requesting a Developer repair; no work started."
+                } else {
+                    val started = runCatching { requestDeveloperRepair() }.getOrDefault(false)
+                    output.text = if (started)
+                        "Preparing a NEW pinned-source repair diff below this chat. " +
+                            "Review every change and explicitly approve it before any source write. " +
+                            "No prior approval was transferred."
+                    else "No verified, in-scope Developer compiler failure is ready for a repair. " +
+                        "Review the exact task's build evidence before requesting a new repair. " +
+                        "No provider request, approval or source write was started."
+                    status.text = if (started) "Developer repair preparation started from chat; exact diff review pending."
+                        else "Chat repair unavailable: a verified failed Developer source build is required."
+                }
+                return@setOnClickListener
+            }
+            // A direct chat request for progress reads only verified local storage.
+            // It never starts the AI provider, changes task checkpoints, or grants approval.
+            if (DeveloperProgressReport.isRequest(task)) {
+                val cancellation = PatchPreviewCancellation()
+                localProgressRead = cancellation
+                inputs(false)
+                status.text = "Reading local development plans and jobs; no network or source write."
+                val work: () -> Unit = {
+                    val report = runCatching {
+                        cancellation.check()
+                        services.progress(activity).also { cancellation.check() }
+                    }
+                    activity.runOnUiThread {
+                        if (!alive() || localProgressRead !== cancellation || cancellation.isCancelled) return@runOnUiThread
+                        localProgressRead = null
+                        inputs(true)
+                        report.onSuccess {
+                            output.text = it
+                            status.text = "Read-only local development progress loaded. CI and installed APK are not inferred."
+                        }.onFailure {
+                            output.text = "Saved development status could not be verified. No empty-progress fallback was used."
+                            status.text = "Local progress read failed. Repair storage or inspect Track; no records were changed."
+                        }
+                    }
+                }
+                runCatching { services.worker(work) }.onFailure {
+                    cancellation.cancel()
+                    localProgressRead = null
+                    inputs(true)
+                    status.text = "Local progress worker could not start; no records were changed."
+                }
+                return@setOnClickListener
+            }
+            // A separately requested, fully displayed metadata review is a prerequisite
+            // for the first local analysis checkpoint. Confirmation marks only that
+            // user-reported checkpoint; it cannot approve source edits or tests.
+            if (DeveloperPlanAnalysisChatCommand.match(task) != null) {
+                if (target() != 0) {
+                    output.text = "Developer plan analysis review is unavailable for Personal Jarvis."
+                    status.text = "No Developer plan or source operation started."
+                } else {
+                    val operation = DeveloperPlanAnalysisChatCommand.match(task)!!
+                    if (operation == DeveloperPlanAnalysisChatCommand.Action.REVIEW) {
+                        output.text = runCatching { services.planAnalysis.review(activity) }.getOrElse {
+                            "Developer plan metadata could not be verified. No checkpoint was changed."
+                        }
+                        status.text = "Developer plan analysis metadata reviewed locally; no plan status changed."
+                    } else {
+                        // A successful owner analysis approval is enough to prepare a
+                        // fresh, review-only code proposal. Avoid a redundant second
+                        // "Continue" command, but never reuse this approval for writes.
+                        val confirmation = runCatching {
+                            services.planAnalysis.confirmWithReceipt(activity)
+                        }.getOrElse {
+                            DeveloperPlanAnalysisReview.Confirmation(
+                                "Developer plan checkpoint could not be saved. No source preview or write started.")
+                        }
+                        val handoff = confirmation.planId?.let { approvedPlan ->
+                            val suggestion = runCatching { services.nextPlan(activity) }.getOrNull()
+                            val packet = suggestion?.packet
+                            if (packet == null || packet.planId != approvedPlan)
+                                "The just-approved plan's exact next step is unavailable or a different plan is selected. " +
+                                    "Use Continue Developer plan after reviewing the saved state. No source preview was started."
+                            else if (runCatching {
+                                    continueDeveloperPlan(packet.id, packet.task, packet.paths, packet.base)
+                                }.getOrDefault(false))
+                                "Fresh source-verified Developer diff preview STARTED automatically for " +
+                                    "the approved plan. Review the complete diff in chat before a separate " +
+                                    "Approve Developer diff command. No source write is approved."
+                            else
+                                "Analysis was saved, but a coding review or preview is already active, or " +
+                                    "the source-preparation gate is unavailable. No previous proposal was replaced. " +
+                                    "Use Continue Developer plan when the coding slot is clear."
+                        }.orEmpty()
+                        output.text = confirmation.message +
+                            if (handoff.isEmpty()) "" else "\n\n$handoff"
+                        status.text = if (handoff.contains("STARTED automatically"))
+                            "Plan analysis saved; read-only Developer code preview started."
+                        else "Plan analysis result recorded; no automatic code write."
+                    }
+                }
+                return@setOnClickListener
+            }
+            // Final review is a separate exact-commit CI read plus the owner's
+            // explicit confirmation of the displayed local completion evidence.
+            // It has no merge, signing, publishing or installation capability.
+            val finalAction = DeveloperPlanCompletionChatCommand.match(task)
+            if (finalAction != null) {
+                if (target() != 0) {
+                    output.text = "Developer completion review is unavailable for Personal Jarvis."
+                    status.text = "No review or source operation started."
+                    return@setOnClickListener
+                }
+                val commit = runCatching { currentDeveloperCommit() }.getOrNull()
+                if (commit == null && !runCatching { mayReadSavedCompletion() }.getOrDefault(false)) {
+                    output.text = "Saved completion review is unavailable while another coding " +
+                        "preview, operation, or uncertain commit owns the Developer session. " +
+                        "Finish or recover that operation before reviewing saved CI."
+                    status.text = "Saved completion review blocked by active coding state."
+                    return@setOnClickListener
+                }
+                if (readToken.isBlank()) {
+                    output.text = "A GitHub token is needed for the exact-source CI read. " +
+                        "No completion or release was assumed."
+                    status.text = "Developer review requires a current CI read."
+                    return@setOnClickListener
+                }
+                val cancellation = PatchPreviewCancellation()
+                val projectAtStart = selected()
+                localProgressRead = cancellation
+                inputs(false)
+                status.text = "Reading exact-task CI and local final review evidence; no source write."
+                val work: () -> Unit = {
+                    val response = runCatching {
+                        cancellation.check()
+                        if (commit == null) {
+                            // After restart, a bookmark is NOT a recovered writer or
+                            // consent. Re-read and fully validate its exact CI and
+                            // current persisted plan before arming new local review.
+                            if (finalAction == DeveloperPlanCompletionChatCommand.Action.REVIEW)
+                                services.savedCompletion.prepare(activity, readToken, cancellation)
+                            else services.savedCompletion.confirm(activity, readToken, cancellation)
+                        } else {
+                            val checked = services.ci(readToken, commit)
+                            cancellation.check()
+                            if (finalAction == DeveloperPlanCompletionChatCommand.Action.REVIEW)
+                                services.completion.prepare(activity, commit, checked)
+                            else services.completion.confirm(activity, commit, checked)
+                        }
+                    }
+                    activity.runOnUiThread {
+                        if (!alive() || localProgressRead !== cancellation || cancellation.isCancelled) return@runOnUiThread
+                        localProgressRead = null
+                        inputs(true)
+                        if (target() != 0 || selected() != projectAtStart) {
+                            output.text = "Project or target changed; late completion evidence discarded."
+                            status.text = "No completion status assumed."
+                        } else response.onSuccess { value ->
+                            when (value) {
+                                is DeveloperPlanCompletionReview.Prepared -> {
+                                    output.text = value.text
+                                    services.completion.arm(value)
+                                    status.text = "Current exact-source CI and review displayed; " +
+                                        "no final checkpoint marked complete."
+                                }
+                                is DeveloperSavedCompletionReview.Prepared -> {
+                                    output.text = value.text
+                                    services.savedCompletion.arm(value)
+                                    status.text = "Saved Developer commit reverified against CI; " +
+                                        "no former approval was restored."
+                                }
+                                is String -> {
+                                    output.text = value
+                                    status.text = "Developer final review result recorded; no release requested."
+                                }
+                            }
+                        }.onFailure {
+                            output.text = "Completion review requires a still-current source-scoped " +
+                                "plan and passing exact-commit CI. No milestone was marked complete."
+                            status.text = "Developer completion review not verified."
+                        }
+                    }
+                }
+                runCatching { services.worker(work) }.onFailure {
+                    cancellation.cancel()
+                    localProgressRead = null
+                    inputs(true)
+                    status.text = "Completion review worker unavailable; no completion assumed."
+                }
+                return@setOnClickListener
+            }
+            // Continue the newest persisted task plan from its next eligible checkpoint.
+            // Source inspection/model calls remain in the existing pinned preview engine.
+            // No dependency or user-reported acceptance checkpoint is auto-completed.
+            if (DeveloperPlanContinueChatCommand.isRequest(task)) {
+                if (target() != 0) {
+                    output.text = "Developer plan continuation is unavailable for Personal Jarvis."
+                    status.text = "No Developer plan or source operation started."
+                    return@setOnClickListener
+                }
+                val projectAtStart = selected()
+                val cancellation = PatchPreviewCancellation()
+                localProgressRead = cancellation
+                inputs(false)
+                status.text = "Reading private Developer plan checkpoints; no source write."
+                val work: () -> Unit = {
+                    val suggestion = runCatching {
+                        cancellation.check()
+                        services.nextPlan(activity).also { cancellation.check() }
+                    }
+                    activity.runOnUiThread {
+                        if (!alive() || localProgressRead !== cancellation || cancellation.isCancelled) return@runOnUiThread
+                        localProgressRead = null
+                        inputs(true)
+                        if (target() != 0 || selected() != projectAtStart) {
+                            output.text = "The selected project or product changed. Stale plan continuation discarded."
+                            status.text = "No plan staged or source changed."
+                        } else suggestion.onSuccess { next ->
+                            val packet = next.packet
+                            val started = packet != null && runCatching {
+                                continueDeveloperPlan(packet.id, packet.task, packet.paths, packet.base)
+                            }.getOrDefault(false)
+                            output.text = next.message +
+                                if (packet == null) "" else if (started)
+                                    "\n\nFresh pinned-source diff preview STARTED for this one eligible step. " +
+                                    "Review the complete result and explicitly approve it before any write. " +
+                                    "The step remains unfinished until its checkpoint is reviewed."
+                                else "\n\nA current review or coding operation is active, or preview inputs are not available. " +
+                                    "No previous proposal was replaced and no write was made."
+                            status.text = if (started) "One eligible Developer plan step preview started."
+                                else "Local plan examined; no implementation write started."
+                        }.onFailure {
+                            output.text = "Saved Developer plan state could not be verified. Existing checkpoint files were not changed."
+                            status.text = "Plan continuation stopped: private state verification failed."
+                        }
+                    }
+                }
+                runCatching { services.worker(work) }.onFailure {
+                    cancellation.cancel()
+                    localProgressRead = null
+                    inputs(true)
+                    status.text = "Plan continuation worker unavailable; no plan or source change occurred."
+                }
+                return@setOnClickListener
+            }
+            // An explicit Developer code-change request is already authorization to
+            // ask the configured provider for a source-verified PROPOSAL, not to write.
+            // Do not require a separate hidden code-mode toggle for these requests.
+            val directCodeRequest = DeveloperCodeChangeIntent.isRequest(task)
+            val wantsPatch = requestPatch() || directCodeRequest
             if (wantsPatch && target() != 0) {
-                status.text = "Code patch proposals are limited to the Developer target."
+                status.text = "Code patch proposals are limited to the Developer target. Switch to Developer."
+                output.text = "Developer source changes require the Developer target and a verified source review. " +
+                    "No AI coding request, approval or repository write was started."
                 return@setOnClickListener
             }
             val project = selected() ?: java.util.UUID.randomUUID().toString()
@@ -114,6 +475,11 @@ internal object ProjectGenerationWorkbench {
                     }
                     val context = source.withDiscussion(instruction, discussion)
                     require(context.target == productTarget)
+                    // A longer conversation may exhaust the bounded context budget and
+                    // remove the source excerpts. Never generate a patch without them.
+                    if (wantsPatch && (!context.verified || context.paths.isEmpty())) {
+                        throw IllegalStateException("Repository source could not be verified. Connect GitHub and retry before requesting code changes.")
+                    }
                     context.data(instruction) // Context must bind to the exact provider request, including patch-mode instructions.
                     sourceSummary = context.summary()
                     activity.runOnUiThread { if (current(run)) status.text = activity.getString(
@@ -167,7 +533,12 @@ internal object ProjectGenerationWorkbench {
                             status.setText(R.string.project_generation_changed)
                         } else reply.onSuccess { text ->
                             val scope = reviewScope
-                            if (scope != null) {
+                            if (scope != null && saved != ProjectGenerationStore.Result.SAVED) {
+                                // A source-bound review must not outlive a failed local task receipt.
+                                // Discard the proposal and require a fresh, traceable request.
+                                output.text = "The generated code proposal could not be saved. Its unapproved review was discarded; retry the task. No files were changed."
+                                status.text = "Code proposal not staged: project save failed."
+                            } else if (scope != null) {
                                 val staged = stageReview(task, scope.first, scope.second, scope.third)
                                 val names = scope.second.joinToString("\n") { "• " + it.path.substringAfterLast('/') }
                                 output.text = buildString {
