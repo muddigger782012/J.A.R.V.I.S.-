@@ -366,9 +366,10 @@ class VoiceAssistantService(
         val focus = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
             .setAudioAttributes(attributes).setAcceptsDelayedFocusGain(false)
             .setOnAudioFocusChangeListener({ change ->
-                // Ducking (e.g. a notification) is not a cancelled conversation.
-                // Only permanent focus loss ends this utterance.
-                if ((change == android.media.AudioManager.AUDIOFOCUS_LOSS || change == android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) && activeSpeechPrefix == prefix) {
+                // Notifications, incoming calls and brief focus transitions
+                // must not permanently truncate a generated voice response.
+                // Only a permanent focus loss cancels this utterance.
+                if (change == android.media.AudioManager.AUDIOFOCUS_LOSS && activeSpeechPrefix == prefix) {
                     onStatus("Spoken reply interrupted by audio focus loss. The text reply remains available.")
                     tts.stop(); finishSpeech()
                 }
@@ -582,8 +583,21 @@ class VoiceAssistantService(
             stopDedicatedWakeWordEngine()
         }
         val token = wakeGeneration
+        // Provide immediate audible feedback for a genuine detected wake word,
+        // never for ordinary Live Chat capture cycles. Do not wait for seconds
+        // of offline Kokoro synthesis merely to announce the default "Yes?".
+        val acknowledged = WakeAcknowledgement.play()
+        onStatus(if (acknowledged) "Wake word detected (acknowledgment sounded)." else "Wake word detected; preparing microphone.")
         val reply = AssistantPhrasePreferences.load(context).reply(wakeReplyIndex++)
-        speak(reply, after = { if (voiceActive && commandFromWake && wakeGeneration == token) startCommandListening() })
+        if (reply.isBlank() || reply.equals("Yes?", ignoreCase = true)) {
+            mainHandler.postDelayed({
+                if (voiceActive && commandFromWake && wakeGeneration == token) startCommandListening()
+            }, if (acknowledged) 170L else 0L)
+        } else {
+            // Honor deliberately customized wake phrases without losing the
+            // fast confirmation; these phrases may take longer to synthesize.
+            speak(reply, after = { if (voiceActive && commandFromWake && wakeGeneration == token) startCommandListening() })
+        }
     }
 
     fun startWithIntroduction() {
