@@ -141,7 +141,7 @@ class LiveSpeechCapture(private val context: Context,
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                     // These documented hints are provider-dependent; watchdog behavior does not assume they work.
                     val pause = timing
-                        .getLong("speech_pause_millis", 2500L).coerceAtLeast(minimumSpeechPauseMillis).coerceIn(1000L, 10_000L)
+                        .getLong("speech_pause_millis", 1700L).coerceAtLeast(minimumSpeechPauseMillis).coerceIn(1000L, 10_000L)
                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, pause)
                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, pause)
                     VoiceRecognitionHints.apply(context, this, useProfileHints)
