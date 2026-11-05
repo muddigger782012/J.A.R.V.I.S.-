@@ -143,6 +143,16 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
                         planEvidenceCalls++
                         "Evidence recorder acknowledged exact task CI"
                     },
+                    planRepairCheckpoint = { _, origin, result, checked ->
+                        assertEquals(failedCommit, origin.original.commitSha)
+                        assertEquals(origin.original.branch, result.baseBranch)
+                        assertEquals(failedCommit, result.baseCommitSha)
+                        assertEquals(repairedCommit, result.commitSha)
+                        assertEquals(PatchPublisher.CiState.FAILED, origin.failedCi.state)
+                        assertEquals(PatchPublisher.CiState.PASSED, checked.state)
+                        planEvidenceCalls++
+                        "Evidence recorder acknowledged exact repaired task CI"
+                    },
                     feedback = { _, result, cancellation ->
                         cancellation.check(); logReads++
                         BuildDiagnostics.parse(result.commitSha, result.branch, 23, 1,
