@@ -573,7 +573,7 @@ class VoiceAssistantService(
     }
 
     private fun onWakeWordDetected() {
-        if (!voiceActive) return
+        if (!voiceActive || !wakeEnabled || commandFromWake) return
         commandFromWake = true
         fallbackErrorStreak = 0
         lastWakeEngineUsed = currentHotwordEngine
@@ -582,8 +582,14 @@ class VoiceAssistantService(
             stopDedicatedWakeWordEngine()
         }
         val token = wakeGeneration
-        val reply = AssistantPhrasePreferences.load(context).reply(wakeReplyIndex++)
-        speak(reply, after = { if (voiceActive && commandFromWake && wakeGeneration == token) startCommandListening() })
+        // Never synthesize a greeting before activating the microphone:
+        // slow Kokoro initialization made successful wake detection appear
+        // unresponsive and postponed command capture by several seconds.
+        onStatus("Hey Jarvis detected. Beep acknowledged; opening command microphone.")
+        WakeAcknowledgement.beep(context, onFailure = onStatus)
+        mainHandler.postDelayed({
+            if (voiceActive && commandFromWake && wakeGeneration == token) startCommandListening()
+        }, WakeAcknowledgement.CAPTURE_DELAY_MS)
     }
 
     fun startWithIntroduction() {
