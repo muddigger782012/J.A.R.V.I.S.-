@@ -6,7 +6,7 @@ import org.junit.Test
 class WakeStageSamplerTest {
     @Test fun decoderHotPathDoesNotWriteEveryAudioBuffer() {
         val sampler = WakeStageSampler(5_000L)
-        assertTrue(sampler.shouldWrite("sherpa-worker-before-decode-1", 100))
+        assertTrue(sampler.shouldWrite("sherpa-worker-before-decode-1", 0))
         for (n in 2..100) {
             assertFalse(sampler.shouldWrite("sherpa-worker-after-is-ready-$n-true", n * 20L))
             assertFalse(sampler.shouldWrite("sherpa-before-decode-chunk-$n", n * 20L))
