@@ -103,7 +103,7 @@ internal class DeveloperSavedCompletionReview(
                 "Reverified commit: ${bookmark.commitSha}\n" +
                 "Reviewed edit scope: ${plan.scope.joinToString(", ")}\n" +
                 "Fresh CI: ${report.runUrl} — completed/success; " +
-                    "${report.totals.tests} JUnit tests; no failures/errors.\n" +
+                    "${requireNotNull(report.totals).tests} JUnit tests; no failures/errors.\n" +
                 "This local review is NOT production signing, merge, in-app publication " +
                     "or device acceptance.\n" +
                 "Type exactly: Confirm Developer completion review " +
