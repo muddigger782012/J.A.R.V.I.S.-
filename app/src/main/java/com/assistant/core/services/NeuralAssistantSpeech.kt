@@ -27,7 +27,7 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
     private val cache = NeuralSpeechCache(File(app.cacheDir, "neural-phrases"))
 
     fun speak(text: String, voice: NeuralVoiceCatalog.Voice, done: () -> Unit, error: (String) -> Unit, cachePhrase: Boolean = false,
-              onAudio: () -> Unit = {}) {
+              onAudio: () -> Unit = {}, onProgress: () -> Unit = {}) {
         stop()
         if (closed) return
         val token = generation.get()
@@ -88,6 +88,9 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                                     main.post { if (generation.get() == token && !closed) onAudio() }
                                 }
                             })
+                            // Playback progress keeps Live Chat's stall watchdog
+                            // alive during healthy multi-minute utterances.
+                            main.post { if (generation.get() == token && !closed) onProgress() }
                         }
                     })
                     if (queuedPlayback.size >= 2) queuedPlayback.removeFirst().get()
