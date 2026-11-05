@@ -14,6 +14,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
+import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 import kotlin.concurrent.thread
@@ -60,7 +61,7 @@ object PatchWorkbench {
             }
         },
         val recoverCommit: (Activity, String, PatchPreviewCancellation) -> String =
-            DeveloperCommitRecovery::recheck,
+            { activity, token, cancel -> DeveloperCommitRecovery.recheck(activity, token, cancel) },
         val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit },
         val chatStatus: (String) -> Unit = { }
     )
