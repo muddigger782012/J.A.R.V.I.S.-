@@ -23,12 +23,13 @@ class DeveloperPlanRepairCheckpointTest {
     private val passCi = PatchPublisher.CiStatus(PatchPublisher.CiState.PASSED,
         "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/24", "success")
 
-    private data class Fixture(val store: TaskPlanStore, val activity: Activity,
+    private data class Fixture(val directory: java.io.File, val store: TaskPlanStore, val activity: Activity,
         val origin: DeveloperPlanRepairCheckpoint.Origin,
         val repaired: PatchPublisher.CommitResult)
 
     private fun fixture(): Fixture {
-        val store = TaskPlanStore(Files.createTempDirectory("developer-repair-lineage-").toFile())
+        val directory = Files.createTempDirectory("developer-repair-lineage-").toFile()
+        val store = TaskPlanStore(directory)
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val planned = TaskPlanner.Plan("original-plan", "Fix Developer latency and network",
             base, "d".repeat(64), listOf(first, second), listOf(
@@ -60,7 +61,7 @@ class DeveloperPlanRepairCheckpointTest {
             "f".repeat(64), listOf(first), failedSha, repairSha,
             PatchEngine.taskBranch(repairedId, "f".repeat(64), PatchEngine.Target.DEVELOPER),
             "Owner-reviewed repair diff", initial.branch, PatchEngine.Target.DEVELOPER)
-        return Fixture(store, activity,
+        return Fixture(directory, store, activity,
             DeveloperPlanRepairCheckpoint.Origin(initial, failCi, evidence), repaired)
     }
 
@@ -82,22 +83,24 @@ class DeveloperPlanRepairCheckpointTest {
         assertEquals("review", TaskPlanner.next(plan)?.id)
         assertNull(DeveloperPlanRepairCheckpoint.record(f.store, f.origin, f.repaired, passCi, 1003L))
         assertEquals(plan, f.store.loadAll().single())
-        val review = DeveloperPlanCompletionReview({ Files.createTempDirectory("unused-").toFile() })
-        // Without the persisted receipt, a passing repair alone is not acceptance.
-        assertThrows(IllegalArgumentException::class.java) {
-            review.prepare(f.activity, f.repaired, passCi)
-        }
+        val review = DeveloperPlanCompletionReview({ f.directory }, { 1003L })
+        val prepared = review.prepare(f.activity, f.repaired, passCi)
+        assertTrue(prepared.text.contains(repairSha))
+        assertTrue(prepared.text.contains("Original canonical source"))
+        assertEquals(TaskPlanner.Status.PENDING, f.store.loadAll().single().steps.last().status)
     }
 
     @Test fun savedExactRepairReceiptSupportsOneFreshOwnerCompletionReview() {
         val f = fixture()
         assertNotNull(DeveloperPlanRepairCheckpoint.record(f.store, f.origin, f.repaired, passCi, 1002L))
-        val directory = Files.createTempDirectory("developer-repair-review-").toFile()
-        // Rehydrate into the same filesystem root using normal plan serialization:
-        val previous = f.store.loadAll().single()
-        TaskPlanStore(directory).save(previous.copy(
-            revision = 0, decisions = listOf(TaskPlanner.Decision(1, null,
-                "Fixture copied", 1000L))), null)
+        val review = DeveloperPlanCompletionReview({ f.directory }, { 1003L })
+        assertTrue(review.confirm(f.activity, f.repaired, passCi).contains("No current"))
+        val prepared = review.prepare(f.activity, f.repaired, passCi)
+        review.arm(prepared)
+        assertTrue(review.confirm(f.activity, f.repaired, passCi)
+            .contains("final LOCAL review acknowledged"))
+        assertEquals(TaskPlanner.Status.DONE, f.store.loadAll().single().steps.last().status)
+        assertTrue(review.confirm(f.activity, f.repaired, passCi).contains("No current"))
     }
 
     @Test fun unrelatedParentOrIncorrectScopeCannotCompleteOriginalTask() {
