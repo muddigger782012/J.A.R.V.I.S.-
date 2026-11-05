@@ -31,10 +31,10 @@ internal object DeveloperPlanBuildCheckpoint {
         for (plan in plans) {
             if (plan.baseCommitSha != commit.baseCommitSha || plan.paused ||
                 plan.steps.any { it.status == TaskPlanner.Status.RUNNING }) continue
-            // Sibling isolated commits on the same canonical source do not form a
-            // cumulative tested build. Do not mark dependencies done in multi-step plans.
-            if (plan.steps.count { it.paths.isNotEmpty() } != 1 ||
-                plan.scope.sorted() != commit.paths.sorted()) continue
+            // Only one reviewed commit covering the ENTIRE planned file scope can
+            // advance multiple implementation checkpoints. Sibling isolated builds
+            // do not qualify, even when every sibling's separate CI passed.
+            if (plan.scope.sorted() != commit.paths.sorted()) continue
             val step = TaskPlanner.next(plan) ?: continue
             if (step.paths.isEmpty() || step.status != TaskPlanner.Status.PENDING) continue
             val packet = DeveloperPlanContinuation.suggest(listOf(plan)).packet ?: continue
@@ -42,8 +42,8 @@ internal object DeveloperPlanBuildCheckpoint {
                 packet.paths.sorted() != commit.paths.sorted()) continue
             val implementation = "Verified isolated Developer task commit ${commit.commitSha}; " +
                 "exact-source debug CI success: ${ci.runUrl}. " +
-                "This records scoped implementation only; not a canonical merge, " +
-                "production-signed APK, installed build, or functional acceptance."
+                "This records all planned source files in one reviewed cumulative commit; " +
+                "not a canonical merge, production-signed APK, installed build, or functional acceptance."
             val validation = "Exact-source Developer CI workflow passed automated tests, lint, " +
                 "debug APK assembly and its workflow gates for ${commit.commitSha}: ${ci.runUrl}. " +
                 "This is NOT a signed candidate, canonical merge or physical-device acceptance."
