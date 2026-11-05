@@ -4,8 +4,9 @@ import android.app.Activity
 import java.io.File
 
 /**
- * Commit+CI evidence for exactly one approved, isolated Developer
- * implementation step. This does NOT attest canonical integration, device
+ * Commit+CI evidence for one approved, isolated Developer commit covering
+ * the complete source scope (possibly several planned steps). No sibling
+ * branches are combined. This does NOT attest canonical integration, device
  * acceptance, signed release or successful deployment.
  */
 internal object DeveloperPlanBuildCheckpoint {
@@ -52,8 +53,8 @@ internal object DeveloperPlanBuildCheckpoint {
             // One atomic plan revision for both evidence-backed checkpoints:
             // a stale callback cannot leave implementation DONE but validation lost.
             store.save(updated, plan.revision)
-            return "Verified CI checkpoints recorded for ${plan.id}: scoped implementation " +
-                "${step.id} and debug-CI validation; commit ${commit.commitSha.take(12)}. " +
+            return "Verified CI checkpoints recorded for ${plan.id}: all planned implementation " +
+                "steps and debug-CI validation in one reviewed commit ${commit.commitSha.take(12)}. " +
                 "The final review, canonical merge, signing and installation remain pending."
         }
         return null
