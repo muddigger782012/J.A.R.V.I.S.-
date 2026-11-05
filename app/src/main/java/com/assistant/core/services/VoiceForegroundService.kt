@@ -129,6 +129,7 @@ class VoiceForegroundService : Service() {
                         LiveChatSession.MicrophoneTap.RESTART_LISTENING -> {
                             hybridAssistantService.cancelActiveResponse()
                             liveCapture.stop()
+                            liveFailures = 0
                             if (::voiceService.isInitialized) voiceService.stopSpeaking()
                             liveHandler.removeCallbacksAndMessages(null)
                             liveStatus(VoiceInteractionState.IDLE, "Microphone requested; listening again…")
@@ -468,7 +469,10 @@ class VoiceForegroundService : Service() {
                 }, onPhase = { phase ->
                     if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING)
                         liveStatus(phase, phase.userLabel())
-                }, minimumSpeechPauseMillis = 2800L
+                }, minimumSpeechPauseMillis = 2800L,
+                // Normal silence must not start a second system recognizer,
+                // because many Android providers chime on every startup.
+                fallbackOnSilence = false
             )
         }, delay)
     }
@@ -477,8 +481,10 @@ class VoiceForegroundService : Service() {
         if (!liveChatActive || liveSession.token != turn || liveSession.phase != LiveChatSession.Phase.LISTENING) return
         if (error == android.speech.SpeechRecognizer.ERROR_NO_MATCH || error == android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
             if (liveSession.silence(turn)) {
-                liveStatus(VoiceInteractionState.IDLE, "No final speech result. Live chat remains active; listening again…")
-                nextLiveTurn(1000L)
+                // A system recognizer may beep each time startListening() runs.
+                // Do not create an unbounded no-speech -> rearm -> beep loop.
+                liveStatus(VoiceInteractionState.IDLE,
+                    "No speech heard. Live chat is paused; tap the microphone to continue.")
             } else finishLiveChat("Live chat reached your configured inactivity limit.")
         } else {
             val message = when (error) {
@@ -489,8 +495,13 @@ class VoiceForegroundService : Service() {
             }
             if (error != android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS && liveSession.recover(turn)) {
                 liveFailures++
-                liveStatus(VoiceInteractionState.IDLE, "$message Retrying capture; live chat is still active.")
-                nextLiveTurn((1000L * liveFailures).coerceAtMost(10_000L))
+                if (LiveChatChimePolicy.afterProviderError(liveFailures) == LiveChatChimePolicy.Action.RETRY) {
+                    liveStatus(VoiceInteractionState.IDLE, "$message Trying the microphone once more.")
+                    nextLiveTurn(1500L)
+                } else {
+                    liveStatus(VoiceInteractionState.IDLE,
+                        "$message Live chat is paused to avoid repeated microphone chimes. Tap the microphone to resume.")
+                }
             } else finishLiveChat(message)
         }
     }
