@@ -105,6 +105,37 @@ class HybridAssistantService(
         return HybridAssistantReply(response.text, screenContextKey = response.contextKey)
     }
 
+    private fun responseStyleInput(input: String): HybridAssistantReply? {
+        if (!personalAssistant) return null
+        val request = CompanionResponseStyleCommands.parse(input) ?: return null
+        val context = systemService.context()
+        val response = runCatching {
+            when (request) {
+                CompanionResponseStyleCommands.Request.FEATURE_BRIEF,
+                CompanionResponseStyleCommands.Request.FEATURE_FULL -> {
+                    val brief = request == CompanionResponseStyleCommands.Request.FEATURE_BRIEF
+                    val saved = context.getSharedPreferences("jarvis_companion_response", android.content.Context.MODE_PRIVATE)
+                        .edit().putBoolean("brief_feature_notes", brief).commit()
+                    check(saved) { "Feature summary preference was not saved." }
+                    if (brief) "Saved. I'll give you the short version of new features first, including after a restart. Ask for 'full feature details' whenever you want the complete list."
+                    else "Saved. I'll include the full installed feature details by default. You can switch back to brief updates anytime."
+                }
+                else -> {
+                    val profile = AssistantPersonalityPreferences.load(context)
+                    val detail = when (request) {
+                        CompanionResponseStyleCommands.Request.GENERAL_BRIEF -> "brief"
+                        CompanionResponseStyleCommands.Request.GENERAL_DETAILED -> "detailed"
+                        else -> "balanced"
+                    }
+                    AssistantPersonalityPreferences.save(context, profile.copy(detail = detail))
+                    "Saved your ${detail} response style on this device. It will be used for future conversational replies after restart; important safety and technical details remain available when needed."
+                }
+            }
+        }.getOrElse { "I could not save that response style on this device. No preference change was confirmed." }
+        remember(input, response)
+        return HybridAssistantReply(response)
+    }
+
     private fun hostInformation(input: String): HybridAssistantReply? {
         if (!personalAssistant) return null
         // Preserve existing explicit diagnostic controls and their no-learning/no-memory contracts.
@@ -152,6 +183,7 @@ class HybridAssistantService(
     private fun handleUserInputWithinCurrentTurn(rawInput: String): HybridAssistantReply {
         val userInput = rawInput.trim()
         companionTrack(userInput)?.let { return it }
+        responseStyleInput(userInput)?.let { return it }
         handleDevelopmentInput(userInput, developmentInstallConsent.take())?.let { return HybridAssistantReply(it) }
         hostInformation(userInput)?.let { return it }
         // Execute explicit provider diagnostics locally; never ask the conversational model to simulate a test.
@@ -1309,6 +1341,7 @@ class HybridAssistantService(
 
     private fun handleUserInputWithinTurn(rawInput: String, turn: Long, callback: (HybridAssistantReply) -> Unit) {
         companionTrack(rawInput)?.let { callback(it); return }
+        responseStyleInput(rawInput)?.let { callback(it); return }
         val installationOffer = developmentInstallConsent.take()
         if (DevelopmentCommands.parse(rawInput) != null || installationOffer != null && ConfirmationWords.isConfirmation(rawInput)) {
             responseThread(turn, callback) {

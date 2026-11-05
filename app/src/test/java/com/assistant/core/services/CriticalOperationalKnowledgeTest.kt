@@ -15,8 +15,14 @@ class CriticalOperationalKnowledgeTest {
         val notes = LiveCapabilityRegistry.parseBuildNotes(text)
         assertEquals(JSONObject(text).getJSONArray("notes").length(), notes.size)
         assertTrue(notes.isNotEmpty())
-        assertTrue(LiveCapabilityRegistry.render(LiveCapabilityRegistry.Topic.FEATURES,
-            snapshot.copy(buildNotes = notes)).contains("Included build changes"))
+        val brief = LiveCapabilityRegistry.render(LiveCapabilityRegistry.Topic.FEATURES,
+            snapshot.copy(buildNotes = notes))
+        assertTrue("Default feature response should be short", brief.contains("Highlights:"))
+        assertFalse("Do not dump every build note by default", brief.contains("Included build changes"))
+        val full = LiveCapabilityRegistry.render(LiveCapabilityRegistry.Topic.FEATURES_FULL,
+            snapshot.copy(buildNotes = notes))
+        assertTrue(full.contains("Included build changes"))
+        assertTrue("Explicit full details retain every bundled note", notes.all(full::contains))
     }
     @Test fun installedBuildNotesStayBoundedByBytesCountAndSafeText() {
         fun manifest(notes: JSONArray) = JSONObject().put("schemaVersion", 1).put("notes", notes).toString()

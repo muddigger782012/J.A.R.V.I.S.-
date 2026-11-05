@@ -90,12 +90,43 @@ class PersonalFoundationAcceptanceTest {
         assertFalse(version.needsInterpretation)
         assertTrue(version.text.contains(installed.versionName.orEmpty()))
         val features = service.handleUserInput("What new features are available?")
-        assertTrue("Bundled installed-build notes were unavailable to the local feature answer", features.text.contains("Included build changes"))
+        assertTrue("Installed feature answer should be concise", features.text.contains("Highlights:"))
+        assertFalse(features.text.contains("Microphone permission:"))
+        assertTrue(features.text.length < 620)
         val screen = service.handleUserInput("Can you read my screen?")
         assertFalse(screen.needsInterpretation)
         assertTrue(screen.text.contains("includes Accessibility screen reading"))
         assertTrue(screen.text.contains("No screen content was read"))
         assertEquals(0, executions); assertEquals(0, context.activityRequests)
+    }
+
+    @Test fun personalReplyStyleCorrectionPersistsAcrossAssistantReconstruction() {
+        val service = assistant()
+        val preference = service.handleUserInput(
+            "In the future when I ask you about your new features give me the cliff notes version instead first"
+        )
+        assertFalse(preference.needsInterpretation)
+        assertTrue(preference.text, preference.text.contains("Saved."))
+        assertTrue(context.getSharedPreferences("jarvis_companion_response", Context.MODE_PRIVATE)
+            .getBoolean("brief_feature_notes", false))
+        val brief = service.handleUserInput("Keep your replies concise by default")
+        assertTrue(brief.text.contains("Saved"))
+        assertEquals("brief", AssistantPersonalityPreferences.load(context).detail)
+
+        val restarted = assistant()
+        assertEquals("brief", AssistantPersonalityPreferences.load(context).detail)
+        val summary = restarted.handleUserInput("What new features do you have to test?")
+        assertFalse(summary.needsInterpretation)
+        assertTrue(summary.text.contains("Highlights:"))
+        assertFalse(summary.text.contains("Included build changes"))
+
+        assertTrue(restarted.handleUserInput("Give me the full feature details").text.contains("Included build changes"))
+        assertTrue(restarted.handleUserInput("Give me full release updates by default").text.contains("Saved"))
+        assertFalse(context.getSharedPreferences("jarvis_companion_response", Context.MODE_PRIVATE)
+            .getBoolean("brief_feature_notes", true))
+        assertTrue(assistant().handleUserInput("What new features do you have to test?").text.contains("Included build changes"))
+        assertEquals(0, executions)
+        assertEquals(0, context.activityRequests)
     }
 
     @Test fun asynchronousSelfKnowledgeAndItsFollowUpRemainLocalAndReturnInstalledMetadata() {
