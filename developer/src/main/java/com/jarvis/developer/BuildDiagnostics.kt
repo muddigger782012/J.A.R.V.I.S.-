@@ -20,7 +20,7 @@ object BuildDiagnostics {
 
     private const val MAX_LOG = 1_048_576
     private const val MAX_LINE = 8_192
-    private const val MAX_SUMMARY = 100_000
+    private const val MAX_SUMMARY = 300_000
     private const val MAX_DIAGNOSTICS = 50
     private const val MAX_TESTS = 2_000
     private const val MARKER = "JARVIS_JUNIT_SUMMARY="
@@ -262,7 +262,7 @@ object BuildDiagnostics {
         val totals = counts(root["totals"])
         val suites = root["suites"].list()
         val cases = root["cases"].list()
-        require(suites.isNotEmpty() && suites.size <= 50 && totals.tests > 0 && cases.size <= MAX_TESTS && cases.size == totals.tests)
+        require(suites.isNotEmpty() && suites.size <= 128 && totals.tests > 0 && cases.size <= MAX_TESTS && cases.size == totals.tests)
         val expected = linkedMapOf<String, Totals>()
         for (value in suites) {
             val suite = value.map()
