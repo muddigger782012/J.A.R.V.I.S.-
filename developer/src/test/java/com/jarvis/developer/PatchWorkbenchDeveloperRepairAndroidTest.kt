@@ -251,7 +251,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
             assertEquals(0, s.planEvidenceCalls)
             assertTrue(s.queued.isEmpty())
             assertEquals(1, s.chatUpdates.count { it.contains("preview started automatically") })
-            assertTrue(s.status.text.contains("CI failed"))
+            assertTrue(s.status.text.contains("diagnostics ready"))
             assertFalse(s.approval().isEnabled)
             assertFalse(s.handle.approveDeveloperDiff(DeveloperDiffApprovalCommand.REVIEWED))
         } finally { s.close() }
