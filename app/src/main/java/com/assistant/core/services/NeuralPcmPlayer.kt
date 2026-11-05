@@ -29,23 +29,22 @@ class NeuralPcmPlayer(context: Context) {
         private val focusLost = AtomicBoolean(false)
         @Volatile private var track: AudioTrack? = null
         private var request: AudioFocusRequest? = null
-        private var rate = 0
-        private var queuedSamples = 0L
+        private val timeline = PcmPlaybackTimeline()
 
         /** Called sequentially on the dedicated playback executor. */
         fun enqueue(clip: NeuralSpeechCache.Clip, active: () -> Boolean, firstQueued: () -> Unit) {
             if (cancelled.get() || !active()) return
             val pcm = NeuralPcm.pcm16(clip.samples)
             val player = track ?: initialize(clip.sampleRate)
-            check(clip.sampleRate == rate) { "Speech sample rate changed during a reply" }
+            check(timeline.sampleRate == clip.sampleRate) { "Speech sample rate changed during a reply" }
             var offset = 0
             while (offset < pcm.size && active() && !cancelled.get()) {
                 check(!focusLost.get()) { "Speech audio focus was lost" }
                 val written = player.write(pcm, offset, minOf(2048, pcm.size - offset), AudioTrack.WRITE_BLOCKING)
                 check(written > 0) { "PCM playback write failed: $written" }
-                if (queuedSamples == 0L) firstQueued()
+                if (timeline.framesQueued == 0L) firstQueued()
                 offset += written
-                queuedSamples += written
+                timeline.accept(clip.sampleRate, written)
             }
         }
 
@@ -63,13 +62,12 @@ class NeuralPcmPlayer(context: Context) {
                 "Media audio focus was unavailable"
             }
             request = focus
-            rate = sampleRate
-            val minimum = AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_MONO,
+            val minimum = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO,
                 AudioFormat.ENCODING_PCM_16BIT)
             check(minimum > 0) { "PCM16 audio format is unavailable" }
             val output = AudioTrack.Builder()
                 .setAudioAttributes(attributes)
-                .setAudioFormat(AudioFormat.Builder().setSampleRate(rate)
+                .setAudioFormat(AudioFormat.Builder().setSampleRate(sampleRate)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
                 .setBufferSizeInBytes(maxOf(8192, minimum))
@@ -85,11 +83,11 @@ class NeuralPcmPlayer(context: Context) {
         /** Finish only after the last queued PCM frame has actually played. */
         fun drain(active: () -> Boolean) {
             val output = track ?: return
-            if (queuedSamples == 0L) return
+            if (timeline.framesQueued == 0L) return
             val deadline = SystemClock.elapsedRealtime() +
-                (queuedSamples * 1000L / rate + 10_000L).coerceAtMost(300_000L)
+                (timeline.framesQueued * 1000L / timeline.sampleRate + 10_000L).coerceAtMost(300_000L)
             while (active() && !cancelled.get() &&
-                (output.playbackHeadPosition.toLong() and 0xffffffffL) < queuedSamples) {
+                !timeline.isDrained(output.playbackHeadPosition.toLong() and 0xffffffffL)) {
                 check(!focusLost.get()) { "Speech audio focus was lost" }
                 check(SystemClock.elapsedRealtime() < deadline) { "Audio playback did not complete" }
                 Thread.sleep(15L)
