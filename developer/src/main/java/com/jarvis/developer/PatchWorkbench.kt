@@ -647,11 +647,24 @@ object PatchWorkbench {
                         check(services.inbox(activity).finishEngineering(write, result))
                         services.engineeringRecovery(activity)
                     }
-                    // After an approved, validated commit perform one exact-source CI read.
-                    // If that run failed, perform one bounded GET-only build-log read and
-                    // display its sanitized diagnostics in the same chat/review response.
-                    // Neither read can retry a write, start a repair, or restore approval.
-                    val checked = if (alive()) runCatching { services.ci(token, result) }.getOrNull() else null
+                    // Follow the exact approved task commit until CI is terminal, or the
+                    // bounded read budget is exhausted. No repair, write or release can
+                    // start from this watch; a destroyed Activity discards pending status.
+                    val checked = if (alive()) runCatching {
+                        DeveloperCiWatch.follow(
+                            initial = services.ci(token, result),
+                            poll = { services.ci(token, result) },
+                            active = { alive() },
+                            onPending = { pending, read ->
+                                activity.runOnUiThread {
+                                    if (alive()) status.text =
+                                        "Task branch committed; monitoring exact-source CI " +
+                                        "(${pending.state.name.lowercase()}, check " +
+                                        "$read/${DeveloperCiWatch.MAX_READS}). No extra write."
+                                }
+                            }
+                        )
+                    }.getOrNull() else null
                     val ciText = checked?.let(::ciSummary) ?:
                         "CI status could not be verified for this exact commit. Use Check CI to retry the read-only lookup."
                     val planCheckpoint = if (checked?.state == PatchPublisher.CiState.PASSED && alive())
