@@ -13,6 +13,15 @@ class ChatSearchResultsTest {
         assertEquals("Hello, how can I help?", ChatSearchResults.forSpeech("Hello, how can I help?"))
         assertFalse(ChatSearchResults.forSpeech("J.A.R.V.I.S.: [search-results-v1]{broken").contains("{broken"))
     }
+    @Test fun speechDoesNotEndBeforeLastVisibleSentenceOfLongSearchAnswer() {
+        val answer = "A long but relevant explanation. ".repeat(155) + "This is the final sentence."
+        val encoded = ChatSearchResults.encode("technical issue",
+            listOf(SearchRouter.Result("Guide", "Excerpt", "https://example.com/guide")), answer)
+        val spoken = ChatSearchResults.forSpeech(encoded)
+        assertTrue("Speech must retain the end of the displayed answer", spoken.endsWith("This is the final sentence."))
+        assertTrue(spoken.length > 4000)
+    }
+
     @Test fun savedChatRestoresSourceFieldsWithNewlines() {
         val item = SearchRouter.Result("A title", "Two\nparagraphs", "https://example.org/a?q=1")
         val message = ChatSearchResults.encode("diesel repair", listOf(item))
