@@ -28,4 +28,13 @@ class ChatSearchResultsTest {
         assertNull(ChatSearchResults.decode("J.A.R.V.I.S.: [search-results-v1]{"))
         assertNull(ChatSearchResults.decode("J.A.R.V.I.S.: Ordinary response"))
     }
+
+    @Test fun spokenSearchAnswersRetainTheirEndingInsteadOfCuttingOffAtFourThousandCharacters() {
+        val prose = "Opening observation. " + (1..470).joinToString(" ") { "Sentence $it explains an ordinary verified detail." } +
+            " Final diagnostic conclusion remains audible."
+        val encoded = ChatSearchResults.encode("diesel cooling system", emptyList(), prose)
+        val spoken = ChatSearchResults.forSpeech(encoded)
+        assertTrue("Expected long spoken response", spoken.length > 4000)
+        assertTrue("End of answer must not be silently deleted", spoken.contains("Final diagnostic conclusion remains audible."))
+    }
 }
