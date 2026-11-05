@@ -70,8 +70,19 @@ class VoicePlaybackUiTest {
             scenario.onActivity { player = NeuralPcmPlayer(it) }
             val queued = AtomicBoolean(false)
             val samples = FloatArray(12000) { index -> (kotlin.math.sin(index * 2.0 * Math.PI * 440 / 24000) * 0.05).toFloat() }
-            player!!.play(NeuralSpeechCache.Clip(24000, samples), active = { true }, firstQueued = { queued.set(true) })
-            assertTrue(queued.get())
+            val session = player!!.newSession()
+            try {
+                session.enqueue(NeuralSpeechCache.Clip(24000, samples), active = { true },
+                    firstQueued = { queued.set(true) })
+                // Consecutive clips must use the same Android output track and
+                // audio-focus grant without an intermediate reinitialization.
+                session.enqueue(NeuralSpeechCache.Clip(24000, samples.copyOfRange(0, 6000)),
+                    active = { true }, firstQueued = { queued.set(true) })
+                session.drain { true }
+                assertTrue(queued.get())
+            } finally {
+                session.close()
+            }
         }
     }
 }

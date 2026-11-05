@@ -69,22 +69,31 @@ class VoiceAssistantService(
     private var wakeRecoveryAttempts = 0
     private fun scheduleWakeRecovery() {
         if (!wakeEnabled || !voiceActive || commandFromWake || commandCapture.isActive || activeSpeechPrefix != null) return
-        if (sherpaWakeWordEngine?.hasStalled() == true) {
-            onStatus("The native wake decoder is unresponsive. Restart the app before retrying; a second decoder will not be opened.")
-            return
-        }
         if (wakeRecoveryAttempts >= 3) {
-            onStatus("Wake standby recovery exhausted its bounded retries. Push-to-talk remains available; review voice diagnostics.")
+            onStatus("Wake standby recovery exhausted three retries. The microphone remains available through push-to-talk.")
             return
         }
         val generation = wakeGeneration
         val delay = listOf(2000L, 5000L, 10000L)[wakeRecoveryAttempts++]
-        onStatus("Wake standby failed. Retrying initialization after releasing the previous microphone session.")
+        onStatus("Wake standby lost readiness; scheduling safe recovery after previous decoder releases.")
         mainHandler.postDelayed({
-            if (generation == wakeGeneration && voiceActive && wakeEnabled && !commandCapture.isActive && activeSpeechPrefix == null)
-                startDedicatedWakeWordEngine()
+            waitForWakeRelease(generation, polls = 0)
         }, delay)
     }
+
+    private fun waitForWakeRelease(generation: Long, polls: Int) {
+        if (generation != wakeGeneration || !voiceActive || !wakeEnabled || commandFromWake ||
+            commandCapture.isActive || activeSpeechPrefix != null) return
+        when (WakeRecoveryGuard.decision(sherpaWakeWordEngine?.hasLiveWorker() == true, polls)) {
+            WakeRecoveryGuard.Decision.RESTART -> startDedicatedWakeWordEngine()
+            WakeRecoveryGuard.Decision.WAIT -> mainHandler.postDelayed({
+                waitForWakeRelease(generation, polls + 1)
+            }, 1000L)
+            WakeRecoveryGuard.Decision.FAIL ->
+                onStatus("Wake decoder has not released its microphone after 30 seconds. Push-to-talk remains available; restart Jarvis before retrying wake standby.")
+        }
+    }
+
     private val commandCapture = LiveSpeechCapture(context)
     fun isCapturing() = commandCapture.isActive
     fun finishCapture() = commandCapture.finish()
