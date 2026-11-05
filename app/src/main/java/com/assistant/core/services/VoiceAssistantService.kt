@@ -263,6 +263,11 @@ class VoiceAssistantService(
     private var speechSequence = 0L
     private var activeSpeechPrefix: String? = null
     private var finalSpeechId: String? = null
+    @Volatile private var lastSpeechProgressElapsed: Long = 0L
+    fun lastSpeechProgressElapsed(): Long = lastSpeechProgressElapsed
+    private fun noteSpeechProgress() {
+        lastSpeechProgressElapsed = android.os.SystemClock.elapsedRealtime()
+    }
     private val audioManager by lazy { context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager }
     private var androidSpeechFocus: android.media.AudioFocusRequest? = null
     private fun releaseSpeechFocus() {
@@ -298,6 +303,7 @@ class VoiceAssistantService(
     private fun speakPrepared(text: String, channel: SpeechChannel, after: (() -> Unit)?) {
         stopSpeaking()
         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_REQUESTED)
+        noteSpeechProgress()
         observe(VoiceInteractionState.SPEAKING)
         afterSpeech = after
         activeSpeechChannel = channel
@@ -315,7 +321,11 @@ class VoiceAssistantService(
             onStatus("${voice.label} · offline Kokoro")
             val engine = neuralSpeech ?: NeuralAssistantSpeech(context).also { neuralSpeech = it }
             engine.speak(text, voice, cachePhrase = after != null,
-                onAudio = { if (activeSpeechPrefix == prefix) VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEAKING) },
+                onAudio = { if (activeSpeechPrefix == prefix) {
+                    noteSpeechProgress()
+                    VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEAKING)
+                } },
+                onProgress = { if (activeSpeechPrefix == prefix) noteSpeechProgress() },
                 done = { if (activeSpeechPrefix == prefix) finishSpeech() }, error = { failure ->
                 if (activeSpeechPrefix == prefix) {
                     VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_FAILED)
@@ -401,8 +411,11 @@ class VoiceAssistantService(
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
                     mainHandler.post {
-                        if (activeSpeechPrefix != null && utteranceId == activeSpeechPrefix + "0")
-                            VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEAKING)
+                        if (activeSpeechPrefix != null && utteranceId?.startsWith(activeSpeechPrefix!!) == true) {
+                            noteSpeechProgress()
+                            if (utteranceId == activeSpeechPrefix + "0")
+                                VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEAKING)
+                        }
                     }
                 }
                 override fun onDone(utteranceId: String?) {
