@@ -124,7 +124,7 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                 if (!active()) return@execute
                 NeuralVoiceDiagnostics.record(app, source, voice.id, "completed", firstAudioMs.get(), cacheHits)
                 terminalRecorded = true
-                main.post { if (active()) done() }
+                main.post { if (generation.get() == token && !closed) done() }
             } catch (failure: Throwable) {
                 aborted.set(true)
                 session?.cancel()
