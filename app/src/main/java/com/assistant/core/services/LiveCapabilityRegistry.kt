@@ -36,7 +36,7 @@ object LiveCapabilityRegistry {
         if (Regex("^(?:how (?:do|can|should|would)|why|what does|what do)\\b").containsMatchIn(text)) return null
         if (Regex("\\b(?:android|windows|linux|python|chrome|iphone|samsung|git)\\b").containsMatchIn(text) &&
             !Regex("\\b(?:you|your|jarvis)\\b").containsMatchIn(text)) return null
-        if (Regex("""\b(features|release notes|changelog|changes|what's new|new features)\b""").containsMatchIn(text) &&
+        if (Regex("""\b(features?|feature details|release notes|changelog|changes|what's new|new features)\b""").containsMatchIn(text) &&
             Regex("""\b(full|complete|all|detailed|in detail)\b""").containsMatchIn(text)) return Topic.FEATURES_FULL
         if (Regex("""^(?:show|read|give|list) (?:me )?(?:the )?(?:full|complete|detailed) (?:installed )?(?:release notes|changelog|feature list|changes)""").containsMatchIn(text))
             return Topic.FEATURES_FULL
