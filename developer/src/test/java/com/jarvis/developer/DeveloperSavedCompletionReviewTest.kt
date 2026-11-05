@@ -27,25 +27,34 @@ class DeveloperSavedCompletionReviewTest {
         private val commit = "c".repeat(40)
         private val proposal = "b".repeat(64)
 
-        internal fun createFixture(): Fixture {
+        internal fun createFixture(multi: Boolean = false): Fixture {
             val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
             val planDirectory = Files.createTempDirectory("saved-plan-review-").toFile()
             val historyDirectory = Files.createTempDirectory("saved-branch-review-").toFile()
             val store = TaskPlanStore(planDirectory)
+            val second = "developer/src/main/java/com/jarvis/developer/Network.kt"
+            val scope = if (multi) listOf(path, second) else listOf(path)
+            val steps = mutableListOf(
+                TaskPlanner.Step("analyze", "Analyze", "Review source", emptyList(), emptyList()),
+                TaskPlanner.Step("implement-1", "Implement", "Scoped edit", listOf(path), listOf("analyze"))
+            )
+            if (multi) steps += TaskPlanner.Step("implement-2", "Implement network",
+                "Scoped network edit", listOf(second), listOf("implement-1"))
+            steps += TaskPlanner.Step("validate", "Validate", "Automated CI", emptyList(),
+                if (multi) listOf("implement-1", "implement-2") else listOf("implement-1"))
+            steps += TaskPlanner.Step("review", "Review", "Local final review",
+                emptyList(), listOf("validate"))
             val initial = TaskPlanner.Plan("plan-saved-final", "Fix Developer latency", base,
-                "d".repeat(64), listOf(path), listOf(
-                    TaskPlanner.Step("analyze", "Analyze", "Review source", emptyList(), emptyList()),
-                    TaskPlanner.Step("implement-1", "Implement", "Scoped edit", listOf(path), listOf("analyze")),
-                    TaskPlanner.Step("validate", "Validate", "Automated CI", emptyList(), listOf("implement-1")),
-                    TaskPlanner.Step("review", "Review", "Local final review", emptyList(), listOf("validate"))
-                ), listOf(TaskPlanner.Decision(1, null, "Created source plan", 1000L)), 0L, false, 1000L)
+                "d".repeat(64), scope, steps,
+                listOf(TaskPlanner.Decision(1, null, "Created source plan", 1000L)), 0L, false, 1000L)
             store.save(initial, null)
             val accepted = TaskPlanner.transition(initial, "analyze", TaskPlanner.Status.DONE,
                 "Owner reviewed and accepted analysis", 1001L)
             store.save(accepted, 0L)
             val id = requireNotNull(DeveloperPlanContinuation.suggest(listOf(accepted)).packet).id
             val committed = PatchPublisher.CommitResult(id, "Gemini", "gemini-2.5-pro",
-                proposal, listOf(path), base, commit,
+                proposal, requireNotNull(DeveloperPlanContinuation.suggest(listOf(accepted)).packet).paths,
+                base, commit,
                 PatchEngine.taskBranch(id, proposal, PatchEngine.Target.DEVELOPER),
                 "complete reviewed patch", "feature/jarvis-developer", PatchEngine.Target.DEVELOPER)
             val ci = PatchPublisher.CiStatus(PatchPublisher.CiState.PASSED,
@@ -94,6 +103,21 @@ class DeveloperSavedCompletionReviewTest {
         assertEquals(TaskPlanner.Status.DONE, saved.steps.last().status)
         assertTrue(saved.steps.last().checkpoint.contains("no source write"))
         assertTrue(review.confirm(f.activity, "test-key", cancellation).contains("No fresh saved"))
+    }
+
+    @Test fun savedWholeScopeTwoStepCiSupportsRestartSafeChatReview() {
+        val f = createFixture(multi = true)
+        val ready = f.store.loadAll().single()
+        assertEquals(4, ready.steps.count { it.status == TaskPlanner.Status.DONE })
+        val review = newReview(f)
+        val cancellation = PatchPreviewCancellation()
+        val prepared = review.prepare(f.activity, "test-key", cancellation)
+        assertEquals(2, prepared.plan.scope.size)
+        assertTrue(prepared.text.contains("no approval restored"))
+        review.arm(prepared)
+        assertTrue(review.confirm(f.activity, "test-key", cancellation)
+            .contains("LOCAL final review acknowledged"))
+        assertEquals(TaskPlanner.Status.DONE, f.store.loadAll().single().steps.last().status)
     }
 
     @Test fun incompleteRunCannotClaimSavedTaskAcceptance() {
