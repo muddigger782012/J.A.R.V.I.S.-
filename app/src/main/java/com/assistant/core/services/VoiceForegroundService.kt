@@ -245,6 +245,12 @@ class VoiceForegroundService : Service() {
             }
             else -> {
                 if (liveChatActive || practiceToken != null) return START_NOT_STICKY
+                // A sticky process restart has a null Intent. Resume only a wake
+                // service previously enabled by the user, never invent a new session.
+                if (intent == null && !voicePreferences.isForegroundServiceRunning()) {
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
                 startVoiceForeground("Voice service is active")
                 persistStage("entered-start-command")
                 publishEvent("Foreground service entered start command.")
@@ -285,7 +291,9 @@ class VoiceForegroundService : Service() {
                         } else publishEvent("Foreground service already active. Current voice state: ${voicePhase.userLabel()}.")
                     }
                 }
-                return START_NOT_STICKY
+                // The microphone foreground service must be recreatable if Android
+                // reclaims :wake while the screen is off. Explicit STOP remains non-sticky.
+                return if (pipelineStarted) START_STICKY else START_NOT_STICKY
             }
         }
     }
@@ -448,7 +456,7 @@ class VoiceForegroundService : Service() {
                 }, onPhase = { phase ->
                     if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING)
                         liveStatus(phase, phase.userLabel())
-                }, minimumSpeechPauseMillis = 4000L
+                }, minimumSpeechPauseMillis = 1700L
             )
         }, delay)
     }
