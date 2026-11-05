@@ -22,7 +22,7 @@ class DeveloperPlanBuildCheckpointTest {
         if (multi) steps.add(TaskPlanner.Step("implement-2", "Fix network", "Second source step",
             listOf(scope.last()), listOf("implement-1")))
         steps.add(TaskPlanner.Step("validate", "Validate", "Check build", emptyList(),
-            listOf(if (multi) "implement-2" else "implement-1")))
+            if (multi) listOf("implement-1", "implement-2") else listOf("implement-1")))
         steps.add(TaskPlanner.Step("review", "Review", "Review evidence", emptyList(), listOf("validate")))
         return TaskPlanner.Plan("plan-1", "Fix Developer latency", base, "d".repeat(64), scope,
             steps, listOf(TaskPlanner.Decision(1, null, "Created read-only plan", 1000)),
@@ -40,7 +40,7 @@ class DeveloperPlanBuildCheckpointTest {
     private fun result(p: TaskPlanner.Plan): PatchPublisher.CommitResult {
         val packet = requireNotNull(DeveloperPlanContinuation.suggest(listOf(p)).packet)
         return PatchPublisher.CommitResult(packet.id, "Gemini", "gemini-2.5-pro",
-            proposal, listOf(source), base, sha,
+            proposal, packet.paths, base, sha,
             PatchEngine.taskBranch(packet.id, proposal, PatchEngine.Target.DEVELOPER),
             "complete source diff", "feature/jarvis-developer", PatchEngine.Target.DEVELOPER)
     }
@@ -124,12 +124,34 @@ class DeveloperPlanBuildCheckpointTest {
         assertEquals(TaskPlanner.Status.PENDING, storage.loadAll().single().steps[1].status)
     }
 
-    @Test fun multiStepPlanNeverTreatsSiblingBranchesAsCumulativeEvidence() {
+    @Test fun multiStepPlanNeverTreatsPartialSiblingBranchAsCumulativeEvidence() {
+        val storage = store()
+        val plan = ready(storage, multi = true)
+        val wholeScope = result(plan)
+        assertEquals(2, wholeScope.paths.size)
+        assertNull(DeveloperPlanBuildCheckpoint.record(storage,
+            wholeScope.copy(paths = listOf(source)), success, 1002))
+        assertEquals(TaskPlanner.Status.PENDING, storage.loadAll().single().steps[1].status)
+        assertEquals(TaskPlanner.Status.PENDING, storage.loadAll().single().steps[2].status)
+    }
+
+    @Test fun fullScopeMultiStepCiAtomicallyCompletesEveryImplementationAndValidation() {
         val storage = store()
         val plan = ready(storage, multi = true)
         val result = result(plan)
-        assertNull(DeveloperPlanBuildCheckpoint.record(storage, result, success, 1002))
-        assertEquals(TaskPlanner.Status.PENDING, storage.loadAll().single().steps[1].status)
+        val accepted = DeveloperPlanBuildCheckpoint.record(storage, result, success, 1002)
+        assertNotNull(accepted)
+        val persisted = storage.loadAll().single()
+        assertEquals(2L, persisted.revision)
+        assertEquals(listOf(TaskPlanner.Status.DONE, TaskPlanner.Status.DONE,
+            TaskPlanner.Status.DONE, TaskPlanner.Status.DONE, TaskPlanner.Status.PENDING),
+            persisted.steps.map { it.status })
+        assertTrue(persisted.steps[1].checkpoint.contains(sha))
+        assertTrue(persisted.steps[2].checkpoint.contains(sha))
+        assertTrue(persisted.steps[3].checkpoint.contains(success.runUrl!!))
+        assertEquals("review", TaskPlanner.next(persisted)?.id)
+        assertNull(DeveloperPlanBuildCheckpoint.record(storage, result, success, 1003))
+        assertEquals(persisted, storage.loadAll().single())
     }
 
     @Test fun noPlanOrUnapprovedAnalysisCannotBeCountedAsVerifiedWork() {
