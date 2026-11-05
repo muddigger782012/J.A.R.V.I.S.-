@@ -222,9 +222,15 @@ internal object ProjectGenerationWorkbench {
                 }
                 return@setOnClickListener
             }
-            val wantsPatch = requestPatch()
+            // An explicit Developer code-change request is already authorization to
+            // ask the configured provider for a source-verified PROPOSAL, not to write.
+            // Do not require a separate hidden code-mode toggle for these requests.
+            val directCodeRequest = DeveloperCodeChangeIntent.isRequest(task)
+            val wantsPatch = requestPatch() || directCodeRequest
             if (wantsPatch && target() != 0) {
-                status.text = "Code patch proposals are limited to the Developer target."
+                status.text = "Code patch proposals are limited to the Developer target. Switch to Developer."
+                output.text = "Developer source changes require the Developer target and a verified source review. " +
+                    "No AI coding request, approval or repository write was started."
                 return@setOnClickListener
             }
             val project = selected() ?: java.util.UUID.randomUUID().toString()

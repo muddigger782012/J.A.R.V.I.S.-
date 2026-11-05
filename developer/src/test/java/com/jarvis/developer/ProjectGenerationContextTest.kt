@@ -103,6 +103,63 @@ class ProjectGenerationContextTest {
         }
     }
 
+    @Test fun explicitDeveloperChangeAutomaticallyProducesAReviewedProposalWithoutAToggle() {
+        val json = JSONObject().put("summary", "Fix Developer voice network retry")
+            .put("edits", JSONArray().put(JSONObject()
+                .put("path", path)
+                .put("content", "package com.jarvis.developer\\nclass VoiceNetwork { fun voiceLatency() = 3 }")))
+            .toString()
+        Screen(patchMode = false).use { s ->
+            s.prompt.setText("Fix Developer voice network latency")
+            s.replyText = json
+            s.send.performClick()
+            assertTrue(s.requests.isEmpty())
+            assertEquals(0, s.stagedReviews)
+            s.complete()
+            assertEquals(1, s.stagedReviews)
+            assertEquals(1, s.requests.size)
+            assertTrue(s.requests.single().toString().contains("CODE PATCH MODE"))
+            assertTrue(s.output.text.contains("staged for verified diff review"))
+            assertFalse(s.output.text.contains("Task branch committed"))
+        }
+    }
+
+    @Test fun directCodeModeFailsClosedWhenSourceCannotBeVerified() {
+        Screen(patchMode = false).use { s ->
+            s.prompt.setText("Implement Developer voice network improvements")
+            s.reader = { task, target -> RepositoryCodingContext.unavailable(task, target) }
+            s.send.performClick()
+            s.complete()
+            assertTrue(s.requests.isEmpty())
+            assertEquals(0, s.stagedReviews)
+            assertTrue(s.output.text.contains("Repository source could not be verified"))
+        }
+    }
+
+    @Test fun explanatoryQuestionsDoNotSilentlySwitchToCodeProposalMode() {
+        Screen(patchMode = false).use { s ->
+            s.prompt.setText("How would you fix Developer voice latency?")
+            s.send.performClick()
+            s.complete()
+            assertEquals(0, s.stagedReviews)
+            assertEquals(1, s.requests.size)
+            assertFalse(s.requests.single().toString().contains("CODE PATCH MODE"))
+            assertTrue(s.output.text.contains("Use the voice evidence"))
+        }
+    }
+
+    @Test fun directDeveloperCodeInstructionCannotRunAgainstPersonalTarget() {
+        Screen(patchMode = false).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("Fix Developer voice network latency")
+            s.send.performClick()
+            assertTrue(s.pending.isEmpty())
+            assertTrue(s.requests.isEmpty())
+            assertTrue(s.reads.isEmpty())
+            assertTrue(s.output.text.contains("require the Developer target"))
+        }
+    }
+
     @Test fun successfulChatPatchIsStagedButFailedReceiptDiscardsIt() {
         val json = JSONObject().put("summary", "Repair voice network")
             .put("edits", JSONArray().put(JSONObject()
