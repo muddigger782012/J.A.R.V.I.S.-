@@ -72,6 +72,36 @@ class DeveloperPlanAnalysisReviewTest {
         assertEquals(TaskPlanner.Status.PENDING, store.loadAll().single().steps[0].status)
     }
 
+    @Test fun analysisReceiptOnlyExistsAfterExactSavedOwnerConsent() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val directory = Files.createTempDirectory("analysis-handoff-receipt-").toFile()
+        val store = TaskPlanStore(directory)
+        store.save(plan(), null)
+        val review = DeveloperPlanAnalysisReview({ directory }, { 1002L })
+        assertNull(review.confirmWithReceipt(activity).planId)
+        review.review(activity)
+        val confirmed = review.confirmWithReceipt(activity)
+        assertEquals("plan-1", confirmed.planId)
+        assertTrue(confirmed.message.contains("acknowledged and saved"))
+        assertEquals(TaskPlanner.Status.DONE, store.loadAll().single().steps[0].status)
+        assertNull(review.confirmWithReceipt(activity).planId)
+    }
+
+    @Test fun changedPlanDoesNotProduceAuthorizationReceipt() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val directory = Files.createTempDirectory("analysis-handoff-stale-").toFile()
+        val store = TaskPlanStore(directory)
+        val initial = plan()
+        store.save(initial, null)
+        val review = DeveloperPlanAnalysisReview({ directory }, { 1002L })
+        review.review(activity)
+        store.save(TaskPlanner.note(initial, "Owner changed task", 1001L), initial.revision)
+        val result = review.confirmWithReceipt(activity)
+        assertNull(result.planId)
+        assertTrue(result.message.contains("changed or could not be saved"))
+        assertEquals(TaskPlanner.Status.PENDING, store.loadAll().single().steps[0].status)
+    }
+
     @Test fun commandIsExactAndDoesNotConflateReviewWithApproval() {
         assertEquals(DeveloperPlanAnalysisChatCommand.Action.REVIEW,
             DeveloperPlanAnalysisChatCommand.match("Review Developer plan"))

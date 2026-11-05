@@ -273,7 +273,7 @@ class ProjectGenerationTest {
         }
     }
 
-    @Test fun chatCanReviewPersistApproveAnalysisThenContinueNextScopedStep() {
+    @Test fun chatCanReviewApproveAnalysisAndAutomaticallyStartNextScopedPreview() {
         val directory = java.nio.file.Files.createTempDirectory("developer-full-chat-plan-").toFile()
         val store = TaskPlanStore(directory)
         val path = "developer/src/main/java/com/jarvis/developer/VoiceLatency.kt"
@@ -315,14 +315,51 @@ class ProjectGenerationTest {
             assertTrue(s.output.text.contains("acknowledged and saved"))
             assertEquals(1L, store.loadAll().single().revision)
             assertEquals(TaskPlanner.Status.DONE, store.loadAll().single().steps[0].status)
-            s.prompt.setText("Continue Developer plan")
-            s.send.performClick()
-            assertEquals(1, s.pending.size)
-            s.complete()
+            // No second "Continue Developer plan" chat instruction: approval already
+            // authorizes read-only source proposal preparation, not a source write.
             assertEquals(1, stages)
-            assertTrue(s.output.text.contains("preview STARTED"))
+            assertTrue(s.output.text.contains("preview STARTED automatically"))
+            assertTrue(s.output.text.contains("No source write is approved"))
+            assertTrue(s.pending.isEmpty())
             assertTrue(s.prefs.all.isEmpty())
             assertEquals(TaskPlanner.Status.PENDING, store.loadAll().single().steps[1].status)
+            s.prompt.setText("Approve Developer plan analysis")
+            s.send.performClick()
+            assertTrue(s.output.text.contains("No current"))
+            assertEquals(1, stages)
+        }
+    }
+
+    @Test fun autoPreviewRejectsAnotherPlansPacketAfterOwnerAnalysisApproval() {
+        val directory = java.nio.file.Files.createTempDirectory("developer-plan-handoff-gate-").toFile()
+        val store = TaskPlanStore(directory)
+        val path = "developer/src/main/java/com/jarvis/developer/Latency.kt"
+        val plan = TaskPlanner.Plan("plan-owner", "Repair Developer latency", "a".repeat(40),
+            "b".repeat(64), listOf(path), listOf(
+                TaskPlanner.Step("analyze", "Confirm", "Review plan", emptyList(), emptyList()),
+                TaskPlanner.Step("implement-1", "Edit", "Edit source", listOf(path), listOf("analyze")),
+                TaskPlanner.Step("validate", "Validate", "Test source", emptyList(), listOf("implement-1")),
+                TaskPlanner.Step("review", "Review", "Review CI", emptyList(), listOf("validate"))
+            ), listOf(TaskPlanner.Decision(1, null, "Created plan", 1000L)),
+            0, false, 1000L)
+        store.save(plan, null)
+        val review = DeveloperPlanAnalysisReview({ directory }, { 1002L })
+        var stages = 0
+        val unrelated = DeveloperPlanContinuation.Packet(
+            "other-task-1234567890123456", "Other source change", listOf(path),
+            plan.baseCommitSha, planId = "another-plan")
+        Screen(planAnalysis = review,
+            nextPlan = { DeveloperPlanContinuation.Suggestion("Other plan", unrelated) },
+            stagePlan = { stages++; true }).use { s ->
+            s.prompt.setText("Review Developer plan")
+            s.send.performClick()
+            assertTrue(s.output.text.contains("Pinned source"))
+            s.prompt.setText("Approve Developer plan analysis")
+            s.send.performClick()
+            assertEquals(TaskPlanner.Status.DONE, store.loadAll().single().steps[0].status)
+            assertEquals(0, stages)
+            assertTrue(s.output.text.contains("different plan"))
+            assertTrue(s.output.text.contains("No source preview was started"))
         }
     }
 
