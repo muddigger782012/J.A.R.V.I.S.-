@@ -308,7 +308,7 @@ object RepositoryAnalysis {
         // Content is still retrieved and verified before it can enter the plan.
         val supportWeight = when {
             priority == 3 -> 0.25
-            directDocumentName -> 2.5
+            directDocumentName -> 4.0
             priority == 2 -> 0.65
             else -> 1.0
         }
@@ -340,8 +340,18 @@ object RepositoryAnalysis {
         val declarations = doc.symbols.flatMap { terms(it.name) }.toSet()
         val raw = direct.size * 7.0 + semantic.size * 1.2 + pathScore(doc.source.path, query) +
             declarations.intersect(query.primary).size * 4.0 + declarations.intersect(query.expanded).size
-        // Quoted requests in tests/docs are useful supporting evidence but must not crowd out code.
-        val multiplier = if (doc.source.path.endsWith(".md")) 0.7 else if ("/test/" in doc.source.path || "/androidTest/" in doc.source.path) 0.35 else 1.0
+        // General docs and copied requests remain supporting evidence. A
+        // directly named document is different: when source text also matches
+        // the task, its content must not vanish behind many generic plan files.
+        val namedDocument = doc.source.path.endsWith(".md") &&
+            terms(doc.source.path.substringAfterLast('/').substringBeforeLast('.'))
+                .intersect(query.primary).isNotEmpty()
+        val multiplier = when {
+            namedDocument -> 1.5
+            doc.source.path.endsWith(".md") -> 0.7
+            "/test/" in doc.source.path || "/androidTest/" in doc.source.path -> 0.35
+            else -> 1.0
+        }
         return raw * multiplier
     }
 
