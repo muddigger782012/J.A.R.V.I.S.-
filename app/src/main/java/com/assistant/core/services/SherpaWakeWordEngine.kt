@@ -57,7 +57,11 @@ class SherpaWakeWordEngine(
 
     fun hasLiveWorker(): Boolean = worker?.isAlive == true
     fun hasStalled(): Boolean = stalled
+    private val stageSampler = WakeStageSampler()
     private fun stage(value: String) {
+        // The audio/decoder hot path must not synchronously write to flash on
+        // every 100 ms microphone buffer or inference iteration.
+        if (!stageSampler.shouldWrite(value, SystemClock.elapsedRealtime())) return
         runCatching { java.io.File(context.filesDir, "wake-stage.txt").writeText(value) }
     }
     private var recorder: AudioRecord? = null
@@ -276,13 +280,13 @@ class SherpaWakeWordEngine(
                 chunks += 1
                 totalChunks += 1
                 val now = SystemClock.elapsedRealtime()
-                if (now - lastReportAt >= 3000L) {
+                if (now - lastReportAt >= 10_000L) {
                     val pct = (peakSinceReport * 100 / 32767).coerceIn(0, 100)
                     val rmsPct = if (samplesSinceReport == 0L) 0 else
                         (sqrt(sumSquaresSinceReport / samplesSinceReport) * 100).toInt().coerceIn(0, 100)
                     lowSignalReports = if (pct < 2) lowSignalReports + 1 else 0
                     stage("sherpa-audio-running-peak-$pct-rms-$rmsPct")
-                    val warning = if (lowSignalReports >= 3) " Low microphone signal for 9+ seconds; check microphone access and distance." else ""
+                    val warning = if (lowSignalReports >= 3) " Low microphone signal for 30+ seconds; check microphone access and distance." else ""
                     onStatus("Sherpa audio active: peak $pct%, RMS $rmsPct%, chunks $chunks, last decode ${lastDecodeDurationMs}ms; waiting for '$wakePhrase'." + warning)
                     peakSinceReport = 0
                     sumSquaresSinceReport = 0.0
@@ -303,14 +307,14 @@ class SherpaWakeWordEngine(
                 stage("sherpa-worker-before-is-ready-$totalChunks")
                 val ready = kws.isReady(onlineStream)
                 stage("sherpa-worker-after-is-ready-$totalChunks-$ready")
-                if (totalChunks <= 20) onStatus("Sherpa native readiness at chunk $totalChunks: $ready.")
+                if (totalChunks == 1) onStatus("Sherpa native readiness after first buffer: $ready.")
                 var decoderReady = ready
                 while (running && decoderReady) {
                     stage("sherpa-worker-before-decode-$totalChunks")
-                    if (totalChunks <= 20) onStatus("Sherpa decoder ready after $totalChunks audio chunks; entering native decode.")
+                    if (totalChunks == 1) onStatus("Sherpa decoder ready after first audio chunk; entering native decode.")
                     decodeChecked(kws, onlineStream, "chunk-$totalChunks")
                     stage("sherpa-worker-after-decode-$totalChunks")
-                    if (totalChunks <= 20) onStatus("Sherpa native decode completed at chunk $totalChunks.")
+                    if (totalChunks == 1) onStatus("Sherpa first audio buffer decoded successfully.")
                     val keyword = kws.getResult(onlineStream).keyword
                     if (keyword.isNotBlank()) {
                         onStatus("Sherpa detected keyword '$keyword' after $totalChunks audio buffers (last decode ${lastDecodeDurationMs}ms).")
