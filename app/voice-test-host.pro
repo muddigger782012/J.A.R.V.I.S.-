@@ -28,6 +28,10 @@
 -keep,allowoptimization class com.assistant.core.services.HybridAssistantService** { public *; }
 -keep,allowoptimization class com.assistant.core.services.HybridAssistantReply** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ConversationMemory** { public *; }
+# The separate optimized test APK reads persisted assistant personality state directly.
+# These host-only entry points must survive R8; production signing/shrinker rules are unchanged.
+-keep,allowoptimization class com.assistant.core.services.AssistantPersonalityPreferences { public *; }
+-keep,allowoptimization class com.assistant.core.services.AssistantPersonality { public *; }
 # The new session-memory isolation acceptance test reads/writes LiveChatStore directly.
 # Preserve only its host-visible API in the optimized voiceCheck flavor; production rules are unchanged.
 -keep,allowoptimization class com.assistant.core.services.LiveChatStore { public *; }
