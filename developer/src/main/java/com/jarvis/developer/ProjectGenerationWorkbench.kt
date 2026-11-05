@@ -38,7 +38,8 @@ internal object ProjectGenerationWorkbench {
         approveDeveloperDiff: (String) -> Boolean = { false },
         showDeveloperDiff: () -> String? = { null },
         continueDeveloperPlan: (String, String, List<String>, String) -> Boolean = { _, _, _, _ -> false },
-        currentDeveloperCommit: () -> PatchPublisher.CommitResult? = { null }): Handle {
+        currentDeveloperCommit: () -> PatchPublisher.CommitResult? = { null },
+        mayReadSavedCompletion: () -> Boolean = { false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
@@ -264,6 +265,13 @@ internal object ProjectGenerationWorkbench {
                     return@setOnClickListener
                 }
                 val commit = runCatching { currentDeveloperCommit() }.getOrNull()
+                if (commit == null && !runCatching { mayReadSavedCompletion() }.getOrDefault(false)) {
+                    output.text = "Saved completion review is unavailable while another coding " +
+                        "preview, operation, or uncertain commit owns the Developer session. " +
+                        "Finish or recover that operation before reviewing saved CI."
+                    status.text = "Saved completion review blocked by active coding state."
+                    return@setOnClickListener
+                }
                 if (readToken.isBlank()) {
                     output.text = "A GitHub token is needed for the exact-source CI read. " +
                         "No completion or release was assumed."

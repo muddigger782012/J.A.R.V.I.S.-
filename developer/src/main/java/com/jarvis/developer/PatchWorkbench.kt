@@ -67,7 +67,8 @@ object PatchWorkbench {
         private val approveDeveloperDiffAction: (String) -> Boolean = { false },
         private val showDeveloperDiffAction: () -> String? = { null },
         private val continueDeveloperPlanAction: (String, String, List<String>, String) -> Boolean = { _, _, _, _ -> false },
-        private val currentDeveloperCommitAction: () -> PatchPublisher.CommitResult? = { null }
+        private val currentDeveloperCommitAction: () -> PatchPublisher.CommitResult? = { null },
+        private val mayReadSavedCompletionAction: () -> Boolean = { false }
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
@@ -87,6 +88,8 @@ object PatchWorkbench {
         fun showDeveloperDiff(): String? = showDeveloperDiffAction()
         /** Exact committed Developer identity only; no saved approval or writer. */
         fun currentDeveloperCommit(): PatchPublisher.CommitResult? = currentDeveloperCommitAction()
+        /** Fail closed while any active/uncertain source review may own the coding slot. */
+        fun mayReadSavedCompletion(): Boolean = mayReadSavedCompletionAction()
         /** Owner-requested next plan step: source-verified preview, never an automatic write. */
         fun continueDeveloperPlan(id: String, task: String, paths: List<String>, base: String): Boolean =
             continueDeveloperPlanAction(id, task, paths, base)
@@ -1302,6 +1305,11 @@ object PatchWorkbench {
             currentDeveloperCommitAction = {
                 lastCommit?.takeIf { it.target == PatchEngine.Target.DEVELOPER &&
                     !busy && proposal == null && interruptedAttempt == null && alive() }
+            },
+            mayReadSavedCompletionAction = {
+                alive() && !busy && proposal == null && interruptedAttempt == null &&
+                    activePreview == null && activeRead == null && activeRepair == null &&
+                    activeEngineering == null && interruptedEngineering == null
             },
             engineeringAction = { draft ->
             if (prepareInputs(draft.taskId, draft.task, draft.paths, draft.base, draft.branch, draft.target)) {

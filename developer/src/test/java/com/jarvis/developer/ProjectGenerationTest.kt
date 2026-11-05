@@ -39,7 +39,8 @@ class ProjectGenerationTest {
         savedCompletion: DeveloperSavedCompletionReview = DeveloperSavedCompletionReview(),
         checkedCi: ((String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus)? = null,
         currentCommit: (() -> PatchPublisher.CommitResult?)? = null,
-        githubCredential: String = "") : AutoCloseable {
+        githubCredential: String = "",
+        canReadSavedCompletion: () -> Boolean = { true }) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -76,11 +77,30 @@ class ProjectGenerationTest {
             continueDeveloperPlan = { id, task, paths, base ->
                 stagePlan?.invoke(DeveloperPlanContinuation.Packet(id, task, paths, base)) ?: false
             }, currentDeveloperCommit = { currentCommit?.invoke() },
-            githubToken = { githubCredential })
+            githubToken = { githubCredential },
+            mayReadSavedCompletion = canReadSavedCompletion)
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun savedCompletionCannotStartDuringBusyOrUncertainCodingState() {
+        val f = DeveloperSavedCompletionReviewTest.createFixture()
+        var readCount = 0
+        val saved = DeveloperSavedCompletionReview({ f.history }, { f.plans },
+            { _, _, _ -> readCount++; f.report }, { 1003L })
+        Screen(savedCompletion = saved, currentCommit = { null },
+            githubCredential = "test-only-github-token",
+            canReadSavedCompletion = { false }).use { s ->
+            s.prompt.setText("Review Developer completion")
+            s.send.performClick()
+            assertTrue(s.pending.isEmpty())
+            assertEquals(0, readCount)
+            assertTrue(s.output.text.contains("uncertain commit"))
+            assertEquals(TaskPlanner.Status.PENDING,
+                f.store.loadAll().single().steps.last().status)
+        }
+    }
+
     @Test fun savedCommitCanReenterFinalReviewFromChatAfterRestartWithoutRestoringApproval() {
         val f = DeveloperSavedCompletionReviewTest.createFixture()
         var reads = 0
