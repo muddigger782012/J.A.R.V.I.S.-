@@ -31,7 +31,9 @@ class ProjectGenerationTest {
         save: (() -> Boolean)? = null,
         readSaved: (() -> Boolean)? = null,
         approve: ((String) -> Boolean)? = null,
-        showDiff: (() -> String?)? = null) : AutoCloseable {
+        showDiff: (() -> String?)? = null,
+        nextPlan: (() -> DeveloperPlanContinuation.Suggestion)? = null,
+        stagePlan: ((DeveloperPlanContinuation.Packet) -> Boolean)? = null) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -52,17 +54,89 @@ class ProjectGenerationTest {
                     ask?.invoke(providerName, apiKey, modelName, task, cancellation)
                         ?: if (failure != null) throw failure else "Reply for $task"
                 }, context = { task, product, _, _, _ -> RepositoryCodingContext.unavailable(task, product) },
-                progress = { _ -> progressRead?.invoke() ?: "Verified local progress fixture" }),
+                progress = { _ -> progressRead?.invoke() ?: "Verified local progress fixture" },
+                nextPlan = { _ -> nextPlan?.invoke() ?: DeveloperPlanContinuation.Suggestion("No saved plans") }),
             requestDeveloperRepair = { repair?.invoke() ?: false },
             requestDeveloperBuild = { buildCheck?.invoke() ?: false },
             saveDeveloperTask = { save?.invoke() ?: false },
             readSavedDeveloperBuild = { readSaved?.invoke() ?: false },
             approveDeveloperDiff = { prefix -> approve?.invoke(prefix) ?: false },
-            showDeveloperDiff = { showDiff?.invoke() })
+            showDeveloperDiff = { showDiff?.invoke() },
+            continueDeveloperPlan = { id, task, paths, base ->
+                stagePlan?.invoke(DeveloperPlanContinuation.Packet(id, task, paths, base)) ?: false
+            })
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun continueDeveloperPlanFromChatStartsOnlyTheNextScopedPreview() {
+        var stages = 0
+        val packet = DeveloperPlanContinuation.Packet("plan-1-abcdef1234567890",
+            "Implement approved scope", listOf("developer/src/main/java/com/jarvis/developer/Example.kt"),
+            "a".repeat(40))
+        Screen(nextPlan = { DeveloperPlanContinuation.Suggestion("Next ready implementation checkpoint", packet) },
+            stagePlan = { exact ->
+                assertEquals(packet, exact)
+                stages++
+                true
+            }, ask = { _, _, _, _, _ -> error("Chat continuation cannot start generic AI") }).use { s ->
+            s.prompt.setText("Continue Developer plan")
+            s.send.performClick()
+            assertEquals(1, s.pending.size)
+            assertFalse(s.send.isEnabled)
+            assertEquals(0, stages)
+            s.complete()
+            assertEquals(1, stages)
+            assertTrue(s.output.text.contains("preview STARTED"))
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.pending.isEmpty())
+            assertTrue(s.send.isEnabled)
+        }
+    }
+
+    @Test fun nonEditableCheckpointOrCancelledPlanDoesNotStartCoding() {
+        var stages = 0
+        Screen(nextPlan = { DeveloperPlanContinuation.Suggestion("Manual analyze checkpoint pending") },
+            stagePlan = { stages++; true }).use { s ->
+            s.prompt.setText("Continue Developer plan")
+            s.send.performClick()
+            s.complete()
+            assertEquals(0, stages)
+            assertTrue(s.output.text.contains("Manual analyze checkpoint"))
+            assertTrue(s.prefs.all.isEmpty())
+        }
+        Screen(nextPlan = { error("corrupt private checkpoint") },
+            stagePlan = { stages++; true }).use { s ->
+            s.prompt.setText("Continue Developer plan")
+            s.send.performClick()
+            s.complete()
+            assertEquals(0, stages)
+            assertTrue(s.output.text.contains("could not be verified"))
+            assertFalse(s.output.text.contains("corrupt"))
+        }
+        Screen(nextPlan = { error("must not read after cancellation") },
+            stagePlan = { stages++; true }).use { s ->
+            s.prompt.setText("Continue Developer plan")
+            s.send.performClick()
+            s.cancel.performClick()
+            s.complete()
+            assertEquals(0, stages)
+            assertTrue(s.prefs.all.isEmpty())
+        }
+    }
+
+    @Test fun continuedPlanCannotCrossIntoPersonalProduct() {
+        var readCount = 0
+        Screen(nextPlan = { readCount++; DeveloperPlanContinuation.Suggestion("some plan") }).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("Continue Developer plan")
+            s.send.performClick()
+            assertTrue(s.pending.isEmpty())
+            assertEquals(0, readCount)
+            assertTrue(s.output.text.contains("unavailable for Personal"))
+        }
+    }
+
     @Test fun explicitSavedTaskChatCommandsDoNotCallProviderOrPersistProjectDiscussion() {
         var saves = 0
         var reads = 0

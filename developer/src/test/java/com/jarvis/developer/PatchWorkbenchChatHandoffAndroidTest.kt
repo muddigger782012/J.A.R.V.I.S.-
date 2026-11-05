@@ -170,6 +170,21 @@ class PatchWorkbenchChatHandoffAndroidTest {
         } finally { screen.close() }
     }
 
+    @Test fun explicitPlanContinuationCannotReplaceActiveReviewedDiff() {
+        val screen = Screen()
+        try {
+            assertTrue(screen.import())
+            screen.finish()
+            assertTrue(screen.approval().isEnabled)
+            assertFalse(screen.handle.continueDeveloperPlan("plan-next", "New plan",
+                listOf(path), sha))
+            assertTrue(screen.approval().isEnabled)
+            assertFalse(screen.approval().isChecked)
+            assertEquals(0, screen.writes)
+            assertEquals(0, screen.providerCalls)
+        } finally { screen.close() }
+    }
+
     @Test fun movedBaseCannotProduceAnApprovableDiffOrInvokeProvider() {
         val screen = Screen()
         try {

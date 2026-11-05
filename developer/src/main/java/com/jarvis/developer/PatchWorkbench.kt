@@ -61,7 +61,8 @@ object PatchWorkbench {
         private val saveDeveloperBookmarkAction: () -> Boolean = { false },
         private val readDeveloperBookmarkAction: () -> Boolean = { false },
         private val approveDeveloperDiffAction: (String) -> Boolean = { false },
-        private val showDeveloperDiffAction: () -> String? = { null }
+        private val showDeveloperDiffAction: () -> String? = { null },
+        private val continueDeveloperPlanAction: (String, String, List<String>, String) -> Boolean = { _, _, _, _ -> false }
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
@@ -79,6 +80,9 @@ object PatchWorkbench {
         fun approveDeveloperDiff(prefix: String): Boolean = approveDeveloperDiffAction(prefix)
         /** Returns a currently verified, complete Developer diff; no network call or write. */
         fun showDeveloperDiff(): String? = showDeveloperDiffAction()
+        /** Owner-requested next plan step: source-verified preview, never an automatic write. */
+        fun continueDeveloperPlan(id: String, task: String, paths: List<String>, base: String): Boolean =
+            continueDeveloperPlanAction(id, task, paths, base)
         fun invalidate(): Boolean = invalidateAction()
         fun preparePersonal(review: PersonalRepair.Review): Boolean = personalAction(review)
         internal fun importChatProposal(task: String, summary: String, edits: List<PatchEngine.Edit>, base: String) =
@@ -1185,6 +1189,16 @@ object PatchWorkbench {
                 "\nThis does not merge, publish a signed update, or install an APK."
         }
 
+        fun continueDeveloperPlanStep(id: String, description: String, paths: List<String>, base: String): Boolean {
+            // Do not replace an unreviewed, approved or uncertain in-session diff
+            // merely because the owner asked which local plan step is next.
+            if (!alive() || busy || proposal != null || interruptedAttempt != null || activeRead != null ||
+                activePreview != null || activeRepair != null || activeEngineering != null) return false
+            if (!prepareInputs(id, description, paths, base, "feature/jarvis-developer")) return false
+            preview.performClick()
+            return busy && activePreview != null
+        }
+
         fun approveDeveloperDiffFromChat(prefix: String): Boolean {
             val selected = proposal ?: return false
             // A typed fingerprint must bind to the exact, current complete diff.
@@ -1267,6 +1281,7 @@ object PatchWorkbench {
             readDeveloperBookmarkAction = ::readSavedDeveloperBuild,
             approveDeveloperDiffAction = ::approveDeveloperDiffFromChat,
             showDeveloperDiffAction = ::showDeveloperDiffInChat,
+            continueDeveloperPlanAction = ::continueDeveloperPlanStep,
             engineeringAction = { draft ->
             if (prepareInputs(draft.taskId, draft.task, draft.paths, draft.base, draft.branch, draft.target)) {
                 activeEngineering = draft

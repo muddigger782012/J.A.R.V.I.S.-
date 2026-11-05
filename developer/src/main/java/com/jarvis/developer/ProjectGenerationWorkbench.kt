@@ -14,7 +14,8 @@ internal object ProjectGenerationWorkbench {
         val worker: (() -> Unit) -> Unit = { work -> thread(name = "DeveloperCodingAssistant", isDaemon = true) { work() }; Unit },
         val ask: (String, String, String, String, PatchPreviewCancellation, RepositoryCodingContext.Context) -> String = CodingAssistantProvider::ask,
         val context: (String, PatchEngine.Target, String, String, PatchPreviewCancellation) -> RepositoryCodingContext.Context = RepositoryIntelligence::codingContext,
-        val progress: (Activity) -> String = DeveloperProgressReport::read
+        val progress: (Activity) -> String = DeveloperProgressReport::read,
+        val nextPlan: (Activity) -> DeveloperPlanContinuation.Suggestion = DeveloperPlanContinuation::suggest
     )
     class Handle internal constructor(private val stop: (Boolean) -> Unit) {
         fun cancel() = stop(false)
@@ -31,7 +32,8 @@ internal object ProjectGenerationWorkbench {
         saveDeveloperTask: () -> Boolean = { false },
         readSavedDeveloperBuild: () -> Boolean = { false },
         approveDeveloperDiff: (String) -> Boolean = { false },
-        showDeveloperDiff: () -> String? = { null }): Handle {
+        showDeveloperDiff: () -> String? = { null },
+        continueDeveloperPlan: (String, String, List<String>, String) -> Boolean = { _, _, _, _ -> false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
@@ -219,6 +221,60 @@ internal object ProjectGenerationWorkbench {
                     localProgressRead = null
                     inputs(true)
                     status.text = "Local progress worker could not start; no records were changed."
+                }
+                return@setOnClickListener
+            }
+            // Continue the newest persisted task plan from its next eligible checkpoint.
+            // Source inspection/model calls remain in the existing pinned preview engine.
+            // No dependency or user-reported acceptance checkpoint is auto-completed.
+            if (DeveloperPlanContinueChatCommand.isRequest(task)) {
+                if (target() != 0) {
+                    output.text = "Developer plan continuation is unavailable for Personal Jarvis."
+                    status.text = "No Developer plan or source operation started."
+                    return@setOnClickListener
+                }
+                val projectAtStart = selected()
+                val cancellation = PatchPreviewCancellation()
+                localProgressRead = cancellation
+                inputs(false)
+                status.text = "Reading private Developer plan checkpoints; no source write."
+                val work: () -> Unit = {
+                    val suggestion = runCatching {
+                        cancellation.check()
+                        services.nextPlan(activity).also { cancellation.check() }
+                    }
+                    activity.runOnUiThread {
+                        if (!alive() || localProgressRead !== cancellation || cancellation.isCancelled) return@runOnUiThread
+                        localProgressRead = null
+                        inputs(true)
+                        if (target() != 0 || selected() != projectAtStart) {
+                            output.text = "The selected project or product changed. Stale plan continuation discarded."
+                            status.text = "No plan staged or source changed."
+                        } else suggestion.onSuccess { next ->
+                            val packet = next.packet
+                            val started = packet != null && runCatching {
+                                continueDeveloperPlan(packet.id, packet.task, packet.paths, packet.base)
+                            }.getOrDefault(false)
+                            output.text = next.message +
+                                if (packet == null) "" else if (started)
+                                    "\n\nFresh pinned-source diff preview STARTED for this one eligible step. " +
+                                    "Review the complete result and explicitly approve it before any write. " +
+                                    "The step remains unfinished until its checkpoint is reviewed."
+                                else "\n\nA current review or coding operation is active, or preview inputs are not available. " +
+                                    "No previous proposal was replaced and no write was made."
+                            status.text = if (started) "One eligible Developer plan step preview started."
+                                else "Local plan examined; no implementation write started."
+                        }.onFailure {
+                            output.text = "Saved Developer plan state could not be verified. Existing checkpoint files were not changed."
+                            status.text = "Plan continuation stopped: private state verification failed."
+                        }
+                    }
+                }
+                runCatching { services.worker(work) }.onFailure {
+                    cancellation.cancel()
+                    localProgressRead = null
+                    inputs(true)
+                    status.text = "Plan continuation worker unavailable; no plan or source change occurred."
                 }
                 return@setOnClickListener
             }
