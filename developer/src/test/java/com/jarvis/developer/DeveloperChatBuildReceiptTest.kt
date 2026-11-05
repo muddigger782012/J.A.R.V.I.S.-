@@ -12,7 +12,9 @@ class DeveloperChatBuildReceiptTest {
 
     @Test fun fullSourceValidatedFingerprintIsShownForExplicitChatApproval() {
         val message = DeveloperChatBuildReceipt.preview("task", 2, "a".repeat(64))
-        assertTrue(message.contains("Approve Developer diff " + "a".repeat(16)))
+        assertTrue(message.contains("Approve Developer diff"))
+        assertFalse(message.contains("a".repeat(16)))
+        assertTrue(message.contains("no copy/paste required"))
         assertTrue(message.contains("AFTER reviewing"))
         assertThrows(IllegalArgumentException::class.java) {
             DeveloperChatBuildReceipt.preview("task", 2, "b".repeat(12))

@@ -162,9 +162,8 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
             assertTrue(s.handle.importChatProposal("Improve the voice response delay", "Reduce delay",
                 listOf(PatchEngine.Edit(path, firstEdit)), sourceSha))
             s.finish()
-            val approvalMessage = s.chatUpdates.last()
-            val prefix = Regex("Approve Developer diff ([a-f0-9]{16})")
-                .find(approvalMessage)!!.groupValues[1]
+            val prefix = DeveloperDiffApprovalCommand.REVIEWED
+            assertTrue(s.chatUpdates.last().contains("Approve Developer diff"))
             assertFalse(s.handle.approveDeveloperDiff("0000000000000000"))
             assertFalse(s.handle.approveDeveloperDiff(prefix))
             assertFalse(s.approval().isChecked)
@@ -189,8 +188,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
             assertTrue(s.handle.importChatProposal("Improve the voice response delay", "Reduce delay",
                 listOf(PatchEngine.Edit(path, firstEdit)), sourceSha))
             s.finish()
-            val code = Regex("Approve Developer diff ([a-f0-9]{16})")
-                .find(s.chatUpdates.last())!!.groupValues[1]
+            val code = DeveloperDiffApprovalCommand.REVIEWED
             assertNotNull(s.handle.showDeveloperDiff())
             s.prompt.setText("Changed source task")
             assertFalse(s.handle.approveDeveloperDiff(code))

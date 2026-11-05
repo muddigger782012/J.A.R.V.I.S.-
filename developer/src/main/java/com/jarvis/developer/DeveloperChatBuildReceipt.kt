@@ -6,8 +6,8 @@ internal object DeveloperChatBuildReceipt {
         require(taskId.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,47}")) && files in 1..PatchEngine.MAX_FILES)
         if (proposalId != null) require(proposalId.matches(Regex("[a-f0-9]{64}")))
         val approval = if (proposalId == null) "" else
-            "\nAFTER reviewing the complete diff, approve this specific proposal in chat by typing: " +
-                "Approve Developer diff ${proposalId.take(16)}"
+            "\nAFTER reviewing the complete diff, approve it by typing: Approve Developer diff. " +
+                "The exact proposal fingerprint is bound internally; no copy/paste required."
         return "Diff ready: $files scoped file(s). Type 'Show Developer diff' to read the " +
             "complete verified changes in chat before approving the isolated branch. " +
             "No source write, passing test, signed release or installation is implied." + approval

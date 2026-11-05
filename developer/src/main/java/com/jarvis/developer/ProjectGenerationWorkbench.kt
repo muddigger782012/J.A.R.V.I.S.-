@@ -109,8 +109,8 @@ internal object ProjectGenerationWorkbench {
                     output.text = "Developer diff approval is unavailable for the Personal Jarvis target."
                     status.text = "No Developer source write started."
                 } else if (prefix == null) {
-                    output.text = "First type Show Developer diff and review the full change, then use the exact 16-character fingerprint. " +
-                        "Example: Approve Developer diff 0123456789abcdef. No write started."
+                    output.text = "First type Show Developer diff and review the full change, " +
+                        "then send exactly: Approve Developer diff. Extra text cannot authorize a write."
                     status.text = "Invalid exact Developer approval command."
                 } else {
                     val started = runCatching { approveDeveloperDiff(prefix) }.getOrDefault(false)

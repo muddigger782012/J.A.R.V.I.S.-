@@ -167,6 +167,22 @@ class ProjectGenerationTest {
         }
     }
 
+    @Test fun plainLanguageApprovalPassesTheBoundInternalReviewMarkerOnly() {
+        var calls = 0
+        Screen(approve = { marker ->
+            calls++
+            assertEquals(DeveloperDiffApprovalCommand.REVIEWED, marker)
+            true
+        }, ask = { _, _, _, _, _ -> error("No provider call permitted") }).use { s ->
+            s.prompt.setText("Approve Developer diff")
+            s.send.performClick()
+            assertEquals(1, calls)
+            assertTrue(s.output.text.contains("Exact Developer diff approved"))
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.pending.isEmpty())
+        }
+    }
+
     @Test fun exactTypedDiffApprovalUsesWorkbenchOnlyAndNeverCallsProvider() {
         var calls = 0
         Screen(approve = { prefix ->
@@ -189,7 +205,7 @@ class ProjectGenerationTest {
             s.prompt.setText("Approve Developer diff invalid")
             s.send.performClick()
             assertEquals(0, calls)
-            assertTrue(s.output.text.contains("16-character"))
+            assertTrue(s.output.text.contains("Show Developer diff"))
             s.target.setSelection(1)
             s.prompt.setText("Approve Developer diff 0123456789abcdef")
             s.send.performClick()
