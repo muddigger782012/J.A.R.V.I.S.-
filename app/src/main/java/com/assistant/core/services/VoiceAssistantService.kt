@@ -314,7 +314,10 @@ class VoiceAssistantService(
             val voice = NeuralVoiceCatalog.resolve(selection.originalVoice)
             onStatus("${voice.label} · offline Kokoro")
             val engine = neuralSpeech ?: NeuralAssistantSpeech(context).also { neuralSpeech = it }
-            engine.speak(text, voice, cachePhrase = after != null,
+            // Live AI replies are unique. Synchronously caching every generated
+            // phrase on the TTS worker delayed first audio and created gaps
+            // between sentences. Cache only fixed, explicitly reusable prompts.
+            engine.speak(text, voice, cachePhrase = false,
                 onAudio = { if (activeSpeechPrefix == prefix) VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEAKING) },
                 done = { if (activeSpeechPrefix == prefix) finishSpeech() }, error = { failure ->
                 if (activeSpeechPrefix == prefix) {
