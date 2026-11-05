@@ -299,9 +299,9 @@ class BuildDiagnosticsTest {
         val tooMany = report(marker(summary(List(2_001) { "passed" })), "success")
         assertFalse(tooMany.evidenceComplete)
         assertNull(tooMany.totals)
-        val malformed = report("JARVIS_JUNIT_SUMMARY=" + "x".repeat(100_001), "success")
+        val malformed = report("JARVIS_JUNIT_SUMMARY=" + "x".repeat(300_001), "success")
         assertFalse(malformed.evidenceComplete)
-        assertTrue(malformed.limitations.any { it.contains("100 KiB") })
+        assertTrue(malformed.limitations.any { it.contains("300 KiB") })
     }
 
     @Test fun auditFingerprintBindsRunIdentityWhileRepeatedFailureSignatureIgnoresRunAndCommit() {
@@ -398,7 +398,9 @@ class BuildDiagnosticsTest {
         assertNull(tooMany.totals)
         val failure = report("JARVIS_JUNIT_SUMMARY=" + fixture(76, 12, true), "success")
         assertFalse(failure.evidenceComplete)
-        assertNull(failure.totals)
+        // Preserve diagnostic totals; a contradictory success cannot be treated as complete.
+        assertEquals(1, failure.totals?.failures)
+        assertTrue(failure.limitations.any { it.contains("contradicts") })
     }
 
 }
