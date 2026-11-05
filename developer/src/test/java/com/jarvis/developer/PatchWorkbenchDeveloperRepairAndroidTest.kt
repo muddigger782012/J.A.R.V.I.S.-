@@ -44,7 +44,8 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
     private inner class Screen(val infrastructureFailure: Boolean = false,
         val historyDirectory: java.io.File = java.nio.file.Files.createTempDirectory("developer-bookmark-").toFile(),
         val autoRepairPreview: Boolean = false,
-        val successfulRepairBuild: Boolean = false) {
+        val successfulRepairBuild: Boolean = false,
+        val failedRepairBuild: Boolean = false) {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
@@ -110,17 +111,23 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
                         PatchPublisher.CommitResult(req.taskId, req.provider, req.model,
                             proposal.id, proposal.edits.map { it.path }.sorted(),
                             req.baseCommitSha,
-                            if (successfulRepairBuild && writes == 2) repairedCommit else failedCommit,
+                            if ((successfulRepairBuild || failedRepairBuild) && writes == 2)
+                                repairedCommit else failedCommit,
                             requireNotNull(taskBranch),
                             proposal.diff, req.baseBranch, req.target)
                     },
                     ci = { _, result ->
                         ciReads++
                         assertTrue(result.commitSha == failedCommit ||
-                            (successfulRepairBuild && result.commitSha == repairedCommit))
-                        val state = if (result.commitSha == repairedCommit && successfulRepairBuild)
-                            PatchPublisher.CiState.PASSED
-                        else if (ciTransitions.isEmpty()) ciState else ciTransitions.removeFirst()
+                            ((successfulRepairBuild || failedRepairBuild) && result.commitSha == repairedCommit))
+                        val state = when {
+                            result.commitSha == repairedCommit && successfulRepairBuild ->
+                                PatchPublisher.CiState.PASSED
+                            result.commitSha == repairedCommit && failedRepairBuild ->
+                                PatchPublisher.CiState.FAILED
+                            ciTransitions.isNotEmpty() -> ciTransitions.removeFirst()
+                            else -> ciState
+                        }
                         PatchPublisher.CiStatus(state,
                             if (state == PatchPublisher.CiState.MISSING) null else
                                 "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/23",
@@ -221,6 +228,32 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
             assertFalse(s.handle.approveDeveloperDiff(DeveloperDiffApprovalCommand.REVIEWED))
             assertFalse(s.handle.prepareDeveloperRepair())
             assertFalse(s.approval().isEnabled)
+        } finally { s.close() }
+    }
+
+    @Test fun secondFailedRepairDoesNotTriggerAnUnboundedThirdProviderAttempt() {
+        val s = Screen(autoRepairPreview = true, failedRepairBuild = true)
+        try {
+            s.initialFailure()
+            assertEquals(1, s.queued.size) // Automatic first repair preview.
+            s.finish()
+            assertEquals(1, s.providerCalls)
+            assertFalse(s.handle.approveDeveloperDiff(DeveloperDiffApprovalCommand.REVIEWED))
+            assertNotNull(s.handle.showDeveloperDiff())
+            assertTrue(s.handle.approveDeveloperDiff(DeveloperDiffApprovalCommand.REVIEWED))
+            s.finish()
+            // The explicitly approved repair also fails. Do not consume another
+            // paid model request without a fresh owner decision.
+            assertEquals(2, s.writes)
+            assertEquals(1, s.providerCalls)
+            assertEquals(2, s.ciReads)
+            assertEquals(2, s.logReads)
+            assertEquals(0, s.planEvidenceCalls)
+            assertTrue(s.queued.isEmpty())
+            assertEquals(1, s.chatUpdates.count { it.contains("preview started automatically") })
+            assertTrue(s.status.text.contains("CI failed"))
+            assertFalse(s.approval().isEnabled)
+            assertFalse(s.handle.approveDeveloperDiff(DeveloperDiffApprovalCommand.REVIEWED))
         } finally { s.close() }
     }
 
