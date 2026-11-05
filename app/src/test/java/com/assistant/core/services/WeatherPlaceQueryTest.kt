@@ -32,4 +32,16 @@ class WeatherPlaceQueryTest {
             listOf(WeatherPlaceQuery.Candidate("Springfield", "Illinois", "US", 39.78, -89.64),
                 WeatherPlaceQuery.Candidate("Springfield", "Missouri", "US", 37.20, -93.29))))
     }
+    @Test fun userCorrectingWrongCityRequeriesNamedPlaceWithSameDate() {
+        val history = listOf("what's the weather supposed to be like in Elizabeth City North Carolina today")
+        assertEquals("weather in Chesapeake, Virginia today",
+            ForecastDates.contextual("I said I wanted to know about Chesapeake Virginia", history))
+        assertEquals(WeatherPlaceQuery.Place("Chesapeake", "Virginia"),
+            WeatherPlaceQuery.parse(ForecastDates.contextual(
+                "I said I wanted to know about Chesapeake Virginia", history).orEmpty()))
+    }
+    @Test fun weatherCityCorrectionDoesNotRewriteUnrelatedDeviceCommands() {
+        assertNull(ForecastDates.contextual("I said turn the music down", listOf("weather today")))
+        assertNull(WeatherPlaceQuery.correctedLocation("open my browser"))
+    }
 }
