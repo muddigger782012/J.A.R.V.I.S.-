@@ -61,6 +61,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
         var ciReads = 0
         var planEvidenceCalls = 0
         var ciState = PatchPublisher.CiState.FAILED
+        val ciTransitions = ArrayDeque<PatchPublisher.CiState>()
         val chatUpdates = mutableListOf<String>()
         var logReads = 0
         var movedTaskSha = false
@@ -110,12 +111,14 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
                     },
                     ci = { _, result ->
                         ciReads++; assertEquals(failedCommit, result.commitSha)
-                        PatchPublisher.CiStatus(ciState,
-                            if (ciState == PatchPublisher.CiState.MISSING) null else
+                        val state = if (ciTransitions.isEmpty()) ciState else ciTransitions.removeFirst()
+                        PatchPublisher.CiStatus(state,
+                            if (state == PatchPublisher.CiState.MISSING) null else
                                 "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/23",
-                            if (ciState == PatchPublisher.CiState.FAILED) "failure" else
-                                if (ciState == PatchPublisher.CiState.PASSED) "success" else null)
+                            if (state == PatchPublisher.CiState.FAILED) "failure" else
+                                if (state == PatchPublisher.CiState.PASSED) "success" else null)
                     },
+                    ciWatchPause = { millis -> assertEquals(15_000L, millis) },
                     planCheckpoint = { _, result, checked ->
                         assertEquals(failedCommit, result.commitSha)
                         assertEquals(PatchPublisher.CiState.PASSED, checked.state)
@@ -149,7 +152,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
             .single { it.text.toString().startsWith(label) }
         fun approval() = views(root).filterIsInstance<CheckBox>().single()
         fun finish() { queued.removeFirst().invoke(); shadowOf(Looper.getMainLooper()).idle() }
-        fun initialFailure() {
+        fun initialFailure(expectedCiReads: Int = 1) {
             assertTrue(handle.importChatProposal("Improve the voice response delay", "Reduce delay",
                 listOf(PatchEngine.Edit(path, firstEdit)), sourceSha))
             finish()
@@ -158,7 +161,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
             button("Create task branch").performClick()
             finish()
             assertEquals(1, writes)
-            assertEquals(1, ciReads)
+            assertEquals(expectedCiReads, ciReads)
             assertEquals(if (ciState == PatchPublisher.CiState.FAILED) 1 else 0, logReads)
             assertFalse(approval().isEnabled)
         }
@@ -243,23 +246,28 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
         } finally { s.close() }
     }
 
-    @Test fun queuedOrMissingTaskCIUpdatesFromChatWithoutSecondSourceWriteOrProviderCall() {
+    @Test fun queuedOrMissingTaskCIFollowsAutomaticallyWithoutSecondWriteOrProviderCall() {
         val s = Screen()
         try {
             s.ciState = PatchPublisher.CiState.MISSING
-            s.initialFailure()
-            assertEquals(0, s.logReads) // Missing CI is never treated as failed.
-            assertEquals(1, s.ciReads)
-            s.ciState = PatchPublisher.CiState.PASSED
-            assertTrue(s.handle.refreshDeveloperCi())
-            assertEquals(1, s.queued.size)
-            s.finish()
-            assertEquals(2, s.ciReads)
+            s.ciTransitions.add(PatchPublisher.CiState.MISSING)
+            s.ciTransitions.add(PatchPublisher.CiState.PASSED)
+            // One owner-approved write, then two exact-commit CI reads without an extra chat command.
+            s.initialFailure(expectedCiReads = 2)
             assertEquals(0, s.logReads)
+            assertEquals(2, s.ciReads)
+            assertEquals(1, s.planEvidenceCalls)
+            assertTrue(s.chatUpdates.last().contains("CI: passed"))
             assertEquals(0, s.providerCalls)
             assertEquals(1, s.writes)
             assertFalse(s.approval().isEnabled)
             assertFalse(s.button("Prepare Developer repair").isEnabled)
+            // Read-only refresh remains available but never repeats the source write.
+            assertTrue(s.handle.refreshDeveloperCi())
+            assertEquals(1, s.queued.size)
+            s.finish()
+            assertEquals(3, s.ciReads)
+            assertEquals(1, s.writes)
         } finally { s.close() }
     }
 
