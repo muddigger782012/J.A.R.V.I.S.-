@@ -14,7 +14,7 @@ object LiveCapabilityRegistry {
             require(note.length <= 512 && note.none(Char::isISOControl))
         } }
     }
-    enum class Topic { VERSION, FEATURES, SCREEN, VOICE, DIAGNOSTICS, PROVIDERS }
+    enum class Topic { VERSION, FEATURES, FEATURES_FULL, SCREEN, VOICE, DIAGNOSTICS, PROVIDERS }
     data class Snapshot(val version: DeviceReport.App?, val personal: Boolean,
         val accessibility: DeviceReport.Accessibility?, val microphone: Boolean,
         val contacts: Boolean?, val calls: Boolean?, val notifications: Boolean?,
@@ -23,7 +23,8 @@ object LiveCapabilityRegistry {
         val localVoice: VoiceRuntimeObservation.Reading?, val foregroundVoice: VoiceRuntimeObservation.Reading?,
         val buildNotes: List<String> = emptyList(),
         val geminiObservation: AiConnectionDiagnostics.Result? = null,
-        val gatewayObservation: AiConnectionDiagnostics.Result? = null)
+        val gatewayObservation: AiConnectionDiagnostics.Result? = null,
+        val briefFeatureNotes: Boolean = true)
 
     fun topic(input: String, previous: String? = null): Topic? {
         if (input.length > 500) return null
@@ -35,6 +36,10 @@ object LiveCapabilityRegistry {
         if (Regex("^(?:how (?:do|can|should|would)|why|what does|what do)\\b").containsMatchIn(text)) return null
         if (Regex("\\b(?:android|windows|linux|python|chrome|iphone|samsung|git)\\b").containsMatchIn(text) &&
             !Regex("\\b(?:you|your|jarvis)\\b").containsMatchIn(text)) return null
+        if (Regex("""\b(features|release notes|changelog|changes|what's new|new features)\b""").containsMatchIn(text) &&
+            Regex("""\b(full|complete|all|detailed|in detail)\b""").containsMatchIn(text)) return Topic.FEATURES_FULL
+        if (Regex("""^(?:show|read|give|list) (?:me )?(?:the )?(?:full|complete|detailed) (?:installed )?(?:release notes|changelog|feature list|changes)""").containsMatchIn(text))
+            return Topic.FEATURES_FULL
         val question = Regex("\\b(what|which|can|could|are|do|is|does|tell|show|explain|describe|list|installed|current|status|diagnostics|any)\\b").containsMatchIn(text)
         if (!question && text !in setOf("capabilities", "features", "version", "voice diagnostics")) {
             return null
@@ -66,7 +71,8 @@ object LiveCapabilityRegistry {
                     ProviderResponseText.read(stream, 16_384)
                 }
                 parseBuildNotes(text)
-            }.getOrDefault(emptyList()), DirectOnlineClient(context).connectionObservation(), FallbackAiClient(context).connectionObservation())
+            }.getOrDefault(emptyList()), DirectOnlineClient(context).connectionObservation(), FallbackAiClient(context).connectionObservation(),
+            context.getSharedPreferences("jarvis_companion_response", Context.MODE_PRIVATE).getBoolean("brief_feature_notes", true))
     }
     fun render(topic: Topic, value: Snapshot): String {
         fun permission(granted: Boolean?) = when (granted) { true -> "granted"; false -> "permission/access needed"; null -> "not verified" }
@@ -96,7 +102,25 @@ object LiveCapabilityRegistry {
                 .flatMap { it.timings }.joinToString("\n") { "${it.stage}: ${it.sinceStartMillis} ms since voice trace start; ${it.sincePreviousMillis} ms since prior callback" } +
                 "\nTiming evidence excludes audio and transcripts; missing callbacks leave latency unverified."
             Topic.DIAGNOSTICS -> "Self Diagnostics reviews bounded source, build and application-error reports. Source scanning runs through the read-only GitHub workflow or an authorized development machine; the app imports and reviews its findings. The independent Jarvis Developer app prepares source-verified proposals. An observation is not permission to edit, merge, sign, publish or install."
-            Topic.FEATURES -> "$version " + (if (value.buildNotes.isEmpty()) "Bundled change notes could not be read. " else "Included build changes: " + value.buildNotes.joinToString(" ") + " ") +
+            Topic.FEATURES, Topic.FEATURES_FULL -> if (topic == Topic.FEATURES && value.briefFeatureNotes) {
+                val notes = value.buildNotes
+                val highlights = buildList {
+                    if (notes.any { it.contains("Developer", ignoreCase = true) })
+                        add("Developer bridge reviews and verified APK handoffs (compatible Developer required)")
+                    if (notes.any { it.contains("speech", ignoreCase = true) || it.contains("voice", ignoreCase = true) || it.contains("wake", ignoreCase = true) })
+                        add("speech capture and conversation recovery improvements")
+                    if (notes.any { it.contains("Weather", ignoreCase = true) })
+                        add("weather/location recovery")
+                    if (notes.any { it.contains("provider", ignoreCase = true) || it.contains("AI failure", ignoreCase = true) })
+                        add("clearer AI-provider diagnostics")
+                }.take(4)
+                "$version " + if (highlights.isEmpty()) {
+                    "I can't read the installed build highlights. Ask for full feature details or check the release notes."
+                } else {
+                    "Highlights: " + highlights.joinToString("; ") + ". " +
+                    "Say 'full feature details' for the complete change list and live capability/permission diagnostics."
+                }
+            } else "$version " + (if (value.buildNotes.isEmpty()) "Bundled change notes could not be read. " else "Included build changes: " + value.buildNotes.joinToString(" ") + " ") +
                 "Installed local tools include time/date, calls and contact lookup, message composition, app launching, alarms/timers, reminders, media/volume controls, connectivity diagnostics and weather. " +
                 "Calls: ${permission(value.calls)}; contacts: ${permission(value.contacts)}; notifications: ${permission(value.notifications)}. $screen $voice $providers " +
                 "Feature requests and unverified self-generated repairs are not installed capabilities. No whole-phase completion is inferred."
