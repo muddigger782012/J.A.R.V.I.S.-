@@ -43,6 +43,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
     }
     private inner class Screen(val infrastructureFailure: Boolean = false,
         val historyDirectory: java.io.File = java.nio.file.Files.createTempDirectory("developer-bookmark-").toFile(),
+        val recoveryDirectory: java.io.File = java.nio.file.Files.createTempDirectory("developer-commit-recovery-").toFile(),
         val autoRepairPreview: Boolean = false,
         val successfulRepairBuild: Boolean = false,
         val failedRepairBuild: Boolean = false) {
@@ -135,6 +136,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
                                 if (state == PatchPublisher.CiState.PASSED) "success" else null)
                     },
                     ciWatchPause = { millis -> assertEquals(15_000L, millis) },
+                    recoveryDirectory = { recoveryDirectory },
                     autoRepairPreview = autoRepairPreview,
                     planCheckpoint = { _, result, checked ->
                         assertTrue(result.commitSha == failedCommit ||
