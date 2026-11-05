@@ -45,6 +45,9 @@ object PatchWorkbench {
         // complete an implementation checkpoint; this never advances release.
         val planCheckpoint: (Activity, PatchPublisher.CommitResult, PatchPublisher.CiStatus) -> String? =
             DeveloperPlanBuildCheckpoint::record,
+        val planRepairCheckpoint: (Activity, DeveloperPlanRepairCheckpoint.Origin,
+            PatchPublisher.CommitResult, PatchPublisher.CiStatus) -> String? =
+            DeveloperPlanRepairCheckpoint::record,
         val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit },
         val chatStatus: (String) -> Unit = { }
     )
@@ -248,6 +251,10 @@ object PatchWorkbench {
         var interruptedAttempt: PatchEngine.Proposal? = null
         var lastFeedback: Pair<PatchPublisher.CommitResult, BuildDiagnostics.Report>? = null
         var developerRepairCandidate: DeveloperFailureRepairDraft.Candidate? = null
+        var developerRepairEvidence: DeveloperPlanRepairCheckpoint.Origin? = null
+        var stagedRepairOrigin: DeveloperPlanRepairCheckpoint.Origin? = null
+        var committedRepairOrigin: Pair<DeveloperPlanRepairCheckpoint.Origin,
+            PatchPublisher.CommitResult>? = null
         var followUpPaths = emptyList<String>()
         var followUpReview: PersonalRepair.Review? = null
         var selectedFollowUp: String? = null
@@ -660,6 +667,16 @@ object PatchWorkbench {
                 return@setOnClickListener
             }
             val repair = activeRepair
+            // Approval applies to this exact new repair proposal only. The
+            // failed original CI context is lineage evidence, not consent.
+            val repairOrigin = stagedRepairOrigin?.takeIf { origin ->
+                selected.request.target == PatchEngine.Target.DEVELOPER &&
+                    selected.request.taskId.startsWith("repair-") &&
+                    selected.request.baseBranch == origin.original.branch &&
+                    selected.request.baseCommitSha == origin.original.commitSha
+            }
+            stagedRepairOrigin = null
+            committedRepairOrigin = null
             activeEngineering = null
             interruptedEngineering = engineeringWrite
             attemptedProposalIds.add(selected.id)
@@ -706,7 +723,11 @@ object PatchWorkbench {
                     val ciText = checked?.let(::ciSummary) ?:
                         "CI status could not be verified for this exact commit. Use Check CI to retry the read-only lookup."
                     val planCheckpoint = if (checked?.state == PatchPublisher.CiState.PASSED && alive())
-                        runCatching { services.planCheckpoint(activity, result, checked) }.getOrNull()
+                        runCatching {
+                            if (repairOrigin != null)
+                                services.planRepairCheckpoint(activity, repairOrigin, result, checked)
+                            else services.planCheckpoint(activity, result, checked)
+                        }.getOrNull()
                     else null
                     if (checked?.state == PatchPublisher.CiState.FAILED) {
                         activity.runOnUiThread {
@@ -754,6 +775,10 @@ object PatchWorkbench {
                         if (alive()) {
                             lastCommit = result
                             developerRepairCandidate = repairDraft
+                            developerRepairEvidence = if (repairDraft != null && checked != null && failureReport != null)
+                                DeveloperPlanRepairCheckpoint.Origin(result, checked, failureReport)
+                            else null
+                            committedRepairOrigin = repairOrigin?.let { it to result }
                             interruptedAttempt = null
                             interruptedEngineering = null
                             review.text = report
@@ -1019,11 +1044,19 @@ object PatchWorkbench {
                         val receipt = DeveloperChatBuildReceipt.commit(result, checked, failureReport,
                             candidate != null)
                         val planCheckpoint = if (checked.state == PatchPublisher.CiState.PASSED && alive())
-                            runCatching { services.planCheckpoint(activity, result, checked) }.getOrNull()
+                            runCatching {
+                                val lineage = committedRepairOrigin?.takeIf { it.second == result }?.first
+                                if (lineage != null)
+                                    services.planRepairCheckpoint(activity, lineage, result, checked)
+                                else services.planCheckpoint(activity, result, checked)
+                            }.getOrNull()
                         else null
                         activity.runOnUiThread {
                             if (alive()) {
                                 developerRepairCandidate = candidate
+                                developerRepairEvidence = if (candidate != null && failureReport != null)
+                                    DeveloperPlanRepairCheckpoint.Origin(result, checked, failureReport)
+                                else null
                                 val diagnostics = failureReport?.let {
                                     "\n\nVerified exact-run diagnostics:\n" + BuildDiagnostics.render(it)
                                 } ?: if (checked.state == PatchPublisher.CiState.FAILED)
@@ -1219,13 +1252,21 @@ object PatchWorkbench {
                 status.text = "Repair could not be prepared from the pinned source. No new approval or write occurred."
                 return false
             }
+            stagedRepairOrigin = developerRepairEvidence?.takeIf {
+                it.original == committed && it.original.commitSha == candidate.base &&
+                    it.original.branch == candidate.branch
+            }
             developerRepairCandidate = null
+            developerRepairEvidence = null
             // A user-initiated button or explicit chat request is a preview action only.
             // The failed build's consumed approval cannot authorize a second Git write.
             preview.performClick()
             val started = busy && activePreview != null
             if (started) status.text = "Reading failed Developer source and requesting a NEW bounded repair diff. No write authorized."
-            else status.text = "Repair preview could not be started. No approval or source write occurred."
+            else {
+                stagedRepairOrigin = null
+                status.text = "Repair preview could not be started. No approval or source write occurred."
+            }
             refresh()
             return started
         }
