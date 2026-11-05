@@ -103,6 +103,44 @@ class DeveloperPlanRepairCheckpointTest {
         assertTrue(review.confirm(f.activity, f.repaired, passCi).contains("No current"))
     }
 
+    @Test fun repairedCommitCanBeSavedAndReverifiedAfterRestartWithoutWriterConsent() {
+        val f = fixture()
+        assertNotNull(DeveloperPlanRepairCheckpoint.record(f.store, f.origin, f.repaired, passCi, 1002L))
+        val history = Files.createTempDirectory("developer-repair-bookmark-").toFile()
+        val bookmark = RepairHistoryStore.bookmark(f.repaired)
+        RepairHistoryStore(history).save(bookmark)
+        val totals = org.json.JSONObject().put("tests", 1).put("failures", 0)
+            .put("errors", 0).put("skipped", 0)
+        val suite = "com.jarvis.developer.RepairProvenanceTest"
+        val summary = org.json.JSONObject().put("sourceCommit", repairSha)
+            .put("totals", totals)
+            .put("suites", org.json.JSONArray().put(org.json.JSONObject(totals.toString())
+                .put("name", suite).put("sha256", "f".repeat(64))))
+            .put("cases", org.json.JSONArray().put(org.json.JSONObject()
+                .put("suite", suite).put("name", "repairedCommitPassed").put("result", "passed")))
+        val report = BuildDiagnostics.parse(repairSha, bookmark.branch, 24L, 1,
+            "completed", "success", "JARVIS_JUNIT_SUMMARY=$summary")
+        assertTrue(report.evidenceComplete)
+        val savedReview = DeveloperSavedCompletionReview({ history }, { f.directory },
+            { _, requested, cancellation ->
+                cancellation.check()
+                assertEquals(bookmark, requested)
+                report
+            }, { 1003L })
+        val cancellation = PatchPreviewCancellation()
+        assertTrue(savedReview.confirm(f.activity, "test-only", cancellation)
+            .contains("No fresh saved"))
+        val prepared = savedReview.prepare(f.activity, "test-only", cancellation)
+        assertTrue(prepared.text.contains(repairSha))
+        assertTrue(prepared.text.contains("no approval restored"))
+        savedReview.arm(prepared)
+        assertTrue(savedReview.confirm(f.activity, "test-only", cancellation)
+            .contains("LOCAL final review acknowledged"))
+        assertEquals(TaskPlanner.Status.DONE, f.store.loadAll().single().steps.last().status)
+        assertTrue(savedReview.confirm(f.activity, "test-only", cancellation)
+            .contains("No fresh saved"))
+    }
+
     @Test fun unrelatedParentOrIncorrectScopeCannotCompleteOriginalTask() {
         val f = fixture()
         val invalid = listOf(
