@@ -154,6 +154,25 @@ class DeveloperPlanRepairCheckpointTest {
         }
     }
 
+    @Test fun changedOrPausedOriginalPlanCannotInheritOldRepairApproval() {
+        val changed = fixture()
+        val before = changed.store.loadAll().single()
+        changed.store.save(TaskPlanner.note(before, "Owner changed scope review priorities", 1002L),
+            before.revision)
+        assertNull(DeveloperPlanRepairCheckpoint.record(changed.store,
+            changed.origin, changed.repaired, passCi, 1003L))
+        assertEquals(TaskPlanner.Status.PENDING,
+            changed.store.loadAll().single().steps[1].status)
+
+        val paused = fixture()
+        val current = paused.store.loadAll().single()
+        paused.store.save(TaskPlanner.pause(current, true, 1002L), current.revision)
+        assertNull(DeveloperPlanRepairCheckpoint.record(paused.store,
+            paused.origin, paused.repaired, passCi, 1003L))
+        assertEquals(TaskPlanner.Status.PENDING,
+            paused.store.loadAll().single().steps[1].status)
+    }
+
     @Test fun staleOrFailedCiAndMismatchedOriginalEvidenceNeverAdvancePlan() {
         val f = fixture()
         assertNull(DeveloperPlanRepairCheckpoint.record(f.store, f.origin, f.repaired,
