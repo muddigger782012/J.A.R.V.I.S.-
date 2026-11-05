@@ -30,6 +30,9 @@ object PatchWorkbench {
         val ci: (String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus = PatchPublisher::ci,
         // Real builds use bounded waits; deterministic Robolectric fixtures can advance without sleeping.
         val ciWatchPause: (Long) -> Unit = Thread::sleep,
+        // Compiler-only exact-run failures may prepare a NEW review-only
+        // patch automatically. This never approves, commits, or retries a write.
+        val autoRepairPreview: Boolean = true,
         val feedback: (String, PatchPublisher.CommitResult, PatchPreviewCancellation) -> BuildDiagnostics.Report = { token, result, cancellation ->
             BuildFeedback.read(token, result.branch, result.commitSha, result.target, cancellation)
         },
@@ -290,6 +293,32 @@ object PatchWorkbench {
             stageFollowUp.isEnabled = !busy && followUpReview != null
             openReview.isEnabled = !busy && lastCommit != null
         }
+        fun maybeAutoPrepareCompilerRepair(source: PatchPublisher.CommitResult) {
+            val candidate = developerRepairCandidate
+            val currentCommit = lastCommit
+            if (!services.autoRepairPreview || !alive() || busy ||
+                candidate == null || currentCommit == null ||
+                source.target != PatchEngine.Target.DEVELOPER ||
+                candidate.base != source.commitSha || candidate.branch != source.branch ||
+                currentCommit.commitSha != source.commitSha ||
+                currentCommit.branch != source.branch ||
+                interruptedAttempt != null || activePreview != null ||
+                activeRead != null || activeRepair != null || activeEngineering != null) return
+            refresh()
+            if (!prepareDeveloperRepair.isEnabled) return
+            // The existing button consumes the validated compiler candidate
+            // and starts a fresh, strictly pinned review-only diff request.
+            prepareDeveloperRepair.performClick()
+            if (busy && activePreview != null) {
+                runCatching { services.chatStatus(
+                    "Exact Developer compiler failure verified. A NEW repair diff " +
+                    "preview started automatically from the failed commit's source. " +
+                    "Review the complete diff in chat; no code write, retry, " +
+                    "merge or release is approved."
+                ) }
+            }
+        }
+
         fun cancelledRead(finished: Boolean) {
             followUpReview = null
             val message = if (finished)
@@ -701,8 +730,9 @@ object PatchWorkbench {
                     else null
                     val repairHint = if (checked?.state != PatchPublisher.CiState.FAILED) "" else
                         if (repairDraft != null)
-                            "\n\nCompiler-only follow-up available. Select Prepare Developer repair from verified failure. " +
-                                "A fresh pinned-source diff will be generated for your review; no prior approval is reused."
+                            "\n\nCompiler-only follow-up verified. A new pinned-source diff " +
+                                "will be prepared for your review when the coding slot is free; " +
+                                "no prior approval is reused or source write retried."
                         else "\n\nNo source-scoped compiler repair could be safely inferred. " +
                             "Review the verified tests/infrastructure diagnostics before starting another task."
                     val failureText = if (checked?.state != PatchPublisher.CiState.FAILED) "" else
@@ -768,7 +798,13 @@ object PatchWorkbench {
                     }
                 } finally {
                     activity.runOnUiThread {
-                        if (alive()) { busy = false; refresh() }
+                        if (alive()) {
+                            busy = false
+                            refresh()
+                            // No second source write: prepare only a new, review-only
+                            // proposal when this exact committed run has compiler evidence.
+                            lastCommit?.let(::maybeAutoPrepareCompilerRepair)
+                        }
                     }
                 }
             }
@@ -1018,7 +1054,14 @@ object PatchWorkbench {
                         }
                     } finally {
                         activity.runOnUiThread {
-                            if (alive()) { busy = false; refresh() }
+                            if (alive()) {
+                                busy = false
+                                refresh()
+                                // The original CI watch may have ended before a long
+                                // Android workflow completed. A later exact-run refresh
+                                // can still prepare the new compiler-only review diff.
+                                maybeAutoPrepareCompilerRepair(result)
+                            }
                         }
                     }
                 }

@@ -6,7 +6,10 @@ package com.jarvis.developer
  * An interrupted Activity discards the result instead of claiming a passing build.
  */
 internal object DeveloperCiWatch {
-    const val MAX_READS = 12
+    // About twelve minutes of bounded read-only polling. Developer debug
+    // compile/test workflows can exceed the former three-minute budget.
+    // Activity shutdown still aborts; persistence/recovery remains separate.
+    const val MAX_READS = 49
     const val POLL_DELAY_MILLIS = 15_000L
 
     fun follow(

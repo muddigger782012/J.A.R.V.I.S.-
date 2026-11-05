@@ -24,6 +24,26 @@ class DeveloperCiWatchTest {
             PatchPublisher.CiState.RUNNING to 2), seen)
     }
 
+    @Test fun slowAndroidBuildIsFollowedBeyondFormerThreeMinuteBudget() {
+        var polls = 0
+        var waits = 0
+        val result = DeveloperCiWatch.follow(status(PatchPublisher.CiState.QUEUED),
+            poll = {
+                polls++
+                status(if (polls == 40) PatchPublisher.CiState.FAILED
+                    else PatchPublisher.CiState.RUNNING)
+            },
+            active = { true },
+            pause = { millis ->
+                assertEquals(15_000L, millis)
+                waits++
+            })
+        assertEquals(PatchPublisher.CiState.FAILED, result?.state)
+        assertEquals(40, polls)
+        assertEquals(40, waits)
+        assertTrue(DeveloperCiWatch.MAX_READS > 40)
+    }
+
     @Test fun alreadyTerminalDoesNotPollOrSleep() {
         for (state in listOf(PatchPublisher.CiState.PASSED, PatchPublisher.CiState.FAILED)) {
             val result = DeveloperCiWatch.follow(status(state),
