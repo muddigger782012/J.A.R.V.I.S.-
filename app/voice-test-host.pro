@@ -28,6 +28,9 @@
 -keep,allowoptimization class com.assistant.core.services.HybridAssistantService** { public *; }
 -keep,allowoptimization class com.assistant.core.services.HybridAssistantReply** { public *; }
 -keep,allowoptimization class com.assistant.core.services.ConversationMemory** { public *; }
+# The new session-memory isolation acceptance test reads/writes LiveChatStore directly.
+# Preserve only its host-visible API in the optimized voiceCheck flavor; production rules are unchanged.
+-keep,allowoptimization class com.assistant.core.services.LiveChatStore { public *; }
 -keep,allowoptimization class com.assistant.core.services.SystemService** { public *; }
 -keep,allowoptimization class com.assistant.core.services.AuditService** { public *; }
 -keep,allowoptimization class com.assistant.core.engine.ActionRegistry** { public *; }
