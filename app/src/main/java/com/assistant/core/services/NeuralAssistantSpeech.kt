@@ -54,10 +54,10 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                     val key = if (cachePhrase) cache.key(fingerprint, voice.id, chunk) else null
                     val cached = key?.let(cache::read)
                     val audio = cached ?: run {
-                        NeuralVoiceDiagnostics.record(app, source, voice.id, "initializing_model")
+                        // Initialization and inference must not perform locked,
+                        // synchronous diagnostics writes before every phrase.
                         val synthesizer = engine ?: OfflineTts(config = configuration(pack.root)).also { engine = it }
                         if (generation.get() != token || closed) return@execute
-                        NeuralVoiceDiagnostics.record(app, source, voice.id, "generating_audio")
                         // Avoid the native-to-JVM callback boundary. Stop invalidates the token;
                         // a cancelled chunk is discarded before any playback or caching.
                         val generated = synthesizer.generate(chunk, sid = voice.speaker, speed = 1.0f)
@@ -77,7 +77,9 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                             }, firstQueued = {
                                 if (firstAudioMs < 0) {
                                     firstAudioMs = android.os.SystemClock.elapsedRealtime() - started
-                                    NeuralVoiceDiagnostics.record(app, source, voice.id, "audio_queued", firstAudioMs, hitsSoFar)
+                                    // The playback thread has milliseconds of PCM
+                                    // buffered; a synchronous AtomicFile+fsync here
+                                    // can underrun the output just as it begins.
                                     main.post { if (generation.get() == token && !closed) onAudio() }
                                 }
                             })
