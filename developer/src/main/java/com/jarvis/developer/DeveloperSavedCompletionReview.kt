@@ -39,20 +39,20 @@ internal class DeveloperSavedCompletionReview(
         url: String): Boolean {
         TaskPlanner.validate(plan)
         if (plan.paused || plan.steps.any { it.status == TaskPlanner.Status.RUNNING } ||
-            plan.steps.count { it.paths.isNotEmpty() } != 1) return false
-        val implementation = plan.steps.single { it.paths.isNotEmpty() }
+            plan.steps.none { it.paths.isNotEmpty() }) return false
+        val implementations = plan.steps.filter { it.paths.isNotEmpty() }
         val validation = plan.steps.singleOrNull { it.id == "validate" } ?: return false
         val final = plan.steps.singleOrNull { it.id == "review" } ?: return false
         // The persisted receipts were originally generated only after an exact
         // scoped, source-bound approved CommitResult and passing CI. Do not
         // infer that history itself ever approved a patch.
-        return implementation.status == TaskPlanner.Status.DONE &&
+        return implementations.all { it.status == TaskPlanner.Status.DONE &&
+            it.checkpoint.startsWith(
+                "Verified isolated Developer task commit ${bookmark.commitSha}; exact-source debug CI success: $url.") } &&
             validation.status == TaskPlanner.Status.DONE &&
             final.status == TaskPlanner.Status.PENDING &&
             final.dependsOn == listOf("validate") &&
             TaskPlanner.next(plan)?.id == final.id &&
-            implementation.checkpoint.startsWith(
-                "Verified isolated Developer task commit ${bookmark.commitSha}; exact-source debug CI success: $url.") &&
             validation.checkpoint.startsWith(
                 "Exact-source Developer CI workflow passed automated tests, lint, debug APK assembly " +
                     "and its workflow gates for ${bookmark.commitSha}: $url.")
