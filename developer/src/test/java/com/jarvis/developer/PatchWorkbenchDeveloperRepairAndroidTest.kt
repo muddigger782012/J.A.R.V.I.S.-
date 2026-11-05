@@ -30,6 +30,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
     private val canonical = "feature/jarvis-developer"
     private val sourceSha = "a".repeat(40)
     private val failedCommit = "c".repeat(40)
+    private val repairedCommit = "e".repeat(40)
     private val path = "developer/src/main/java/com/jarvis/developer/VoiceLatency.kt"
     private val before = "package com.jarvis.developer\nobject VoiceLatency { fun delay() = 10 }\n"
     private val firstEdit = "package com.jarvis.developer\nobject VoiceLatency { fun delay() = 5 }\n"
@@ -42,7 +43,8 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
     }
     private inner class Screen(val infrastructureFailure: Boolean = false,
         val historyDirectory: java.io.File = java.nio.file.Files.createTempDirectory("developer-bookmark-").toFile(),
-        val autoRepairPreview: Boolean = false) {
+        val autoRepairPreview: Boolean = false,
+        val successfulRepairBuild: Boolean = false) {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
@@ -107,12 +109,18 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
                         taskBranch = PatchEngine.branchName(proposal)
                         PatchPublisher.CommitResult(req.taskId, req.provider, req.model,
                             proposal.id, proposal.edits.map { it.path }.sorted(),
-                            req.baseCommitSha, failedCommit, requireNotNull(taskBranch),
+                            req.baseCommitSha,
+                            if (successfulRepairBuild && writes == 2) repairedCommit else failedCommit,
+                            requireNotNull(taskBranch),
                             proposal.diff, req.baseBranch, req.target)
                     },
                     ci = { _, result ->
-                        ciReads++; assertEquals(failedCommit, result.commitSha)
-                        val state = if (ciTransitions.isEmpty()) ciState else ciTransitions.removeFirst()
+                        ciReads++
+                        assertTrue(result.commitSha == failedCommit ||
+                            (successfulRepairBuild && result.commitSha == repairedCommit))
+                        val state = if (result.commitSha == repairedCommit && successfulRepairBuild)
+                            PatchPublisher.CiState.PASSED
+                        else if (ciTransitions.isEmpty()) ciState else ciTransitions.removeFirst()
                         PatchPublisher.CiStatus(state,
                             if (state == PatchPublisher.CiState.MISSING) null else
                                 "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/23",
@@ -122,7 +130,8 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
                     ciWatchPause = { millis -> assertEquals(15_000L, millis) },
                     autoRepairPreview = autoRepairPreview,
                     planCheckpoint = { _, result, checked ->
-                        assertEquals(failedCommit, result.commitSha)
+                        assertTrue(result.commitSha == failedCommit ||
+                            (successfulRepairBuild && result.commitSha == repairedCommit))
                         assertEquals(PatchPublisher.CiState.PASSED, checked.state)
                         planEvidenceCalls++
                         "Evidence recorder acknowledged exact task CI"
@@ -169,6 +178,52 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
         }
         fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun verifiedCompilerFailureCanCompleteFreshOwnerApprovedRepairAndGreenSecondBuild() {
+        val s = Screen(autoRepairPreview = true, successfulRepairBuild = true)
+        try {
+            // First approved exact-source commit fails CI. Developer reads
+            // matching compiler diagnostics, then automatically stages a
+            // NEW repair preview on that failed commit (not on canonical).
+            s.initialFailure()
+            assertEquals(1, s.writes)
+            assertEquals(1, s.logReads)
+            assertEquals(0, s.providerCalls)
+            assertEquals(1, s.queued.size)
+            assertFalse(s.approval().isChecked)
+            s.finish()
+            assertEquals(1, s.providerCalls)
+            assertEquals(1, s.writes)
+            assertTrue(s.output.text.contains("Scoped preview ready"))
+            assertTrue(s.queued.isEmpty())
+
+            // A fresh repair is NOT authorized until the owner reviews the
+            // exact complete diff and consents with its verified fingerprint.
+            assertFalse(s.handle.approveDeveloperDiff(DeveloperDiffApprovalCommand.REVIEWED))
+            val review = requireNotNull(s.handle.showDeveloperDiff())
+            assertTrue(review.contains("Complete reviewable diff"))
+            assertTrue(review.contains(repaired.trim()))
+            assertEquals(1, s.writes)
+            assertTrue(s.handle.approveDeveloperDiff(DeveloperDiffApprovalCommand.REVIEWED))
+            assertEquals(1, s.queued.size)
+            assertFalse(s.approval().isEnabled)
+            s.finish()
+
+            // Second isolated commit passes CI. The cycle must not spawn
+            // another repair, silently retry the write, or reuse consent.
+            assertEquals(2, s.writes)
+            assertEquals(1, s.providerCalls)
+            assertEquals(2, s.ciReads)
+            assertEquals(1, s.logReads)
+            assertEquals(1, s.planEvidenceCalls)
+            assertTrue(s.queued.isEmpty())
+            assertTrue(s.chatUpdates.any { it.contains("CI: passed") })
+            assertTrue(s.status.text.contains("CI passed"))
+            assertFalse(s.handle.approveDeveloperDiff(DeveloperDiffApprovalCommand.REVIEWED))
+            assertFalse(s.handle.prepareDeveloperRepair())
+            assertFalse(s.approval().isEnabled)
+        } finally { s.close() }
+    }
+
     @Test fun compilerFailureStartsFreshRepairPreviewAutomaticallyButNeverWritesAgain() {
         val s = Screen(autoRepairPreview = true)
         try {
