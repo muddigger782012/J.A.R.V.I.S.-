@@ -59,6 +59,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
         var providerCalls = 0
         var writes = 0
         var ciReads = 0
+        var planEvidenceCalls = 0
         var ciState = PatchPublisher.CiState.FAILED
         val chatUpdates = mutableListOf<String>()
         var logReads = 0
@@ -112,7 +113,14 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
                         PatchPublisher.CiStatus(ciState,
                             if (ciState == PatchPublisher.CiState.MISSING) null else
                                 "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/23",
-                            if (ciState == PatchPublisher.CiState.FAILED) "failure" else null)
+                            if (ciState == PatchPublisher.CiState.FAILED) "failure" else
+                                if (ciState == PatchPublisher.CiState.PASSED) "success" else null)
+                    },
+                    planCheckpoint = { _, result, checked ->
+                        assertEquals(failedCommit, result.commitSha)
+                        assertEquals(PatchPublisher.CiState.PASSED, checked.state)
+                        planEvidenceCalls++
+                        "Evidence recorder acknowledged exact task CI"
                     },
                     feedback = { _, result, cancellation ->
                         cancellation.check(); logReads++
@@ -252,6 +260,33 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
             assertEquals(1, s.writes)
             assertFalse(s.approval().isEnabled)
             assertFalse(s.button("Prepare Developer repair").isEnabled)
+        } finally { s.close() }
+    }
+
+    @Test fun verifiedGreenCiReportsOnePlanEvidenceEventWithoutExtraWrites() {
+        val s = Screen()
+        try {
+            s.ciState = PatchPublisher.CiState.PASSED
+            s.initialFailure()
+            assertEquals(1, s.planEvidenceCalls)
+            assertTrue(s.chatUpdates.last().contains("Evidence recorder acknowledged"))
+            assertEquals(1, s.writes)
+            assertEquals(0, s.providerCalls)
+            assertTrue(s.handle.refreshDeveloperCi())
+            s.finish()
+            assertEquals(2, s.planEvidenceCalls)
+            assertEquals(1, s.writes)
+            assertEquals(0, s.providerCalls)
+        } finally { s.close() }
+    }
+
+    @Test fun failedCiDoesNotRecordVerifiedImplementationCheckpoint() {
+        val s = Screen()
+        try {
+            s.initialFailure()
+            assertEquals(0, s.planEvidenceCalls)
+            assertEquals(1, s.writes)
+            assertEquals(1, s.logReads)
         } finally { s.close() }
     }
 

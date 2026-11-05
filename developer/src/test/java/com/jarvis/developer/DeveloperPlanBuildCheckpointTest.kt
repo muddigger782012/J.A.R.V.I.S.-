@@ -86,12 +86,16 @@ class DeveloperPlanBuildCheckpointTest {
         val storage = store()
         val plan = ready(storage)
         val result = result(plan)
-        assertNull(DeveloperPlanBuildCheckpoint.record(storage, result.copy(taskId = "other-task"), success, 1002))
+        assertThrows(IllegalArgumentException::class.java) {
+            DeveloperPlanBuildCheckpoint.record(storage, result.copy(taskId = "other-task"), success, 1002)
+        }
         assertNull(DeveloperPlanBuildCheckpoint.record(storage, result.copy(baseCommitSha = "f".repeat(40)), success, 1002))
         assertNull(DeveloperPlanBuildCheckpoint.record(storage, result.copy(paths = listOf(
             "developer/src/main/java/com/jarvis/developer/Other.kt")), success, 1002))
-        assertNull(DeveloperPlanBuildCheckpoint.record(storage, result.copy(baseBranch =
-            "main"), success, 1002))
+        assertThrows(IllegalArgumentException::class.java) {
+            DeveloperPlanBuildCheckpoint.record(storage, result.copy(baseBranch =
+                "main"), success, 1002)
+        }
         val paused = TaskPlanner.pause(plan, true, 1002)
         storage.save(paused, plan.revision)
         assertNull(DeveloperPlanBuildCheckpoint.record(storage, result, success, 1003))
