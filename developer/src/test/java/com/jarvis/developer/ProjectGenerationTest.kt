@@ -139,6 +139,59 @@ class ProjectGenerationTest {
         }
     }
 
+    @Test fun chatCanReviewPersistApproveAnalysisThenContinueNextScopedStep() {
+        val directory = java.nio.file.Files.createTempDirectory("developer-full-chat-plan-").toFile()
+        val store = TaskPlanStore(directory)
+        val path = "developer/src/main/java/com/jarvis/developer/VoiceLatency.kt"
+        val plan = TaskPlanner.Plan(
+            "plan-chat", "Fix Developer voice latency", "a".repeat(40), "b".repeat(64),
+            listOf(path), listOf(
+                TaskPlanner.Step("analyze", "Confirm source analysis", "Review plan evidence", emptyList(), emptyList()),
+                TaskPlanner.Step("implement-1", "Change voice latency", "Use only the selected source",
+                    listOf(path), listOf("analyze")),
+                TaskPlanner.Step("validate", "Validate", "Verify exact CI", emptyList(), listOf("implement-1")),
+                TaskPlanner.Step("review", "Review", "Check release gates", emptyList(), listOf("validate"))
+            ), listOf(TaskPlanner.Decision(1, null, "Analysis completed for immutable source", 1000)),
+            0L, false, 1000L)
+        store.save(plan, null)
+        val approval = DeveloperPlanAnalysisReview({ directory }, { 1002L })
+        var stages = 0
+        Screen(planAnalysis = approval, nextPlan = { DeveloperPlanContinuation.suggest(store.loadAll()) },
+            stagePlan = { packet ->
+                assertEquals(listOf(path), packet.paths)
+                assertEquals(plan.baseCommitSha, packet.base)
+                stages++
+                true
+            }, ask = { _, _, _, _, _ -> error("No AI provider invocation for plan checkpoint commands") }).use { s ->
+            s.prompt.setText("Continue Developer plan")
+            s.send.performClick()
+            s.complete()
+            assertTrue(s.output.text.contains("requires explicit evidence/review"))
+            assertEquals(0, stages)
+            s.prompt.setText("Approve Developer plan analysis")
+            s.send.performClick()
+            assertTrue(s.output.text.contains("No current"))
+            s.prompt.setText("Review Developer plan")
+            s.send.performClick()
+            assertTrue(s.output.text.contains("Pinned source"))
+            assertTrue(s.output.text.contains(path))
+            assertEquals(0L, store.loadAll().single().revision)
+            s.prompt.setText("Approve Developer plan analysis")
+            s.send.performClick()
+            assertTrue(s.output.text.contains("acknowledged and saved"))
+            assertEquals(1L, store.loadAll().single().revision)
+            assertEquals(TaskPlanner.Status.DONE, store.loadAll().single().steps[0].status)
+            s.prompt.setText("Continue Developer plan")
+            s.send.performClick()
+            assertEquals(1, s.pending.size)
+            s.complete()
+            assertEquals(1, stages)
+            assertTrue(s.output.text.contains("preview STARTED"))
+            assertTrue(s.prefs.all.isEmpty())
+            assertEquals(TaskPlanner.Status.PENDING, store.loadAll().single().steps[1].status)
+        }
+    }
+
     @Test fun explicitSavedTaskChatCommandsDoNotCallProviderOrPersistProjectDiscussion() {
         var saves = 0
         var reads = 0
