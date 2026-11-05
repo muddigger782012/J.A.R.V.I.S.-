@@ -31,6 +31,15 @@ object ForecastDates {
     fun contextual(input: String, history: List<String>): String? {
         var previous: String? = null
         for (turn in history.takeLast(8)) previous = one(turn, previous)
+        if (previous != null) {
+            WeatherPlaceQuery.correctedLocation(input)?.let { place ->
+                // A user correcting a forecast city is correcting the lookup,
+                // not asking to edit a saved app preference or run an AI lesson.
+                val date = selector(previous)
+                return "weather in ${place.city}, ${place.state ?: ""}" +
+                    (date?.let { " for $it" } ?: "")
+            }
+        }
         return one(input, previous)
     }
     private fun one(input: String, previous: String?): String? {
