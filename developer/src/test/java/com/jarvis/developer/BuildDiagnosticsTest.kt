@@ -355,4 +355,50 @@ class BuildDiagnosticsTest {
         assertFalse(BuildDiagnostics.render(privateReason).contains("privatePayload"))
         rejected { BuildDiagnostics.incomplete(result, "") }
     }
+    @Test fun expandedJUnitSuiteRetainsAllCasesAndRejectsOverflowOrFalseGreen() {
+        fun fixture(suitesCount: Int, casesPerSuite: Int, failed: Boolean = false): JSONObject {
+            val allSuites = JSONArray()
+            val cases = JSONArray()
+            for (index in 0 until suitesCount) {
+                val suiteName = "com.jarvis.developer.ExpandedEvidenceSuite$index"
+                val failures = if (index == 0 && failed) 1 else 0
+                allSuites.put(JSONObject()
+                    .put("name", suiteName).put("sha256", "d".repeat(64))
+                    .put("tests", casesPerSuite).put("failures", failures)
+                    .put("errors", 0).put("skipped", 0))
+                repeat(casesPerSuite) { case ->
+                    cases.put(JSONObject().put("suite", suiteName)
+                        .put("name", "restartRecoveryCase${case}_" + "x".repeat(70))
+                        .put("result", if (index == 0 && case == 0 && failed) "failure" else "passed"))
+                }
+            }
+            return JSONObject().put("sourceCommit", commit)
+                .put("totals", JSONObject().put("tests", suitesCount * casesPerSuite)
+                    .put("failures", if (failed) 1 else 0).put("errors", 0).put("skipped", 0))
+                .put("suites", allSuites).put("cases", cases)
+        }
+
+        // The current Developer test tree contains more than 64 independent
+        // JVM test classes. The old 50-suite parser silently treated complete
+        // passing CI as unverified, blocking task completion after release.
+        val expanded = fixture(76, 12)
+        val marker = "JARVIS_JUNIT_SUMMARY=$expanded"
+        assertTrue(marker.length > 100_000)
+        assertTrue(marker.length < 300_000)
+        val verified = report(marker, "success")
+        assertTrue(verified.limitations.toString(), verified.evidenceComplete)
+        assertEquals(912, verified.totals!!.tests)
+        assertEquals(912, verified.tests.size)
+        BuildDiagnostics.validateReport(verified)
+
+        // A larger budget is still a hard boundary, not permission to omit
+        // suites, drop failures, or convert a failed build to passing.
+        val tooMany = report("JARVIS_JUNIT_SUMMARY=" + fixture(129, 1), "success")
+        assertFalse(tooMany.evidenceComplete)
+        assertNull(tooMany.totals)
+        val failure = report("JARVIS_JUNIT_SUMMARY=" + fixture(76, 12, true), "success")
+        assertFalse(failure.evidenceComplete)
+        assertNull(failure.totals)
+    }
+
 }
