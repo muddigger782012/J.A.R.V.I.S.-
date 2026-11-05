@@ -13,11 +13,10 @@ import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-/** Exact Kokoro male speaker IDs; no pitch shifting or Android gender guessing. */
+/** Kokoro uses native per-sentence streaming, keeping one uninterrupted PCM output session. */
 class NeuralAssistantSpeech(context: Context, private val source: String = "assistant") {
     private val app = context.applicationContext
     private val worker = Executors.newSingleThreadExecutor()
-    // Synthesize the next phrase while the preceding phrase is already playing.
     private val playbackWorker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private val generation = AtomicLong()
@@ -26,96 +25,123 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
     private var engine: OfflineTts? = null
     private val cache = NeuralSpeechCache(File(app.cacheDir, "neural-phrases"))
 
-    fun speak(text: String, voice: NeuralVoiceCatalog.Voice, done: () -> Unit, error: (String) -> Unit, cachePhrase: Boolean = false,
-              onAudio: () -> Unit = {}) {
+    fun speak(text: String, voice: NeuralVoiceCatalog.Voice, done: () -> Unit,
+              error: (String) -> Unit, cachePhrase: Boolean = false,
+              onAudio: () -> Unit = {}, onProgress: () -> Unit = {}) {
         stop()
         if (closed) return
         val token = generation.get()
         val started = android.os.SystemClock.elapsedRealtime()
         worker.execute {
-            var firstAudioMs = -1L
+            val firstAudioMs = AtomicLong(-1L)
             var cacheHits = 0
             var terminalRecorded = false
-            val playbackAborted = AtomicBoolean(false)
-            val queuedPlayback = java.util.ArrayDeque<Future<*>>()
+            val aborted = AtomicBoolean(false)
+            val pending = java.util.ArrayDeque<Future<*>>()
             var session: NeuralPcmPlayer.Session? = null
+            val active = { generation.get() == token && !closed && !aborted.get() }
             try {
                 val pack = NeuralVoicePack(app)
                 check(pack.installed()) { "Offline voices are not installed" }
                 val fingerprint = File(pack.root, ".ready").readText()
                 NeuralVoiceDiagnostics.record(app, source, voice.id, "preparing")
-                if (generation.get() != token || closed) return@execute
-                // A single output session owns audio focus and AudioTrack for
-                // the complete reply; never reopen the device at each sentence.
-                val replySession = player.newSession()
-                session = replySession
-                for (chunk in SpeechChunks.lowLatency(text)) {
-                    if (generation.get() != token || closed) return@execute
-                    val key = if (cachePhrase) cache.key(fingerprint, voice.id, chunk) else null
-                    val cached = key?.let(cache::read)
-                    val audio = cached ?: run {
-                        NeuralVoiceDiagnostics.record(app, source, voice.id, "initializing_model")
-                        val synthesizer = engine ?: OfflineTts(config = configuration(pack.root)).also { engine = it }
-                        if (generation.get() != token || closed) return@execute
-                        NeuralVoiceDiagnostics.record(app, source, voice.id, "generating_audio")
-                        // Avoid the native-to-JVM callback boundary. Stop invalidates the token;
-                        // a cancelled chunk is discarded before any playback or caching.
-                        val generated = synthesizer.generate(chunk, sid = voice.speaker, speed = 1.0f)
-                        NeuralSpeechCache.Clip(generated.sampleRate, generated.samples)
-                    }
-                    if (cached != null) cacheHits++
-                    if (generation.get() != token || closed) return@execute
-                    check(audio.samples.isNotEmpty() && audio.samples.all { it.isFinite() }) { "No valid audio was generated" }
-                    if (key != null && cached == null) runCatching { cache.write(key, audio) }
-                    // Playback uses a dedicated queue. Keeping at most one phrase
-                    // prefetched removes synth-time gaps without buffering whole replies.
-                    val hitsSoFar = cacheHits
-                    queuedPlayback.addLast(playbackWorker.submit {
-                        if (generation.get() == token && !closed && !playbackAborted.get()) {
-                            replySession.enqueue(audio, active = {
-                                generation.get() == token && !closed && !playbackAborted.get()
-                            }, firstQueued = {
-                                if (firstAudioMs < 0) {
-                                    firstAudioMs = android.os.SystemClock.elapsedRealtime() - started
-                                    NeuralVoiceDiagnostics.record(app, source, voice.id, "audio_queued", firstAudioMs, hitsSoFar)
-                                    main.post { if (generation.get() == token && !closed) onAudio() }
-                                }
-                            })
-                        }
+                if (!active()) return@execute
+
+                val output = player.newSession()
+                session = output
+                // The JNI callback owns FloatArray memory only until it
+                // returns. Copy every sentence chunk before queueing it.
+                fun deliver(rate: Int, samples: FloatArray) {
+                    if (!active()) return
+                    check(samples.isNotEmpty() && samples.all { it.isFinite() }) { "Invalid native audio samples" }
+                    val clip = NeuralSpeechCache.Clip(rate, samples.copyOf())
+                    pending.addLast(playbackWorker.submit {
+                        if (active()) output.enqueue(clip, active = active, firstQueued = {
+                            val millis = android.os.SystemClock.elapsedRealtime() - started
+                            if (firstAudioMs.compareAndSet(-1L, millis)) {
+                                // Do not synchronously fsync diagnostics on
+                                // the audio writer. That can empty the track
+                                // after the first 85ms buffer and cause a gap.
+                                // The completion/error record persists this timing.
+                                main.post { if (active()) onAudio() }
+                            }
+                        })
                     })
-                    if (queuedPlayback.size >= 2) queuedPlayback.removeFirst().get()
+                    // Keep at most two sentence segments in flight. Model
+                    // synthesis can overlap uninterrupted output playback.
+                    if (pending.size >= 3) pending.removeFirst().get()
                 }
-                while (queuedPlayback.isNotEmpty()) queuedPlayback.removeFirst().get()
-                if (generation.get() != token || closed) return@execute
-                // The last PCM writes can still be playing. Do not advance
-                // the conversation until every queued frame has been heard.
+
+                val key = if (cachePhrase && text.length <= 220)
+                    cache.key(fingerprint, voice.id, text) else null
+                val cached = key?.let(cache::read)
+                if (cached != null) {
+                    cacheHits = 1
+                    deliver(cached.sampleRate, cached.samples)
+                    main.post { if (active()) onProgress() }
+                } else {
+                    NeuralVoiceDiagnostics.record(app, source, voice.id, "generating_audio")
+                    val synth = engine ?: OfflineTts(config = configuration(pack.root)).also { engine = it }
+                    if (!active()) return@execute
+                    val stats = SpeechStreamAccounting()
+                    val rate = synth.sampleRate()
+                    // Native model emits each completed sentence as PCM.
+                    // Avoid re-running ONNX inference for artificial 70/180
+                    // character splits, which caused long pauses mid-answer.
+                    val generated = synth.generateWithCallback(text, sid = voice.speaker, speed = 1.0f) { samples ->
+                        if (!active()) 0 else {
+                            if (samples.isNotEmpty()) {
+                                stats.receivedCallback(samples.size)
+                                deliver(rate, samples)
+                                main.post { if (active()) onProgress() }
+                            }
+                            if (active()) 1 else 0
+                        }
+                    }
+                    if (!active()) return@execute
+                    // Some native configurations return only streamed
+                    // callback segments, with no combined final waveform.
+                    // In that mode the callback queue already owns the audio.
+                    if (generated.samples.isNotEmpty()) {
+                        val firstMissingFrame = stats.undeliveredStart(generated.samples.size)
+                        if (firstMissingFrame < generated.samples.size) {
+                            deliver(generated.sampleRate,
+                                generated.samples.copyOfRange(firstMissingFrame, generated.samples.size))
+                            main.post { if (active()) onProgress() }
+                        }
+                    } else check(stats.deliveredFrames > 0) { "No audio generated by native TTS" }
+                    if (key != null && generated.samples.isNotEmpty()) {
+                        runCatching { cache.write(key, NeuralSpeechCache.Clip(generated.sampleRate, generated.samples)) }
+                    }
+                }
+                while (pending.isNotEmpty()) pending.removeFirst().get()
+                if (!active()) return@execute
                 playbackWorker.submit {
-                    replySession.drain { generation.get() == token && !closed && !playbackAborted.get() }
+                    output.drain(active, onPlaybackProgress = {
+                        main.post { if (active()) onProgress() }
+                    })
                 }.get()
-                if (generation.get() != token || closed) return@execute
-                NeuralVoiceDiagnostics.record(app, source, voice.id, "completed", firstAudioMs, cacheHits)
+                if (!active()) return@execute
+                NeuralVoiceDiagnostics.record(app, source, voice.id, "completed", firstAudioMs.get(), cacheHits)
                 terminalRecorded = true
                 main.post { if (generation.get() == token && !closed) done() }
             } catch (failure: Throwable) {
-                playbackAborted.set(true)
-                // Cancel only this reply. A late error from an obsolete
-                // generation must never stop the next reply's audio.
+                aborted.set(true)
                 session?.cancel()
                 if (generation.get() == token && !closed) {
-                    NeuralVoiceDiagnostics.record(app, source, voice.id, "error", firstAudioMs, cacheHits, failure.javaClass.simpleName)
+                    NeuralVoiceDiagnostics.record(app, source, voice.id, "error",
+                        firstAudioMs.get(), cacheHits, failure.javaClass.simpleName)
                     terminalRecorded = true
                     main.post { if (generation.get() == token && !closed) error(failure.javaClass.simpleName) }
                 }
             } finally {
-                playbackAborted.set(true)
-                val finishingSession = session
-                if (finishingSession != null) {
-                    // Output cleanup stays serialized behind previous PCM writes,
-                    // so cancelling speech cannot release AudioTrack mid-write.
-                    runCatching { playbackWorker.submit { finishingSession.close() }.get() }
+                aborted.set(true)
+                val ending = session
+                if (ending != null) {
+                    runCatching { playbackWorker.submit { ending.close() }.get() }
                 }
                 if (!terminalRecorded && (generation.get() != token || closed))
-                    NeuralVoiceDiagnostics.record(app, source, voice.id, "cancelled", firstAudioMs, cacheHits)
+                    NeuralVoiceDiagnostics.record(app, source, voice.id, "cancelled", firstAudioMs.get(), cacheHits)
             }
         }
     }

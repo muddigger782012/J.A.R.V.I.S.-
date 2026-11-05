@@ -261,6 +261,8 @@ class VoiceAssistantService(
     private var afterSpeech: (() -> Unit)? = null
     private var wakeReplyIndex = 0
     private var speechSequence = 0L
+    private val speechProgress = SpeechProgressGuard { android.os.SystemClock.elapsedRealtime() }
+    fun hasRecentSpeechProgress(staleMillis: Long) = activeSpeechPrefix != null && speechProgress.recent(staleMillis)
     private var activeSpeechPrefix: String? = null
     private var finalSpeechId: String? = null
     private val audioManager by lazy { context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager }
@@ -271,6 +273,7 @@ class VoiceAssistantService(
     }
 
     fun stopSpeaking() {
+        speechProgress.finish()
         if (activeSpeechPrefix != null) observe(VoiceInteractionState.IDLE)
         neuralSpeech?.stop()
         afterSpeech = null
@@ -281,6 +284,7 @@ class VoiceAssistantService(
     }
 
     private fun finishSpeech() {
+        speechProgress.finish()
         releaseSpeechFocus()
         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.IDLE)
         observe(VoiceInteractionState.IDLE)
@@ -301,6 +305,7 @@ class VoiceAssistantService(
         observe(VoiceInteractionState.SPEAKING)
         afterSpeech = after
         activeSpeechChannel = channel
+        speechProgress.start()
         if (!VoiceResponsePreferences.load(context).allowsSpeech(channel)) {
             // Completion still advances silent live turns and rearms wake capture.
             finishSpeech()
@@ -315,7 +320,8 @@ class VoiceAssistantService(
             onStatus("${voice.label} · offline Kokoro")
             val engine = neuralSpeech ?: NeuralAssistantSpeech(context).also { neuralSpeech = it }
             engine.speak(text, voice, cachePhrase = after != null,
-                onAudio = { if (activeSpeechPrefix == prefix) VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEAKING) },
+                onAudio = { if (activeSpeechPrefix == prefix) { speechProgress.advance(); VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEAKING) } },
+                onProgress = { if (activeSpeechPrefix == prefix) speechProgress.advance() },
                 done = { if (activeSpeechPrefix == prefix) finishSpeech() }, error = { failure ->
                 if (activeSpeechPrefix == prefix) {
                     VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_FAILED)
@@ -400,12 +406,15 @@ class VoiceAssistantService(
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
                     mainHandler.post {
-                        if (activeSpeechPrefix != null && utteranceId == activeSpeechPrefix + "0")
+                        if (activeSpeechPrefix != null && utteranceId?.startsWith(activeSpeechPrefix!!) == true) {
+                            speechProgress.advance()
                             VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEAKING)
+                        }
                     }
                 }
                 override fun onDone(utteranceId: String?) {
                     mainHandler.post {
+                        if (utteranceId != null && activeSpeechPrefix != null && utteranceId.startsWith(activeSpeechPrefix!!)) speechProgress.advance()
                         if (utteranceId == finalSpeechId && finalSpeechId != null) {
                             activeSpeechPrefix = null
                             finalSpeechId = null
@@ -582,8 +591,12 @@ class VoiceAssistantService(
             stopDedicatedWakeWordEngine()
         }
         val token = wakeGeneration
-        val reply = AssistantPhrasePreferences.load(context).reply(wakeReplyIndex++)
-        speak(reply, after = { if (voiceActive && commandFromWake && wakeGeneration == token) startCommandListening() })
+        onStatus("Hey Jarvis detected — listening for your command.")
+        // Acknowledgement must never wait on Kokoro model initialization or
+        // Android TTS; the cue sounds immediately even when speech synthesis is slow.
+        WakeAcknowledgement.beepThenCapture(context, mainHandler) {
+            if (voiceActive && commandFromWake && wakeGeneration == token) startCommandListening()
+        }
     }
 
     fun startWithIntroduction() {

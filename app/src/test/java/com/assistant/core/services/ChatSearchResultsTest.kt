@@ -13,6 +13,13 @@ class ChatSearchResultsTest {
         assertEquals("Hello, how can I help?", ChatSearchResults.forSpeech("Hello, how can I help?"))
         assertFalse(ChatSearchResults.forSpeech("J.A.R.V.I.S.: [search-results-v1]{broken").contains("{broken"))
     }
+    @Test fun structuredSpeechNeverSilentlyDropsTheEndOfALongVerifiedAnswer() {
+        val full = (1..130).joinToString(" ") { "Technical paragraph number $it explains the procedure." }
+        val encoded = ChatSearchResults.encode("repair reference", emptyList(), full)
+        val spoken = ChatSearchResults.forSpeech(encoded)
+        assertTrue("Speech dropped the final paragraph", spoken.contains("Technical paragraph number 130"))
+        assertTrue("Voice was silently capped below the verified response", spoken.length > 4000)
+    }
     @Test fun savedChatRestoresSourceFieldsWithNewlines() {
         val item = SearchRouter.Result("A title", "Two\nparagraphs", "https://example.org/a?q=1")
         val message = ChatSearchResults.encode("diesel repair", listOf(item))
