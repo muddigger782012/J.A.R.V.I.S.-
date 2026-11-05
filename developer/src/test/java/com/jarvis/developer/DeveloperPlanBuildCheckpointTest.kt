@@ -71,12 +71,14 @@ class DeveloperPlanBuildCheckpointTest {
     @Test fun malformedValidationDependenciesBlockBothCheckpoints() {
         val storage = store()
         val current = ready(storage)
-        val outcome = result(current)
         val changed = TaskPlanner.editStep(current, "validate", "Validate", "Manual gate",
             listOf("analyze"), 1002L)
         storage.save(changed, current.revision)
+        // Bind this fake approved commit to the *changed* local revision so
+        // only the validation-dependency guard is being exercised.
+        val revisedOutcome = result(changed)
         assertThrows(IllegalArgumentException::class.java) {
-            DeveloperPlanBuildCheckpoint.record(storage, outcome, success, 1003L)
+            DeveloperPlanBuildCheckpoint.record(storage, revisedOutcome, success, 1003L)
         }
         val persisted = storage.loadAll().single()
         assertEquals(TaskPlanner.Status.PENDING, persisted.steps[1].status)
