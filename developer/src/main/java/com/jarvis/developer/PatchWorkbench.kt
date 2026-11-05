@@ -299,6 +299,11 @@ object PatchWorkbench {
             if (!services.autoRepairPreview || !alive() || busy ||
                 candidate == null || currentCommit == null ||
                 source.target != PatchEngine.Target.DEVELOPER ||
+                // Bounded automatic repair: only the original canonical-rooted
+                // task may stage one repair. A repair commit is based on a
+                // task branch and cannot launch a further automatic AI loop.
+                source.baseBranch != "feature/jarvis-developer" ||
+                source.taskId.startsWith("repair-") ||
                 candidate.base != source.commitSha || candidate.branch != source.branch ||
                 currentCommit.commitSha != source.commitSha ||
                 currentCommit.branch != source.branch ||
