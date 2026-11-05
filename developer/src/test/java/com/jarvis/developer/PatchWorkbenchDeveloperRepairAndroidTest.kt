@@ -41,7 +41,8 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
         ).joinToString("") { "%02x".format(it.toInt() and 255) }
     }
     private inner class Screen(val infrastructureFailure: Boolean = false,
-        val historyDirectory: java.io.File = java.nio.file.Files.createTempDirectory("developer-bookmark-").toFile()) {
+        val historyDirectory: java.io.File = java.nio.file.Files.createTempDirectory("developer-bookmark-").toFile(),
+        val autoRepairPreview: Boolean = false) {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
@@ -119,6 +120,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
                                 if (state == PatchPublisher.CiState.PASSED) "success" else null)
                     },
                     ciWatchPause = { millis -> assertEquals(15_000L, millis) },
+                    autoRepairPreview = autoRepairPreview,
                     planCheckpoint = { _, result, checked ->
                         assertEquals(failedCommit, result.commitSha)
                         assertEquals(PatchPublisher.CiState.PASSED, checked.state)
@@ -167,6 +169,57 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
         }
         fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun compilerFailureStartsFreshRepairPreviewAutomaticallyButNeverWritesAgain() {
+        val s = Screen(autoRepairPreview = true)
+        try {
+            s.initialFailure()
+            // Exact task failure and compiler location were checked once before
+            // a new source-scoped preview is queued. No second manual command.
+            assertEquals(1, s.writes)
+            assertEquals(1, s.logReads)
+            assertEquals(0, s.providerCalls)
+            assertEquals(1, s.queued.size)
+            assertTrue(s.chatUpdates.any { it.contains("preview started automatically") })
+            assertFalse(s.approval().isChecked)
+            assertFalse(s.button("Create task branch").isEnabled)
+            s.finish()
+            assertEquals(1, s.providerCalls)
+            assertEquals(1, s.writes)
+            assertEquals(1, s.ciReads)
+            assertTrue(s.output.text.contains("Scoped preview ready"))
+            assertTrue(s.approval().isEnabled)
+            assertFalse(s.approval().isChecked)
+            assertFalse(s.button("Create task branch").isEnabled)
+            assertFalse(s.handle.approveDeveloperDiff(DeveloperDiffApprovalCommand.REVIEWED))
+        } finally { s.close() }
+    }
+
+    @Test fun automaticRepairNeverStartsFromInfrastructureFailure() {
+        val s = Screen(infrastructureFailure = true, autoRepairPreview = true)
+        try {
+            s.initialFailure()
+            assertEquals(1, s.writes)
+            assertEquals(1, s.logReads)
+            assertEquals(0, s.providerCalls)
+            assertEquals(0, s.queued.size)
+            assertFalse(s.button("Prepare Developer repair").isEnabled)
+            assertFalse(s.chatUpdates.any { it.contains("preview started automatically") })
+        } finally { s.close() }
+    }
+
+    @Test fun automaticRepairNeverStartsOnPassingCI() {
+        val s = Screen(autoRepairPreview = true)
+        try {
+            s.ciState = PatchPublisher.CiState.PASSED
+            s.initialFailure()
+            assertEquals(0, s.logReads)
+            assertEquals(0, s.providerCalls)
+            assertEquals(1, s.writes)
+            assertEquals(0, s.queued.size)
+            assertFalse(s.chatUpdates.any { it.contains("preview started automatically") })
+        } finally { s.close() }
+    }
+
     @Test fun exactChatApprovalConsumesOnlyItsOwnVerifiedDiffOnce() {
         val s = Screen()
         try {
