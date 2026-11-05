@@ -107,7 +107,7 @@ class LiveSpeechCapture(private val context: Context,
                         if (current != generation) return
                         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.ERROR, currentTrace, error)
                         if (!strictDevice && provider == SpeechCaptureRouting.Engine.ON_DEVICE && !fallbackUsed && platform.systemAvailable() &&
-                            error in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
+                            (error in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
                                 SpeechRecognizer.ERROR_SERVER, SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
                                 SpeechRecognizer.ERROR_CLIENT) ||
                             (fallbackOnSilence && error in setOf(SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT)))) {
