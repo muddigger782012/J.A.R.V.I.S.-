@@ -37,7 +37,8 @@ class ProjectGenerationTest {
         planAnalysis: DeveloperPlanAnalysisReview = DeveloperPlanAnalysisReview(),
         completion: DeveloperPlanCompletionReview = DeveloperPlanCompletionReview(),
         checkedCi: ((String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus)? = null,
-        currentCommit: (() -> PatchPublisher.CommitResult?)? = null) : AutoCloseable {
+        currentCommit: (() -> PatchPublisher.CommitResult?)? = null,
+        githubCredential: String = "") : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -72,7 +73,8 @@ class ProjectGenerationTest {
             showDeveloperDiff = { showDiff?.invoke() },
             continueDeveloperPlan = { id, task, paths, base ->
                 stagePlan?.invoke(DeveloperPlanContinuation.Packet(id, task, paths, base)) ?: false
-            }, currentDeveloperCommit = { currentCommit?.invoke() })
+            }, currentDeveloperCommit = { currentCommit?.invoke() },
+            githubToken = { githubCredential })
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
@@ -105,6 +107,7 @@ class ProjectGenerationTest {
         val finalReview = DeveloperPlanCompletionReview({ directory }, { 1003L })
         var ciReads = 0
         Screen(completion = finalReview, currentCommit = { commit },
+            githubCredential = "test-only-github-token",
             checkedCi = { _, exact ->
                 assertEquals(commit, exact)
                 ciReads++
