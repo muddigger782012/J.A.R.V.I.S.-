@@ -194,6 +194,34 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
         } finally { s.close() }
     }
 
+    @Test fun lateExactCiRefreshCanPrepareFreshRepairAfterWatchBudgetExpires() {
+        val s = Screen(autoRepairPreview = true)
+        try {
+            s.ciState = PatchPublisher.CiState.RUNNING
+            s.initialFailure(expectedCiReads = DeveloperCiWatch.MAX_READS)
+            assertEquals(0, s.providerCalls)
+            assertEquals(0, s.logReads)
+            assertEquals(0, s.queued.size)
+            assertEquals(1, s.writes)
+            // The workflow finishes after bounded monitoring. Its later
+            // exact-source refresh is still a read-only operation.
+            s.ciState = PatchPublisher.CiState.FAILED
+            assertTrue(s.handle.refreshDeveloperCi())
+            assertEquals(1, s.queued.size)
+            s.finish()
+            assertEquals(1, s.logReads)
+            assertEquals(1, s.queued.size) // NEW preview, not another commit.
+            assertEquals(0, s.providerCalls)
+            assertEquals(1, s.writes)
+            assertTrue(s.chatUpdates.any { it.contains("preview started automatically") })
+            s.finish()
+            assertEquals(1, s.providerCalls)
+            assertEquals(1, s.writes)
+            assertTrue(s.approval().isEnabled)
+            assertFalse(s.approval().isChecked)
+        } finally { s.close() }
+    }
+
     @Test fun automaticRepairNeverStartsFromInfrastructureFailure() {
         val s = Screen(infrastructureFailure = true, autoRepairPreview = true)
         try {
