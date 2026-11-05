@@ -47,6 +47,30 @@ class PersonalFoundationAcceptanceTest {
         context.cleanup()
     }
 
+    @Test fun conversationContextFollowsActiveChatWithoutImportingOlderSessions() {
+        val previous = LiveChatStore.currentConversation(context)
+        val a = "context-test-" + UUID.randomUUID().toString() + "-a"
+        val b = a + "-b"
+        try {
+            LiveChatStore.currentConversation(context, a)
+            val memory = ConversationMemory(context)
+            assertTrue(memory.record("Our current job is replacing the alternator", "I'll keep the alternator job in mind."))
+            assertEquals(1, memory.snapshot().size)
+            LiveChatStore.currentConversation(context, b)
+            // Even an already constructed service must see the new scope.
+            assertTrue(memory.snapshot().isEmpty())
+            assertTrue(memory.record("Now talk about the transmission", "The transmission is this chat's topic."))
+            assertEquals("Now talk about the transmission", ConversationMemory(context).snapshot().single().first)
+            LiveChatStore.currentConversation(context, a)
+            assertEquals("Our current job is replacing the alternator", memory.snapshot().single().first)
+            // Switching back must not lose the other chat's bounded context.
+            LiveChatStore.currentConversation(context, b)
+            assertEquals("Now talk about the transmission", memory.snapshot().single().first)
+        } finally {
+            LiveChatStore.currentConversation(context, previous)
+        }
+    }
+
     @Test fun unfamiliarObjectivesAndCommandQuestionsStayConversational() {
         val service = assistant()
         for (input in listOf("Help me prepare for tomorrow", "What happens when you reboot?",
