@@ -27,6 +27,7 @@ class NeuralPcmPlayer(context: Context) {
     inner class Session internal constructor() {
         private val cancelled = AtomicBoolean(false)
         private val focusLost = AtomicBoolean(false)
+        private val focusPaused = AtomicBoolean(false)
         @Volatile private var track: AudioTrack? = null
         private var request: AudioFocusRequest? = null
         private val timeline = PcmPlaybackTimeline()
@@ -54,9 +55,21 @@ class NeuralPcmPlayer(context: Context) {
                 .setAudioAttributes(attributes)
                 .setAcceptsDelayedFocusGain(false)
                 .setOnAudioFocusChangeListener({ change ->
-                    // Notifications that merely duck media are not an interruption.
-                    if (change == AudioManager.AUDIOFOCUS_LOSS ||
-                        change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) focusLost.set(true)
+                    when (SpeechFocusPolicy.action(change)) {
+                        SpeechFocusPolicy.Action.STOP -> {
+                            focusLost.set(true)
+                            runCatching { track?.pause() }
+                        }
+                        SpeechFocusPolicy.Action.PAUSE -> {
+                            focusPaused.set(true)
+                            runCatching { track?.pause() }
+                        }
+                        SpeechFocusPolicy.Action.RESUME -> {
+                            if (!cancelled.get() && focusPaused.getAndSet(false))
+                                runCatching { track?.play() }
+                        }
+                        SpeechFocusPolicy.Action.CONTINUE -> Unit
+                    }
                 }, Handler(Looper.getMainLooper())).build()
             check(manager.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
                 "Media audio focus was unavailable"
@@ -84,11 +97,18 @@ class NeuralPcmPlayer(context: Context) {
         fun drain(active: () -> Boolean, onPlaybackProgress: () -> Unit = {}) {
             val output = track ?: return
             if (timeline.framesQueued == 0L) return
-            val deadline = SystemClock.elapsedRealtime() +
+            var deadline = SystemClock.elapsedRealtime() +
                 (timeline.framesQueued * 1000L / timeline.sampleRate + 10_000L).coerceAtMost(300_000L)
             var lastHead = -1L
             var lastReport = 0L
             while (active() && !cancelled.get()) {
+                // A call or temporary focus transfer suspends the output
+                // clock. Resume from the same PCM position after focus gain.
+                if (focusPaused.get()) {
+                    deadline += 50L
+                    Thread.sleep(50L)
+                    continue
+                }
                 val head = output.playbackHeadPosition.toLong() and 0xffffffffL
                 if (timeline.isDrained(head)) break
                 check(!focusLost.get()) { "Speech audio focus was lost" }
