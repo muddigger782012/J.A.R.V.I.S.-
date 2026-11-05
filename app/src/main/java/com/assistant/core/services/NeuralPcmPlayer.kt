@@ -22,7 +22,10 @@ class NeuralPcmPlayer(context: Context) {
         val focusLost = AtomicBoolean(false)
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
             .setAudioAttributes(attributes).setAcceptsDelayedFocusGain(false)
-            .setOnAudioFocusChangeListener({ change -> if (change < 0) focusLost.set(true) }, Handler(Looper.getMainLooper())).build()
+            .setOnAudioFocusChangeListener({ change ->
+                // TRANSIENT_CAN_DUCK does not mean the spoken reply is cancelled.
+                if (change == AudioManager.AUDIOFOCUS_LOSS) focusLost.set(true)
+            }, Handler(Looper.getMainLooper())).build()
         check(manager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) { "Media audio focus was unavailable" }
         var output: AudioTrack? = null
         try {
