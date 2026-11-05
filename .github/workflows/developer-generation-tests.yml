@@ -32,6 +32,17 @@ jobs:
         run: python3 -m unittest discover -s developer/tools -p 'candidate_audit_test.py' -v
       - name: Run Developer generation regression tests
         run: ./gradlew -PjarvisDeveloper=true :developer:testDebugUnitTest --stacktrace --no-daemon
+      - name: Verify actual Developer JUnit evidence before canonical integration
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, 'developer/tools')
+          from candidate_audit import read_junit_counts
+          totals = read_junit_counts(Path('.'))
+          assert totals['tests'] > 0 and not any(totals[key] for key in ('failures', 'errors', 'skipped')), 'Real Developer test inventory is not fully green'
+          print('JARVIS_REAL_JUNIT_COUNTS=' + str(totals))
+          PY
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
