@@ -9,7 +9,8 @@ import java.security.MessageDigest
  * Never marks local work done, restores approval, or writes to GitHub.
  */
 internal object DeveloperPlanContinuation {
-    data class Packet(val id: String, val task: String, val paths: List<String>, val base: String)
+    data class Packet(val id: String, val task: String, val paths: List<String>, val base: String,
+        val planId: String = "")
     data class Suggestion(val message: String, val packet: Packet? = null)
 
     fun suggest(activity: Activity): Suggestion =
@@ -63,6 +64,6 @@ internal object DeveloperPlanContinuation {
                 "${editScope.size} editable file(s). The complete diff must be reviewed and approved; no change is approved."
             else "next source-scoped step '${next.title}' (${next.id}), " +
                 "${editScope.size} editable file(s). A fresh pinned-source diff may be generated; no change is approved.",
-            Packet(id, message, editScope.toList(), plan.baseCommitSha))
+            Packet(id, message, editScope.toList(), plan.baseCommitSha, plan.id))
     }
 }
