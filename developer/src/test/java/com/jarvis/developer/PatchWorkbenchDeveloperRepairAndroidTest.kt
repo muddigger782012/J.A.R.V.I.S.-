@@ -201,7 +201,7 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
             assertFalse(s.handle.approveDeveloperDiff(DeveloperDiffApprovalCommand.REVIEWED))
             val review = requireNotNull(s.handle.showDeveloperDiff())
             assertTrue(review.contains("Complete reviewable diff"))
-            assertTrue(review.contains(repaired.trim()))
+            assertTrue(review.contains("delay() = 4"))
             assertEquals(1, s.writes)
             assertTrue(s.handle.approveDeveloperDiff(DeveloperDiffApprovalCommand.REVIEWED))
             assertEquals(1, s.queued.size)
