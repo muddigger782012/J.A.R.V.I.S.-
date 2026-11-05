@@ -37,7 +37,7 @@ object ForecastDates {
                 // not asking to edit a saved app preference or run an AI lesson.
                 val date = selector(previous)
                 return "weather in ${place.city}, ${place.state ?: ""}" +
-                    (date?.let { " for $it" } ?: "")
+                    (date?.let { " $it" } ?: "")
             }
         }
         return one(input, previous)
