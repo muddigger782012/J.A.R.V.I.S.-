@@ -15,7 +15,8 @@ internal object ProjectGenerationWorkbench {
         val ask: (String, String, String, String, PatchPreviewCancellation, RepositoryCodingContext.Context) -> String = CodingAssistantProvider::ask,
         val context: (String, PatchEngine.Target, String, String, PatchPreviewCancellation) -> RepositoryCodingContext.Context = RepositoryIntelligence::codingContext,
         val progress: (Activity) -> String = DeveloperProgressReport::read,
-        val nextPlan: (Activity) -> DeveloperPlanContinuation.Suggestion = DeveloperPlanContinuation::suggest
+        val nextPlan: (Activity) -> DeveloperPlanContinuation.Suggestion = DeveloperPlanContinuation::suggest,
+        val planAnalysis: DeveloperPlanAnalysisReview = DeveloperPlanAnalysisReview()
     )
     class Handle internal constructor(private val stop: (Boolean) -> Unit) {
         fun cancel() = stop(false)
@@ -221,6 +222,30 @@ internal object ProjectGenerationWorkbench {
                     localProgressRead = null
                     inputs(true)
                     status.text = "Local progress worker could not start; no records were changed."
+                }
+                return@setOnClickListener
+            }
+            // A separately requested, fully displayed metadata review is a prerequisite
+            // for the first local analysis checkpoint. Confirmation marks only that
+            // user-reported checkpoint; it cannot approve source edits or tests.
+            if (DeveloperPlanAnalysisChatCommand.match(task) != null) {
+                if (target() != 0) {
+                    output.text = "Developer plan analysis review is unavailable for Personal Jarvis."
+                    status.text = "No Developer plan or source operation started."
+                } else {
+                    val operation = DeveloperPlanAnalysisChatCommand.match(task)!!
+                    val response = runCatching {
+                        if (operation == DeveloperPlanAnalysisChatCommand.Action.REVIEW)
+                            services.planAnalysis.review(activity)
+                        else services.planAnalysis.confirm(activity)
+                    }.getOrElse {
+                        "Developer plan checkpoint could not be verified or updated. " +
+                            "No source write, test success or review approval was assumed."
+                    }
+                    output.text = response
+                    status.text = if (operation == DeveloperPlanAnalysisChatCommand.Action.REVIEW)
+                        "Developer plan analysis metadata reviewed locally; no plan status changed."
+                    else "Developer plan checkpoint operation finished; inspect the result before continuing."
                 }
                 return@setOnClickListener
             }

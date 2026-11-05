@@ -33,7 +33,8 @@ class ProjectGenerationTest {
         approve: ((String) -> Boolean)? = null,
         showDiff: (() -> String?)? = null,
         nextPlan: (() -> DeveloperPlanContinuation.Suggestion)? = null,
-        stagePlan: ((DeveloperPlanContinuation.Packet) -> Boolean)? = null) : AutoCloseable {
+        stagePlan: ((DeveloperPlanContinuation.Packet) -> Boolean)? = null,
+        planAnalysis: DeveloperPlanAnalysisReview = DeveloperPlanAnalysisReview()) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -55,7 +56,8 @@ class ProjectGenerationTest {
                         ?: if (failure != null) throw failure else "Reply for $task"
                 }, context = { task, product, _, _, _ -> RepositoryCodingContext.unavailable(task, product) },
                 progress = { _ -> progressRead?.invoke() ?: "Verified local progress fixture" },
-                nextPlan = { _ -> nextPlan?.invoke() ?: DeveloperPlanContinuation.Suggestion("No saved plans") }),
+                nextPlan = { _ -> nextPlan?.invoke() ?: DeveloperPlanContinuation.Suggestion("No saved plans") },
+                planAnalysis = planAnalysis),
             requestDeveloperRepair = { repair?.invoke() ?: false },
             requestDeveloperBuild = { buildCheck?.invoke() ?: false },
             saveDeveloperTask = { save?.invoke() ?: false },
