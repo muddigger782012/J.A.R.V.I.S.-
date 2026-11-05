@@ -8,6 +8,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.k2fsa.sherpa.onnx.KeywordSpotter
@@ -38,6 +39,21 @@ class SherpaWakeWordEngine(
     @Volatile private var stalled = false
     private var lastDecodeDurationMs = 0L
     private val watchdog = Handler(Looper.getMainLooper())
+    // A microphone foreground service alone does not guarantee CPU time in screen-off idle.
+    // Keep native wake decoding alive while explicitly enabled; release on stop or failure.
+    @Volatile private var cpuWakeLock: PowerManager.WakeLock? = null
+    private fun holdCpuForWake() {
+        val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val lock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "JARVIS:SherpaWake")
+        lock.setReferenceCounted(false)
+        lock.acquire()
+        cpuWakeLock = lock
+    }
+    private fun releaseCpuForWake() {
+        val lock = cpuWakeLock
+        cpuWakeLock = null
+        runCatching { if (lock?.isHeld == true) lock.release() }
+    }
 
     fun hasLiveWorker(): Boolean = worker?.isAlive == true
     fun hasStalled(): Boolean = stalled
@@ -137,6 +153,7 @@ class SherpaWakeWordEngine(
             stream = onlineStream
             recorder = audio
             running = true
+            holdCpuForWake()
             // The worker owns all native resources once it starts. A stop request
             // may unblock AudioRecord, but must never delete objects inside JNI.
             worker = thread(start = false, isDaemon = true, name = "jarvis-sherpa-kws") {
@@ -169,6 +186,7 @@ class SherpaWakeWordEngine(
                 running = false
                 stage("sherpa-native-decode-timeout-$label")
                 runCatching { recorder?.stop() }
+                releaseCpuForWake()
                 onStatus("Wake word unavailable: native decode stalled for 10 seconds ($label). Restart the app; push-to-talk is available.")
                 onFailure()
             }
@@ -222,6 +240,7 @@ class SherpaWakeWordEngine(
                         running = false
                         stage("sherpa-audio-read-timeout")
                         runCatching { audio.stop() }
+                        releaseCpuForWake()
                         onStatus("Wake-word audio capture stopped delivering buffers. Standby is unavailable; checking recovery.")
                         onFailure()
                     }
@@ -324,6 +343,7 @@ class SherpaWakeWordEngine(
         if (stream === onlineStream) stream = null
         runCatching { kws?.release() }
         if (spotter === kws) spotter = null
+        releaseCpuForWake()
     }
 
 }
