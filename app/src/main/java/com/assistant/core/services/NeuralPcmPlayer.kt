@@ -27,6 +27,7 @@ class NeuralPcmPlayer(context: Context) {
     inner class Session internal constructor() {
         private val cancelled = AtomicBoolean(false)
         private val focusLost = AtomicBoolean(false)
+        private val focusPaused = AtomicBoolean(false)
         @Volatile private var track: AudioTrack? = null
         private var request: AudioFocusRequest? = null
         private val timeline = PcmPlaybackTimeline()
@@ -39,7 +40,7 @@ class NeuralPcmPlayer(context: Context) {
             check(timeline.sampleRate == 0 || timeline.sampleRate == clip.sampleRate) { "Speech sample rate changed during a reply" }
             var offset = 0
             while (offset < pcm.size && active() && !cancelled.get()) {
-                check(!focusLost.get()) { "Speech audio focus was lost" }
+                awaitFocus(active)
                 val written = player.write(pcm, offset, minOf(2048, pcm.size - offset), AudioTrack.WRITE_BLOCKING)
                 check(written > 0) { "PCM playback write failed: $written" }
                 if (timeline.framesQueued == 0L) firstQueued()
@@ -54,9 +55,20 @@ class NeuralPcmPlayer(context: Context) {
                 .setAudioAttributes(attributes)
                 .setAcceptsDelayedFocusGain(false)
                 .setOnAudioFocusChangeListener({ change ->
-                    // Notifications that merely duck media are not an interruption.
-                    if (change == AudioManager.AUDIOFOCUS_LOSS ||
-                        change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) focusLost.set(true)
+                    when (change) {
+                        // A short alarm or incoming notification is not permission
+                        // to discard the rest of the spoken answer.
+                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                            focusPaused.set(true)
+                            runCatching { track?.pause() }
+                        }
+                        AudioManager.AUDIOFOCUS_GAIN -> {
+                            focusPaused.set(false)
+                            if (!cancelled.get()) runCatching { track?.play() }
+                        }
+                        AudioManager.AUDIOFOCUS_LOSS -> focusLost.set(true)
+                        // LOSS_TRANSIENT_CAN_DUCK intentionally keeps speech active.
+                    }
                 }, Handler(Looper.getMainLooper())).build()
             check(manager.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
                 "Media audio focus was unavailable"
@@ -80,6 +92,17 @@ class NeuralPcmPlayer(context: Context) {
             return output
         }
 
+        private fun awaitFocus(active: () -> Boolean) {
+            val deadline = SystemClock.elapsedRealtime() + 30_000L
+            while (focusPaused.get() && active() && !cancelled.get()) {
+                check(SystemClock.elapsedRealtime() < deadline) {
+                    "Speech audio focus did not return after a temporary interruption"
+                }
+                Thread.sleep(25L)
+            }
+            check(!focusLost.get()) { "Speech audio focus was permanently lost" }
+        }
+
         /** Finish only after the last queued PCM frame has actually played. */
         fun drain(active: () -> Boolean) {
             val output = track ?: return
@@ -88,7 +111,7 @@ class NeuralPcmPlayer(context: Context) {
                 (timeline.framesQueued * 1000L / timeline.sampleRate + 10_000L).coerceAtMost(300_000L)
             while (active() && !cancelled.get() &&
                 !timeline.isDrained(output.playbackHeadPosition.toLong() and 0xffffffffL)) {
-                check(!focusLost.get()) { "Speech audio focus was lost" }
+                awaitFocus(active)
                 check(SystemClock.elapsedRealtime() < deadline) { "Audio playback did not complete" }
                 Thread.sleep(15L)
             }
