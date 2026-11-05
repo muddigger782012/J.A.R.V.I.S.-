@@ -40,6 +40,9 @@ object PatchWorkbench {
         val followUpSource: (String, PatchPublisher.CommitResult, BuildDiagnostics.Report, String, PatchPreviewCancellation) -> PersonalRepair.Review =
             RepositoryIntelligence::personalFollowUp,
         val history: RepairHistoryWorkbench.Services = RepairHistoryWorkbench.Services(),
+        val recoveryDirectory: (Activity) -> File = {
+            File(it.noBackupFilesDir.canonicalFile, "developer-commit-recovery")
+        },
         val inbox: (Activity) -> DevelopmentJobInbox = { DevelopmentJobInbox(java.io.File(it.noBackupFilesDir.canonicalFile, "development-inbox")) },
         val engineeringRecovery: (Activity) -> Unit = DevelopmentEngineeringScheduler::recover,
         // Only a verified CI result for a single scoped, approved task can
@@ -54,14 +57,16 @@ object PatchWorkbench {
             // Retain identities only; never approval or source. A death during
             // CI polling can now be rechecked after reopening Developer.
             if (result.target == PatchEngine.Target.DEVELOPER) {
-                DeveloperCommitRecoveryStore(File(activity.noBackupFilesDir.canonicalFile,
-                    "developer-commit-recovery")).save(result)
-                RepairHistoryStore(File(activity.noBackupFilesDir.canonicalFile,
-                    "developer-repair-history")).save(RepairHistoryStore.bookmark(result))
+                DeveloperCommitRecoveryStore(recoveryDirectory(activity)).save(result)
+                RepairHistoryStore(history.directory(activity)).save(
+                    RepairHistoryStore.bookmark(result))
             }
         },
         val recoverCommit: (Activity, String, PatchPreviewCancellation) -> String =
-            { activity, token, cancel -> DeveloperCommitRecovery.recheck(activity, token, cancel) },
+            { activity, token, cancel ->
+                DeveloperCommitRecovery.recheck(activity, token, cancel,
+                    directory = recoveryDirectory)
+            },
         val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit },
         val chatStatus: (String) -> Unit = { }
     )
@@ -1188,8 +1193,8 @@ object PatchWorkbench {
                 services.worker {
                     val message = runCatching {
                         cancellation.check()
-                        val committed = DeveloperCommitRecoveryStore(File(
-                            activity.noBackupFilesDir.canonicalFile, "developer-commit-recovery")).load()
+                        val committed = DeveloperCommitRecoveryStore(
+                            services.recoveryDirectory(activity)).load()
                         cancellation.check()
                         if (committed.isNotEmpty()) {
                             // This recovered identity can only READ GitHub; fresh
