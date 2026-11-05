@@ -88,7 +88,7 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                     // Native model emits each completed sentence as PCM.
                     // Avoid re-running ONNX inference for artificial 70/180
                     // character splits, which caused long pauses mid-answer.
-                    val generated = synth.generateWithCallback(text, sid = voice.speaker, speed = 1.0f) { samples ->
+                    val generated = synth.generateWithCallback(text, voice.speaker, 1.0f, NativeTtsCallback { samples ->
                         if (!active()) 0 else {
                             if (samples.isNotEmpty()) {
                                 stats.receivedCallback(samples.size)
@@ -97,7 +97,7 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                             }
                             if (active()) 1 else 0
                         }
-                    }
+                    })
                     if (!active()) return@execute
                     // Some native configurations return only streamed
                     // callback segments, with no combined final waveform.
