@@ -16,6 +16,9 @@ internal class DeveloperPlanAnalysisReview(
 ) {
     private var reviewed: TaskPlanner.Plan? = null
 
+    /** Trusted local receipt, issued only after a revision-checked checkpoint write. */
+    internal data class Confirmation(val message: String, val planId: String? = null)
+
     @Synchronized fun review(activity: Activity): String {
         reviewed = null
         val plans = TaskPlanStore(directory(activity)).loadAll()
@@ -47,11 +50,13 @@ internal class DeveloperPlanAnalysisReview(
         }
     }
 
-    @Synchronized fun confirm(activity: Activity): String {
+    @Synchronized fun confirm(activity: Activity): String = confirmWithReceipt(activity).message
+
+    @Synchronized fun confirmWithReceipt(activity: Activity): Confirmation {
         val snapshot = reviewed
         reviewed = null // Consumes even a failed or stale approval attempt.
-        if (snapshot == null) return "No current Developer plan analysis review is pending. " +
-            "Type Review Developer plan first. Nothing was changed."
+        if (snapshot == null) return Confirmation("No current Developer plan analysis review is pending. " +
+            "Type Review Developer plan first. Nothing was changed.")
         return try {
             val store = TaskPlanStore(directory(activity))
             val current = store.loadAll().singleOrNull { it.id == snapshot.id }
@@ -66,13 +71,13 @@ internal class DeveloperPlanAnalysisReview(
                     "metadata and prerequisites. This is owner-reported, not independently verified CI.",
                 time)
             store.save(complete, current.revision)
-            "Developer plan ${current.id}: analysis checkpoint acknowledged and saved at revision " +
-                "${complete.revision} (owner-reported only). Type Continue Developer plan to prepare " +
-                "the next eligible scoped diff. No provider call, source write, passing test, " +
-                "release or installation was implied."
+            Confirmation("Developer plan ${current.id}: analysis checkpoint acknowledged and saved at revision " +
+                "${complete.revision} (owner-reported only). The next eligible scoped diff " +
+                "may now be prepared for separate review. No source write, passing test, " +
+                "release or installation was implied.", current.id)
         } catch (_: Exception) {
-            "Developer plan changed or could not be saved. The review was consumed; " +
-                "read the current plan again. No successful checkpoint was assumed."
+            Confirmation("Developer plan changed or could not be saved. The review was consumed; " +
+                "read the current plan again. No successful checkpoint was assumed.")
         }
     }
 }
