@@ -299,6 +299,10 @@ class VoiceForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        // System teardown is not the owner's STOP command. Preserve the
+        // opted-in wake request so START_STICKY can restore standby when
+        // Android recreates this service after screen-off process reclamation.
+        val restoreRequestedWake = pipelineStarted && voicePreferences.isForegroundServiceRunning()
         runCatching { unregisterReceiver(screenChanges) }
         runCatching { unregisterReceiver(responseOptionsReceiver) }
         dialogueOverlay.hide()
@@ -311,11 +315,11 @@ class VoiceForegroundService : Service() {
             sendBroadcast(Intent(ACTION_EVENT).setPackage(packageName).putExtra(EXTRA_LIVE_CHAT, true))
         }
         if (::voiceService.isInitialized) {
-            stopVoicePipeline()
+            stopVoicePipeline(clearDesiredWake = !restoreRequestedWake)
             voiceService.shutdown()
         } else {
             pipelineStarted = false
-            voicePreferences.setForegroundServiceRunning(false)
+            if (!restoreRequestedWake) voicePreferences.setForegroundServiceRunning(false)
         }
         super.onDestroy()
     }
@@ -624,7 +628,7 @@ class VoiceForegroundService : Service() {
         publishEvent("Foreground voice service started.")
     }
 
-    private fun stopVoicePipeline() {
+    private fun stopVoicePipeline(clearDesiredWake: Boolean = true) {
         responseGeneration++; spokenScreenContext = null; followUpScreen = false
         if (::hybridAssistantService.isInitialized) hybridAssistantService.cancelActiveResponse()
         if (packageName == "com.assistant.core") screenAccess.discard()
@@ -633,7 +637,7 @@ class VoiceForegroundService : Service() {
         pipelineStarted = false
         voiceSession.stop()
         pendingClarification = null
-        voicePreferences.setForegroundServiceRunning(false)
+        if (clearDesiredWake) voicePreferences.setForegroundServiceRunning(false)
         publishEvent("Foreground voice service stopped.")
     }
 
