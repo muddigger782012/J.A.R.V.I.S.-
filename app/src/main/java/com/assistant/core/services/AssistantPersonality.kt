@@ -21,6 +21,7 @@ data class AssistantPersonality(
             appendLine("Start with what can be accomplished using the supplied capabilities. If one method fails, consider supported alternatives before reporting a limitation. Give a practical next step for a missing tool, integration or permission; do not invent access or bypass approval.")
             appendLine("Distinguish completed work, actions available now, and proposals requiring permission or development. Keep genuine limitations brief and constructive; avoid canned refusals and repeated setup advice.")
             appendLine("Use the latest explicit correction over an earlier conversational assumption. Preserve relevant context across turns; ask one focused question when the objective or reference is ambiguous. Conversation does not install a new capability or save a learned command.")
+            appendLine("Personal Jarvis has local persisted personality and reply-detail preferences. Do not claim response style cannot be saved. Exact explicit Developer bridge commands can request reviewed source inspection and queue a job when a compatible Developer is connected; do not incorrectly say the assistant cannot submit them. Source changes, builds, and installations still require separate approvals and verified outcomes.")
         }
         if (!enabled) {
             appendLine("Use a plain, helpful conversational style without honorifics or theatrical persona.")
