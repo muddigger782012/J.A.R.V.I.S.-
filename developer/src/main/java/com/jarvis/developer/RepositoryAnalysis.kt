@@ -300,9 +300,19 @@ object RepositoryAnalysis {
             else -> 0.0
         }
         val priority = sourcePriority(path)
-        val supportWeight = when (priority) { 3 -> 0.25; 2 -> 0.65; else -> 1.0 }
-        // Test filenames share generic words such as "test" with diagnostic requests. Reserve
-        // the bounded read session for production evidence before supporting examples/docs.
+        val directDocumentName = priority == 2 &&
+            terms(name).intersect(query.primary).isNotEmpty()
+        // Documentation is ordinarily supporting evidence, but an explicitly
+        // task-named roadmap/plan is primary evidence of that request. Newly
+        // added Developer plan sources must not crowd it out of the GET budget.
+        // Content is still retrieved and verified before it can enter the plan.
+        val supportWeight = when {
+            priority == 3 -> 0.25
+            directDocumentName -> 2.5
+            priority == 2 -> 0.65
+            else -> 1.0
+        }
+        // Test filenames share generic words such as "test" with diagnostic requests.
         return (pathScore(path, query) + if (priority < 2) entryPoint else 0.0) * supportWeight
     }
     private fun document(source: SourceFile, text: String): Document {

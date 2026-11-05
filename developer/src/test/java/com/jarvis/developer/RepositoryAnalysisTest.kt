@@ -21,6 +21,33 @@ class RepositoryAnalysisTest {
         assertTrue(file.symbols.any { it.name == "receive_chat2Reply" })
         assertTrue(file.citations.isNotEmpty())
     }
+    @Test fun explicitlyNamedRoadmapBeatsGenericPlanSourcesUnderStrictReadBudget() {
+        val named = "developer/DEVELOPMENT_ROADMAP.md"
+        val entry = "developer/src/main/java/com/jarvis/developer/MainActivity.kt"
+        val sources = linkedMapOf(
+            named to "# Developer roadmap\nIntelligence Plan progress and phase status, evidence and pending work.\n",
+            entry to "package com.jarvis.developer\nclass MainActivity { fun showIntelligencePlan() = 1 }"
+        )
+        // More task-word-rich code paths than the bounded source-reader can visit.
+        repeat(80) { index ->
+            sources["developer/src/main/java/com/jarvis/developer/DeveloperPlanProgress$index.kt"] =
+                "package com.jarvis.developer\nclass DeveloperPlanProgress$index { fun intelligencePlanProgress() = 1 }"
+        }
+        val read = mutableListOf<String>()
+        val plan = RepositoryAnalysis.analyzeControlled(
+            "Show Intelligence Plan progress using roadmap evidence of implemented and pending work",
+            inventory(sources),
+            checkpoint = {},
+            onPlanning = {},
+            readSource = { path -> read += path; sources.getValue(path) },
+            budget = RepositoryAnalysis.ReadBudget(files = 12, bytes = 2_000_000)
+        )
+        assertTrue("A named roadmap must be inspected before the GET budget is used", named in read)
+        assertTrue("The requested roadmap must remain source-backed", named in plan.files.map { it.path })
+        assertTrue("No file may be reported without a verified read",
+            plan.files.all { it.path in read })
+    }
+
     @Test fun cancellationAfterReadingStopsBeforePlanningOrAnotherSourceRead() {
         var reads = 0
         var planning = false
