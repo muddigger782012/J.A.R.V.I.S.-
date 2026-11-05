@@ -34,7 +34,10 @@ class ProjectGenerationTest {
         showDiff: (() -> String?)? = null,
         nextPlan: (() -> DeveloperPlanContinuation.Suggestion)? = null,
         stagePlan: ((DeveloperPlanContinuation.Packet) -> Boolean)? = null,
-        planAnalysis: DeveloperPlanAnalysisReview = DeveloperPlanAnalysisReview()) : AutoCloseable {
+        planAnalysis: DeveloperPlanAnalysisReview = DeveloperPlanAnalysisReview(),
+        completion: DeveloperPlanCompletionReview = DeveloperPlanCompletionReview(),
+        checkedCi: ((String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus)? = null,
+        currentCommit: (() -> PatchPublisher.CommitResult?)? = null) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -57,7 +60,10 @@ class ProjectGenerationTest {
                 }, context = { task, product, _, _, _ -> RepositoryCodingContext.unavailable(task, product) },
                 progress = { _ -> progressRead?.invoke() ?: "Verified local progress fixture" },
                 nextPlan = { _ -> nextPlan?.invoke() ?: DeveloperPlanContinuation.Suggestion("No saved plans") },
-                planAnalysis = planAnalysis),
+                planAnalysis = planAnalysis,
+                completion = completion,
+                ci = { token, commit -> checkedCi?.invoke(token, commit)
+                    ?: PatchPublisher.CiStatus(PatchPublisher.CiState.MISSING) }),
             requestDeveloperRepair = { repair?.invoke() ?: false },
             requestDeveloperBuild = { buildCheck?.invoke() ?: false },
             saveDeveloperTask = { save?.invoke() ?: false },
@@ -66,7 +72,7 @@ class ProjectGenerationTest {
             showDeveloperDiff = { showDiff?.invoke() },
             continueDeveloperPlan = { id, task, paths, base ->
                 stagePlan?.invoke(DeveloperPlanContinuation.Packet(id, task, paths, base)) ?: false
-            })
+            }, currentDeveloperCommit = { currentCommit?.invoke() })
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }

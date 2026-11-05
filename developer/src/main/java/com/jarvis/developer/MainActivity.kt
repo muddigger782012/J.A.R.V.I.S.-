@@ -627,7 +627,7 @@ class MainActivity : Activity() {
                 val started = patchWorkbench.continueDeveloperPlan(id, description, paths, base)
                 if (started) revealImportedReview?.invoke()
                 started
-            })
+            }, currentDeveloperCommit = { patchWorkbench.currentDeveloperCommit() })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

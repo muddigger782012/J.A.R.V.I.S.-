@@ -16,7 +16,9 @@ internal object ProjectGenerationWorkbench {
         val context: (String, PatchEngine.Target, String, String, PatchPreviewCancellation) -> RepositoryCodingContext.Context = RepositoryIntelligence::codingContext,
         val progress: (Activity) -> String = DeveloperProgressReport::read,
         val nextPlan: (Activity) -> DeveloperPlanContinuation.Suggestion = DeveloperPlanContinuation::suggest,
-        val planAnalysis: DeveloperPlanAnalysisReview = DeveloperPlanAnalysisReview()
+        val planAnalysis: DeveloperPlanAnalysisReview = DeveloperPlanAnalysisReview(),
+        val completion: DeveloperPlanCompletionReview = DeveloperPlanCompletionReview(),
+        val ci: (String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus = PatchPublisher::ci
     )
     class Handle internal constructor(private val stop: (Boolean) -> Unit) {
         fun cancel() = stop(false)
@@ -34,7 +36,8 @@ internal object ProjectGenerationWorkbench {
         readSavedDeveloperBuild: () -> Boolean = { false },
         approveDeveloperDiff: (String) -> Boolean = { false },
         showDeveloperDiff: () -> String? = { null },
-        continueDeveloperPlan: (String, String, List<String>, String) -> Boolean = { _, _, _, _ -> false }): Handle {
+        continueDeveloperPlan: (String, String, List<String>, String) -> Boolean = { _, _, _, _ -> false },
+        currentDeveloperCommit: () -> PatchPublisher.CommitResult? = { null }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
@@ -246,6 +249,72 @@ internal object ProjectGenerationWorkbench {
                     status.text = if (operation == DeveloperPlanAnalysisChatCommand.Action.REVIEW)
                         "Developer plan analysis metadata reviewed locally; no plan status changed."
                     else "Developer plan checkpoint operation finished; inspect the result before continuing."
+                }
+                return@setOnClickListener
+            }
+            // Final review is a separate exact-commit CI read plus the owner's
+            // explicit confirmation of the displayed local completion evidence.
+            // It has no merge, signing, publishing or installation capability.
+            val finalAction = DeveloperPlanCompletionChatCommand.match(task)
+            if (finalAction != null) {
+                if (target() != 0) {
+                    output.text = "Developer completion review is unavailable for Personal Jarvis."
+                    status.text = "No review or source operation started."
+                    return@setOnClickListener
+                }
+                val commit = runCatching { currentDeveloperCommit() }.getOrNull()
+                if (commit == null || readToken.isBlank()) {
+                    output.text = "A current, verified Developer task commit and GitHub token are " +
+                        "needed to read exact-source CI before final review. No completion assumed."
+                    status.text = "Developer review requires a verified task commit and CI."
+                    return@setOnClickListener
+                }
+                val cancellation = PatchPreviewCancellation()
+                val projectAtStart = selected()
+                localProgressRead = cancellation
+                inputs(false)
+                status.text = "Reading exact-task CI and local final review evidence; no source write."
+                val work: () -> Unit = {
+                    val response = runCatching {
+                        cancellation.check()
+                        val checked = services.ci(readToken, commit)
+                        cancellation.check()
+                        if (finalAction == DeveloperPlanCompletionChatCommand.Action.REVIEW)
+                            services.completion.prepare(activity, commit, checked)
+                        else services.completion.confirm(activity, commit, checked)
+                    }
+                    activity.runOnUiThread {
+                        if (!alive() || localProgressRead !== cancellation || cancellation.isCancelled) return@runOnUiThread
+                        localProgressRead = null
+                        inputs(true)
+                        if (target() != 0 || selected() != projectAtStart) {
+                            output.text = "Project or target changed; late completion evidence discarded."
+                            status.text = "No completion status assumed."
+                        } else response.onSuccess { value ->
+                            when (value) {
+                                is DeveloperPlanCompletionReview.Prepared -> {
+                                    output.text = value.text
+                                    services.completion.arm(value)
+                                    status.text = "Current exact-source CI and review displayed; " +
+                                        "no final checkpoint marked complete."
+                                }
+                                is String -> {
+                                    output.text = value
+                                    status.text = "Developer final review result recorded; no release requested."
+                                }
+                            }
+                        }.onFailure {
+                            output.text = "Completion review requires a still-current source-scoped " +
+                                "plan and passing exact-commit CI. No milestone was marked complete."
+                            status.text = "Developer completion review not verified."
+                        }
+                    }
+                }
+                runCatching { services.worker(work) }.onFailure {
+                    cancellation.cancel()
+                    localProgressRead = null
+                    inputs(true)
+                    status.text = "Completion review worker unavailable; no completion assumed."
                 }
                 return@setOnClickListener
             }

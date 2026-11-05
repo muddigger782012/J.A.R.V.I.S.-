@@ -66,7 +66,8 @@ object PatchWorkbench {
         private val readDeveloperBookmarkAction: () -> Boolean = { false },
         private val approveDeveloperDiffAction: (String) -> Boolean = { false },
         private val showDeveloperDiffAction: () -> String? = { null },
-        private val continueDeveloperPlanAction: (String, String, List<String>, String) -> Boolean = { _, _, _, _ -> false }
+        private val continueDeveloperPlanAction: (String, String, List<String>, String) -> Boolean = { _, _, _, _ -> false },
+        private val currentDeveloperCommitAction: () -> PatchPublisher.CommitResult? = { null }
     ) {
         fun prepare(taskId: String, task: String, paths: List<String>, baseCommitSha: String,
             baseBranch: String = "feature/jarvis-developer"): Boolean =
@@ -84,6 +85,8 @@ object PatchWorkbench {
         fun approveDeveloperDiff(prefix: String): Boolean = approveDeveloperDiffAction(prefix)
         /** Returns a currently verified, complete Developer diff; no network call or write. */
         fun showDeveloperDiff(): String? = showDeveloperDiffAction()
+        /** Exact committed Developer identity only; no saved approval or writer. */
+        fun currentDeveloperCommit(): PatchPublisher.CommitResult? = currentDeveloperCommitAction()
         /** Owner-requested next plan step: source-verified preview, never an automatic write. */
         fun continueDeveloperPlan(id: String, task: String, paths: List<String>, base: String): Boolean =
             continueDeveloperPlanAction(id, task, paths, base)
@@ -1296,6 +1299,10 @@ object PatchWorkbench {
             approveDeveloperDiffAction = ::approveDeveloperDiffFromChat,
             showDeveloperDiffAction = ::showDeveloperDiffInChat,
             continueDeveloperPlanAction = ::continueDeveloperPlanStep,
+            currentDeveloperCommitAction = {
+                lastCommit?.takeIf { it.target == PatchEngine.Target.DEVELOPER &&
+                    !busy && proposal == null && interruptedAttempt == null && alive() }
+            },
             engineeringAction = { draft ->
             if (prepareInputs(draft.taskId, draft.task, draft.paths, draft.base, draft.branch, draft.target)) {
                 activeEngineering = draft
