@@ -36,6 +36,7 @@ class ProjectGenerationTest {
         stagePlan: ((DeveloperPlanContinuation.Packet) -> Boolean)? = null,
         planAnalysis: DeveloperPlanAnalysisReview = DeveloperPlanAnalysisReview(),
         completion: DeveloperPlanCompletionReview = DeveloperPlanCompletionReview(),
+        savedCompletion: DeveloperSavedCompletionReview = DeveloperSavedCompletionReview(),
         checkedCi: ((String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus)? = null,
         currentCommit: (() -> PatchPublisher.CommitResult?)? = null,
         githubCredential: String = "") : AutoCloseable {
@@ -63,6 +64,7 @@ class ProjectGenerationTest {
                 nextPlan = { _ -> nextPlan?.invoke() ?: DeveloperPlanContinuation.Suggestion("No saved plans") },
                 planAnalysis = planAnalysis,
                 completion = completion,
+                savedCompletion = savedCompletion,
                 ci = { token, commit -> checkedCi?.invoke(token, commit)
                     ?: PatchPublisher.CiStatus(PatchPublisher.CiState.MISSING) }),
             requestDeveloperRepair = { repair?.invoke() ?: false },
@@ -79,6 +81,43 @@ class ProjectGenerationTest {
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun savedCommitCanReenterFinalReviewFromChatAfterRestartWithoutRestoringApproval() {
+        val f = DeveloperSavedCompletionReviewTest.createFixture()
+        var reads = 0
+        val restored = DeveloperSavedCompletionReview({ f.history }, { f.plans },
+            { token, bookmark, cancellation ->
+                assertEquals("test-only-github-token", token)
+                assertEquals(f.bookmark, bookmark)
+                cancellation.check()
+                reads++
+                f.report
+            }, { 1003L })
+        // No in-memory PatchWorkbench CommitResult survives restart. Only
+        // the user-saved read-only bookmark, a persisted plan, and GitHub CI.
+        Screen(savedCompletion = restored, currentCommit = { null },
+            githubCredential = "test-only-github-token",
+            ask = { _, _, _, _, _ -> error("Saved review may not call the AI provider") }).use { s ->
+            s.prompt.setText("Confirm Developer completion review")
+            s.send.performClick()
+            s.complete()
+            assertTrue(s.output.text.contains("No fresh saved"))
+            assertEquals(TaskPlanner.Status.PENDING, f.store.loadAll().single().steps.last().status)
+            s.prompt.setText("Review Developer completion")
+            s.send.performClick()
+            assertFalse(s.send.isEnabled)
+            s.complete()
+            assertTrue(s.output.text.contains("Saved Developer task recovered"))
+            assertTrue(s.output.text.contains(f.bookmark.commitSha))
+            s.prompt.setText("Confirm Developer completion review")
+            s.send.performClick()
+            s.complete()
+            assertTrue(s.output.text.contains("LOCAL final review acknowledged"))
+            assertEquals(TaskPlanner.Status.DONE, f.store.loadAll().single().steps.last().status)
+            assertEquals(2, reads) // Rechecked before confirmation.
+            assertTrue(s.prefs.all.isEmpty())
+        }
+    }
+
     @Test fun primaryChatReviewsLiveCiBeforeAcknowledgingLocalCompletion() {
         val path = DeveloperPlanCompletionReviewTest.path
         val base = DeveloperPlanCompletionReviewTest.base
