@@ -36,7 +36,7 @@ class NeuralPcmPlayer(context: Context) {
             if (cancelled.get() || !active()) return
             val pcm = NeuralPcm.pcm16(clip.samples)
             val player = track ?: initialize(clip.sampleRate)
-            check(timeline.sampleRate == clip.sampleRate) { "Speech sample rate changed during a reply" }
+            check(timeline.sampleRate == 0 || timeline.sampleRate == clip.sampleRate) { "Speech sample rate changed during a reply" }
             var offset = 0
             while (offset < pcm.size && active() && !cancelled.get()) {
                 check(!focusLost.get()) { "Speech audio focus was lost" }
