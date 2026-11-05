@@ -40,6 +40,8 @@ object LiveCapabilityRegistry {
             Regex("""\b(full|complete|all|detailed|in detail)\b""").containsMatchIn(text)) return Topic.FEATURES_FULL
         if (Regex("""^(?:show|read|give|list) (?:me )?(?:the )?(?:full|complete|detailed) (?:installed )?(?:release notes|changelog|feature list|changes)""").containsMatchIn(text))
             return Topic.FEATURES_FULL
+        if (text == "full feature details" || text == "full release notes" || text == "complete feature list" ||
+            text == "show all new features" || text == "give me the full changelog") return Topic.FEATURES_FULL
         val question = Regex("\\b(what|which|can|could|are|do|is|does|tell|show|explain|describe|list|installed|current|status|diagnostics|any)\\b").containsMatchIn(text)
         if (!question && text !in setOf("capabilities", "features", "version", "voice diagnostics")) {
             return null
