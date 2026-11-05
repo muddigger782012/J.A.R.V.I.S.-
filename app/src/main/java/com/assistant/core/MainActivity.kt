@@ -1970,7 +1970,7 @@ class MainActivity : ThemedActivity() {
                 val version = verifyDownloadedUpdate(apkFile)
                 runOnUiThread {
                     setUpdateStatus("Verified Personal Jarvis $version from ${sourceUrl.substringAfter("//")}. Opening Android installer...")
-                    launchInstallerForDownloadedApk(apkFile)
+                    launchInstallerForDownloadedApk(apkFile, version)
                 }
             } catch (error: Throwable) {
                 runOnUiThread {
@@ -2185,7 +2185,7 @@ class MainActivity : ThemedActivity() {
         return archive.versionName ?: "build $candidateVersion"
     }
 
-    private fun launchInstallerForDownloadedApk(apkFile: File) {
+    private fun launchInstallerForDownloadedApk(apkFile: File, versionName: String) {
         val policy = getSystemService(Context.USER_SERVICE) as UserManager
         if (policy.hasUserRestriction(UserManager.DISALLOW_INSTALL_APPS) ||
             policy.hasUserRestriction(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES)) {
@@ -2221,6 +2221,7 @@ class MainActivity : ThemedActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         try {
+            uiPreferences.edit().putString(KEY_INSTALL_ATTEMPT_VERSION, versionName).commit()
             startActivity(installer)
             setUpdateStatus("Android package installer opened. Approve the update there; opening it does not mean installation succeeded.")
         } catch (error: Exception) {
@@ -2234,6 +2235,7 @@ class MainActivity : ThemedActivity() {
                 startActivity(fallback)
                 setUpdateStatus("Android package installer opened. Confirm the installation there.")
             } catch (fallbackError: Exception) {
+                uiPreferences.edit().remove(KEY_INSTALL_ATTEMPT_VERSION).apply()
                 setUpdateStatus("Installer could not start (${fallbackError.javaClass.simpleName}: ${fallbackError.message ?: "no handler"}). The downloaded APK was kept; no installation was performed.")
             }
         }
@@ -3329,6 +3331,14 @@ class MainActivity : ThemedActivity() {
 
     override fun onResume() {
         super.onResume()
+        // The previous Activity can be killed while the platform installer is open.
+        // Verify the installed package after returning, never infer success from an intent launch.
+        uiPreferences.getString(KEY_INSTALL_ATTEMPT_VERSION, null)?.let { expected ->
+            uiPreferences.edit().remove(KEY_INSTALL_ATTEMPT_VERSION).apply()
+            val current = runCatching { packageManager.getPackageInfo(packageName, 0).versionName.orEmpty() }.getOrDefault("")
+            setUpdateStatus(if (current == expected) "Installed Personal Jarvis $expected successfully."
+                else "Update $expected is not installed (current: ${current.ifBlank { "unknown" }}). Android may have cancelled or rejected it. Check Install unknown apps permission and device installation restrictions.")
+        }
         if (uiPreferences.getBoolean(KEY_PENDING_UPDATE_PERMISSION, false)) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()) {
                 val pending = File(cacheDir, "updates/jarvis-latest.apk")
@@ -3340,7 +3350,7 @@ class MainActivity : ThemedActivity() {
                     runOnUiThread {
                         if (result.isSuccess) {
                             setUpdateStatus("Installation permission granted. Resuming ${result.getOrThrow()}...")
-                            launchInstallerForDownloadedApk(pending)
+                            launchInstallerForDownloadedApk(pending, result.getOrThrow())
                         } else {
                             setUpdateStatus("Pending update cannot resume: ${result.exceptionOrNull()?.message ?: "APK not available"}. Tap Update App to download again.")
                         }
@@ -3386,6 +3396,7 @@ class MainActivity : ThemedActivity() {
         private const val KEY_PROMPTED_MIC_PERMISSION = "prompted_mic_permission"
         private const val KEY_GITHUB_UPDATE_TOKEN = "github_update_token"
         private const val KEY_PENDING_UPDATE_PERMISSION = "pending_update_install_permission"
+        private const val KEY_INSTALL_ATTEMPT_VERSION = "last_update_install_attempt"
         private const val SHIZUKU_PERMISSION_REQUEST_CODE = 9567
         private const val TAB_TRANSITION_DURATION_MS = 220L
         private const val SWIPE_VELOCITY_THRESHOLD = 900f
