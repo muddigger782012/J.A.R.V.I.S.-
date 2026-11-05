@@ -64,6 +64,25 @@ class VoicePlaybackUiTest {
             } finally { engine.shutdown() }
         }
     }
+    @Test fun multiSentenceKokoroResponsePlaysAllSentencesWithoutPrematureCompletion() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val engine = NeuralAssistantSpeech(context, "assistant")
+        val reply = "Good morning. The weather is improving this afternoon. I can help with your schedule and any equipment maintenance questions. These are the final words."
+        val completed = CountDownLatch(1)
+        val error = AtomicReference<String>()
+        val started = AtomicBoolean(false)
+        try {
+            engine.speak(reply, NeuralVoiceCatalog.voices.first(),
+                done = { completed.countDown() },
+                error = { error.set(it); completed.countDown() },
+                onAudio = { started.set(true) })
+            assertTrue("Long spoken reply never completed", completed.await(150, TimeUnit.SECONDS))
+            assertNull("Native multi-sentence synthesis stopped early: ${error.get()}", error.get())
+            assertTrue("No PCM was queued for playback", started.get())
+            val report = NeuralVoiceDiagnostics.report(context)
+            assertTrue("Native speech did not record completed output: $report", report.contains("\"event\":\"completed\""))
+        } finally { engine.shutdown() }
+    }
     @Test fun mediaPcm16QueuesFramesAndCompletesOnAndroid() {
         ActivityScenario.launch(AssistantVoiceSettingsActivity::class.java).use { scenario ->
             var player: NeuralPcmPlayer? = null
