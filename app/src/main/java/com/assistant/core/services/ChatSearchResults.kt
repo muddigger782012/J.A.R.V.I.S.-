@@ -19,7 +19,7 @@ object ChatSearchResults {
         val result = decode(message)
         if (result == null) return if (message.startsWith(PREFIX)) "Search results could not be read. Review them in chat." else message
         return result.answer?.takeIf { it.isNotBlank() }?.let { SearchReadableText.format(it).text
-            .replace(Regex("https?://[^\\s]+"), "linked source").take(4000) }
+            .replace(Regex("https?://[^\\s]+"), "linked source") }
             ?: "Found ${result.items.size} linked sources for ${result.query}. Review the sources in chat; no answer is verified."
     }
 

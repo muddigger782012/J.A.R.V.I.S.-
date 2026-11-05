@@ -371,7 +371,7 @@ class VoiceForegroundService : Service() {
         // Bound the speaking phase so Live Chat cannot remain muted indefinitely.
         // Long companion replies can exceed two minutes when generated on-device.
         // Never cut off an otherwise healthy lengthy utterance at the old 120s cap.
-        val speechTimeoutMillis = (text.length * 120L + 20_000L).coerceIn(40_000L, 300_000L)
+        val speechTimeoutMillis = SpeechTimeoutPolicy.maximumReplyMillis(text.length)
         liveHandler.postDelayed({
             if (liveChatActive && liveSession.speechFinished(turn)) {
                 liveStatus(VoiceInteractionState.IDLE, "Speech completion timed out; listening again…")

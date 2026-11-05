@@ -314,7 +314,10 @@ class VoiceAssistantService(
             val voice = NeuralVoiceCatalog.resolve(selection.originalVoice)
             onStatus("${voice.label} · offline Kokoro")
             val engine = neuralSpeech ?: NeuralAssistantSpeech(context).also { neuralSpeech = it }
-            engine.speak(text, voice, cachePhrase = after != null,
+            // Live AI replies are unique. Synchronously caching every generated
+            // phrase on the TTS worker delayed first audio and created gaps
+            // between sentences. Cache only fixed, explicitly reusable prompts.
+            engine.speak(text, voice, cachePhrase = false,
                 onAudio = { if (activeSpeechPrefix == prefix) VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEAKING) },
                 done = { if (activeSpeechPrefix == prefix) finishSpeech() }, error = { failure ->
                 if (activeSpeechPrefix == prefix) {
@@ -368,7 +371,7 @@ class VoiceAssistantService(
             .setOnAudioFocusChangeListener({ change ->
                 // Ducking (e.g. a notification) is not a cancelled conversation.
                 // Only permanent focus loss ends this utterance.
-                if ((change == android.media.AudioManager.AUDIOFOCUS_LOSS || change == android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) && activeSpeechPrefix == prefix) {
+                if (change == android.media.AudioManager.AUDIOFOCUS_LOSS && activeSpeechPrefix == prefix) {
                     onStatus("Spoken reply interrupted by audio focus loss. The text reply remains available.")
                     tts.stop(); finishSpeech()
                 }
@@ -573,7 +576,7 @@ class VoiceAssistantService(
     }
 
     private fun onWakeWordDetected() {
-        if (!voiceActive) return
+        if (!voiceActive || !wakeEnabled || commandFromWake) return
         commandFromWake = true
         fallbackErrorStreak = 0
         lastWakeEngineUsed = currentHotwordEngine
@@ -582,8 +585,14 @@ class VoiceAssistantService(
             stopDedicatedWakeWordEngine()
         }
         val token = wakeGeneration
-        val reply = AssistantPhrasePreferences.load(context).reply(wakeReplyIndex++)
-        speak(reply, after = { if (voiceActive && commandFromWake && wakeGeneration == token) startCommandListening() })
+        // Never synthesize a greeting before activating the microphone:
+        // slow Kokoro initialization made successful wake detection appear
+        // unresponsive and postponed command capture by several seconds.
+        onStatus("Hey Jarvis detected. Beep acknowledged; opening command microphone.")
+        WakeAcknowledgement.beep(context, onFailure = onStatus)
+        mainHandler.postDelayed({
+            if (voiceActive && commandFromWake && wakeGeneration == token) startCommandListening()
+        }, WakeAcknowledgement.CAPTURE_DELAY_MS)
     }
 
     fun startWithIntroduction() {

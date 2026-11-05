@@ -8,12 +8,16 @@ import java.io.RandomAccessFile
 import com.assistant.core.BuildConfig
 
 object NeuralVoiceDiagnostics {
-    fun record(context: Context, source: String, voice: String, event: String, firstAudioMs: Long = -1, cacheHits: Int = 0, error: String = "") {
+    fun record(context: Context, source: String, voice: String, event: String, firstAudioMs: Long = -1, cacheHits: Int = 0, error: String = "",
+               synthesisMillis: Long = -1, generatedAudioMillis: Long = -1, underruns: Int = -1) {
         if (source !in setOf("preview", "assistant")) return
         runCatching {
             val data = JSONObject().put("time_ms", System.currentTimeMillis()).put("source", source)
                 .put("voice", voice).put("event", event).put("first_queued_audio_ms", firstAudioMs).put("cache_hits", cacheHits)
                 .put("error", error.take(100))
+                .put("synthesis_ms", synthesisMillis)
+                .put("generated_audio_ms", generatedAudioMillis)
+                .put("pcm_underruns", underruns)
             val file = AtomicFile(File(context.filesDir, "voice-event-$source.json"))
             synchronized(writeLock) {
                 RandomAccessFile(File(context.filesDir, "voice-event-$source.lock"), "rw").use { lock ->
@@ -34,8 +38,14 @@ object NeuralVoiceDiagnostics {
         }.getOrNull() ?: return "No completed offline speech timing has been recorded on this device."
         val delay = data.optLong("first_queued_audio_ms", -1L)
         val event = data.optString("event")
-        return if (delay >= 0L)
-            "Last offline voice first audio queued after ${delay} ms (last event: $event; cache hits: ${data.optInt("cache_hits")}). This measures synthesis and queueing, not speaker hardware latency."
+        return if (delay >= 0L) {
+            val synthesisMs = data.optLong("synthesis_ms", -1L)
+            val audioMs = data.optLong("generated_audio_ms", -1L)
+            val profile = if (synthesisMs >= 0 && audioMs > 0)
+                " Native generation took ${synthesisMs} ms for ${audioMs} ms of PCM; a generation time longer than PCM duration can create audible gaps."
+                else ""
+            "Last offline voice first audio queued after ${delay} ms (last event: $event; cache hits: ${data.optInt("cache_hits")}; underruns: ${data.optInt("pcm_underruns", -1)}).$profile These timings measure synthesis and queued PCM, not speaker hardware latency."
+        }
         else "Last offline voice event: $event. First-audio time not recorded; inspect Voice diagnostics if speech did not start."
     }
 
