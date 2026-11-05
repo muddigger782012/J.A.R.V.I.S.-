@@ -36,6 +36,10 @@ object PatchWorkbench {
         val history: RepairHistoryWorkbench.Services = RepairHistoryWorkbench.Services(),
         val inbox: (Activity) -> DevelopmentJobInbox = { DevelopmentJobInbox(java.io.File(it.noBackupFilesDir.canonicalFile, "development-inbox")) },
         val engineeringRecovery: (Activity) -> Unit = DevelopmentEngineeringScheduler::recover,
+        // Only a verified CI result for a single scoped, approved task can
+        // complete an implementation checkpoint; this never advances release.
+        val planCheckpoint: (Activity, PatchPublisher.CommitResult, PatchPublisher.CiStatus) -> String? =
+            DeveloperPlanBuildCheckpoint::record,
         val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit },
         val chatStatus: (String) -> Unit = { }
     )
@@ -644,6 +648,9 @@ object PatchWorkbench {
                     val checked = if (alive()) runCatching { services.ci(token, result) }.getOrNull() else null
                     val ciText = checked?.let(::ciSummary) ?:
                         "CI status could not be verified for this exact commit. Use Check CI to retry the read-only lookup."
+                    val planCheckpoint = if (checked?.state == PatchPublisher.CiState.PASSED && alive())
+                        runCatching { services.planCheckpoint(activity, result, checked) }.getOrNull()
+                    else null
                     if (checked?.state == PatchPublisher.CiState.FAILED) {
                         activity.runOnUiThread {
                             if (alive()) {
@@ -692,9 +699,11 @@ object PatchWorkbench {
                             interruptedAttempt = null
                             interruptedEngineering = null
                             review.text = report
-                            output.text = commitAudit(result) + "\n" + ciText + failureText + repairHint
+                            output.text = commitAudit(result) + "\n" + ciText + failureText + repairHint +
+                                planCheckpoint?.let { "\n\n$it" }.orEmpty()
                             runCatching { services.chatStatus(DeveloperChatBuildReceipt.commit(
-                                result, checked, failureReport, repairDraft != null)) }
+                                result, checked, failureReport, repairDraft != null) +
+                                planCheckpoint?.let { "\n\n$it" }.orEmpty()) }
                             status.text = when (checked?.state) {
                                 PatchPublisher.CiState.PASSED -> "Task branch committed; exact-source debug CI passed"
                                 PatchPublisher.CiState.FAILED -> if (failureReport != null)
@@ -945,6 +954,9 @@ object PatchWorkbench {
                         else null
                         val receipt = DeveloperChatBuildReceipt.commit(result, checked, failureReport,
                             candidate != null)
+                        val planCheckpoint = if (checked.state == PatchPublisher.CiState.PASSED && alive())
+                            runCatching { services.planCheckpoint(activity, result, checked) }.getOrNull()
+                        else null
                         activity.runOnUiThread {
                             if (alive()) {
                                 developerRepairCandidate = candidate
@@ -954,8 +966,10 @@ object PatchWorkbench {
                                     "\n\nDetailed build evidence could not be verified for this run."
                                 else ""
                                 review.text = renderCommit(result, checked) + diagnostics
-                                output.text = commitAudit(result) + "\n" + ciSummary(checked) + diagnostics
-                                runCatching { services.chatStatus(receipt) }
+                                output.text = commitAudit(result) + "\n" + ciSummary(checked) + diagnostics +
+                                    planCheckpoint?.let { "\n\n$it" }.orEmpty()
+                                runCatching { services.chatStatus(receipt +
+                                    planCheckpoint?.let { "\n\n$it" }.orEmpty()) }
                                 status.text = when (checked.state) {
                                     PatchPublisher.CiState.PASSED -> "Exact task debug CI passed; signed release not verified"
                                     PatchPublisher.CiState.FAILED -> if (failureReport != null)
