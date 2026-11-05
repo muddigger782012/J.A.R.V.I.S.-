@@ -24,7 +24,8 @@ object LiveCapabilityRegistry {
         val buildNotes: List<String> = emptyList(),
         val geminiObservation: AiConnectionDiagnostics.Result? = null,
         val gatewayObservation: AiConnectionDiagnostics.Result? = null,
-        val briefFeatureNotes: Boolean = true)
+        val briefFeatureNotes: Boolean = true,
+        val lastOfflineSpeechTiming: String? = null)
 
     fun topic(input: String, previous: String? = null): Topic? {
         if (input.length > 500) return null
@@ -74,7 +75,8 @@ object LiveCapabilityRegistry {
                 }
                 parseBuildNotes(text)
             }.getOrDefault(emptyList()), DirectOnlineClient(context).connectionObservation(), FallbackAiClient(context).connectionObservation(),
-            context.getSharedPreferences("jarvis_companion_response", Context.MODE_PRIVATE).getBoolean("brief_feature_notes", true))
+            context.getSharedPreferences("jarvis_companion_response", Context.MODE_PRIVATE).getBoolean("brief_feature_notes", true),
+            NeuralVoiceDiagnostics.lastAssistantSpeechTiming(context))
     }
     fun render(topic: Topic, value: Snapshot): String {
         fun permission(granted: Boolean?) = when (granted) { true -> "granted"; false -> "permission/access needed"; null -> "not verified" }
@@ -102,7 +104,8 @@ object LiveCapabilityRegistry {
             Topic.PROVIDERS -> providers
             Topic.VOICE -> voice + "\n" + listOf(value.localVoice, value.foregroundVoice).filterNotNull()
                 .flatMap { it.timings }.joinToString("\n") { "${it.stage}: ${it.sinceStartMillis} ms since voice trace start; ${it.sincePreviousMillis} ms since prior callback" } +
-                "\nTiming evidence excludes audio and transcripts; missing callbacks leave latency unverified."
+                "\nTiming evidence excludes audio and transcripts; missing callbacks leave latency unverified." +
+                (value.lastOfflineSpeechTiming?.let { "\n$it" } ?: "")
             Topic.DIAGNOSTICS -> "Self Diagnostics reviews bounded source, build and application-error reports. Source scanning runs through the read-only GitHub workflow or an authorized development machine; the app imports and reviews its findings. The independent Jarvis Developer app prepares source-verified proposals. An observation is not permission to edit, merge, sign, publish or install."
             Topic.FEATURES, Topic.FEATURES_FULL -> if (topic == Topic.FEATURES && value.briefFeatureNotes) {
                 val notes = value.buildNotes
