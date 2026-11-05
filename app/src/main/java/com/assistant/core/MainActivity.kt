@@ -15,6 +15,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.pm.PackageInfo
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -74,6 +75,7 @@ import com.assistant.core.services.PrivilegeCatalogService
 import com.assistant.core.services.RunningShizukuCommand
 import com.assistant.core.services.ShizukuShellService
 import com.assistant.core.services.SystemService
+import com.assistant.core.services.PersonalUpdatePackagePolicy
 import com.assistant.core.services.VoiceAssistantService
 import com.assistant.core.services.VoiceInteractionState
 import com.assistant.core.services.VoiceSessionController
@@ -230,7 +232,6 @@ class MainActivity : ThemedActivity() {
     private var pendingClarification: String? = null
     private var runningTerminalCommand: RunningShizukuCommand? = null
     private var updateInProgress = false
-    private var pendingDownloadedUpdate: File? = null
     private lateinit var utilityNavigation: View
     private lateinit var utilityBack: androidx.activity.OnBackPressedCallback
     private var utilityHistory = MenuTabHistory()
@@ -1966,9 +1967,10 @@ class MainActivity : ThemedActivity() {
                 val updateDir = File(cacheDir, "updates").apply { mkdirs() }
                 val apkFile = File(updateDir, "jarvis-latest.apk")
                 val sourceUrl = downloadLatestApk(apkFile)
+                val version = verifyDownloadedUpdate(apkFile)
                 runOnUiThread {
-                    setUpdateStatus("Download complete from ${sourceUrl.substringAfter("//")}. Launching installer...")
-                    launchInstallerForDownloadedApk(apkFile)
+                    setUpdateStatus("Verified Personal Jarvis $version from ${sourceUrl.substringAfter("//")}. Opening Android installer...")
+                    launchInstallerForDownloadedApk(apkFile, version)
                 }
             } catch (error: Throwable) {
                 runOnUiThread {
@@ -1986,14 +1988,54 @@ class MainActivity : ThemedActivity() {
 
     private fun downloadLatestApk(targetFile: File): String {
         val failures = mutableListOf<String>()
+        // The public updater must not send an outdated stored GitHub token.
+        val token = if (BuildConfig.GITHUB_UPDATE_TOKEN_REQUIRED) getGithubUpdateToken() else ""
         for (url in buildUpdateUrlCandidates()) {
-            val result = runCatching { downloadLatestApkFromUrl(url, targetFile, getGithubUpdateToken()) }
-            if (result.isSuccess) {
-                return url
-            }
+            val result = runCatching { downloadLatestApkFromUrl(url, targetFile, token) }
+            if (result.isSuccess) return url
             failures += "${url.substringAfter("//")} -> ${result.exceptionOrNull()?.message ?: "unknown error"}"
         }
-        throw IllegalStateException(failures.firstOrNull() ?: "No updater URL candidates available.")
+        // If GitHub raw is blocked, use the versioned Personal release asset.
+        if (packageName == "com.assistant.core") {
+            val fallback = runCatching { latestPublicPersonalReleaseApk() }
+            val url = fallback.getOrNull()
+            if (url != null) {
+                val result = runCatching { downloadLatestApkFromUrl(url, targetFile, "") }
+                if (result.isSuccess) return url
+                failures += "Release APK -> ${result.exceptionOrNull()?.message ?: "download failed"}"
+            } else failures += "Release lookup -> ${fallback.exceptionOrNull()?.message ?: "no compatible APK"}"
+        }
+        throw IllegalStateException(if (failures.isEmpty()) "No updater URL candidates available." else "Download sources failed: " + failures.joinToString(" | ").take(650))
+    }
+
+    private fun latestPublicPersonalReleaseApk(): String? {
+        val owner = BuildConfig.GITHUB_REPO_OWNER.trim()
+        val repo = BuildConfig.GITHUB_REPO_NAME.trim()
+        val connection = (URL("https://api.github.com/repos/$owner/$repo/releases/latest").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 12_000
+            readTimeout = 12_000
+            setRequestProperty("Accept", "application/vnd.github+json")
+            setRequestProperty("User-Agent", "JARVIS-Updater/2.4")
+        }
+        try {
+            check(connection.responseCode in 200..299) { "Release API returned HTTP ${connection.responseCode}" }
+            val payload = connection.inputStream.bufferedReader().use { it.readText() }
+            val release = JSONObject(payload)
+            val tag = release.optString("tag_name")
+            if (!Regex("""jarvis-3\.6\.[1-9][0-9]*""").matches(tag)) return null
+            val abi = Build.SUPPORTED_ABIS.firstOrNull { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+                ?: return null
+            val name = "Jarvis-${tag.removePrefix("jarvis-")}-$abi.apk"
+            val expected = "https://github.com/$owner/$repo/releases/download/$tag/$name"
+            val assets = release.optJSONArray("assets") ?: return null
+            for (i in 0 until assets.length()) {
+                val asset = assets.optJSONObject(i) ?: continue
+                if (asset.optString("name") == name && asset.optString("browser_download_url") == expected) return expected
+            }
+            return null
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private fun downloadLatestApkFromUrl(url: String, targetFile: File, githubToken: String) {
@@ -2115,31 +2157,87 @@ class MainActivity : ThemedActivity() {
         }
     }
 
-    private fun launchInstallerForDownloadedApk(apkFile: File) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-            pendingDownloadedUpdate = apkFile
-            setUpdateStatus("Allow J.A.R.V.I.S. to install this update, then return here. Installation will continue automatically.")
-            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+    @Suppress("DEPRECATION")
+    private fun verifyDownloadedUpdate(apkFile: File): String {
+        check(apkFile.isFile && apkFile.length() >= MIN_VALID_APK_BYTES && isLikelyApkZip(apkFile)) {
+            "The downloaded APK is missing or incomplete."
+        }
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+            PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
+        val archive = packageManager.getPackageArchiveInfo(apkFile.absolutePath, flags)
+            ?: throw IllegalStateException("Android could not parse the downloaded APK.")
+        val installed = packageManager.getPackageInfo(packageName, flags)
+
+        fun signerSet(info: PackageInfo): Set<String> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet().orEmpty()
+        } else {
+            info.signatures?.map { it.toCharsString() }?.toSet().orEmpty()
+        }
+        val installedVersion = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+            installed.longVersionCode else installed.versionCode.toLong()
+        val candidateVersion = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+            archive.longVersionCode else archive.versionCode.toLong()
+        val rejection = PersonalUpdatePackagePolicy.rejection(
+            packageName, installedVersion, signerSet(installed),
+            archive.packageName, candidateVersion, signerSet(archive)
+        )
+        check(rejection == null) { rejection ?: "Downloaded package is not a valid upgrade." }
+        return archive.versionName ?: "build $candidateVersion"
+    }
+
+    private fun launchInstallerForDownloadedApk(apkFile: File, versionName: String) {
+        val policy = getSystemService(Context.USER_SERVICE) as UserManager
+        if (policy.hasUserRestriction(UserManager.DISALLOW_INSTALL_APPS) ||
+            policy.hasUserRestriction(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES)) {
+            setUpdateStatus("Android device policy forbids app installation. Check J.A.R.V.I.S. Device administration > Install apps restriction, or the device owner's policy. No package was installed.")
             return
         }
-        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
-        val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-            data = uri
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            // Android may destroy/recreate this Activity while opening the permission
+            // screen. Persist the handoff; never keep it solely in an Activity field.
+            if (!uiPreferences.edit().putBoolean(KEY_PENDING_UPDATE_PERMISSION, true).commit()) {
+                setUpdateStatus("Could not save the pending update. Tap Update App to retry.")
+                return
+            }
+            setUpdateStatus("Android blocked installation permission. In Install unknown apps, allow J.A.R.V.I.S., then return here to continue.")
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            } catch (error: Exception) {
+                setUpdateStatus("Could not open Install unknown apps settings (${error.javaClass.simpleName}). Open Android Settings > Apps > Special app access > Install unknown apps > J.A.R.V.I.S.")
+            }
+            return
+        }
+
+        uiPreferences.edit().remove(KEY_PENDING_UPDATE_PERMISSION).apply()
+        val uri = try {
+            FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
+        } catch (error: Exception) {
+            setUpdateStatus("Could not share downloaded APK with the Android installer: ${error.javaClass.simpleName}.")
+            return
+        }
+        val installer = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            clipData = ClipData.newUri(contentResolver, "Personal J.A.R.V.I.S. update", uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
         }
         try {
-            startActivity(installIntent)
-            setUpdateStatus("Installer opened. Confirm installation to complete update.")
-        } catch (_: Throwable) {
-            val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            uiPreferences.edit().putString(KEY_INSTALL_ATTEMPT_VERSION, versionName).commit()
+            startActivity(installer)
+            setUpdateStatus("Android package installer opened. Approve the update there; opening it does not mean installation succeeded.")
+        } catch (error: Exception) {
+            // Some devices only expose the older ACTION_INSTALL_PACKAGE entry point.
+            val fallback = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                data = uri
+                clipData = ClipData.newUri(contentResolver, "Personal J.A.R.V.I.S. update", uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            startActivity(fallbackIntent)
-            setUpdateStatus("Installer opened. Confirm installation to complete update.")
+            try {
+                startActivity(fallback)
+                setUpdateStatus("Android package installer opened. Confirm the installation there.")
+            } catch (fallbackError: Exception) {
+                uiPreferences.edit().remove(KEY_INSTALL_ATTEMPT_VERSION).apply()
+                setUpdateStatus("Installer could not start (${fallbackError.javaClass.simpleName}: ${fallbackError.message ?: "no handler"}). The downloaded APK was kept; no installation was performed.")
+            }
         }
     }
 
@@ -3233,14 +3331,33 @@ class MainActivity : ThemedActivity() {
 
     override fun onResume() {
         super.onResume()
-        pendingDownloadedUpdate?.let { pending ->
+        // The previous Activity can be killed while the platform installer is open.
+        // Verify the installed package after returning, never infer success from an intent launch.
+        uiPreferences.getString(KEY_INSTALL_ATTEMPT_VERSION, null)?.let { expected ->
+            uiPreferences.edit().remove(KEY_INSTALL_ATTEMPT_VERSION).apply()
+            val current = runCatching { packageManager.getPackageInfo(packageName, 0).versionName.orEmpty() }.getOrDefault("")
+            setUpdateStatus(if (current == expected) "Installed Personal Jarvis $expected successfully."
+                else "Update $expected is not installed (current: ${current.ifBlank { "unknown" }}). Android may have cancelled or rejected it. Check Install unknown apps permission and device installation restrictions.")
+        }
+        if (uiPreferences.getBoolean(KEY_PENDING_UPDATE_PERMISSION, false)) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()) {
-                pendingDownloadedUpdate = null
-                if (pending.exists() && isLikelyApkZip(pending)) {
-                    launchInstallerForDownloadedApk(pending)
-                } else {
-                    setUpdateStatus("Downloaded update is no longer available. Tap Update App to download it again.")
-                }
+                val pending = File(cacheDir, "updates/jarvis-latest.apk")
+                uiPreferences.edit().remove(KEY_PENDING_UPDATE_PERMISSION).commit()
+                // Parsing an APK may take time. Never block the UI after returning
+                // from Android's unknown-apps settings.
+                Thread {
+                    val result = runCatching { verifyDownloadedUpdate(pending) }
+                    runOnUiThread {
+                        if (result.isSuccess) {
+                            setUpdateStatus("Installation permission granted. Resuming ${result.getOrThrow()}...")
+                            launchInstallerForDownloadedApk(pending, result.getOrThrow())
+                        } else {
+                            setUpdateStatus("Pending update cannot resume: ${result.exceptionOrNull()?.message ?: "APK not available"}. Tap Update App to download again.")
+                        }
+                    }
+                }.start()
+            } else {
+                setUpdateStatus("Still waiting for Android Install unknown apps permission for J.A.R.V.I.S. Return to that setting or tap Update App.")
             }
         }
         syncLiveChatUi()
@@ -3278,6 +3395,8 @@ class MainActivity : ThemedActivity() {
     companion object {
         private const val KEY_PROMPTED_MIC_PERMISSION = "prompted_mic_permission"
         private const val KEY_GITHUB_UPDATE_TOKEN = "github_update_token"
+        private const val KEY_PENDING_UPDATE_PERMISSION = "pending_update_install_permission"
+        private const val KEY_INSTALL_ATTEMPT_VERSION = "last_update_install_attempt"
         private const val SHIZUKU_PERMISSION_REQUEST_CODE = 9567
         private const val TAB_TRANSITION_DURATION_MS = 220L
         private const val SWIPE_VELOCITY_THRESHOLD = 900f
