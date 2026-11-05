@@ -69,105 +69,106 @@ class SherpaWakeWordEngine(
     private var spotter: KeywordSpotter? = null
     private var stream: OnlineStream? = null
 
+    /**
+     * Start standby without loading a multi-megabyte native model on Android's
+     * service/main thread. One worker owns construction, capture and JNI cleanup.
+     * "Started" means initialization was scheduled; only onListening confirms
+     * that real microphone samples are reaching the decoder.
+     */
     fun start(): Boolean {
         if (running) return true
         if (hasLiveWorker()) {
-            onStatus("Sherpa native worker is still stopping. Restart the app before retrying.")
+            onStatus("Sherpa native worker is still stopping; refusing a second microphone worker.")
             return false
         }
-        stalled = false
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             onStatus("Microphone permission is required for Hey Jarvis.")
             return false
         }
-        return try {
-            onStatus("Sherpa: verifying model and wake tokens...")
-            val modelFiles = context.assets.list(MODEL_DIR)?.toSet().orEmpty()
-            fun modelFile(prefix: String): String {
-                // Use the FP32 CPU path while investigating devices that stall
-                // on their first quantized decode. Do not silently select INT8.
-                val name = modelFiles.sorted().firstOrNull {
-                    it.startsWith(prefix) && it.endsWith(".onnx") && !it.endsWith(".int8.onnx")
-                } ?: error("Missing FP32 $prefix model in $MODEL_DIR")
-                return "$MODEL_DIR/$name"
-            }
-            val keywordsPath = "$MODEL_DIR/jarvis-keywords.txt"
-            val keywords = context.assets.open(keywordsPath).bufferedReader().use { it.readText().trim() }
-            require(keywords.isNotBlank() && keywords.contains("@HEY_JARVIS")) { "Missing generated HEY_JARVIS BPE tokens" }
-            onStatus("Sherpa: loading English KWS model...")
-            val config = KeywordSpotterConfig(
-                featConfig = getFeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
-                modelConfig = OnlineModelConfig(
-                    transducer = OnlineTransducerModelConfig(
-                        encoder = modelFile("encoder-"),
-                        decoder = modelFile("decoder-"),
-                        joiner = modelFile("joiner-")
+        stalled = false
+        running = true
+        worker = thread(start = false, isDaemon = true, name = "jarvis-sherpa-kws") {
+            var kws: KeywordSpotter? = null
+            var onlineStream: OnlineStream? = null
+            var audio: AudioRecord? = null
+            var captureOwnsResources = false
+            try {
+                holdCpuForWake()
+                if (!running) return@thread
+                onStatus("Sherpa: verifying model and wake tokens...")
+                val modelFiles = context.assets.list(MODEL_DIR)?.toSet().orEmpty()
+                fun modelFile(prefix: String): String =
+                    "$MODEL_DIR/" + (modelFiles.sorted().firstOrNull {
+                        it.startsWith(prefix) && it.endsWith(".onnx") && !it.endsWith(".int8.onnx")
+                    } ?: error("Missing FP32 $prefix model in $MODEL_DIR"))
+                val keywordsPath = "$MODEL_DIR/jarvis-keywords.txt"
+                val keywords = context.assets.open(keywordsPath).bufferedReader().use { it.readText().trim() }
+                require(keywords.isNotBlank() && keywords.contains("@HEY_JARVIS")) {
+                    "Missing generated HEY_JARVIS BPE tokens"
+                }
+                if (!running) return@thread
+                onStatus("Sherpa: loading English KWS model...")
+                val config = KeywordSpotterConfig(
+                    featConfig = getFeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
+                    modelConfig = OnlineModelConfig(
+                        transducer = OnlineTransducerModelConfig(
+                            encoder = modelFile("encoder-"),
+                            decoder = modelFile("decoder-"),
+                            joiner = modelFile("joiner-")
+                        ),
+                        tokens = "$MODEL_DIR/tokens.txt",
+                        modelType = "zipformer2",
+                        provider = "cpu",
+                        numThreads = 1
                     ),
-                    tokens = "$MODEL_DIR/tokens.txt",
-                    modelType = "zipformer2",
-                    provider = "cpu",
-                    numThreads = 1
-                ),
-                keywordsFile = keywordsPath,
-                // Sherpa's own KWS examples use a stronger keyword boost and
-                // low acoustic threshold. The previous 1.5/0.27 defaults were
-                // too conservative for an always-on wake phrase.
-                keywordsScore = 3.0f,
-                keywordsThreshold = WakeWordTuning.thresholdFor(sensitivity),
-                numTrailingBlanks = 1
-            )
-            stage("sherpa-before-native-model")
-            val kws = KeywordSpotter(assetManager = context.assets, config = config)
-            stage("sherpa-after-native-model")
-            val phrase = wakePhrase.trim().ifBlank { "hey jarvis" }
-            // Do not load the model's bundled generic keyword list in addition
-            // to the configured wake phrase. This stream should react only to
-            // the user's JARVIS wake phrase.
-            // The generated keywords file contains BPE pieces; plain English is invalid here.
-            stage("sherpa-before-stream")
-            val onlineStream = kws.createStream()
-            stage("sherpa-after-stream")
-            if (onlineStream.ptr == 0L) {
-                kws.release()
-                onStatus("Sherpa could not create a stream for '$phrase'.")
-                return false
-            }
-
-            onStatus("Sherpa: keyword stream created; opening microphone...")
-            val minBytes = AudioRecord.getMinBufferSize(
-                SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
-            )
-            if (minBytes <= 0) {
-                onlineStream.release(); kws.release()
-                return false
-            }
-            val audio = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                SAMPLE_RATE,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                minBytes * 2
-            )
-            if (audio.state != AudioRecord.STATE_INITIALIZED) {
-                audio.release(); onlineStream.release(); kws.release()
-                return false
-            }
-
-            spotter = kws
-            stream = onlineStream
-            recorder = audio
-            running = true
-            holdCpuForWake()
-            // The worker owns all native resources once it starts. A stop request
-            // may unblock AudioRecord, but must never delete objects inside JNI.
-            worker = thread(start = false, isDaemon = true, name = "jarvis-sherpa-kws") {
+                    keywordsFile = keywordsPath,
+                    keywordsScore = 3.0f,
+                    keywordsThreshold = WakeWordTuning.thresholdFor(sensitivity),
+                    numTrailingBlanks = 1
+                )
+                stage("sherpa-before-native-model")
+                kws = KeywordSpotter(assetManager = context.assets, config = config)
+                stage("sherpa-after-native-model")
+                if (!running) return@thread
+                stage("sherpa-before-stream")
+                onlineStream = kws.createStream()
+                stage("sherpa-after-stream")
+                check(onlineStream.ptr != 0L) { "Sherpa could not create keyword stream" }
+                if (!running) return@thread
+                val minBytes = AudioRecord.getMinBufferSize(
+                    SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+                )
+                check(minBytes > 0) { "16 kHz mono microphone is unavailable" }
+                audio = AudioRecord(
+                    MediaRecorder.AudioSource.MIC, SAMPLE_RATE,
+                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, minBytes * 2
+                )
+                check(audio.state == AudioRecord.STATE_INITIALIZED) { "AudioRecord failed to initialize" }
+                spotter = kws
+                stream = onlineStream
+                recorder = audio
+                if (!running) return@thread
+                // processAudio owns the session and releases it in its finally.
+                captureOwnsResources = true
                 processAudio(kws, onlineStream, audio)
+            } catch (failure: Throwable) {
+                stage("sherpa-initialization-failed-${failure.javaClass.simpleName}")
+                if (running) {
+                    onStatus("Sherpa wake standby failed (${failure.javaClass.simpleName}); trying bounded recovery.")
+                    onFailure()
+                }
+            } finally {
+                running = false
+                if (!captureOwnsResources) releaseSession(audio, onlineStream, kws)
             }
+        }
+        return try {
             worker?.start()
             true
-        } catch (t: Throwable) {
-            onStatus("Sherpa wake engine initialization failed. Check microphone permission and the installed wake model.")
-            stop()
+        } catch (failure: Exception) {
+            running = false
+            worker = null
+            onStatus("Sherpa worker could not start (${failure.javaClass.simpleName}).")
             false
         }
     }
