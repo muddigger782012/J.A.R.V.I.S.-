@@ -77,6 +77,72 @@ class ProjectGenerationTest {
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun primaryChatReviewsLiveCiBeforeAcknowledgingLocalCompletion() {
+        val path = DeveloperPlanCompletionReviewTest.path
+        val base = DeveloperPlanCompletionReviewTest.base
+        val sha = DeveloperPlanCompletionReviewTest.sha
+        val proposalId = DeveloperPlanCompletionReviewTest.proposal
+        val ci = DeveloperPlanCompletionReviewTest.ci
+        val directory = java.nio.file.Files.createTempDirectory("chat-completion-").toFile()
+        val storage = TaskPlanStore(directory)
+        val plan = TaskPlanner.Plan("plan-chat-final", "Developer voice reliability", base,
+            "d".repeat(64), listOf(path), listOf(
+                TaskPlanner.Step("analyze", "Analyze", "Scope", emptyList(), emptyList()),
+                TaskPlanner.Step("implement-1", "Implement", "Change", listOf(path), listOf("analyze")),
+                TaskPlanner.Step("validate", "Validate", "CI", emptyList(), listOf("implement-1")),
+                TaskPlanner.Step("review", "Review", "Final review", emptyList(), listOf("validate"))
+            ), listOf(TaskPlanner.Decision(1, null, "Created plan", 1000L)), 0L, false, 1000L)
+        storage.save(plan, null)
+        val reviewed = TaskPlanner.transition(plan, "analyze", TaskPlanner.Status.DONE,
+            "Owner reviewed analysis", 1001L)
+        storage.save(reviewed, 0L)
+        val id = requireNotNull(DeveloperPlanContinuation.suggest(listOf(reviewed)).packet).id
+        val commit = PatchPublisher.CommitResult(id, "Gemini", "gemini-2.5-pro",
+            proposalId, listOf(path), base, sha,
+            PatchEngine.taskBranch(id, proposalId, PatchEngine.Target.DEVELOPER),
+            "approved diff", "feature/jarvis-developer", PatchEngine.Target.DEVELOPER)
+        assertNotNull(DeveloperPlanBuildCheckpoint.record(storage, commit, ci, 1002L))
+        val finalReview = DeveloperPlanCompletionReview({ directory }, { 1003L })
+        var ciReads = 0
+        Screen(completion = finalReview, currentCommit = { commit },
+            checkedCi = { _, exact ->
+                assertEquals(commit, exact)
+                ciReads++
+                ci
+            }, ask = { _, _, _, _, _ -> error("Review command may not call an AI provider") }).use { s ->
+            s.prompt.setText("Confirm Developer completion review")
+            s.send.performClick()
+            s.complete()
+            assertTrue(s.output.text.contains("No current"))
+            assertEquals(TaskPlanner.Status.PENDING, storage.loadAll().single().steps.last().status)
+            s.prompt.setText("Review Developer completion")
+            s.send.performClick()
+            assertFalse(s.send.isEnabled)
+            s.complete()
+            assertTrue(s.output.text.contains("Fresh exact-source debug CI"))
+            assertEquals(TaskPlanner.Status.PENDING, storage.loadAll().single().steps.last().status)
+            s.prompt.setText("Confirm Developer completion review")
+            s.send.performClick()
+            s.complete()
+            assertTrue(s.output.text.contains("final LOCAL review acknowledged"))
+            assertEquals(TaskPlanner.Status.DONE, storage.loadAll().single().steps.last().status)
+            assertEquals(3, ciReads)
+            assertTrue(s.prefs.all.isEmpty())
+        }
+    }
+
+    @Test fun personalProductCannotReadOrApproveDeveloperCompletion() {
+        var reads = 0
+        Screen(currentCommit = { reads++; null }).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("Confirm Developer completion review")
+            s.send.performClick()
+            assertTrue(s.pending.isEmpty())
+            assertEquals(0, reads)
+            assertTrue(s.output.text.contains("unavailable for Personal"))
+        }
+    }
+
     @Test fun continueDeveloperPlanFromChatStartsOnlyTheNextScopedPreview() {
         var stages = 0
         val packet = DeveloperPlanContinuation.Packet("plan-1-abcdef1234567890",
