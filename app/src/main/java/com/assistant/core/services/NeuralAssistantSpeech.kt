@@ -59,7 +59,10 @@ class NeuralAssistantSpeech(context: Context, private val source: String = "assi
                         if (active()) output.enqueue(clip, active = active, firstQueued = {
                             val millis = android.os.SystemClock.elapsedRealtime() - started
                             if (firstAudioMs.compareAndSet(-1L, millis)) {
-                                NeuralVoiceDiagnostics.record(app, source, voice.id, "audio_queued", millis, cacheHits)
+                                // Do not synchronously fsync diagnostics on
+                                // the audio writer. That can empty the track
+                                // after the first 85ms buffer and cause a gap.
+                                // The completion/error record persists this timing.
                                 main.post { if (active()) onAudio() }
                             }
                         })
