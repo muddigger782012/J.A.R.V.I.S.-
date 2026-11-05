@@ -37,16 +37,16 @@ internal class DeveloperPlanCompletionReview(
         if (plan.paused || plan.baseCommitSha != commit.baseCommitSha ||
             plan.scope.sorted() != commit.paths.sorted() ||
             plan.steps.any { it.status == TaskPlanner.Status.RUNNING } ||
-            plan.steps.count { it.paths.isNotEmpty() } != 1) return false
-        val implement = plan.steps.single { it.paths.isNotEmpty() }
+            plan.steps.none { it.paths.isNotEmpty() }) return false
+        val implementations = plan.steps.filter { it.paths.isNotEmpty() }
         val validate = plan.steps.singleOrNull { it.id == "validate" } ?: return false
         val review = plan.steps.singleOrNull { it.id == "review" } ?: return false
-        return implement.status == TaskPlanner.Status.DONE &&
+        return implementations.all { it.status == TaskPlanner.Status.DONE &&
+            it.checkpoint.startsWith(
+                "Verified isolated Developer task commit ${commit.commitSha}; exact-source debug CI success: $url.") } &&
             validate.status == TaskPlanner.Status.DONE &&
             review.status == TaskPlanner.Status.PENDING &&
             review.dependsOn == listOf("validate") && review.paths.isEmpty() &&
-            implement.checkpoint.startsWith(
-                "Verified isolated Developer task commit ${commit.commitSha}; exact-source debug CI success: $url.") &&
             validate.checkpoint.startsWith(
                 "Exact-source Developer CI workflow passed automated tests, lint, debug APK assembly " +
                     "and its workflow gates for ${commit.commitSha}: $url.")
