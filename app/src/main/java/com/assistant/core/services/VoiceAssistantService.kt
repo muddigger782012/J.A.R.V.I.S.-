@@ -582,8 +582,12 @@ class VoiceAssistantService(
             stopDedicatedWakeWordEngine()
         }
         val token = wakeGeneration
-        val reply = AssistantPhrasePreferences.load(context).reply(wakeReplyIndex++)
-        speak(reply, after = { if (voiceActive && commandFromWake && wakeGeneration == token) startCommandListening() })
+        onStatus("Hey Jarvis detected — listening for your command.")
+        // Acknowledgement must never wait on Kokoro model initialization or
+        // Android TTS; the cue sounds immediately even when speech synthesis is slow.
+        WakeAcknowledgement.beepThenCapture(context, mainHandler) {
+            if (voiceActive && commandFromWake && wakeGeneration == token) startCommandListening()
+        }
     }
 
     fun startWithIntroduction() {
