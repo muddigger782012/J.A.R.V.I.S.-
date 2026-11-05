@@ -2186,6 +2186,12 @@ class MainActivity : ThemedActivity() {
     }
 
     private fun launchInstallerForDownloadedApk(apkFile: File) {
+        val policy = getSystemService(Context.USER_SERVICE) as UserManager
+        if (policy.hasUserRestriction(UserManager.DISALLOW_INSTALL_APPS) ||
+            policy.hasUserRestriction(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES)) {
+            setUpdateStatus("Android device policy forbids app installation. Check J.A.R.V.I.S. Device administration > Install apps restriction, or the device owner's policy. No package was installed.")
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
             // Android may destroy/recreate this Activity while opening the permission
             // screen. Persist the handoff; never keep it solely in an Activity field.
