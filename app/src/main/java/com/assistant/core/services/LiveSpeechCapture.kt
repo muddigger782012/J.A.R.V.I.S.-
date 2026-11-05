@@ -39,7 +39,7 @@ class LiveSpeechCapture(private val context: Context,
                onEngine: (SpeechCaptureRouting.Engine) -> Unit = {},
                requestedEngine: SpeechCaptureRouting.Engine? = null,
                onPhase: (VoiceInteractionState) -> Unit = {},
-               minimumSpeechPauseMillis: Long = 0L) {
+               minimumSpeechPauseMillis: Long = 0L, fallbackOnSilence: Boolean = true) {
         stop()
         trace = VoiceSessionDiagnostics.begin()
         val strictDevice = onDeviceOnly || requestedEngine == SpeechCaptureRouting.Engine.ON_DEVICE
@@ -107,9 +107,10 @@ class LiveSpeechCapture(private val context: Context,
                         if (current != generation) return
                         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.ERROR, currentTrace, error)
                         if (!strictDevice && provider == SpeechCaptureRouting.Engine.ON_DEVICE && !fallbackUsed && platform.systemAvailable() &&
-                            error in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
+                            (error in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
                                 SpeechRecognizer.ERROR_SERVER, SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
-                                SpeechRecognizer.ERROR_CLIENT, SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
+                                SpeechRecognizer.ERROR_CLIENT) ||
+                            (fallbackOnSilence && error in setOf(SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT)))) {
                             fallbackUsed = true
                             startAttempt(SpeechCaptureRouting.Engine.SYSTEM, false)
                         } else { release(cancelled = false); onError(error) }

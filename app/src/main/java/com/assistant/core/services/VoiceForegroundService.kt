@@ -129,6 +129,7 @@ class VoiceForegroundService : Service() {
                         LiveChatSession.MicrophoneTap.RESTART_LISTENING -> {
                             hybridAssistantService.cancelActiveResponse()
                             liveCapture.stop()
+                            liveFailures = 0
                             if (::voiceService.isInitialized) voiceService.stopSpeaking()
                             liveHandler.removeCallbacksAndMessages(null)
                             liveStatus(VoiceInteractionState.IDLE, "Microphone requested; listening again…")
@@ -367,18 +368,25 @@ class VoiceForegroundService : Service() {
                 if (liveChatActive && liveSession.speechFinished(turn)) nextLiveTurn(650L)
             }
         })
-        // Some TTS engines never report completion after an audio failure.
-        // Bound the speaking phase so Live Chat cannot remain muted indefinitely.
-        // Long companion replies can exceed two minutes when generated on-device.
-        // Never cut off an otherwise healthy lengthy utterance at the old 120s cap.
-        val speechTimeoutMillis = (text.length * 120L + 20_000L).coerceIn(40_000L, 300_000L)
-        liveHandler.postDelayed({
-            if (liveChatActive && liveSession.speechFinished(turn)) {
-                liveStatus(VoiceInteractionState.IDLE, "Speech completion timed out; listening again…")
-                voiceService.stopSpeaking()
-                nextLiveTurn(650L)
+        // An absolute-length timeout can cut off a healthy long spoken reply.
+        // Check *inactivity* instead: PCM chunks and Android TTS utterance
+        // starts refresh this clock, while a hung provider still recovers.
+        val monitor = object : Runnable {
+            override fun run() {
+                if (!liveChatActive || liveSession.token != turn ||
+                    liveSession.phase != LiveChatSession.Phase.SPEAKING) return
+                if (SpeechPlaybackStallPolicy.stalled(
+                        android.os.SystemClock.elapsedRealtime(), voiceService.lastSpeechProgressElapsed())) {
+                    if (liveSession.speechFinished(turn)) {
+                        liveStatus(VoiceInteractionState.IDLE,
+                            "Speech output stopped progressing. Tap the microphone if it does not resume.")
+                        voiceService.stopSpeaking()
+                        nextLiveTurn(650L)
+                    }
+                } else liveHandler.postDelayed(this, 15_000L)
             }
-        }, speechTimeoutMillis)
+        }
+        liveHandler.postDelayed(monitor, 30_000L)
     }
 
     private fun nextLiveTurn(delay: Long) {
@@ -468,7 +476,10 @@ class VoiceForegroundService : Service() {
                 }, onPhase = { phase ->
                     if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING)
                         liveStatus(phase, phase.userLabel())
-                }, minimumSpeechPauseMillis = 2800L
+                }, minimumSpeechPauseMillis = 2800L,
+                // Normal silence must not start a second system recognizer,
+                // because many Android providers chime on every startup.
+                fallbackOnSilence = false
             )
         }, delay)
     }
@@ -477,8 +488,12 @@ class VoiceForegroundService : Service() {
         if (!liveChatActive || liveSession.token != turn || liveSession.phase != LiveChatSession.Phase.LISTENING) return
         if (error == android.speech.SpeechRecognizer.ERROR_NO_MATCH || error == android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
             if (liveSession.silence(turn)) {
-                liveStatus(VoiceInteractionState.IDLE, "No final speech result. Live chat remains active; listening again…")
-                nextLiveTurn(1000L)
+                when (LiveChatChimePolicy.afterSilence()) {
+                    LiveChatChimePolicy.Action.PAUSE ->
+                        liveStatus(VoiceInteractionState.IDLE,
+                            "No speech heard. Live chat is paused; tap the microphone to continue.")
+                    LiveChatChimePolicy.Action.RETRY -> nextLiveTurn(1500L)
+                }
             } else finishLiveChat("Live chat reached your configured inactivity limit.")
         } else {
             val message = when (error) {
@@ -489,8 +504,13 @@ class VoiceForegroundService : Service() {
             }
             if (error != android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS && liveSession.recover(turn)) {
                 liveFailures++
-                liveStatus(VoiceInteractionState.IDLE, "$message Retrying capture; live chat is still active.")
-                nextLiveTurn((1000L * liveFailures).coerceAtMost(10_000L))
+                if (LiveChatChimePolicy.afterProviderError(liveFailures) == LiveChatChimePolicy.Action.RETRY) {
+                    liveStatus(VoiceInteractionState.IDLE, "$message Trying the microphone once more.")
+                    nextLiveTurn(1500L)
+                } else {
+                    liveStatus(VoiceInteractionState.IDLE,
+                        "$message Live chat is paused to avoid repeated microphone chimes. Tap the microphone to resume.")
+                }
             } else finishLiveChat(message)
         }
     }

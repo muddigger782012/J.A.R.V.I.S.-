@@ -27,6 +27,7 @@ class NeuralPcmPlayer(context: Context) {
     inner class Session internal constructor() {
         private val cancelled = AtomicBoolean(false)
         private val focusLost = AtomicBoolean(false)
+        private val temporaryFocusLoss = AtomicBoolean(false)
         @Volatile private var track: AudioTrack? = null
         private var request: AudioFocusRequest? = null
         private val timeline = PcmPlaybackTimeline()
@@ -39,7 +40,11 @@ class NeuralPcmPlayer(context: Context) {
             check(timeline.sampleRate == 0 || timeline.sampleRate == clip.sampleRate) { "Speech sample rate changed during a reply" }
             var offset = 0
             while (offset < pcm.size && active() && !cancelled.get()) {
-                check(!focusLost.get()) { "Speech audio focus was lost" }
+                check(!focusLost.get()) { "Speech audio focus was permanently lost" }
+                if (temporaryFocusLoss.get()) {
+                    Thread.sleep(15L)
+                    continue
+                }
                 val written = player.write(pcm, offset, minOf(2048, pcm.size - offset), AudioTrack.WRITE_BLOCKING)
                 check(written > 0) { "PCM playback write failed: $written" }
                 if (timeline.framesQueued == 0L) firstQueued()
@@ -54,9 +59,21 @@ class NeuralPcmPlayer(context: Context) {
                 .setAudioAttributes(attributes)
                 .setAcceptsDelayedFocusGain(false)
                 .setOnAudioFocusChangeListener({ change ->
-                    // Notifications that merely duck media are not an interruption.
-                    if (change == AudioManager.AUDIOFOCUS_LOSS ||
-                        change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) focusLost.set(true)
+                    when (change) {
+                        AudioManager.AUDIOFOCUS_LOSS -> {
+                            focusLost.set(true)
+                            track?.pause()
+                        }
+                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                            temporaryFocusLoss.set(true)
+                            track?.pause()
+                        }
+                        AudioManager.AUDIOFOCUS_GAIN -> {
+                            if (temporaryFocusLoss.getAndSet(false) && !cancelled.get())
+                                runCatching { track?.play() }
+                        }
+                        // DUCK never cancels a user-requested spoken answer.
+                    }
                 }, Handler(Looper.getMainLooper())).build()
             check(manager.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
                 "Media audio focus was unavailable"
@@ -70,7 +87,7 @@ class NeuralPcmPlayer(context: Context) {
                 .setAudioFormat(AudioFormat.Builder().setSampleRate(sampleRate)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
-                .setBufferSizeInBytes(maxOf(8192, minimum))
+                .setBufferSizeInBytes(maxOf(32 * 1024, minimum * 2))
                 .setTransferMode(AudioTrack.MODE_STREAM).build()
             track = output
             check(output.state == AudioTrack.STATE_INITIALIZED) { "AudioTrack could not initialize" }
@@ -84,15 +101,30 @@ class NeuralPcmPlayer(context: Context) {
         fun drain(active: () -> Boolean) {
             val output = track ?: return
             if (timeline.framesQueued == 0L) return
-            val deadline = SystemClock.elapsedRealtime() +
+            var deadline = SystemClock.elapsedRealtime() +
                 (timeline.framesQueued * 1000L / timeline.sampleRate + 10_000L).coerceAtMost(300_000L)
+            var pausedAt = -1L
             while (active() && !cancelled.get() &&
                 !timeline.isDrained(output.playbackHeadPosition.toLong() and 0xffffffffL)) {
-                check(!focusLost.get()) { "Speech audio focus was lost" }
-                check(SystemClock.elapsedRealtime() < deadline) { "Audio playback did not complete" }
+                check(!focusLost.get()) { "Speech audio focus was permanently lost" }
+                val now = SystemClock.elapsedRealtime()
+                if (temporaryFocusLoss.get()) {
+                    if (pausedAt < 0L) pausedAt = now
+                    check(now - pausedAt < 60_000L) { "Temporary audio focus was not restored" }
+                    Thread.sleep(15L)
+                    continue
+                }
+                if (pausedAt >= 0L) {
+                    deadline += now - pausedAt
+                    pausedAt = -1L
+                }
+                check(now < deadline) { "Audio playback did not complete" }
                 Thread.sleep(15L)
             }
         }
+
+        /** Hardware underrun count is evidence of gaps, not a transcript. */
+        fun underrunCount(): Int = runCatching { track?.underrunCount ?: 0 }.getOrDefault(0)
 
         /** May be called from the main thread to unblock a cancelled utterance. */
         fun cancel() {
