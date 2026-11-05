@@ -361,7 +361,9 @@ class VoiceForegroundService : Service() {
         })
         // Some TTS engines never report completion after an audio failure.
         // Bound the speaking phase so Live Chat cannot remain muted indefinitely.
-        val speechTimeoutMillis = (text.length * 100L + 15_000L).coerceIn(30_000L, 120_000L)
+        // Long companion replies can exceed two minutes when generated on-device.
+        // Never cut off an otherwise healthy lengthy utterance at the old 120s cap.
+        val speechTimeoutMillis = (text.length * 120L + 20_000L).coerceIn(40_000L, 300_000L)
         liveHandler.postDelayed({
             if (liveChatActive && liveSession.speechFinished(turn)) {
                 liveStatus(VoiceInteractionState.IDLE, "Speech completion timed out; listening again…")
@@ -413,6 +415,7 @@ class VoiceForegroundService : Service() {
                             // It already supplies bounded conversation memory to the AI;
                             // prepending a transcript here can hide actionable commands
                             // (Developer tasks, reminders, confirmations) from parsers.
+                            val replyStartedAt = android.os.SystemClock.elapsedRealtime()
                             askAssistant(text) { reply ->
                                 liveHandler.post {
                                     if (!liveChatActive || liveSession.token != turn ||
@@ -427,6 +430,7 @@ class VoiceForegroundService : Service() {
                                         return@post
                                     }
                                     if (liveSession.response(turn)) {
+                                        publishEvent("Voice diagnostic: assistant turnaround ${android.os.SystemClock.elapsedRealtime() - replyStartedAt}ms.")
                                         liveLine("J.A.R.V.I.S.: ${reply.text}")
                                         speakLiveReply(reply.text)
                                     }
