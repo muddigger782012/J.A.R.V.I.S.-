@@ -18,6 +18,7 @@ internal object ProjectGenerationWorkbench {
         val nextPlan: (Activity) -> DeveloperPlanContinuation.Suggestion = DeveloperPlanContinuation::suggest,
         val planAnalysis: DeveloperPlanAnalysisReview = DeveloperPlanAnalysisReview(),
         val completion: DeveloperPlanCompletionReview = DeveloperPlanCompletionReview(),
+        val savedCompletion: DeveloperSavedCompletionReview = DeveloperSavedCompletionReview(),
         val ci: (String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus = PatchPublisher::ci
     )
     class Handle internal constructor(private val stop: (Boolean) -> Unit) {
@@ -263,10 +264,10 @@ internal object ProjectGenerationWorkbench {
                     return@setOnClickListener
                 }
                 val commit = runCatching { currentDeveloperCommit() }.getOrNull()
-                if (commit == null || readToken.isBlank()) {
-                    output.text = "A current, verified Developer task commit and GitHub token are " +
-                        "needed to read exact-source CI before final review. No completion assumed."
-                    status.text = "Developer review requires a verified task commit and CI."
+                if (readToken.isBlank()) {
+                    output.text = "A GitHub token is needed for the exact-source CI read. " +
+                        "No completion or release was assumed."
+                    status.text = "Developer review requires a current CI read."
                     return@setOnClickListener
                 }
                 val cancellation = PatchPreviewCancellation()
@@ -277,11 +278,20 @@ internal object ProjectGenerationWorkbench {
                 val work: () -> Unit = {
                     val response = runCatching {
                         cancellation.check()
-                        val checked = services.ci(readToken, commit)
-                        cancellation.check()
-                        if (finalAction == DeveloperPlanCompletionChatCommand.Action.REVIEW)
-                            services.completion.prepare(activity, commit, checked)
-                        else services.completion.confirm(activity, commit, checked)
+                        if (commit == null) {
+                            // After restart, a bookmark is NOT a recovered writer or
+                            // consent. Re-read and fully validate its exact CI and
+                            // current persisted plan before arming new local review.
+                            if (finalAction == DeveloperPlanCompletionChatCommand.Action.REVIEW)
+                                services.savedCompletion.prepare(activity, readToken, cancellation)
+                            else services.savedCompletion.confirm(activity, readToken, cancellation)
+                        } else {
+                            val checked = services.ci(readToken, commit)
+                            cancellation.check()
+                            if (finalAction == DeveloperPlanCompletionChatCommand.Action.REVIEW)
+                                services.completion.prepare(activity, commit, checked)
+                            else services.completion.confirm(activity, commit, checked)
+                        }
                     }
                     activity.runOnUiThread {
                         if (!alive() || localProgressRead !== cancellation || cancellation.isCancelled) return@runOnUiThread
@@ -297,6 +307,12 @@ internal object ProjectGenerationWorkbench {
                                     services.completion.arm(value)
                                     status.text = "Current exact-source CI and review displayed; " +
                                         "no final checkpoint marked complete."
+                                }
+                                is DeveloperSavedCompletionReview.Prepared -> {
+                                    output.text = value.text
+                                    services.savedCompletion.arm(value)
+                                    status.text = "Saved Developer commit reverified against CI; " +
+                                        "no former approval was restored."
                                 }
                                 is String -> {
                                     output.text = value
