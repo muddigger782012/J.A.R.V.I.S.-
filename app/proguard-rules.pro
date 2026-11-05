@@ -6,3 +6,8 @@
 }
 -keepattributes *Annotation*
 
+
+# Sherpa 1.13.8 JNI calls invoke([F)Ljava/lang/Integer; on the concrete
+# callback object. Keep the Java bridge including its boxed-return method.
+# This protects the optimized voiceCheck build AND signed production release.
+-keep class com.assistant.core.services.NativeTtsCallback { *; }
