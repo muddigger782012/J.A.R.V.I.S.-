@@ -45,4 +45,10 @@ cat voice-regression-results.txt
 grep -E 'VoiceRegression|TestRunner|AndroidRuntime|sherpa|com.assistant.core' voice-regression-logcat.txt | tail -n 180 || true
 if [ "$voice_test_status" -ne 0 ]; then exit "$voice_test_status"; fi
 # am instrument can return exit zero even when a test failed.
-grep -Eq 'OK \(73 tests\)' voice-regression-results.txt
+# Instrumentation grows as new regressions are added. Accept >=74 successful
+# tests rather than a fixed number that rejects an entirely passing suite.
+passed_count=$(sed -nE 's/.*OK \\(([0-9]+) tests\\).*/\\1/p' voice-regression-results.txt | tail -n 1)
+if [[ ! "$passed_count" =~ ^[0-9]+$ ]] || (( passed_count < 74 )); then
+    echo "::error::Voice instrumentation did not report at least 74 passing tests (got: ${passed_count:-none})."
+    exit 1
+fi
