@@ -117,6 +117,9 @@ class NeuralPcmPlayer(context: Context) {
             }
         }
 
+        /** Android output underruns are useful evidence of gaps between synthesized chunks. */
+        fun underrunCount(): Int = runCatching { track?.underrunCount ?: -1 }.getOrDefault(-1)
+
         /** May be called from the main thread to unblock a cancelled utterance. */
         fun cancel() {
             cancelled.set(true)
