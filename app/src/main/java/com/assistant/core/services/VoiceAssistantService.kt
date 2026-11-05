@@ -371,7 +371,7 @@ class VoiceAssistantService(
             .setOnAudioFocusChangeListener({ change ->
                 // Ducking (e.g. a notification) is not a cancelled conversation.
                 // Only permanent focus loss ends this utterance.
-                if ((change == android.media.AudioManager.AUDIOFOCUS_LOSS || change == android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) && activeSpeechPrefix == prefix) {
+                if (change == android.media.AudioManager.AUDIOFOCUS_LOSS && activeSpeechPrefix == prefix) {
                     onStatus("Spoken reply interrupted by audio focus loss. The text reply remains available.")
                     tts.stop(); finishSpeech()
                 }
