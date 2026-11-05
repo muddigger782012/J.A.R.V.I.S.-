@@ -239,18 +239,44 @@ internal object ProjectGenerationWorkbench {
                     status.text = "No Developer plan or source operation started."
                 } else {
                     val operation = DeveloperPlanAnalysisChatCommand.match(task)!!
-                    val response = runCatching {
-                        if (operation == DeveloperPlanAnalysisChatCommand.Action.REVIEW)
-                            services.planAnalysis.review(activity)
-                        else services.planAnalysis.confirm(activity)
-                    }.getOrElse {
-                        "Developer plan checkpoint could not be verified or updated. " +
-                            "No source write, test success or review approval was assumed."
+                    if (operation == DeveloperPlanAnalysisChatCommand.Action.REVIEW) {
+                        output.text = runCatching { services.planAnalysis.review(activity) }.getOrElse {
+                            "Developer plan metadata could not be verified. No checkpoint was changed."
+                        }
+                        status.text = "Developer plan analysis metadata reviewed locally; no plan status changed."
+                    } else {
+                        // A successful owner analysis approval is enough to prepare a
+                        // fresh, review-only code proposal. Avoid a redundant second
+                        // "Continue" command, but never reuse this approval for writes.
+                        val confirmation = runCatching {
+                            services.planAnalysis.confirmWithReceipt(activity)
+                        }.getOrElse {
+                            DeveloperPlanAnalysisReview.Confirmation(
+                                "Developer plan checkpoint could not be saved. No source preview or write started.")
+                        }
+                        val handoff = confirmation.planId?.let { approvedPlan ->
+                            val suggestion = runCatching { services.nextPlan(activity) }.getOrNull()
+                            val packet = suggestion?.packet
+                            if (packet == null || packet.planId != approvedPlan)
+                                "The just-approved plan's exact next step is unavailable or a different plan is selected. " +
+                                    "Use Continue Developer plan after reviewing the saved state. No source preview was started."
+                            else if (runCatching {
+                                    continueDeveloperPlan(packet.id, packet.task, packet.paths, packet.base)
+                                }.getOrDefault(false))
+                                "Fresh source-verified Developer diff preview STARTED automatically for " +
+                                    "the approved plan. Review the complete diff in chat before a separate " +
+                                    "Approve Developer diff command. No source write is approved."
+                            else
+                                "Analysis was saved, but a coding review or preview is already active, or " +
+                                    "the source-preparation gate is unavailable. No previous proposal was replaced. " +
+                                    "Use Continue Developer plan when the coding slot is clear."
+                        }.orEmpty()
+                        output.text = confirmation.message +
+                            if (handoff.isEmpty()) "" else "\n\n$handoff"
+                        status.text = if (handoff.contains("STARTED automatically"))
+                            "Plan analysis saved; read-only Developer code preview started."
+                        else "Plan analysis result recorded; no automatic code write."
                     }
-                    output.text = response
-                    status.text = if (operation == DeveloperPlanAnalysisChatCommand.Action.REVIEW)
-                        "Developer plan analysis metadata reviewed locally; no plan status changed."
-                    else "Developer plan checkpoint operation finished; inspect the result before continuing."
                 }
                 return@setOnClickListener
             }
