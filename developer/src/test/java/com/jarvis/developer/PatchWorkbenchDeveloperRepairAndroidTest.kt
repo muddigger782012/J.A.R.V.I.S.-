@@ -137,6 +137,26 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
                     },
                     ciWatchPause = { millis -> assertEquals(15_000L, millis) },
                     recoveryDirectory = { recoveryDirectory },
+                    recoverCommit = { reopened, _, cancellation ->
+                        DeveloperCommitRecovery.recheck(reopened, "test-only", cancellation,
+                            directory = { recoveryDirectory },
+                            ciRead = { _, _ ->
+                                PatchPublisher.CiStatus(ciState,
+                                    "https://github.com/muddigger782012/J.A.R.V.I.S.-/actions/runs/23",
+                                    if (ciState == PatchPublisher.CiState.PASSED) "success"
+                                    else if (ciState == PatchPublisher.CiState.FAILED) "failure"
+                                    else null)
+                            },
+                            failureRead = { _, _, _ -> error("No failure recheck requested in this fixture") },
+                            recordDirect = { _, _, ci ->
+                                assertEquals(PatchPublisher.CiState.PASSED, ci.state)
+                                planEvidenceCalls++
+                                "Recovered exact-source original plan CI"
+                            },
+                            recordRepair = { _, _, _, _ ->
+                                error("No repaired plan expected in direct restart fixture")
+                            })
+                    },
                     autoRepairPreview = autoRepairPreview,
                     planCheckpoint = { _, result, checked ->
                         assertTrue(result.commitSha == failedCommit ||
@@ -267,6 +287,42 @@ class PatchWorkbenchDeveloperRepairAndroidTest {
             assertFalse(s.approval().isEnabled)
             assertFalse(s.handle.approveDeveloperDiff(DeveloperDiffApprovalCommand.REVIEWED))
         } finally { s.close() }
+    }
+
+    @Test fun automaticallySavedCommitCanRecheckExactCIFromChatAfterReopeningApp() {
+        val historyDir = java.nio.file.Files.createTempDirectory("developer-auto-history-").toFile()
+        val recoveryDir = java.nio.file.Files.createTempDirectory("developer-auto-ci-").toFile()
+        val first = Screen(historyDirectory = historyDir, recoveryDirectory = recoveryDir)
+        try {
+            first.ciState = PatchPublisher.CiState.RUNNING
+            first.initialFailure(expectedCiReads = DeveloperCiWatch.MAX_READS)
+            assertEquals(1, first.writes)
+            assertEquals(0, first.planEvidenceCalls)
+            val saved = DeveloperCommitRecoveryStore(recoveryDir).load()
+            assertEquals(1, saved.size)
+            assertEquals(failedCommit, saved.single().commitSha)
+            assertTrue(saved.single().diff.isEmpty())
+            assertEquals(1, RepairHistoryStore(historyDir).load().size)
+        } finally { first.close() }
+
+        // New Android Activity, no old in-memory PatchWorkbench, consent or
+        // write handle: the saved identity enables only a fresh exact-CI read.
+        val reopened = Screen(historyDirectory = historyDir, recoveryDirectory = recoveryDir)
+        try {
+            reopened.ciState = PatchPublisher.CiState.PASSED
+            assertFalse(reopened.approval().isEnabled)
+            assertFalse(reopened.handle.approveDeveloperDiff(DeveloperDiffApprovalCommand.REVIEWED))
+            assertTrue(reopened.handle.readSavedDeveloperBuild())
+            assertEquals(1, reopened.queued.size)
+            reopened.finish()
+            assertTrue(reopened.chatUpdates.last().contains("Recovered Developer task commit"))
+            assertTrue(reopened.chatUpdates.last().contains("Recovered exact-source original plan CI"))
+            assertEquals(1, reopened.planEvidenceCalls)
+            assertEquals(0, reopened.writes)
+            assertEquals(0, reopened.providerCalls)
+            assertFalse(reopened.approval().isChecked)
+            assertFalse(reopened.approval().isEnabled)
+        } finally { reopened.close() }
     }
 
     @Test fun compilerFailureStartsFreshRepairPreviewAutomaticallyButNeverWritesAgain() {
