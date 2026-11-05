@@ -14,6 +14,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
+import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 import kotlin.concurrent.thread
@@ -39,6 +40,9 @@ object PatchWorkbench {
         val followUpSource: (String, PatchPublisher.CommitResult, BuildDiagnostics.Report, String, PatchPreviewCancellation) -> PersonalRepair.Review =
             RepositoryIntelligence::personalFollowUp,
         val history: RepairHistoryWorkbench.Services = RepairHistoryWorkbench.Services(),
+        val recoveryDirectory: (Activity) -> File = {
+            File(it.noBackupFilesDir.canonicalFile, "developer-commit-recovery")
+        },
         val inbox: (Activity) -> DevelopmentJobInbox = { DevelopmentJobInbox(java.io.File(it.noBackupFilesDir.canonicalFile, "development-inbox")) },
         val engineeringRecovery: (Activity) -> Unit = DevelopmentEngineeringScheduler::recover,
         // Only a verified CI result for a single scoped, approved task can
@@ -48,6 +52,21 @@ object PatchWorkbench {
         val planRepairCheckpoint: (Activity, DeveloperPlanRepairCheckpoint.Origin,
             PatchPublisher.CommitResult, PatchPublisher.CiStatus) -> String? =
             DeveloperPlanRepairCheckpoint::record,
+        val rememberCommit: (Activity, PatchPublisher.CommitResult) -> Unit = { activity, result ->
+            // Validate the publisher's exact commit outcome BEFORE this call.
+            // Retain identities only; never approval or source. A death during
+            // CI polling can now be rechecked after reopening Developer.
+            if (result.target == PatchEngine.Target.DEVELOPER) {
+                DeveloperCommitRecoveryStore(recoveryDirectory(activity)).save(result)
+                RepairHistoryStore(history.directory(activity)).save(
+                    RepairHistoryStore.bookmark(result))
+            }
+        },
+        val recoverCommit: (Activity, String, PatchPreviewCancellation) -> String =
+            { activity, token, cancel ->
+                DeveloperCommitRecovery.recheck(activity, token, cancel,
+                    directory = recoveryDirectory)
+            },
         val worker: (() -> Unit) -> Unit = { operation -> thread(name = "DeveloperPatchOperation") { operation() }; Unit },
         val chatStatus: (String) -> Unit = { }
     )
@@ -695,6 +714,11 @@ object PatchWorkbench {
                 try {
                     val result = services.commit(token, approved)
                     PatchPublisher.validateOutcome(selected, result)
+                    // Only the exact already-verified commit identity is retained:
+                    // interrupted CI polling is recoverable, old source approvals aren't.
+                    val remembered = if (result.target == PatchEngine.Target.DEVELOPER)
+                        runCatching { services.rememberCommit(activity, result) }.isSuccess
+                    else false
                     // Persist real outcomes even when Back/recreation has destroyed the UI.
                     engineeringWrite?.let { write ->
                         check(services.inbox(activity).finishEngineering(write, result))
@@ -786,7 +810,14 @@ object PatchWorkbench {
                                 planCheckpoint?.let { "\n\n$it" }.orEmpty()
                             runCatching { services.chatStatus(DeveloperChatBuildReceipt.commit(
                                 result, checked, failureReport, repairDraft != null) +
-                                planCheckpoint?.let { "\n\n$it" }.orEmpty()) }
+                                planCheckpoint?.let { "\n\n$it" }.orEmpty() +
+                                if (result.target != PatchEngine.Target.DEVELOPER) ""
+                                else if (remembered)
+                                    "\n\nRead-only commit identity saved for recovery after restart. " +
+                                        "Say 'Check saved Developer build' to recheck exact CI. " +
+                                        "No write permission was saved."
+                                else "\n\nAutomatic recovery bookmark was NOT saved. " +
+                                    "Check private storage and GitHub manually.") }
                             status.text = when (checked?.state) {
                                 PatchPublisher.CiState.PASSED -> "Task branch committed; exact-source debug CI passed"
                                 PatchPublisher.CiState.FAILED -> if (failureReport != null)
@@ -1157,11 +1188,19 @@ object PatchWorkbench {
             activeRead = cancellation
             busy = true
             refresh()
-            status.text = "Reading the latest explicitly saved Developer task; no source change"
+            status.text = "Rechecking saved Developer commit identity and exact CI; no source write"
             val started = runCatching {
                 services.worker {
                     val message = runCatching {
                         cancellation.check()
+                        val committed = DeveloperCommitRecoveryStore(
+                            services.recoveryDirectory(activity)).load()
+                        cancellation.check()
+                        if (committed.isNotEmpty()) {
+                            // This recovered identity can only READ GitHub; fresh
+                            // exact CI and the persisted plan determine checkpoints.
+                            return@runCatching services.recoverCommit(activity, token, cancellation)
+                        }
                         val bookmark = RepairHistoryStore(services.history.directory(activity))
                             .load().firstOrNull { it.target == PatchEngine.Target.DEVELOPER }
                             ?: return@runCatching "No explicitly saved Developer task bookmark is available. " +
