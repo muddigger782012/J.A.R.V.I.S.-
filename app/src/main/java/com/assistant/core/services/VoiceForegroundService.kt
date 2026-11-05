@@ -368,18 +368,25 @@ class VoiceForegroundService : Service() {
                 if (liveChatActive && liveSession.speechFinished(turn)) nextLiveTurn(650L)
             }
         })
-        // Some TTS engines never report completion after an audio failure.
-        // Bound the speaking phase so Live Chat cannot remain muted indefinitely.
-        // Long companion replies can exceed two minutes when generated on-device.
-        // Never cut off an otherwise healthy lengthy utterance at the old 120s cap.
-        val speechTimeoutMillis = (text.length * 120L + 20_000L).coerceIn(40_000L, 300_000L)
-        liveHandler.postDelayed({
-            if (liveChatActive && liveSession.speechFinished(turn)) {
-                liveStatus(VoiceInteractionState.IDLE, "Speech completion timed out; listening again…")
-                voiceService.stopSpeaking()
-                nextLiveTurn(650L)
+        // An absolute-length timeout can cut off a healthy long spoken reply.
+        // Check *inactivity* instead: PCM chunks and Android TTS utterance
+        // starts refresh this clock, while a hung provider still recovers.
+        val monitor = object : Runnable {
+            override fun run() {
+                if (!liveChatActive || liveSession.token != turn ||
+                    liveSession.phase != LiveChatSession.Phase.SPEAKING) return
+                if (SpeechPlaybackStallPolicy.stalled(
+                        android.os.SystemClock.elapsedRealtime(), voiceService.lastSpeechProgressElapsed())) {
+                    if (liveSession.speechFinished(turn)) {
+                        liveStatus(VoiceInteractionState.IDLE,
+                            "Speech output stopped progressing. Tap the microphone if it does not resume.")
+                        voiceService.stopSpeaking()
+                        nextLiveTurn(650L)
+                    }
+                } else liveHandler.postDelayed(this, 15_000L)
             }
-        }, speechTimeoutMillis)
+        }
+        liveHandler.postDelayed(monitor, 30_000L)
     }
 
     private fun nextLiveTurn(delay: Long) {
@@ -481,10 +488,12 @@ class VoiceForegroundService : Service() {
         if (!liveChatActive || liveSession.token != turn || liveSession.phase != LiveChatSession.Phase.LISTENING) return
         if (error == android.speech.SpeechRecognizer.ERROR_NO_MATCH || error == android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
             if (liveSession.silence(turn)) {
-                // A system recognizer may beep each time startListening() runs.
-                // Do not create an unbounded no-speech -> rearm -> beep loop.
-                liveStatus(VoiceInteractionState.IDLE,
-                    "No speech heard. Live chat is paused; tap the microphone to continue.")
+                when (LiveChatChimePolicy.afterSilence()) {
+                    LiveChatChimePolicy.Action.PAUSE ->
+                        liveStatus(VoiceInteractionState.IDLE,
+                            "No speech heard. Live chat is paused; tap the microphone to continue.")
+                    LiveChatChimePolicy.Action.RETRY -> nextLiveTurn(1500L)
+                }
             } else finishLiveChat("Live chat reached your configured inactivity limit.")
         } else {
             val message = when (error) {
