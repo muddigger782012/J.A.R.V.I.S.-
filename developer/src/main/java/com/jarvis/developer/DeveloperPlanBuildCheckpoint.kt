@@ -40,17 +40,21 @@ internal object DeveloperPlanBuildCheckpoint {
             val packet = DeveloperPlanContinuation.suggest(listOf(plan)).packet ?: continue
             if (packet.id != commit.taskId || packet.base != commit.baseCommitSha ||
                 packet.paths.sorted() != commit.paths.sorted()) continue
-            val checkpoint = "Verified isolated Developer task commit ${commit.commitSha}; " +
+            val implementation = "Verified isolated Developer task commit ${commit.commitSha}; " +
                 "exact-source debug CI success: ${ci.runUrl}. " +
                 "This records scoped implementation only; not a canonical merge, " +
                 "production-signed APK, installed build, or functional acceptance."
-            val updated = TaskPlanner.transition(plan, step.id, TaskPlanner.Status.DONE,
-                checkpoint, maxOf(now, plan.updatedAtMillis))
-            // Atomic revision check rejects concurrent edits and stale callbacks.
+            val validation = "Exact-source Developer CI workflow passed automated tests, lint, " +
+                "debug APK assembly and its workflow gates for ${commit.commitSha}: ${ci.runUrl}. " +
+                "This is NOT a signed candidate, canonical merge or physical-device acceptance."
+            val updated = TaskPlanner.completeVerifiedScopedBuild(plan, step.id,
+                implementation, validation, maxOf(now, plan.updatedAtMillis))
+            // One atomic plan revision for both evidence-backed checkpoints:
+            // a stale callback cannot leave implementation DONE but validation lost.
             store.save(updated, plan.revision)
-            return "Verified CI checkpoint recorded for ${plan.id}/${step.id}: " +
-                "isolated commit ${commit.commitSha.take(12)}; debug CI PASSED. " +
-                "Validation, canonical merge and release acceptance remain separate."
+            return "Verified CI checkpoints recorded for ${plan.id}: scoped implementation " +
+                "${step.id} and debug-CI validation; commit ${commit.commitSha.take(12)}. " +
+                "The final review, canonical merge, signing and installation remain pending."
         }
         return null
     }

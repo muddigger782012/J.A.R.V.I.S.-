@@ -45,22 +45,42 @@ class DeveloperPlanBuildCheckpointTest {
             "complete source diff", "feature/jarvis-developer", PatchEngine.Target.DEVELOPER)
     }
 
-    @Test fun exactPassedCiCompletesOnlyOneScopedImplementationStep() {
+    @Test fun exactPassedCiAtomicallyCompletesImplementationAndDebugValidationOnly() {
         val storage = store()
         val plan = ready(storage)
         val result = result(plan)
         val report = DeveloperPlanBuildCheckpoint.record(storage, result, success, 1002)
         assertNotNull(report)
-        assertTrue(report!!.contains("debug CI PASSED"))
+        assertTrue(report!!.contains("debug-CI validation"))
         val persisted = storage.loadAll().single()
         assertEquals(TaskPlanner.Status.DONE, persisted.steps[1].status)
-        assertEquals(TaskPlanner.Status.PENDING, persisted.steps[2].status)
+        assertEquals(TaskPlanner.Status.DONE, persisted.steps[2].status)
         assertEquals(TaskPlanner.Status.PENDING, persisted.steps[3].status)
+        assertEquals(2L, persisted.revision)
+        assertEquals(3, persisted.decisions.size)
+        assertTrue(persisted.steps[2].checkpoint.contains("automated tests, lint"))
+        assertEquals("review", TaskPlanner.next(persisted)?.id)
         assertTrue(persisted.steps[1].checkpoint.contains(sha))
         assertTrue(persisted.steps[1].checkpoint.contains(success.runUrl!!))
         assertTrue(persisted.steps[1].checkpoint.contains("not a canonical merge"))
+        assertTrue(persisted.steps[2].checkpoint.contains("NOT a signed candidate"))
         assertNull(DeveloperPlanBuildCheckpoint.record(storage, result, success, 1003))
         assertEquals(persisted, storage.loadAll().single())
+    }
+
+    @Test fun malformedValidationDependenciesBlockBothCheckpoints() {
+        val storage = store()
+        val current = ready(storage)
+        val outcome = result(current)
+        val changed = TaskPlanner.editStep(current, "validate", "Validate", "Manual gate",
+            listOf("analyze"), 1002L)
+        storage.save(changed, current.revision)
+        assertThrows(IllegalArgumentException::class.java) {
+            DeveloperPlanBuildCheckpoint.record(storage, outcome, success, 1003L)
+        }
+        val persisted = storage.loadAll().single()
+        assertEquals(TaskPlanner.Status.PENDING, persisted.steps[1].status)
+        assertEquals(TaskPlanner.Status.PENDING, persisted.steps[2].status)
     }
 
     @Test fun queuedFailedOrUnknownCiCannotMarkWorkComplete() {

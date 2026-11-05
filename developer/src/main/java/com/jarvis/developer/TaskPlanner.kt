@@ -138,6 +138,44 @@ object TaskPlanner {
         return change(plan, steps, plan.paused, stepId, message, nowMillis)
     }
 
+    /**
+     * One atomic, audit-backed transition from an owner-reviewed implementation
+     * to verified debug-CI validation. Only eligible single-implementation plans
+     * qualify; unrelated validation, review and release work stays pending.
+     * The caller must independently bind the CI evidence to the exact commit.
+     */
+    internal fun completeVerifiedScopedBuild(plan: Plan, implementationId: String,
+        implementationEvidence: String, validationEvidence: String, nowMillis: Long): Plan {
+        validate(plan)
+        require(!plan.paused && plan.steps.none { it.status == Status.RUNNING }) {
+            "Paused or interrupted plans cannot advance"
+        }
+        require(plan.steps.count { it.paths.isNotEmpty() } == 1) {
+            "Multi-step source branches need cumulative integration verification"
+        }
+        require(implementationEvidence.isNotBlank() && implementationEvidence.length <= 2_000 &&
+            validationEvidence.isNotBlank() && validationEvidence.length <= 2_000)
+        safeText(implementationEvidence); safeText(validationEvidence)
+        val ready = next(plan) ?: error("No eligible source step")
+        require(ready.id == implementationId && ready.status == Status.PENDING &&
+            ready.paths.isNotEmpty()) { "Only the next eligible scoped step may advance" }
+        val validation = plan.steps.singleOrNull { it.id == "validate" }
+            ?: error("Missing validation step")
+        require(validation.status == Status.PENDING && validation.paths.isEmpty() &&
+            validation.dependsOn == listOf(implementationId)) {
+            "Validation must depend only on this exact implementation"
+        }
+        val updated = plan.steps.map { step -> when (step.id) {
+            implementationId -> step.copy(status = Status.DONE, checkpoint = implementationEvidence)
+            validation.id -> step.copy(status = Status.DONE, checkpoint = validationEvidence)
+            else -> step
+        } }
+        return change(plan, updated, plan.paused, implementationId,
+            "Verified exact-source debug CI completed scoped implementation and its " +
+                "matching test/lint/build validation. This is not signed production, " +
+                "canonical integration, physical-device acceptance or release approval.", nowMillis)
+    }
+
     fun editStep(plan: Plan, stepId: String, title: String, detail: String, dependsOn: List<String>, nowMillis: Long): Plan {
         validate(plan)
         require(plan.steps.any { it.id == stepId }) { "Unknown step" }
