@@ -78,14 +78,14 @@ object BuildDiagnostics {
             else limitations.add("Diagnostic count exceeded 50; additional diagnostics omitted")
         }
         for (raw in bounded.lineSequence()) {
-            // The generated structured JUnit record is deliberately permitted up to 100 KiB.
+            // Structured JUnit evidence is permitted up to the same 300 KiB limit as the CI producer.
             val line = timestamp.replace(ansi.replace(raw, ""), "").trim()
             if (line.startsWith(MARKER)) {
                 markerCount++
                 val summaryLimit = if (target == PatchEngine.Target.PERSONAL) 300_000 else MAX_SUMMARY
                 if (line.length > summaryLimit || line.toByteArray(Charsets.UTF_8).size > summaryLimit) {
                     limitations.add(if (target == PatchEngine.Target.PERSONAL) "Private JUnit summary exceeded its 300 KiB budget"
-                        else "JUnit summary exceeded its 100 KiB budget")
+                        else "JUnit summary exceeded its 300 KiB budget")
                 } else if (markerCount == 1) {
                     try {
                         val parsed = readSummary(line.substring(MARKER.length), commitSha)
