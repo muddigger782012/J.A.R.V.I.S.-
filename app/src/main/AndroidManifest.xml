@@ -45,6 +45,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- User-approved Settings.ACTION_MANAGE_WRITE_SETTINGS access, checked with Settings.System.canWrite.
          This supported special-access declaration is not an automatic system/signature grant. -->

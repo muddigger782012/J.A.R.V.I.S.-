@@ -206,6 +206,7 @@ class MainActivity : ThemedActivity() {
     private var voiceDiagnosticView: TextView? = null
     private val conversationPrefs by lazy { getSharedPreferences("jarvis_unified_chat", MODE_PRIVATE) }
     private var conversationSessionId: String = ""
+    private var chatRenderGeneration = 0L
     private val terminalOutputLines = mutableListOf<String>()
     private val terminalHistory = mutableListOf<String>()
     private val uiPreferences by lazy { getSharedPreferences("main_ui", MODE_PRIVATE) }
@@ -1453,12 +1454,22 @@ class MainActivity : ThemedActivity() {
         clearSubmittedComposer()
         appendOutput("You: ${if (commandText.isBlank()) "(status request)" else commandText}")
         if (handleLiveChatControl(commandText)) return
-        // Live voice is an additional input channel, not a lock on the chat composer.
-        // Allow typed requests and developer tasks while the microphone session runs.
+        // Every asynchronous reply belongs to the conversation that submitted it.
+        // A history switch must not revive an older reply in the active chat.
+        val originatingSession = conversationSessionId
         handleAssistantWithLocation(commandText) { reply ->
             runOnUiThread {
-                appendOutput("J.A.R.V.I.S.: ${reply.text}")
-                statusOutput.text = reply.actionResult?.output ?: reply.text
+                if (isDestroyed) return@runOnUiThread
+                val line = "J.A.R.V.I.S.: ${reply.text}"
+                if (originatingSession == conversationSessionId) {
+                    appendOutput(line)
+                    statusOutput.text = reply.actionResult?.output ?: reply.text
+                } else {
+                    val key = "messages_$originatingSession"
+                    val prior = runCatching { JSONArray(conversationPrefs.getString(key, "[]")) }.getOrDefault(JSONArray())
+                    prior.put(line)
+                    conversationPrefs.edit().putString(key, prior.toString()).apply()
+                }
             }
         }
     }
@@ -1799,7 +1810,13 @@ class MainActivity : ThemedActivity() {
             }
             messages.addView(card)
         }
-        scroll.post { if (forceScroll || nearBottom) scroll.scrollTo(0, scroll.getChildAt(0)?.height ?: 0) else scroll.scrollTo(0, oldScroll) }
+        val renderId = ++chatRenderGeneration
+        val sessionId = conversationSessionId
+        scroll.post {
+            if (renderId != chatRenderGeneration || sessionId != conversationSessionId) return@post
+            if (forceScroll || nearBottom) scroll.scrollTo(0, scroll.getChildAt(0)?.height ?: 0)
+            else scroll.scrollTo(0, oldScroll)
+        }
     }
 
     private fun persistActiveConversation() {
@@ -2400,15 +2417,11 @@ class MainActivity : ThemedActivity() {
         for (i in 0 until entries.length()) {
             val entry = entries.getJSONObject(i)
             val id = entry.getString("id")
+            // An imported event stays imported even when its text ages out of the
+            // bounded visible transcript. Otherwise scrolling/history sync replays it.
+            if (id in imported) continue
             val session = entry.getString("conversation")
             val text = entry.getString("text")
-            // Legacy imported IDs are advisory: verify the message survived persistence.
-            val stored = if (session == conversationSessionId) outputLines
-                else runCatching {
-                    val array = JSONArray(conversationPrefs.getString("messages_$session", "[]"))
-                    (0 until array.length()).map { array.getString(it) }
-                }.getOrDefault(emptyList())
-            if (id in imported && text in stored) continue
             if (session == conversationSessionId) appendOutput(text)
             else {
                 val history = runCatching { JSONArray(conversationPrefs.getString("messages_$session", "[]")) }.getOrDefault(JSONArray())
@@ -2418,14 +2431,17 @@ class MainActivity : ThemedActivity() {
             imported.add(id)
         }
         val retained = (0 until entries.length()).map { entries.getJSONObject(it).getString("id") }.toSet()
-        conversationPrefs.edit().putStringSet("live_imported_ids", imported.intersect(retained)).apply()
+        // Commit IDs durably after the associated message writes, minimizing
+        // replay if the activity/process is recreated between broadcasts.
+        conversationPrefs.edit().putStringSet("live_imported_ids", imported.intersect(retained)).commit()
     }
 
     private fun syncLiveDialogue() {
         val reply = com.assistant.core.services.LiveChatStore.lastReply(this)
         val id = reply.optString("id")
         val options = com.assistant.core.services.VoiceResponsePreferences.load(this)
-        if (!hasWindowFocus() || !liveChatStarted || !options.liveDialogue || Settings.canDrawOverlays(this) || id.isBlank() ||
+        if (!hasWindowFocus() || !liveChatStarted || !options.liveDialogue || Settings.canDrawOverlays(this) ||
+            reply.optString("conversation") != conversationSessionId || id.isBlank() ||
             id == com.assistant.core.services.LiveChatStore.dismissedReply(this)) {
             liveDialogueDialog?.dismiss(); liveDialogueDialog = null
             return

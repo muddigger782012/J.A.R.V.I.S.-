@@ -8,6 +8,7 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.security.MessageDigest
 import java.util.Locale
 
 /**
@@ -32,7 +33,7 @@ class ConversationMemory private constructor(private val storage: Storage, priva
     ) : this(InjectedStorage(read, write), now)
 
     constructor(context: Context) : this(
-        LocalStorage(File(context.applicationContext.noBackupFilesDir, "conversation-memory")),
+        SessionStorage(context.applicationContext),
         System::currentTimeMillis
     )
 
@@ -134,6 +135,32 @@ class ConversationMemory private constructor(private val storage: Storage, priva
     private class InjectedStorage(private val reader: () -> String?, private val writer: (String?) -> Boolean) : Storage {
         override fun read() = reader()
         override fun write(value: String?) = writer(value)
+    }
+
+    /**
+     * Resolve the active chat separately for every read/write transaction.
+     * The UI and :wake service create independent HybridAssistantService instances,
+     * and a user can switch chats after either instance was constructed.
+     * Pin one LocalStorage to each transaction, so its lock/read/write never
+     * straddle two conversations. Legacy global memory is left untouched rather
+     * than being assigned to an unrelated conversation without evidence.
+     */
+    private class SessionStorage(private val context: Context) : Storage {
+        private val transaction = ThreadLocal<LocalStorage>()
+        private fun selected(): LocalStorage = transaction.get()
+            ?: throw IOException("Conversation scope was not locked")
+        override fun <T> locked(block: () -> T): T {
+            val session = LiveChatStore.currentConversation(context).ifBlank { "default" }
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest(session.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+            val directory = File(context.noBackupFilesDir, "conversation-memory/sessions/$digest")
+            val scoped = LocalStorage(directory)
+            transaction.set(scoped)
+            return try { scoped.locked(block) } finally { transaction.remove() }
+        }
+        override fun read(): String? = selected().read()
+        override fun write(value: String?): Boolean = selected().write(value)
     }
 
     /** No SharedPreferences cache: chat and :wake must see each other's writes and deletions. */
