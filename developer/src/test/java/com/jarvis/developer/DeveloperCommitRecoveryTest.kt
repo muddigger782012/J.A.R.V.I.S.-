@@ -59,7 +59,7 @@ class DeveloperCommitRecoveryTest {
         assertEquals(1, checkpointed)
         assertTrue(output.contains("Original plan exact debug CI recorded"))
         assertTrue(output.contains("No old approval"))
-        assertFalse(output.contains("NOT installed by this operation.\nOriginal plan") )
+        assertTrue(output.contains("NOT installed by this operation."))
     }
 
     @Test fun restartRechecksFailedOriginalParentBeforeRecordingPassingRepair() {
