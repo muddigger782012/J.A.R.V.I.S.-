@@ -27,17 +27,19 @@ internal class DeveloperPlanCompletionReview(
     private fun checkCommit(commit: PatchPublisher.CommitResult, ci: PatchPublisher.CiStatus) {
         PatchPublisher.validateResult(commit)
         require(commit.target == PatchEngine.Target.DEVELOPER &&
-            commit.baseBranch == "feature/jarvis-developer" &&
             ci.state == PatchPublisher.CiState.PASSED && ci.conclusion == "success" &&
             ciUrl.matches(ci.runUrl.orEmpty()))
     }
 
     private fun matches(plan: TaskPlanner.Plan, commit: PatchPublisher.CommitResult, url: String): Boolean {
         TaskPlanner.validate(plan)
-        if (plan.paused || plan.baseCommitSha != commit.baseCommitSha ||
-            plan.scope.sorted() != commit.paths.sorted() ||
-            plan.steps.any { it.status == TaskPlanner.Status.RUNNING } ||
+        if (plan.paused || plan.steps.any { it.status == TaskPlanner.Status.RUNNING } ||
             plan.steps.none { it.paths.isNotEmpty() }) return false
+        val direct = commit.baseBranch == "feature/jarvis-developer" &&
+            plan.baseCommitSha == commit.baseCommitSha &&
+            plan.scope.sorted() == commit.paths.sorted()
+        val repaired = DeveloperPlanRepairCheckpoint.matchesRepairedCommit(plan, commit, url)
+        if (!direct && !repaired) return false
         val implementations = plan.steps.filter { it.paths.isNotEmpty() }
         val validate = plan.steps.singleOrNull { it.id == "validate" } ?: return false
         val review = plan.steps.singleOrNull { it.id == "review" } ?: return false
