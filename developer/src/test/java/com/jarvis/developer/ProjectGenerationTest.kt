@@ -273,7 +273,7 @@ class ProjectGenerationTest {
         }
     }
 
-    @Test fun chatCanReviewPersistApproveAnalysisThenContinueNextScopedStep() {
+    @Test fun chatCanReviewApproveAnalysisAndAutomaticallyStartNextScopedPreview() {
         val directory = java.nio.file.Files.createTempDirectory("developer-full-chat-plan-").toFile()
         val store = TaskPlanStore(directory)
         val path = "developer/src/main/java/com/jarvis/developer/VoiceLatency.kt"
@@ -315,14 +315,18 @@ class ProjectGenerationTest {
             assertTrue(s.output.text.contains("acknowledged and saved"))
             assertEquals(1L, store.loadAll().single().revision)
             assertEquals(TaskPlanner.Status.DONE, store.loadAll().single().steps[0].status)
-            s.prompt.setText("Continue Developer plan")
-            s.send.performClick()
-            assertEquals(1, s.pending.size)
-            s.complete()
+            // No second "Continue Developer plan" chat instruction: approval already
+            // authorizes read-only source proposal preparation, not a source write.
             assertEquals(1, stages)
-            assertTrue(s.output.text.contains("preview STARTED"))
+            assertTrue(s.output.text.contains("preview STARTED automatically"))
+            assertTrue(s.output.text.contains("No source write is approved"))
+            assertTrue(s.pending.isEmpty())
             assertTrue(s.prefs.all.isEmpty())
             assertEquals(TaskPlanner.Status.PENDING, store.loadAll().single().steps[1].status)
+            s.prompt.setText("Approve Developer plan analysis")
+            s.send.performClick()
+            assertTrue(s.output.text.contains("No current"))
+            assertEquals(1, stages)
         }
     }
 
