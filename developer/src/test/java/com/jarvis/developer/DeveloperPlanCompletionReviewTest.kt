@@ -89,7 +89,7 @@ class DeveloperPlanCompletionReviewTest {
         assertEquals(4, plan.steps.count { it.status == TaskPlanner.Status.DONE })
         val review = DeveloperPlanCompletionReview({ f.directory }, { 1003L })
         val prepared = review.prepare(f.activity, f.commit, ci)
-        assertTrue(prepared.text.contains("complete"))
+        assertTrue(prepared.text.contains("Fresh exact-source debug CI"))
         review.arm(prepared)
         assertTrue(review.confirm(f.activity, f.commit, ci).contains("final LOCAL review acknowledged"))
         assertEquals(TaskPlanner.Status.DONE, f.store.loadAll().single().steps.last().status)
