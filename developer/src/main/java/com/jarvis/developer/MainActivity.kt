@@ -1166,8 +1166,14 @@ class MainActivity : Activity() {
         val codingViews = (0 until sectionGroups[1].childCount).map { sectionGroups[1].getChildAt(it) }
         codingViews.forEach { sectionGroups[1].removeView(it); activityPage.addView(it) }
         sectionGroups[1].addView(Button(this).apply {
-            text = "Open code review in Track"; isAllCaps = false
-            setOnClickListener { selectPage?.invoke(2) }
+            text = "Open code review on Home"; isAllCaps = false
+            setOnClickListener {
+                // One live patch/review workbench: navigate to its actual Home
+                // container and reveal it, rather than opening an empty Track
+                // category after activity recreation.
+                selectPage?.invoke(0)
+                openInlineReview?.invoke()
+            }
         })
         // Always give a clear route back to the category overview.
         val sectionIntro = TextView(this).apply {
@@ -1226,7 +1232,10 @@ class MainActivity : Activity() {
             button.backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_primary))
         }
         fun openCodeReview() {
-            selectPage?.invoke(2)
+            // Guided project review shares the Home inline coding controls.
+            // Track is for job history and cannot host these same Android views.
+            selectPage?.invoke(0)
+            openInlineReview?.invoke()
             codingWidgets.firstOrNull()?.let { first -> first.post {
                 first.requestRectangleOnScreen(android.graphics.Rect(0, 0, first.width, 1), false)
             } }
