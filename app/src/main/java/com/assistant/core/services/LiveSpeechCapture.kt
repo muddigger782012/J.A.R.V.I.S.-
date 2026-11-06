@@ -40,7 +40,8 @@ class LiveSpeechCapture(private val context: Context,
                requestedEngine: SpeechCaptureRouting.Engine? = null,
                onPhase: (VoiceInteractionState) -> Unit = {},
                minimumSpeechPauseMillis: Long = 0L, fallbackOnSilence: Boolean = true,
-                minimumCaptureMaximumMillis: Long = 0L) {
+                minimumCaptureMaximumMillis: Long = 0L,
+                recoverPartialOnFinalFailure: Boolean = false) {
         stop()
         trace = VoiceSessionDiagnostics.begin()
         val strictDevice = onDeviceOnly || requestedEngine == SpeechCaptureRouting.Engine.ON_DEVICE
@@ -60,6 +61,8 @@ class LiveSpeechCapture(private val context: Context,
                 maximumMillis = ConversationCaptureTiming.captureMaximumMillis(
                     timing.getLong("capture_max_millis", 180_000), minimumCaptureMaximumMillis))
             val currentTrace = trace
+            var speechStarted = false
+            var lastPartial = ""
             try {
                 val listener = object : RecognitionListener {
                     override fun onReadyForSpeech(params: Bundle?) {
@@ -70,6 +73,7 @@ class LiveSpeechCapture(private val context: Context,
                     override fun onBeginningOfSpeech() {
                         if (current != generation) return
                         window.speechStarted()
+                        speechStarted = true
                         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_STARTED, currentTrace)
                         onPhase(VoiceInteractionState.LISTENING)
                     }
@@ -86,6 +90,7 @@ class LiveSpeechCapture(private val context: Context,
                         if (current != generation) return
                         val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                         if (text.isNotBlank()) {
+                            lastPartial = text
                             window.speechActivity()
                             VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.PARTIAL, currentTrace)
                         }
@@ -96,7 +101,11 @@ class LiveSpeechCapture(private val context: Context,
                         val candidates = SpeechRecognitionCandidates.read(
                             results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty(),
                             results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES))
-                        val text = candidates.firstOrNull()?.transcript.orEmpty()
+                        val text = candidates.firstOrNull()?.transcript.orEmpty().ifBlank {
+                            if (recoverPartialOnFinalFailure)
+                                LiveRecognitionRecovery.usablePartial(speechStarted, lastPartial).orEmpty()
+                            else ""
+                        }
                         release(cancelled = false)
                         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.PROCESSING, currentTrace)
                         val completed = generation
@@ -108,6 +117,15 @@ class LiveSpeechCapture(private val context: Context,
                     override fun onError(error: Int) {
                         if (current != generation) return
                         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.ERROR, currentTrace, error)
+                        val recovered = if (recoverPartialOnFinalFailure && error in setOf(
+                                SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT))
+                            LiveRecognitionRecovery.usablePartial(speechStarted, lastPartial) else null
+                        if (recovered != null) {
+                            release(cancelled = false)
+                            VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.PROCESSING, currentTrace)
+                            onResult(recovered)
+                            return
+                        }
                         if (!strictDevice && provider == SpeechCaptureRouting.Engine.ON_DEVICE && !fallbackUsed && platform.systemAvailable() &&
                             (error in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
                                 SpeechRecognizer.ERROR_SERVER, SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
