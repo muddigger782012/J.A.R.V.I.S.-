@@ -431,12 +431,19 @@ internal object DeveloperHomeWorkspace {
         val composer = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             tag = "developer-home-sticky-composer"
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setPadding(dp(10), dp(7), dp(10), dp(7))
             background = surface(0xFF102B36.toInt())
         }
-        val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+        val row = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            tag = "developer-workspace-target-row"
+        }
         row.addView(TextView(activity).apply {
-            text = "Project"
+            text = "TARGET"
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, dp(6), 0)
             setTextColor(activity.getColor(R.color.developer_secondary))
             gravity = Gravity.CENTER_VERTICAL
         })
@@ -449,7 +456,11 @@ internal object DeveloperHomeWorkspace {
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
                 override fun onItemSelected(
                     parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long
-                ) { onTargetChanged(position) }
+                ) {
+                    branchLabel.text = if (position == 0) "feature/jarvis-developer · Developer"
+                        else "main · Personal J.A.R.V.I.S."
+                    onTargetChanged(position)
+                }
             }
         }
         row.addView(choice, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
@@ -460,20 +471,34 @@ internal object DeveloperHomeWorkspace {
             // drafts and screen readers; the workspace heading supplies context.
             minLines = 2
             maxLines = 5
+            setTextSize(14f)
+            setPadding(dp(12), dp(10), dp(12), dp(9))
+            background = surface(0xFF173744.toInt())
         }
         composer.addView(prompt)
-        // Retain the existing send listener and testable action identity, while
-        // exposing one familiar chat Send button rather than a workflow label.
+
+        // A single compact action strip replaces stacked full-width action
+        // buttons. MainActivity adds its EXISTING picker/removal handlers here.
+        val actions = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            tag = "developer-home-composer-actions"
+            setPadding(0, dp(3), 0, 0)
+        }
+        // Keep the original workbench click target as a direct child so its
+        // exact pending/cancellation/approval logic remains untouched.
         send.visibility = View.GONE
         composer.addView(send)
-        composer.addView(Button(activity).apply {
+        actions.addView(Button(activity).apply {
             text = "Send"
             isAllCaps = false
-            contentDescription = "Send message to Jarvis"
-            setOnClickListener {
-                if (send.isEnabled) send.performClick()
-            }
-        })
+            contentDescription = "Send current task to J.A.R.V.I.S. Developer"
+            setTextColor(activity.getColor(R.color.developer_text))
+            background = surface(0xFF17637B.toInt())
+            minHeight = dp(42)
+            setOnClickListener { if (send.isEnabled) send.performClick() }
+        }, LinearLayout.LayoutParams(dp(88), LinearLayout.LayoutParams.WRAP_CONTENT))
+        composer.addView(actions)
         return Session(composer, activity, feed, output, phase, taskCard,
             persistedJob, jobDetails, choice, branchLabel, saved)
     }
