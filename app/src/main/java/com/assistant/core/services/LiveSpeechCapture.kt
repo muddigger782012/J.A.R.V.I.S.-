@@ -3,6 +3,9 @@ package com.assistant.core.services
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Build
+import android.os.ParcelFileDescriptor
+import android.media.AudioFormat
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -13,6 +16,7 @@ class LiveSpeechCapture(private val context: Context,
                         private val platform: SpeechCapturePlatform = AndroidSpeechCapturePlatform(context)) {
     private var generation = 0L
     private var recognizer: SpeechCapturePlatform.Session? = null
+    private var injectedAudio: ParcelFileDescriptor? = null
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private var trace = 0L
     private var finishCapture: (() -> Unit)? = null
@@ -27,6 +31,8 @@ class LiveSpeechCapture(private val context: Context,
         handler.removeCallbacksAndMessages(null)
         val previous = recognizer
         recognizer = null
+        runCatching { injectedAudio?.close() }
+        injectedAudio = null
         finishCapture = null
         finishRequested = false
         runCatching { previous?.cancel() }
@@ -41,19 +47,22 @@ class LiveSpeechCapture(private val context: Context,
                onPhase: (VoiceInteractionState) -> Unit = {},
                minimumSpeechPauseMillis: Long = 0L, fallbackOnSilence: Boolean = true,
                 minimumCaptureMaximumMillis: Long = 0L,
-                recoverPartialOnFinalFailure: Boolean = false) {
+                recoverPartialOnFinalFailure: Boolean = false,
+                externalAudioSource: ParcelFileDescriptor? = null) {
         stop()
         trace = VoiceSessionDiagnostics.begin()
-        val strictDevice = onDeviceOnly || requestedEngine == SpeechCaptureRouting.Engine.ON_DEVICE
+        val strictDevice = onDeviceOnly || requestedEngine == SpeechCaptureRouting.Engine.ON_DEVICE || externalAudioSource != null
         val selected = SpeechCaptureRouting.choose(preferOffline && context.packageName == "com.assistant.core", onDeviceOnly,
             platform.deviceAvailable(), platform.systemAvailable(), requestedEngine)
         if (selected == null) {
+            runCatching { externalAudioSource?.close() }
             VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.ERROR, trace, SpeechRecognizer.ERROR_CLIENT)
             onError(SpeechRecognizer.ERROR_CLIENT); return
         }
         var fallbackUsed = false
         fun startAttempt(provider: SpeechCaptureRouting.Engine, offlineHint: Boolean) {
             stop()
+            injectedAudio = externalAudioSource
             val current = generation
             val timing = RuntimeSettings.read(context, "voice_settings")
             val window = VoiceCaptureWindow({ android.os.SystemClock.elapsedRealtime() },
@@ -114,6 +123,12 @@ class LiveSpeechCapture(private val context: Context,
                         if (generation != completed) return
                         if (text.isBlank()) onError(SpeechRecognizer.ERROR_NO_MATCH) else onResult(text)
                     }
+                    override fun onSegmentResults(segmentResults: Bundle?) {
+                        if (externalAudioSource != null) onResults(segmentResults)
+                    }
+                    override fun onEndOfSegmentedSession() {
+                        if (externalAudioSource != null && current == generation) onError(SpeechRecognizer.ERROR_NO_MATCH)
+                    }
                     override fun onError(error: Int) {
                         if (current != generation) return
                         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.ERROR, currentTrace, error)
@@ -170,6 +185,13 @@ class LiveSpeechCapture(private val context: Context,
                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
                         silence.completeMillis)
                     VoiceRecognitionHints.apply(context, this, useProfileHints)
+                    if (externalAudioSource != null && Build.VERSION.SDK_INT >= 33) {
+                        putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, externalAudioSource)
+                        putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
+                        putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+                        putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, PersistentPcmAudioSource.SAMPLE_RATE)
+                        putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)
+                    }
                 })
                 val watchdog = object : Runnable {
                     override fun run() {
