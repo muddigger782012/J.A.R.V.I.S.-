@@ -30,7 +30,7 @@ internal object ProjectGenerationWorkbench {
         selected: () -> String?, select: (String) -> Unit, store: ProjectGenerationStore,
         changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }, forget: Button? = null,
         requestPatch: () -> Boolean = { false },
-        stageReview: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false },
+        stageReview: (String, String, List<PatchEngine.Edit>, String, PatchEngine.Target) -> Boolean = { _, _, _, _, _ -> false },
         requestDeveloperRepair: () -> Boolean = { false },
         requestDeveloperBuild: () -> Boolean = { false },
         saveDeveloperTask: () -> Boolean = { false },
@@ -425,16 +425,24 @@ internal object ProjectGenerationWorkbench {
             // An explicit Developer code-change request is already authorization to
             // ask the configured provider for a source-verified PROPOSAL, not to write.
             // Do not require a separate hidden code-mode toggle for these requests.
-            val directCodeRequest = DeveloperCodeChangeIntent.isRequest(task)
-            val wantsPatch = requestPatch() || directCodeRequest
-            if (wantsPatch && target() != 0) {
-                status.text = "Code patch proposals are limited to the Developer target. Switch to Developer."
-                output.text = "Developer source changes require the Developer target and a verified source review. " +
-                    "No AI coding request, approval or repository write was started."
+            val developerCodeRequest = DeveloperCodeChangeIntent.isRequest(task)
+            val personalCodeRequest = PersonalCodeChangeIntent.isRequest(task)
+            val brainstorming = DevelopmentExplorationIntent.isRequest(task) &&
+                !developerCodeRequest && !personalCodeRequest
+            val product = target()
+            // The checkbox may request source changes for either product. Pure
+            // brainstorming first returns suggestions: no selected feature means
+            // there is not yet a scoped change to review or approve.
+            val wantsPatch = developerCodeRequest || personalCodeRequest ||
+                (requestPatch() && !brainstorming)
+            if ((developerCodeRequest && product != 0) || (personalCodeRequest && product != 1)) {
+                status.text = "Select the app named in the request before preparing its code."
+                output.text = "The request targets a different application than the selected product. " +
+                    "Choose the correct product, then retry. No provider code request, " +
+                    "approval or repository write was started."
                 return@setOnClickListener
             }
             val project = selected() ?: java.util.UUID.randomUUID().toString()
-            val product = target()
             if (secret.isEmpty()) {
                 if (store.saveLocal(project, task, product)) {
                     select(project); changed(); status.setText(R.string.project_generation_saved_offline)
@@ -446,10 +454,19 @@ internal object ProjectGenerationWorkbench {
             val discussion = runCatching { store.discussion(project, product, secrets) }.getOrElse {
                 status.setText(R.string.project_generation_save_failed); return@setOnClickListener
             }
+            val allowedRoots = if (product == 1)
+                "app/src/main/java/com/assistant/core/ or app/src/test/java/com/assistant/core/. " +
+                    "Personal production edits must target existing, verified source files; protected " +
+                    "controllers, permissions, voice-capture security, build, releases and installation are forbidden. "
+            else
+                "developer/src/main/java/com/jarvis/developer/ or developer/src/test/java/com/jarvis/developer/. "
             val instruction = if (!wantsPatch) task else task +
                 "\n\nCODE PATCH MODE (proposal only, never execute): Return ONLY a JSON object with summary (string) and edits (array of path and content strings). " +
-                "Every edit must be a complete replacement Kotlin or Java source file under developer/src/main/java/com/jarvis/developer/ or developer/src/test/java/com/jarvis/developer/. Existing files may be modified only when their current contents were provided in verified repository context. " +
-                "Do not modify protected components, build configuration, permissions, credentials, or releases. Split work into further requests when it exceeds the provider response budget. Explicit user approval is required separately. No Markdown fences."
+                "Every edit must be a complete replacement Kotlin or Java source file under " + allowedRoots +
+                "Modify only exact eligible paths and existing contents from the verified repository context. " +
+                "Do not modify protected components, build configuration, permissions, credentials, signing, or releases. " +
+                "Split work into further requests when it exceeds the provider response budget. " +
+                "Explicit user approval is required separately. No Markdown fences."
             val lookupTask = discussion.lookupTask(instruction)
             val ticket = store.begin(project, task, product)
             if (ticket == null) { status.setText(R.string.project_generation_save_failed); return@setOnClickListener }
@@ -503,10 +520,13 @@ internal object ProjectGenerationWorkbench {
                             val edit = edits.optJSONObject(i)
                                 ?: throw IllegalArgumentException("Invalid code proposal edit.")
                             val path = edit.optString("path")
-                            require((path.startsWith("developer/src/main/java/com/jarvis/developer/") ||
-                                path.startsWith("developer/src/test/java/com/jarvis/developer/")) &&
-                                PatchEngine.allowedPath(path, PatchEngine.Target.DEVELOPER)) {
-                                "Code proposal contains an out-of-scope path."
+                            require(PatchEngine.allowedPath(path, productTarget)) {
+                                "Code proposal contains an out-of-scope or protected path for the selected application."
+                            }
+                            require(productTarget != PatchEngine.Target.PERSONAL ||
+                                !path.startsWith("app/src/main/") ||
+                                path in context.paths) {
+                                "Personal production changes require existing verified source."
                             }
                             require(!path.contains("..") && !path.contains(92.toChar()) &&
                                 (path.endsWith(".kt") || path.endsWith(".java")) && seen.add(path)) {
@@ -539,7 +559,7 @@ internal object ProjectGenerationWorkbench {
                                 output.text = "The generated code proposal could not be saved. Its unapproved review was discarded; retry the task. No files were changed."
                                 status.text = "Code proposal not staged: project save failed."
                             } else if (scope != null) {
-                                val staged = stageReview(task, scope.first, scope.second, scope.third)
+                                val staged = stageReview(task, scope.first, scope.second, scope.third, productTarget)
                                 val names = scope.second.joinToString("\n") { "• " + it.path.substringAfterLast('/') }
                                 output.text = buildString {
                                     append("Jarvis proposes:\n").append(scope.first)
@@ -551,9 +571,13 @@ internal object ProjectGenerationWorkbench {
                                 status.text = if (staged) "Proposal staged for review; explicit approval required." else
                                     "Review staging rejected. No repository write requested."
                             } else output.text = text
-                            if (scope == null) status.text = if (saved == ProjectGenerationStore.Result.SAVED)
-                                activity.getString(R.string.project_generation_received, providerName)
-                                else activity.getString(R.string.project_generation_response_unsaved)
+                            if (scope == null) status.text = if (saved != ProjectGenerationStore.Result.SAVED)
+                                activity.getString(R.string.project_generation_response_unsaved)
+                                else if (brainstorming)
+                                    "Ideas received. Choose one and say 'Implement [feature] in " +
+                                        (if (product == 1) "Personal Jarvis" else "Jarvis Developer") +
+                                        "' for a source-verified code proposal. Nothing was changed."
+                                else activity.getString(R.string.project_generation_received, providerName)
                         }.onFailure { failure ->
                             status.setText(R.string.project_generation_failed)
                             val reason = when (failure) {
