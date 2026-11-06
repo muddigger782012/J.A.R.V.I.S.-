@@ -15,6 +15,9 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
+import java.io.File
+import kotlin.concurrent.thread
+import org.json.JSONObject
 
 /**
  * One chat-first Home surface over the EXISTING source, generation, review and
@@ -27,6 +30,30 @@ internal object DeveloperHomeWorkspace {
     private const val STATE_TURNS = "developer_home_turns_v1"
     private const val STATE_LAST_REPLY = "developer_home_last_reply_v1"
 
+    /**
+     * The existing authenticated inbox is the authority for job progress.
+     * This projection is read-only and never upgrades a pending gate to passed.
+     */
+    internal fun latestJobEvidence(jobs: List<JSONObject>): String? {
+        val job = jobs.lastOrNull() ?: return null
+        val summary = job.optString("summary", "Development task")
+            .replace(Regex("\\s+"), " ").trim().take(110)
+        val state = job.optString("state", "UNKNOWN").take(40)
+        val verification = job.optJSONObject("verification")
+        val gates = listOf(
+            "SOURCE_COMMITTED" to "Source",
+            "BUILD_SUCCESSFUL" to "Build",
+            "TESTS_PASSED" to "Tests",
+            "SIGNED_APK" to "Signing",
+            "DEVICE_INSTALLED" to "Installed"
+        ).joinToString(" · ") { (key, label) ->
+            "$label: " + (verification?.optString(key)?.takeIf {
+                it in setOf("PASSED", "FAILED", "RUNNING", "PENDING", "BLOCKED", "UNKNOWN", "NOT_RUN")
+            } ?: "Unverified")
+        }
+        return "$summary\\n$state\\n$gates"
+    }
+
     internal class Session(
         val composer: LinearLayout,
         private val activity: Activity,
@@ -34,11 +61,32 @@ internal object DeveloperHomeWorkspace {
         private val response: TextView,
         private val phase: TextView,
         private val taskCard: LinearLayout,
+        private val jobEvidence: TextView,
         private val targetPicker: Spinner,
         saved: Bundle?
     ) {
         private val turns = ArrayList<String>()
         private var hasUserTurn = false
+        private var readingJob = false
+
+        /** Read existing private job receipts without contacting a provider or GitHub. */
+        fun refreshJobEvidence() {
+            if (readingJob || activity.isFinishing || activity.isDestroyed) return
+            readingJob = true
+            thread(name = "developer-home-job-read", isDaemon = true) {
+                val summary = runCatching {
+                    val store = DevelopmentJobInbox(File(activity.noBackupFilesDir, "development-inbox"))
+                    latestJobEvidence(store.localSnapshot())
+                }.getOrNull()
+                activity.runOnUiThread {
+                    readingJob = false
+                    if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                    jobEvidence.text = summary.orEmpty()
+                    jobEvidence.visibility = if (summary == null) View.GONE else View.VISIBLE
+                    if (summary != null) taskCard.visibility = View.VISIBLE
+                }
+            }
+        }
 
         init {
             val restored = saved?.getStringArrayList(STATE_TURNS).orEmpty()
@@ -118,7 +166,7 @@ internal object DeveloperHomeWorkspace {
             feed.removeAllViews()
             feed.addView(response)
             phase.text = "READY"
-            taskCard.visibility = View.GONE
+            taskCard.visibility = if (jobEvidence.visibility == View.VISIBLE) View.VISIBLE else View.GONE
         }
     }
 
@@ -243,6 +291,13 @@ internal object DeveloperHomeWorkspace {
             text = codingStatus.text
         }
         taskCard.addView(codingEvidence)
+        val persistedJob = TextView(activity).apply {
+            tag = "developer-home-persisted-job-evidence"
+            textSize = 12f
+            setTextColor(activity.getColor(R.color.developer_secondary))
+            visibility = View.GONE
+        }
+        taskCard.addView(persistedJob)
         codingStatus.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -322,6 +377,6 @@ internal object DeveloperHomeWorkspace {
                 if (send.isEnabled) send.performClick()
             }
         })
-        return Session(composer, activity, feed, output, phase, taskCard, choice, saved)
+        return Session(composer, activity, feed, output, phase, taskCard, persistedJob, choice, saved)
     }
 }
