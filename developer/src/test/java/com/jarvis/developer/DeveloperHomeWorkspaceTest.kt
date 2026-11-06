@@ -54,6 +54,10 @@ class DeveloperHomeWorkspaceTest {
                 addView(session.composer)
             })
             assertEquals("Original approved reactor", (home.getChildAt(0) as TextView).text)
+            assertNotNull(home.findViewWithTag<View>("developer-workspace-toolbar"))
+            assertNotNull(home.findViewWithTag<TextView>("developer-workspace-branch"))
+            assertNotNull(session.composer.findViewWithTag<LinearLayout>(
+                "developer-home-composer-actions"))
             assertEquals("Existing task input", prompt.hint)
             assertSame(session.composer, prompt.parent)
             assertSame(session.composer, send.parent)
@@ -62,6 +66,11 @@ class DeveloperHomeWorkspaceTest {
             assertFalse(legacy.isShown)
             assertTrue(advanced.findViewWithTag<View>("developer-legacy-home-tools") != null)
             session.sent("Implement an offline list in Personal Jarvis")
+            val conversation = home.findViewWithTag<LinearLayout>("developer-home-conversation")
+            val userTurn = conversation.findViewWithTag<LinearLayout>("developer-chat-user-turn")
+            assertNotNull(userTurn)
+            assertTrue(DeveloperUiState.descendants(userTurn).filterIsInstance<TextView>()
+                .any { it.text.toString() == "YOU" })
             assertTrue((home.findViewWithTag<View>("developer-home-conversation") as LinearLayout)
                 .let { DeveloperUiState.descendants(it).filterIsInstance<TextView>().any { t ->
                     t.text.toString().contains("Implement an offline list") } })
