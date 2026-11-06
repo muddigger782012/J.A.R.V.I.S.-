@@ -36,6 +36,7 @@ class MainActivity : Activity() {
     private var disposeGuidance: (() -> Unit)? = null
     private var activeProject: String? = null
     private var projectGeneration: ProjectGenerationWorkbench.Handle? = null
+    private var homeWorkspace: DeveloperHomeWorkspace.Session? = null
     internal val connectionVerification = ConnectionVerification()
     private var selectPage: ((Int) -> Unit)? = null
     private var artifactReviewIntent: ((Intent) -> Unit)? = null
@@ -60,6 +61,7 @@ class MainActivity : Activity() {
         outState.putInt("developer_guided_target", guidedTarget?.selectedItemPosition ?: 0)
         outState.putString("developer_active_project", activeProject)
         uiRoot?.let { outState.putBundle("developer_drafts", DeveloperUiState.save(it)) }
+        homeWorkspace?.save(outState)
         artifactReviewJob?.let { outState.putString("developer_artifact_review_job", it) }
         developmentHistory?.let { outState.putBundle("developer_job_history", it.saveState()) }
         super.onSaveInstanceState(outState)
@@ -632,7 +634,8 @@ class MainActivity : Activity() {
                 if (started) revealImportedReview?.invoke()
                 started
             }, currentDeveloperCommit = { patchWorkbench.currentDeveloperCommit() },
-            mayReadSavedCompletion = { patchWorkbench.mayReadSavedCompletion() })
+            mayReadSavedCompletion = { patchWorkbench.mayReadSavedCompletion() },
+            onUserMessage = { request -> homeWorkspace?.sent(request) })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1173,8 +1176,11 @@ class MainActivity : Activity() {
         val codingViews = (0 until sectionGroups[1].childCount).map { sectionGroups[1].getChildAt(it) }
         codingViews.forEach { sectionGroups[1].removeView(it); activityPage.addView(it) }
         sectionGroups[1].addView(Button(this).apply {
-            text = "Open code review in Track"; isAllCaps = false
-            setOnClickListener { selectPage?.invoke(2) }
+            text = "Open code review on Home"; isAllCaps = false
+            setOnClickListener {
+                selectPage?.invoke(0)
+                openInlineReview?.invoke()
+            }
         })
         // Always give a clear route back to the category overview.
         val sectionIntro = TextView(this).apply {
@@ -1233,7 +1239,9 @@ class MainActivity : Activity() {
             button.backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_primary))
         }
         fun openCodeReview() {
-            selectPage?.invoke(2)
+            // The exact review engine is already hosted on Home, not Track.
+            selectPage?.invoke(0)
+            openInlineReview?.invoke()
             codingWidgets.firstOrNull()?.let { first -> first.post {
                 first.requestRectangleOnScreen(android.graphics.Rect(0, 0, first.width, 1), false)
             } }
@@ -1285,6 +1293,11 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(16), dp(16), dp(12))
             background = roundedSurface(0xFF142F3B.toInt())
         }
+        homeWorkspace = DeveloperHomeWorkspace.install(this, root, advanced,
+            prompt, send, output, status, reviewFromChat, homeCodeReviewToggle, homeCodeReview,
+            guidedTarget?.selectedItemPosition ?: 0,
+            { selected -> if (guidedTarget?.isEnabled != false) guidedTarget?.setSelection(selected) },
+            { selectPage?.invoke(4) }, savedInstanceState)
         val pages = listOf(root, projects, activityPage, settings, advanced).mapIndexed { index, page ->
             ScrollView(this).apply {
                 tag = "developer-page-$index"
@@ -1306,6 +1319,7 @@ class MainActivity : Activity() {
             }
             val enteringTrack = next == 2 && activePage != 2
             activePage = next
+            homeWorkspace?.composer?.visibility = if (next == 0) View.VISIBLE else View.GONE
             if (enteringTrack) developmentHistory?.refreshNow()
             pages.forEachIndexed { pageIndex, page ->
                 page.visibility = if (pageIndex == activePage) View.VISIBLE else View.GONE
@@ -1368,6 +1382,7 @@ class MainActivity : Activity() {
             activeProject = null
             prompt.text.clear()
             output.text = ""
+            homeWorkspace?.reset()
             status.text = "Describe your new project."
             showPage(1)
         }
@@ -1380,6 +1395,11 @@ class MainActivity : Activity() {
             shell.addView(page, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         }
+        // Composer stays visible below the scrolling conversation on Home.
+        homeWorkspace?.composer?.let { shell.addView(it, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )) }
         navigation.setBackgroundColor(getColor(R.color.developer_panel))
         shell.addView(navigation)
         uiRoot = shell
@@ -1506,6 +1526,7 @@ class MainActivity : Activity() {
         DeveloperUpdater.cancel(this)
         projectGeneration?.dispose()
         projectGeneration = null
+        homeWorkspace = null
         artifactReviewGeneration++
         artifactReviewIntent = null
         artifactInstallWhenFocused = null
