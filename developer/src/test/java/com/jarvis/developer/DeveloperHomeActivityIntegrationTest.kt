@@ -98,6 +98,35 @@ class DeveloperHomeActivityIntegrationTest {
         assertEquals(View.VISIBLE, composer.visibility)
     }
 
+    @Test fun trackKeepsPrivateRepairHistoryAccessibleAfterRecreationWithoutRestoringApproval() {
+        val first = activity()
+        assertFalse(button(first, "Load private repair history (local only)").isShown)
+        button(first, "Track").performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        val history = all(first).filterIsInstance<LinearLayout>().single {
+            it.tag == "developer-private-repair-history"
+        }
+        assertTrue(history.isShown)
+        assertTrue(button(first, "Load private repair history (local only)").isShown)
+        assertFalse(button(first, "Recheck selected saved build diagnostics (GET only)").isEnabled)
+        assertFalse(button(first, "Create task branch and commit approved files (writes)").isEnabled)
+
+        controller!!.recreate()
+        shadowOf(Looper.getMainLooper()).idle()
+        val restored = controller!!.get()
+        val restoredHistory = all(restored).filterIsInstance<LinearLayout>().single {
+            it.tag == "developer-private-repair-history"
+        }
+        assertTrue(restoredHistory.isShown)
+        assertTrue(button(restored, "Load private repair history (local only)").isShown)
+        assertFalse(button(restored, "Recheck selected saved build diagnostics (GET only)").isEnabled)
+        val approval = all(restored).filterIsInstance<android.widget.CheckBox>()
+            .single { it.text.toString() == "I reviewed this exact diff and approve creating its isolated task branch" }
+        assertFalse(approval.isChecked)
+        assertFalse(approval.isEnabled)
+        assertFalse(button(restored, "Create task branch and commit approved files (writes)").isEnabled)
+    }
+
     @Test fun recreationRetainsConversationAndProjectButNeverRestoresApproval() {
         val activity = activity()
         val prompt = all(activity).filterIsInstance<EditText>().single {
