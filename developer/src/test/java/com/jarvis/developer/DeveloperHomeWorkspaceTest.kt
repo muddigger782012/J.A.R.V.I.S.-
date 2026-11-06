@@ -96,6 +96,32 @@ class DeveloperHomeWorkspaceTest {
         }
     }
 
+    @Test fun persistedJobEvidenceDisplaysExactVerificationGatesWithoutFalseSuccess() {
+        assertNull(DeveloperHomeWorkspace.latestJobEvidence(emptyList()))
+        val pending = org.json.JSONObject()
+            .put("summary", "Verify Jarvis development task")
+            .put("state", "VERIFYING")
+            .put("verification", org.json.JSONObject()
+                .put("SOURCE_COMMITTED", "PASSED")
+                .put("BUILD_SUCCESSFUL", "RUNNING")
+                .put("TESTS_PASSED", "BLOCKED")
+                .put("SIGNED_APK", "PENDING")
+                .put("DEVICE_INSTALLED", "BLOCKED"))
+        val displayed = requireNotNull(DeveloperHomeWorkspace.latestJobEvidence(listOf(pending)))
+        assertTrue(displayed.contains("VERIFYING"))
+        assertTrue(displayed.contains("Source: PASSED"))
+        assertTrue(displayed.contains("Build: RUNNING"))
+        assertTrue(displayed.contains("Tests: BLOCKED"))
+        assertTrue(displayed.contains("Signing: PENDING"))
+        assertTrue(displayed.contains("Installed: BLOCKED"))
+        assertFalse(displayed.contains("Build: PASSED"))
+        // Malformed/incomplete records must never invent passed stages.
+        val unknown = requireNotNull(DeveloperHomeWorkspace.latestJobEvidence(listOf(
+            org.json.JSONObject().put("state", "QUEUED"))))
+        assertTrue(unknown.contains("Build: Unverified"))
+        assertFalse(unknown.contains("Build: PASSED"))
+    }
+
     @Test fun statusLabelsAreDerivedFromRealEngineEventsRatherThanInventedPercentages() {
         assertEquals("READING SOURCE", DeveloperHomeWorkspace.stageLabel("Reading repository inventory"))
         assertEquals("REVIEW", DeveloperHomeWorkspace.stageLabel("Proposal staged for review"))
