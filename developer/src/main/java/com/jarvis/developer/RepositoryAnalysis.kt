@@ -330,9 +330,18 @@ object RepositoryAnalysis {
         val declarations = doc.symbols.flatMap { terms(it.name) }.toSet()
         val raw = direct.size * 7.0 + semantic.size * 1.2 + pathScore(doc.source.path, query) +
             declarations.intersect(query.primary).size * 4.0 + declarations.intersect(query.expanded).size
+        // The root SettingsActivity owns navigation to specialized settings editors.
+        // New settings pages frequently contain more repeated menu words, but
+        // must not displace the actual navigation entry point from a bounded
+        // settings-menu review. This is still lexical evidence from real code.
+        val navigationEntryBonus = if (
+            doc.source.path.endsWith("/SettingsActivity.kt") &&
+            "setting" in query.primary &&
+            ("menu" in query.primary || "navigation" in query.primary)
+        ) 24.0 else 0.0
         // Quoted requests in tests/docs are useful supporting evidence but must not crowd out code.
         val multiplier = if (doc.source.path.endsWith(".md")) 0.7 else if ("/test/" in doc.source.path || "/androidTest/" in doc.source.path) 0.35 else 1.0
-        return raw * multiplier
+        return (raw + navigationEntryBonus) * multiplier
     }
 
     private fun dependencies(doc: Document, documents: List<Document>, inventory: List<SourceFile>, query: Query,

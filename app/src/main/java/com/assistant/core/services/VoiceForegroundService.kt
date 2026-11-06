@@ -92,6 +92,12 @@ class VoiceForegroundService : Service() {
     private val ambientContext = AmbientContextWindow()
     private val liveHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val liveCapture by lazy { LiveSpeechCapture(this) }
+    private var pcmSource: PersistentPcmAudioSource? = null
+    private var pcmInjectionRejected = false
+    private fun shutdownPcmSource() {
+        pcmSource?.stop()
+        pcmSource = null
+    }
     private var liveMessage = ""
     private var livePhase = VoiceInteractionState.IDLE
     private var voicePhase = VoiceInteractionState.IDLE
@@ -138,12 +144,14 @@ class VoiceForegroundService : Service() {
                     // second finish() would be ignored. Treat that tap as recovery.
                     when (liveSession.microphoneTapped(liveCapture.isActive && !liveCapture.isFinishing)) {
                         LiveChatSession.MicrophoneTap.FINISH_CAPTURE -> {
+                            pcmSource?.finishTurn()
                             liveCapture.finish()
                             liveStatus(VoiceInteractionState.TRANSCRIBING, "Finishing voice input…")
                         }
                         LiveChatSession.MicrophoneTap.RESTART_LISTENING -> {
                             hybridAssistantService.cancelActiveResponse()
                             liveCapture.stop()
+                            pcmSource?.closeTurn()
                             liveFailures = 0
                             if (::voiceService.isInitialized) voiceService.stopSpeaking()
                             liveHandler.removeCallbacksAndMessages(null)
@@ -181,13 +189,14 @@ class VoiceForegroundService : Service() {
                 return if (WakeRestartPolicy.shouldRemainSticky(pipelineStarted)) START_STICKY else START_NOT_STICKY
             }
             ACTION_FINISH_CAPTURE -> {
-                if (liveChatActive) liveCapture.finish() else if (::voiceService.isInitialized) voiceService.finishCapture()
+                if (liveChatActive) { pcmSource?.finishTurn(); liveCapture.finish() }
+                else if (::voiceService.isInitialized) voiceService.finishCapture()
                 return if (WakeRestartPolicy.shouldRemainSticky(pipelineStarted)) START_STICKY else START_NOT_STICKY
             }
             ACTION_CANCEL_CAPTURE -> {
                 if (liveChatActive) {
                     hybridAssistantService.cancelActiveResponse()
-                    liveCapture.stop(); voiceService.stopSpeaking()
+                    liveCapture.stop(); pcmSource?.closeTurn(); voiceService.stopSpeaking()
                     liveHandler.removeCallbacksAndMessages(null)
                     if (liveSession.interrupt()) {
                         liveStatus(VoiceInteractionState.IDLE, "Turn cancelled. Live chat remains active; listening again…")
@@ -244,6 +253,29 @@ class VoiceForegroundService : Service() {
                         liveSession.start()
                         ambientParticipation.reset()
                         ambientContext.clear()
+                        shutdownPcmSource()
+                        pcmInjectionRejected = false
+                        if (packageName == "com.assistant.core" && android.os.Build.VERSION.SDK_INT >= 33 &&
+                            LiveChatCompanionSettings.load(this).experimentalPcmStream) {
+                            lateinit var candidate: PersistentPcmAudioSource
+                            candidate = PersistentPcmAudioSource(this) { description ->
+                                liveHandler.post {
+                                    if (!liveChatActive || pcmSource !== candidate) return@post
+                                    publishEvent(description)
+                                    pcmInjectionRejected = true
+                                    shutdownPcmSource()
+                                    liveCapture.stop()
+                                    if (liveSession.interrupt()) nextLiveTurn(650L)
+                                }
+                            }
+                            if (candidate.start()) {
+                                pcmSource = candidate
+                                publishEvent("Experimental continuous PCM microphone activated for this Live Chat session.")
+                            } else {
+                                pcmInjectionRejected = true
+                                publishEvent("Experimental PCM capture unavailable; normal speech recognition retained.")
+                            }
+                        }
                         liveSilenceTurns = 0
                         liveEngineOnDevice = false
                         liveStatus(VoiceInteractionState.LISTENING, "Starting live chat…")
@@ -337,6 +369,7 @@ class VoiceForegroundService : Service() {
         dialogueOverlay.hide()
         liveHandler.removeCallbacksAndMessages(null)
         liveCapture.stop()
+        shutdownPcmSource()
         if (liveChatActive) {
             liveChatActive = false
             liveSession.stop()
@@ -429,10 +462,14 @@ class VoiceForegroundService : Service() {
             // cancel an actively speaking user before results can be delivered.
             val captureScope = if (packageName == "com.assistant.core") screenAccess.voiceScope() else ""
             val developmentScope = DevelopmentInstallConsent.voiceScope()
+            val injected = if (!pcmInjectionRejected) pcmSource?.openTurn() else null
             liveCapture.listen(currentConfig.preferOfflineCommandRecognition,
                 onPartial = { /* Partial transcripts stay transient; only complete turns enter chat. */ },
                 onResult = { text ->
+                    // A delayed recognizer callback must never close the new
+                    // PCM feed belonging to a subsequent Live Chat turn.
                     if (liveChatActive && liveSession.transcript(turn)) {
+                        pcmSource?.closeTurn()
                         liveFailures = 0
                         liveSilenceTurns = 0
                         val companionSettings = LiveChatCompanionSettings.load(this)
@@ -516,7 +553,32 @@ class VoiceForegroundService : Service() {
                         } // End response-worthy ambient decision.
                     }
                 },
-                onError = { error -> liveCaptureError(turn, error) },
+                onError = { error ->
+                    if (!liveChatActive || liveSession.token != turn ||
+                        liveSession.phase != LiveChatSession.Phase.LISTENING) return@listen
+                    if (injected != null) {
+                        // Some vendor recognizers silently ignore an injected PCM source.
+                        // If our stream contained speech but no transcript arrived,
+                        // disable the experimental path instead of silently retrying it.
+                        val speechMissed = pcmSource?.heardSpeechThisTurn() == true &&
+                            error in setOf(android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                                android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
+                        pcmSource?.closeTurn()
+                        if (speechMissed || error !in setOf(
+                                android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                                android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
+                            pcmInjectionRejected = true
+                            shutdownPcmSource()
+                            liveFailures = 0
+                            liveSilenceTurns = 0
+                            publishEvent("Experimental PCM did not produce a transcript (recognizer $error); normal microphone restored.")
+                            if (liveSession.recover(turn)) nextLiveTurn(650L)
+                            else finishLiveChat("Streaming recognition recovery failed; use normal Live Chat.")
+                            return@listen
+                        }
+                    }
+                    liveCaptureError(turn, error)
+                },
                 onEngine = { engine ->
                     if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING) {
                         liveEngineOnDevice = engine == SpeechCaptureRouting.Engine.ON_DEVICE
@@ -534,7 +596,8 @@ class VoiceForegroundService : Service() {
                 fallbackOnSilence = false,
                 // Some providers emit useful partial recognition but no final
                 // result after a thought pause. Do not discard those words.
-                recoverPartialOnFinalFailure = true
+                recoverPartialOnFinalFailure = true,
+                externalAudioSource = injected
             )
         }, delay)
     }
@@ -588,6 +651,7 @@ class VoiceForegroundService : Service() {
         ambientContext.clear()
         liveHandler.removeCallbacksAndMessages(null)
         liveCapture.stop()
+        shutdownPcmSource()
         if (::voiceService.isInitialized) voiceService.stopSpeaking()
         liveStatus(VoiceInteractionState.IDLE, message)
         if (resumeWakeAfterLive && ::voiceService.isInitialized) {
