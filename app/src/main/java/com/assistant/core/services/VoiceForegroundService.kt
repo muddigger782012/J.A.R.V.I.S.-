@@ -544,13 +544,18 @@ class VoiceForegroundService : Service() {
         if (error == android.speech.SpeechRecognizer.ERROR_NO_MATCH || error == android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
             if (liveSession.silence(turn)) {
                 val silentTurns = ++liveSilenceTurns
-                when (LiveChatChimePolicy.afterSilence(liveEngineOnDevice, silentTurns)) {
+                val persistentSession = packageName == "com.assistant.core" &&
+                    LiveChatCompanionSettings.load(this).keepListeningUntilStopped
+                when (LiveChatChimePolicy.afterSilence(liveEngineOnDevice, silentTurns, persistentSession)) {
                     LiveChatChimePolicy.Action.PAUSE ->
                         liveStatus(VoiceInteractionState.IDLE,
                             "System microphone paused after repeated silence to avoid recurring notification tones. Tap the microphone to resume.")
                     LiveChatChimePolicy.Action.RETRY -> {
-                        liveStatus(VoiceInteractionState.IDLE, "Still here. Listening for your next thought…")
-                        nextLiveTurn(LiveChatChimePolicy.silenceRetryDelayMillis(liveEngineOnDevice, silentTurns))
+                        if (persistentSession && !liveEngineOnDevice) {
+                            liveStatus(VoiceInteractionState.IDLE,
+                                "Live Chat is active. System recognition is resting between listening attempts; it may chime on restart.")
+                        } else liveStatus(VoiceInteractionState.IDLE, "Still here. Listening for your next thought…")
+                        nextLiveTurn(LiveChatChimePolicy.silenceRetryDelayMillis(liveEngineOnDevice, silentTurns, persistentSession))
                     }
                 }
             } else finishLiveChat("Live chat reached your configured inactivity limit.")

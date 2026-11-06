@@ -21,6 +21,18 @@ class LiveChatChimePolicyTest {
         assertEquals(4_000L, LiveChatChimePolicy.silenceRetryDelayMillis(false, 2))
     }
 
+    @Test fun explicitPersistentSessionCannotSilentlyPauseAfterNormalSilence() {
+        for (count in listOf(1, 3, 5, 30)) {
+            assertEquals(LiveChatChimePolicy.Action.RETRY,
+                LiveChatChimePolicy.afterSilence(false, count, persistentSession = true))
+        }
+        assertEquals(LiveChatChimePolicy.Action.PAUSE,
+            LiveChatChimePolicy.afterSilence(false, 3, persistentSession = false))
+        assertEquals(45_000L, LiveChatChimePolicy.silenceRetryDelayMillis(false, 30, persistentSession = true))
+        assertTrue(LiveChatChimePolicy.silenceRetryDelayMillis(false, 3, persistentSession = true) > 4_000L)
+        assertEquals(4_000L, LiveChatChimePolicy.silenceRetryDelayMillis(false, 3, persistentSession = false))
+    }
+
     @Test fun providerErrorsAllowOneRecoveryButNotAnUnboundedLoop() {
         assertEquals(LiveChatChimePolicy.Action.RETRY,
             LiveChatChimePolicy.afterProviderError(1))
