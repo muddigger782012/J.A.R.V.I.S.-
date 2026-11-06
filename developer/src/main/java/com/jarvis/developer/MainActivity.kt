@@ -1383,7 +1383,7 @@ class MainActivity : Activity() {
         // One direct attachment control inside the existing chat composer.
         // ACTION_OPEN_DOCUMENT needs no media/storage permission and never uploads
         // without a subsequent explicit Send press.
-        val composerActions = homeWorkspace?.composer
+        val screenshotActionRow = homeWorkspace?.composer
             ?.findViewWithTag<LinearLayout>("developer-home-composer-actions")
         val attachScreenshot = Button(this).apply {
             text = "+ Image"
@@ -1408,7 +1408,7 @@ class MainActivity : Activity() {
         }
         // Keep the attachment control beside Send, not in a second large
         // strip that pushes the chat editor off the screen.
-        composerActions?.addView(attachScreenshot, 0, LinearLayout.LayoutParams(
+        screenshotActionRow?.addView(attachScreenshot, 0, LinearLayout.LayoutParams(
             dp(108), LinearLayout.LayoutParams.WRAP_CONTENT))
         val removeScreenshot = Button(this).apply {
             text = "Remove"
@@ -1429,9 +1429,9 @@ class MainActivity : Activity() {
             }
         }
         removeScreenshotButton = removeScreenshot
-        composerActions?.addView(removeScreenshot, 1, LinearLayout.LayoutParams(
+        screenshotActionRow?.addView(removeScreenshot, 1, LinearLayout.LayoutParams(
             dp(90), LinearLayout.LayoutParams.WRAP_CONTENT))
-        composerActions?.addView(View(this), 2, LinearLayout.LayoutParams(
+        screenshotActionRow?.addView(View(this), 2, LinearLayout.LayoutParams(
             0, dp(1), 1f))
         screenshotLabel = TextView(this).apply {
             text = "Review your image for passwords and tokens before sending."
