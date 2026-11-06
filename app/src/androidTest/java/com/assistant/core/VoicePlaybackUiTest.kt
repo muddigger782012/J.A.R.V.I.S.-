@@ -78,7 +78,7 @@ class VoicePlaybackUiTest {
                 // audio-focus grant without an intermediate reinitialization.
                 session.enqueue(NeuralSpeechCache.Clip(24000, samples.copyOfRange(0, 6000)),
                     active = { true }, firstQueued = { queued.set(true) })
-                session.drain { true }
+                session.drain(active = { true })
                 assertTrue(queued.get())
             } finally {
                 session.close()
