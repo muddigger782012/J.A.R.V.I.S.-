@@ -123,12 +123,6 @@ class LiveSpeechCapture(private val context: Context,
                         if (generation != completed) return
                         if (text.isBlank()) onError(SpeechRecognizer.ERROR_NO_MATCH) else onResult(text)
                     }
-                    override fun onSegmentResults(segmentResults: Bundle?) {
-                        if (externalAudioSource != null) onResults(segmentResults)
-                    }
-                    override fun onEndOfSegmentedSession() {
-                        if (externalAudioSource != null && current == generation) onError(SpeechRecognizer.ERROR_NO_MATCH)
-                    }
                     override fun onError(error: Int) {
                         if (current != generation) return
                         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.ERROR, currentTrace, error)
@@ -190,7 +184,6 @@ class LiveSpeechCapture(private val context: Context,
                         putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
                         putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
                         putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, PersistentPcmAudioSource.SAMPLE_RATE)
-                        putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)
                     }
                 })
                 val watchdog = object : Runnable {
