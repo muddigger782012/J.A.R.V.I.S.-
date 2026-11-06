@@ -211,7 +211,7 @@ internal object DeveloperHomeWorkspace {
         status.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                phase.text = stageLabel(s.orEmpty().toString())
+                phase.text = stageLabel(s?.toString().orEmpty())
             }
             override fun afterTextChanged(s: Editable?) = Unit
         })
@@ -228,7 +228,7 @@ internal object DeveloperHomeWorkspace {
         codingStatus.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                val detail = s.orEmpty().toString().take(500)
+                val detail = s?.toString().orEmpty().take(500)
                 codingEvidence.text = detail
                 codingEvidence.visibility = if (detail.isBlank()) View.GONE else View.VISIBLE
                 if (detail.isNotBlank()) phase.text = stageLabel(detail)
