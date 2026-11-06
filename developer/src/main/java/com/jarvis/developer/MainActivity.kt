@@ -52,6 +52,7 @@ class MainActivity : Activity() {
     private var screenshotReadGeneration = 0L
     private var screenshotLabel: TextView? = null
     private var screenshotPreview: ImageView? = null
+    private var removeScreenshotButton: Button? = null
     private val screenshotPickerRequest = 7306
 
     // A job may complete while Developer is in the background. Reconcile Track
@@ -660,7 +661,8 @@ class MainActivity : Activity() {
                     selectedScreenshot = null
                     screenshotPreview?.setImageDrawable(null)
                     screenshotPreview?.visibility = View.GONE
-                    screenshotLabel?.text = "Screenshot sent for analysis; attach another if needed."
+                    screenshotLabel?.visibility = View.GONE
+                    removeScreenshotButton?.visibility = View.GONE
                 }
             },
             requestDeveloperSourceAnalysis = {
@@ -1376,17 +1378,46 @@ class MainActivity : Activity() {
                 if (guidedTarget?.isEnabled != false) guidedTarget?.setSelection(selected)
                 else homeWorkspace?.syncTarget(guidedTarget?.selectedItemPosition ?: 0)
             },
-            { selectPage?.invoke(4) }, savedInstanceState)
+            { selectPage?.invoke(4) }, savedInstanceState,
+            onRuns = { selectPage?.invoke(2) },
+            onNewTask = {
+                // Same guarded reset as Create Project, but keep the owner on
+                // the chat workspace instead of forcing a page transition.
+                if (!patchWorkbench.invalidate()) {
+                    status.setText(R.string.project_generation_finish_code_operation)
+                } else {
+                    projectGeneration?.cancel()
+                    // A new task must not inherit an attached screenshot or a
+                    // still-decoding image from the previous conversation.
+                    screenshotReadGeneration++
+                    screenshotLoading = false
+                    selectedScreenshot = null
+                    screenshotPreview?.setImageDrawable(null)
+                    screenshotPreview?.visibility = View.GONE
+                    screenshotLabel?.visibility = View.GONE
+                    removeScreenshotButton?.visibility = View.GONE
+                    activeProject = null
+                    prompt.text.clear()
+                    output.text = ""
+                    homeWorkspace?.reset()
+                    status.text = "New task ready. Describe what to build or repair."
+                }
+            })
         // One direct attachment control inside the existing chat composer.
         // ACTION_OPEN_DOCUMENT needs no media/storage permission and never uploads
         // without a subsequent explicit Send press.
-        val screenshotControls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val screenshotActionRow = homeWorkspace?.composer
+            ?.findViewWithTag<LinearLayout>("developer-home-composer-actions")
         val attachScreenshot = Button(this).apply {
-            text = "Attach screenshot"
+            text = "+ Image"
+            textSize = 12f
             isAllCaps = false
-            contentDescription = "Choose an error screenshot from your files"
+            minHeight = dp(42)
+            contentDescription = "Attach screenshot from Android files for debugging"
             setOnClickListener {
                 if (!send.isEnabled || screenshotLoading) return@setOnClickListener
+                screenshotLabel?.text = "Review your image for passwords or tokens before sending."
+                screenshotLabel?.visibility = View.VISIBLE
                 val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "image/*"
@@ -1398,11 +1429,16 @@ class MainActivity : Activity() {
                 }
             }
         }
-        screenshotControls.addView(attachScreenshot,
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        screenshotControls.addView(Button(this).apply {
+        // Keep the attachment control beside Send, not in a second large
+        // strip that pushes the chat editor off the screen.
+        screenshotActionRow?.addView(attachScreenshot, 0, LinearLayout.LayoutParams(
+            dp(108), LinearLayout.LayoutParams.WRAP_CONTENT))
+        val removeScreenshot = Button(this).apply {
             text = "Remove"
+            textSize = 12f
             isAllCaps = false
+            minHeight = dp(42)
+            visibility = View.GONE
             contentDescription = "Remove attached screenshot"
             setOnClickListener {
                 if (!send.isEnabled) return@setOnClickListener
@@ -1411,14 +1447,20 @@ class MainActivity : Activity() {
                 selectedScreenshot = null
                 screenshotPreview?.setImageDrawable(null)
                 screenshotPreview?.visibility = View.GONE
-                screenshotLabel?.text = "No screenshot attached."
+                screenshotLabel?.visibility = View.GONE
+                visibility = View.GONE
             }
-        })
+        }
+        removeScreenshotButton = removeScreenshot
+        screenshotActionRow?.addView(removeScreenshot, 1, LinearLayout.LayoutParams(
+            dp(90), LinearLayout.LayoutParams.WRAP_CONTENT))
+        screenshotActionRow?.addView(View(this), 2, LinearLayout.LayoutParams(
+            0, dp(1), 1f))
         screenshotLabel = TextView(this).apply {
-            text = "Optional: attach one screenshot. It stays on your phone until you press Send; " +
-                "check it for passwords, tokens and other private information."
-            textSize = 12f
+            text = "Review your image for passwords and tokens before sending."
+            textSize = 11f
             setTextColor(getColor(R.color.developer_secondary))
+            visibility = View.GONE
             tag = "developer-screenshot-status"
         }
         screenshotPreview = ImageView(this).apply {
@@ -1430,9 +1472,9 @@ class MainActivity : Activity() {
             contentDescription = "Selected debugging screenshot preview"
         }
         homeWorkspace?.composer?.apply {
-            addView(screenshotControls, 1)
-            addView(screenshotLabel, 2)
-            addView(screenshotPreview, 3)
+            val taskInputIndex = indexOfChild(prompt)
+            addView(screenshotLabel, taskInputIndex + 1)
+            addView(screenshotPreview, taskInputIndex + 2)
         }
         val pages = listOf(root, projects, activityPage, settings, advanced).mapIndexed { index, page ->
             ScrollView(this).apply {
@@ -1663,6 +1705,8 @@ class MainActivity : Activity() {
                 screenshotPreview?.setImageDrawable(null)
                 screenshotPreview?.visibility = View.GONE
                 screenshotLabel?.text = "Preparing selected screenshot on-device…"
+                screenshotLabel?.visibility = View.VISIBLE
+                removeScreenshotButton?.visibility = View.GONE
                 thread(name = "developer-screenshot-import", isDaemon = true) {
                     val result = runCatching { DeveloperScreenshot.fromUri(contentResolver, uri) }
                     runOnUiThread {
@@ -1673,9 +1717,12 @@ class MainActivity : Activity() {
                             screenshotPreview?.setImageBitmap(BitmapFactory.decodeByteArray(
                                 image.jpegBytes, 0, image.jpegBytes.size))
                             screenshotPreview?.visibility = View.VISIBLE
+                            removeScreenshotButton?.visibility = View.VISIBLE
                             screenshotLabel?.text = "Screenshot attached (one image). " +
                                 "Press Send to analyze it with the selected AI provider. No code will be changed."
                         }.onFailure {
+                            removeScreenshotButton?.visibility = View.GONE
+                            screenshotLabel?.visibility = View.VISIBLE
                             screenshotLabel?.text = "Image could not be attached. " +
                                 "Choose a valid PNG, JPEG or WebP screenshot under 12 MB."
                         }
@@ -1704,6 +1751,7 @@ class MainActivity : Activity() {
         screenshotPreview?.setImageDrawable(null)
         screenshotPreview = null
         screenshotLabel = null
+        removeScreenshotButton = null
         artifactReviewGeneration++
         artifactReviewIntent = null
         artifactInstallWhenFocused = null
