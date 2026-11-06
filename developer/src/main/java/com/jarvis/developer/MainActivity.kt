@@ -168,7 +168,7 @@ class MainActivity : Activity() {
             text = "Prepare reviewable code changes"
             isChecked = true
             setTextColor(getColor(R.color.developer_text))
-            contentDescription = "Request a reviewable code patch proposal, not an automatic code change"
+            contentDescription = "For implementation requests, prepare a source-verified code proposal for the selected app; questions remain advisory and no write is automatic"
         }
         root.addView(proposeCodePatch)
         val send = Button(this).apply { text = "Ask Jarvis / save instructions"; isAllCaps = false }
@@ -605,13 +605,17 @@ class MainActivity : Activity() {
         val projectPrefs = getSharedPreferences("developer_local_projects_v1", MODE_PRIVATE)
         var refreshSavedProjectsAfterChange: (() -> Unit)? = null
         var revealImportedReview: (() -> Unit)? = null
+        var chatReviewStaged = false
+        var updateChatReviewButton: ((Boolean) -> Unit)? = null
         projectGeneration = ProjectGenerationWorkbench.attach(this, send, cancelGeneration, provider, key, model,
             prompt, output, status, { guidedTarget?.selectedItemPosition ?: 0 }, { guidedTarget },
             { activeProject }, { activeProject = it }, ProjectGenerationStore(projectPrefs),
             { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() }, forget = forgetDiscussion,
-            requestPatch = { proposeCodePatch.isChecked && (guidedTarget?.selectedItemPosition ?: 0) == 0 },
-            stageReview = { taskText, summary, edits, commitSha ->
-                val staged = patchWorkbench.importChatProposal(taskText, summary, edits, commitSha)
+            requestPatch = { proposeCodePatch.isChecked },
+            stageReview = { taskText, summary, edits, commitSha, patchTarget ->
+                val staged = patchWorkbench.importChatProposal(taskText, summary, edits, commitSha, patchTarget)
+                chatReviewStaged = staged
+                updateChatReviewButton?.invoke(staged)
                 if (staged) revealImportedReview?.invoke()
                 staged
             }, requestDeveloperRepair = {
@@ -702,12 +706,15 @@ class MainActivity : Activity() {
         val reviewFromChat = Button(this).apply {
             text = "Review proposed changes"
             isAllCaps = false
+            // An AI explanation is not a patch; never offer a misleading
+            // review action until a source-pinned preview has been started.
+            isEnabled = false
             setOnClickListener {
-                val reveal = revealImportedReview
-                if (reveal != null) reveal() else
-                    status.text = "Generate a verified code proposal to open inline review."
+                if (chatReviewStaged) revealImportedReview?.invoke()
+                else status.text = "No code proposal is staged. Choose one feature and ask Jarvis to implement it."
             }
         }
+        updateChatReviewButton = { ready -> reviewFromChat.isEnabled = ready }
         val reviewPosition = root.indexOfChild(output)
         root.addView(reviewFromChat, reviewPosition + 1)
         projects.addView(refreshProjects)
