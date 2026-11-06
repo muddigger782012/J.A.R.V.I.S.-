@@ -65,6 +65,7 @@ internal object DeveloperHomeWorkspace {
         private val taskCard: LinearLayout,
         private val jobEvidence: TextView,
         private val jobDetails: Button,
+        private val prepareNextButton: Button?,
         private val targetPicker: Spinner,
         private val branchLabel: TextView,
         saved: Bundle?
@@ -175,6 +176,7 @@ internal object DeveloperHomeWorkspace {
 
         /** Called only for a validated, explicit tap on the original chat send control. */
         fun sent(request: String) {
+            setPrepareNextAvailable(false)
             val task = request.trim().take(MAX_SAVED_CHARS)
             if (task.isEmpty()) return
             // Snapshot the prior rendered answer before reusing the actual workbench
@@ -198,8 +200,15 @@ internal object DeveloperHomeWorkspace {
             taskCard.visibility = View.VISIBLE
         }
 
+        /** Ready only after a fresh on-device diagnosis. Never restored after restart. */
+        fun setPrepareNextAvailable(eligible: Boolean) {
+            prepareNextButton?.isEnabled = eligible
+            prepareNextButton?.visibility = if (eligible) View.VISIBLE else View.GONE
+        }
+
         fun syncTarget(index: Int) {
             val next = index.coerceIn(0, 1)
+            if (next != 0) setPrepareNextAvailable(false)
             if (targetPicker.selectedItemPosition != next) targetPicker.setSelection(next)
             branchLabel.text = if (next == 0) "feature/jarvis-developer · Developer"
                 else "main · Personal J.A.R.V.I.S."
@@ -213,6 +222,7 @@ internal object DeveloperHomeWorkspace {
         }
 
         fun reset() {
+            setPrepareNextAvailable(false)
             turns.clear()
             hasUserTurn = false
             response.text = "Your assistant’s response will appear here."
@@ -273,7 +283,8 @@ internal object DeveloperHomeWorkspace {
         saved: Bundle?,
         onRuns: (() -> Unit)? = null,
         onNewTask: (() -> Unit)? = null,
-        onTaskNext: (() -> Unit)? = null
+        onTaskNext: (() -> Unit)? = null,
+        onPrepareNext: (() -> Unit)? = null
     ): Session {
         val original = (0 until home.childCount).map { home.getChildAt(it) }
         val header = original.firstOrNull()
@@ -387,6 +398,24 @@ internal object DeveloperHomeWorkspace {
             setOnClickListener { onTaskNext() }
         })
         taskCard.addView(stageRow)
+        val prepareNextButton = if (onPrepareNext == null) null else Button(activity).apply {
+            text = "Prepare next diff"
+            textSize = 12f
+            isAllCaps = false
+            isEnabled = false
+            visibility = View.GONE
+            tag = "developer-prepare-next-diff"
+            contentDescription = "Generate a new source-scoped Developer diff preview for the eligible saved plan step"
+            setTextColor(activity.getColor(R.color.developer_primary))
+            background = surface(0xFF132F3B.toInt())
+            setOnClickListener { if (isEnabled) onPrepareNext() }
+        }
+        if (prepareNextButton != null) taskCard.addView(prepareNextButton,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.END
+                topMargin = dp(5)
+            })
         taskCard.visibility = if (stageLabel(status.text.toString()) == "READY" && codingStatus.text.isNullOrBlank()) View.GONE else View.VISIBLE
         home.addView(taskCard, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
@@ -539,6 +568,6 @@ internal object DeveloperHomeWorkspace {
         }, LinearLayout.LayoutParams(dp(88), LinearLayout.LayoutParams.WRAP_CONTENT))
         composer.addView(actions)
         return Session(composer, activity, feed, output, phase, taskCard,
-            persistedJob, jobDetails, choice, branchLabel, saved)
+            persistedJob, jobDetails, prepareNextButton, choice, branchLabel, saved)
     }
 }
