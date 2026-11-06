@@ -225,6 +225,9 @@ class MainActivity : Activity() {
         }
         root.addView(homeHandoffStatus)
         var homeAnalysisRevision = 0L
+        // One explicit implementation instruction may advance from source
+        // analysis to a read-only AI diff preview. Never persist or replay it.
+        var pendingAutoPreviewTask: String? = null
         val expandHomeAnalysis = Button(this).apply {
             text = "Show full source findings"
             isAllCaps = false
@@ -244,6 +247,7 @@ class MainActivity : Activity() {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 homeAnalysisRevision++
+                pendingAutoPreviewTask = null
                 reviewHomeAnalysis.isEnabled = false
                 fullHomeAnalysis = null
                 homeAnalysisPlan = null
@@ -281,6 +285,7 @@ class MainActivity : Activity() {
                         // A completed background request must never replace the response
                         // for a newer task entered while the analysis was running.
                         if (homeAnalysisRevision != requestRevision || prompt.text.toString().trim() != task) {
+                            if (pendingAutoPreviewTask == task) pendingAutoPreviewTask = null
                             analyzeFromHome.isEnabled = true
                             return@runOnUiThread
                         }
@@ -301,6 +306,7 @@ class MainActivity : Activity() {
                             // This only prepares a review; it never generates or approves a write.
                             stageHomeAnalysisButton.visibility = View.GONE
                             if (stageHomeAnalysisButton.isEnabled) stageHomeAnalysis?.invoke()
+                            else if (pendingAutoPreviewTask == task) pendingAutoPreviewTask = null
                             fullHomeAnalysis = result.getOrNull()?.second
                             val full = fullHomeAnalysis.orEmpty()
                             val lines = full.lineSequence().toList()
@@ -311,6 +317,8 @@ class MainActivity : Activity() {
                                 expandHomeAnalysis.visibility = View.VISIBLE
                             }
                         }
+                        if (result.isFailure && pendingAutoPreviewTask == task)
+                            pendingAutoPreviewTask = null
                         reviewHomeAnalysis.isEnabled = result.isSuccess && isCurrent
                         analyzeFromHome.isEnabled = true
                     }
@@ -656,10 +664,21 @@ class MainActivity : Activity() {
                 }
             },
             requestDeveloperSourceAnalysis = {
-                // Execute the already reviewed, read-only Home analysis path.
-                // Its completion stages only an eligible scope; it never approves a diff.
+                // Explicit inspection never triggers AI or a source write.
                 if (!analyzeFromHome.isEnabled) false
                 else {
+                    pendingAutoPreviewTask = null
+                    analyzeFromHome.performClick()
+                    true
+                }
+            },
+            requestDeveloperAutonomousPreview = {
+                // User requested an actual Developer implementation. The source
+                // scanner chooses a bounded allowlist; PatchWorkbench creates
+                // only a fresh, exact-source diff PREVIEW (no approval or write).
+                if (!analyzeFromHome.isEnabled || prompt.text.isNullOrBlank()) false
+                else {
+                    pendingAutoPreviewTask = prompt.text.toString().trim()
                     analyzeFromHome.performClick()
                     true
                 }
@@ -1154,15 +1173,24 @@ class MainActivity : Activity() {
                     PatchEngine.allowedPath(it, PatchEngine.Target.DEVELOPER)
                 }.take(PatchEngine.MAX_FILES)
                 val excludedCount = plan.files.size - eligiblePaths.size
-                val loaded = eligiblePaths.isNotEmpty() && patchWorkbench.prepareGuided(
-                    "analysis-" + plan.analysisId.take(16), plan.task,
-                    eligiblePaths, plan.commitSha, PatchEngine.Target.DEVELOPER)
+                val automatic = pendingAutoPreviewTask == plan.task
+                pendingAutoPreviewTask = null  // one use, even if staging fails
+                val taskId = "analysis-" + plan.analysisId.take(16)
+                val loaded = eligiblePaths.isNotEmpty() && if (automatic)
+                    patchWorkbench.continueDeveloperPlan(
+                        taskId, plan.task, eligiblePaths, plan.commitSha)
+                else patchWorkbench.prepareGuided(
+                    taskId, plan.task, eligiblePaths, plan.commitSha,
+                    PatchEngine.Target.DEVELOPER)
                 if (loaded) {
                     homeCodeReviewToggle.visibility = View.VISIBLE
                     homeCodeReview.visibility = View.VISIBLE
                     homeCodeReviewToggle.text = "Close inline code review"
                     stageHomeAnalysisButton.isEnabled = false
-                    homeHandoffStatus.text = "Loaded ${eligiblePaths.size} editable source files at ${plan.commitSha.take(12)}; ${excludedCount} analysis-only paths excluded. Generate a fresh diff and explicitly approve it before any write."
+                    homeHandoffStatus.text = if (automatic)
+                        "Source-scoped Developer diff preview running for ${eligiblePaths.size} files at ${plan.commitSha.take(12)}; ${excludedCount} analysis-only files excluded. Review and approve exact changes before any write."
+                    else
+                        "Loaded ${eligiblePaths.size} editable source files at ${plan.commitSha.take(12)}; ${excludedCount} analysis-only paths excluded. Generate a fresh diff and explicitly approve it before any write."
                     homeHandoffStatus.visibility = View.VISIBLE
                 } else {
                     homeHandoffStatus.text = if (eligiblePaths.isEmpty()) "Analysis found no files eligible for the protected coding scope. Refine the task to Developer Kotlin, Java, or supported XML source. No files were modified." else "Code review could not stage ${eligiblePaths.size} eligible files (workbench busy or source validation rejected). No files were modified."
