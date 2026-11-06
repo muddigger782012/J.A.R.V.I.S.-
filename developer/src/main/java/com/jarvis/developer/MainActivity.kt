@@ -1167,6 +1167,16 @@ class MainActivity : Activity() {
             }
             sectionGroups[section].addView(child)
         }
+        // Repair bookmarks are recovery evidence, not a code-approval control.
+        // Move the ORIGINAL bookmark panel to the visible Track page. Previously
+        // it was trapped inside the collapsed Home diff-review panel, preventing
+        // the owner from loading saved history after an Activity recreation.
+        // This changes view placement only: no bookmark, source scope, approval
+        // or commit capability is recreated or restored.
+        homeCodeReview.findViewWithTag<LinearLayout>("developer-private-repair-history")?.let { history ->
+            (history.parent as? android.view.ViewGroup)?.removeView(history)
+            activityPage.addView(history)
+        }
         // Promote the everyday build and recovery actions into their own section.
         // Keep the original button objects and click listeners.
         listOf(plans, builds, recoveryStatus, confirmHealthy, recovery, iconTest, releaseFeedback.second, releaseFeedback.first).forEach { view ->
