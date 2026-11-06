@@ -33,6 +33,17 @@ class LiveChatChimePolicyTest {
         assertEquals(4_000L, LiveChatChimePolicy.silenceRetryDelayMillis(false, 3, persistentSession = false))
     }
 
+    @Test fun beepProtectionStopsAutomaticSystemAndOnDeviceRestartLoops() {
+        for (onDevice in listOf(false, true)) {
+            assertEquals(LiveChatChimePolicy.Action.RETRY,
+                LiveChatChimePolicy.afterSilence(onDevice, 1, persistentSession = true, avoidRepeatedChimes = true))
+            assertEquals(LiveChatChimePolicy.Action.PAUSE,
+                LiveChatChimePolicy.afterSilence(onDevice, 2, persistentSession = true, avoidRepeatedChimes = true))
+        }
+        assertEquals(LiveChatChimePolicy.Action.RETRY,
+            LiveChatChimePolicy.afterSilence(false, 5, persistentSession = true, avoidRepeatedChimes = false))
+    }
+
     @Test fun providerErrorsAllowOneRecoveryButNotAnUnboundedLoop() {
         assertEquals(LiveChatChimePolicy.Action.RETRY,
             LiveChatChimePolicy.afterProviderError(1))

@@ -54,6 +54,24 @@ class AmbientCompanionSettingsActivity : MenuActivity("Ambient companion") {
         panel.addView(initiative, LinearLayout.LayoutParams(-1, dp(52)))
         panel.addView(label("0% mostly silent  •  100% more proactive", 12f))
 
+        panel.addView(SettingsMenuViews.heading(this, "Continuous microphone speech detection"))
+        val triggerProgress = label("Speech detection sensitivity: ${current.speechDetectionSensitivity}%")
+        panel.addView(triggerProgress)
+        val voiceSensitivity = SeekBar(this).apply {
+            max = 100
+            this.progress = current.speechDetectionSensitivity
+            contentDescription = "Continuous microphone speech detection sensitivity"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
+                    triggerProgress.text = "Speech detection sensitivity: ${value}%"
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            })
+        }
+        panel.addView(voiceSensitivity, LinearLayout.LayoutParams(-1, dp(52)))
+        panel.addView(label("Higher catches quieter speech but may react to workshop noise. Affects the experimental PCM input, not the Hey Jarvis wake-word model.", 12f))
+
         panel.addView(SettingsMenuViews.heading(this, "Participation style"))
         val styles = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
         fun choice(tagValue: String, title: String) = RadioButton(this).apply {
@@ -83,14 +101,17 @@ class AmbientCompanionSettingsActivity : MenuActivity("Ambient companion") {
         }
         val context = option("Maintain conversational context", current.contextEnabled)
         val keepListening = option("Keep Live Chat available until I stop it", current.keepListeningUntilStopped)
+        val avoidChimes = option("Quiet microphone: no wake tone or repeated startup beeps", current.avoidRepeatedChimes)
         val continuousPcm = option("Experimental continuous microphone pipeline (Android 13+)", current.experimentalPcmStream)
         continuousPcm.isEnabled = android.os.Build.VERSION.SDK_INT >= 33
         val interruptions = option("Allow natural interruptions and barge-in", current.interruptionsEnabled)
         val otherSpeakers = option("Respond when other people address Jarvis", current.replyToOtherSpeakers)
+        panel.addView(label("Quiet microphone mode disables Jarvis's own wake-word acknowledgment beep and pauses repeated normal-system recognition after silence to avoid recurring provider tones. Tap the microphone to restart it. The experimental PCM option can remain ready for speech without repeatedly starting recognition, if supported on your device.", 12f))
+        panel.addView(label("Quiet listens without joining in. Companion at 55% can answer an open-ended request for input; higher initiative answers more questions. Active at 75% can join natural questions, and at 90–100% can comment on relevant problems without hearing 'Jarvis' first while Live Chat is open. Such unsolicited replies use text-only AI, never device actions. The microphone cannot yet identify who is speaking, and selected room speech may be sent to your configured AI provider. Use Quiet or lower initiative around others if you want privacy. Recognized nearby speech can also be recalled for up to 90 seconds when context is enabled.", 12f))
         panel.addView(label("The experimental microphone pipeline is OFF by default. If enabled, it tries one persistent audio input with speech-activity detection; some Android recognizers ignore audio injection and will fall back. This is not speaker identification or full-duplex speech.", 12f))
         panel.addView(label("With this option on, Live Chat remains available through long quiet periods. Until the continuous audio engine is finished, Android speech recognition still restarts between turns, and the system provider takes longer rests to reduce repeated chimes. These rests are not active listening. Stop Live Chat when anyone needs privacy.", 12f))
         panel.addView(label("Speaker identification and automatic spoken barge-in are still being developed. These choices are saved now; unknown voices cannot yet be reliably identified as you or another person. The microphone button still works.", 12f))
-        panel.addView(label("Quiet listens without joining in. Companion at 55% can answer an open-ended request for input; higher initiative answers more questions. Active at 75% can join natural questions, and at 90–100% can comment on relevant problems without hearing 'Jarvis' first while Live Chat is open. Such unsolicited replies use text-only AI, never device actions. The microphone cannot yet identify who is speaking, and selected room speech may be sent to your configured AI provider. Use Quiet or lower initiative around others if you want privacy. Recognized nearby speech can also be recalled for up to 90 seconds when context is enabled.", 12f))
+        panel.addView(label("While listening, Jarvis stays quiet unless addressed. With conversational context enabled, he can locally recall up to 90 seconds of nearby speech if you explicitly ask what was discussed. No speaker identity is assumed, and ambient context is cleared when Live Chat ends. The system recognizer may use a network provider.", 12f))
         panel.addView(MaterialButton(this).apply {
             text = "Save companion settings"
             isAllCaps = false
@@ -103,7 +124,9 @@ class AmbientCompanionSettingsActivity : MenuActivity("Ambient companion") {
                     contextEnabled = context.isChecked,
                     replyToOtherSpeakers = otherSpeakers.isChecked,
                     keepListeningUntilStopped = keepListening.isChecked,
-                    experimentalPcmStream = continuousPcm.isChecked && continuousPcm.isEnabled
+                    experimentalPcmStream = continuousPcm.isChecked && continuousPcm.isEnabled,
+                    avoidRepeatedChimes = avoidChimes.isChecked,
+                    speechDetectionSensitivity = voiceSensitivity.progress
                 )
                 runCatching { LiveChatCompanionSettings.save(this@AmbientCompanionSettingsActivity, saved) }
                     .onSuccess {

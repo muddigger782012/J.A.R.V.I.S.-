@@ -9,9 +9,12 @@ package com.assistant.core.services
 internal object LiveChatChimePolicy {
     enum class Action { RETRY, PAUSE }
 
-    fun afterSilence(onDevice: Boolean, consecutiveSilentTurns: Int, persistentSession: Boolean = false): Action = when {
-        // A user-selected persistent Live Chat must not quietly become
-        // permanently unresponsive after three normal no-match results.
+    fun afterSilence(onDevice: Boolean, consecutiveSilentTurns: Int, persistentSession: Boolean = false,
+                     avoidRepeatedChimes: Boolean = false): Action = when {
+        // Android/vendor recognizer tones cannot be muted from this app.
+        // Stop AUTO rearming after two empty turns when the user enables
+        // chime protection; keep Live Chat active for manual mic rearm.
+        avoidRepeatedChimes && consecutiveSilentTurns >= 2 -> Action.PAUSE
         persistentSession -> Action.RETRY
         onDevice -> Action.RETRY
         consecutiveSilentTurns <= 2 -> Action.RETRY

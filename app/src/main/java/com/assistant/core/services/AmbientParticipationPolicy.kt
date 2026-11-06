@@ -58,7 +58,8 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         val permitted = speaker != Speaker.OTHER || preferences.replyToOtherSpeakers
         val advisory = ADVISORY_PROMPT.containsMatchIn(words)
         val question = CONVERSATIONAL_QUESTION.containsMatchIn(words)
-        val relevantObservation = PROBLEM_STATEMENT.containsMatchIn(words)
+        val relevantObservation = PROBLEM_STATEMENT.containsMatchIn(words) ||
+            TROUBLESHOOTING_PROMPT.containsMatchIn(words)
         // Even the approved Companion 55% level can weigh in when asked a
         // clearly open-ended question. Raising initiative broadens this to
         // natural questions and then relevant problem statements; it no longer
@@ -101,7 +102,7 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
             RegexOption.IGNORE_CASE
         )
         private val ADVISORY_PROMPT = Regex(
-            """\b(?:i wonder (?:what|why|how)|i can'?t figure out why|what do you think|can someone help me understand|any idea(?:s)?\s+(?:what|why|how)|what(?:'s| is) (?:wrong|going on))\b""",
+            """\b(?:i wonder (?:what|why|how)|i can'?t figure out (?:why|how|what)|what do you think|can someone help me understand|any ideas(?: why| how)?|what should (?:we|i) do|why does (?:it|this|the)|how (?:can|do) (?:i|we)|do you think (?:it|that)|could use (?:a hand|some help))\b""",
             RegexOption.IGNORE_CASE
         )
         private val CONVERSATIONAL_QUESTION = Regex(
@@ -110,6 +111,10 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         )
         private val PROBLEM_STATEMENT = Regex(
             """\b(?:i (?:can'?t|cannot) (?:figure|understand)|(?:it|this|that|he|she|the microphone|my microphone|the app|the engine|the truck) (?:keeps?|doesn'?t|won'?t)\b|something(?:'s| is) wrong|(?:this|it) is driving me crazy)""",
+            RegexOption.IGNORE_CASE
+        )
+        private val TROUBLESHOOTING_PROMPT = Regex(
+            """\b(?:it keeps (?:stalling|surging|missing|dying|cutting out)|this (?:truck|engine|machine|app|microphone) (?:is|keeps|won't|doesn't)|i'?m trying to (?:fix|figure out|diagnose|repair)|i still can'?t get (?:it|this) to work)\b""",
             RegexOption.IGNORE_CASE
         )
         private val DEVICE_COMMAND = Regex(
