@@ -37,12 +37,17 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         }
         if (preferences.style == "quiet") return Decision.OBSERVE
 
-        val recentAddress = addressedAt
-        if (preferences.contextEnabled && recentAddress != null &&
-            now >= recentAddress && now - recentAddress <= 45_000L &&
-            FOLLOW_UP.containsMatchIn(words)) {
+        // Keep a bounded conversation alive after a direct address or an
+        // offered ambient answer. Natural replies should not require the wake
+        // word every turn, but they must never gain command permissions.
+        val recentConversation = addressedAt
+        val isConversationalFollowUp = FOLLOW_UP.containsMatchIn(words) ||
+            (words.length <= 140 && CONTEXTUAL_REPLY.containsMatchIn(words))
+        if (preferences.contextEnabled && recentConversation != null &&
+            now >= recentConversation && now - recentConversation <= 45_000L &&
+            isConversationalFollowUp && !DEVICE_COMMAND.containsMatchIn(words)) {
             addressedAt = now
-            return Decision.RESPOND
+            return Decision.OFFER_HELP // Strictly text-only; NOT the device router.
         }
 
         // This policy is called only while the user has explicitly opened
@@ -73,6 +78,7 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
             !DEVICE_COMMAND.containsMatchIn(words) &&
             (last == null || now - last >= cooldown)) {
             lastOfferAt = now
+            addressedAt = now // A natural reply to this offer can keep the thread going.
             return Decision.OFFER_HELP
         }
         return Decision.OBSERVE
@@ -90,6 +96,10 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
             """^(?:and |so |then |well )?(?:what about|how about|can you|could you|would you|will you|please |tell me|explain|look that up|check that|why |how |what do you think)\b""",
             RegexOption.IGNORE_CASE
         )
+        private val CONTEXTUAL_REPLY = Regex(
+            """^\s*(?:(?:yes|yeah|yep|no|nope|right|exactly|correct|true)\b|(?:that's|that is)\s+(?:right|correct|it|not it|what i meant|exactly what i meant)\b|(?:it|this|that)\s+(?:still|didn't|doesn't|won't|isn't|wasn't)\b|i\s+(?:tried|did|mean|think|agree|don't think|can't|cannot)\b|(?:keep going|go on|tell me more|explain that|okay[,.]?\s+but)\b)""",
+            RegexOption.IGNORE_CASE
+        )
         private val ADVISORY_PROMPT = Regex(
             """\b(?:i wonder (?:what|why|how)|i can'?t figure out why|what do you think|can someone help me understand|any idea(?:s)?\s+(?:what|why|how)|what(?:'s| is) (?:wrong|going on))\b""",
             RegexOption.IGNORE_CASE
@@ -103,7 +113,7 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
             RegexOption.IGNORE_CASE
         )
         private val DEVICE_COMMAND = Regex(
-            """^\s*(?:stop|start|open|set|turn|call|dial|send|text|delete|install|uninstall|run|launch|navigate|execute|tap|press)\b""",
+            """^\s*(?:please\s+)?(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?)?(?:stop|start|open|set|turn|call|dial|send|text|delete|install|uninstall|run|launch|navigate|execute|tap|press|unlock|lock|approve|pay|transfer|buy|purchase|change|disable|enable|restart)\b""",
             RegexOption.IGNORE_CASE
         )
     }

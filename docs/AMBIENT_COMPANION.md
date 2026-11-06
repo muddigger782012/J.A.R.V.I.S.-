@@ -16,8 +16,11 @@
   The owner explicitly selects the initiative/style to enable this behavior.
   Recognition and text-only AI may send selected room speech to providers.
 - Saying **Jarvis** directs a turn to the full assistant. Companion accepts
-  bounded question-like follow-ups within 45 seconds with context. Quiet
-  speaks only when addressed. High initiative lets Jarvis answer unaddressed
+  bounded question-like **and natural short conversational** follow-ups within
+  45 seconds of the last accepted conversational turn when context is enabled.
+  These unaddressed follow-ups always use the **text-only** AI path; even
+  "can you open/delete/send" does not gain device-action authorization.
+  Quiet speaks only when addressed. High initiative lets Jarvis answer unaddressed
   questions using text-only AI, not action routing, with a bounded cooldown.
   An UNKNOWN speaker remains unidentified; a verified OTHER is still subject
   to the third-party reply toggle. Neither identity is permission for actions.

@@ -23,7 +23,7 @@ class AmbientParticipationPolicyTest {
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE, policy.decide("What about the next one?", settings))
         assertEquals(AmbientParticipationPolicy.Decision.RESPOND, policy.decide("Hey Jarvis, can you check that?", settings))
         millis += 10_000
-        assertEquals(AmbientParticipationPolicy.Decision.RESPOND, policy.decide("And what about the other side?", settings))
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP, policy.decide("And what about the other side?", settings))
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
             policy.decide("Hand him the wrench", settings))
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
@@ -82,6 +82,67 @@ class AmbientParticipationPolicyTest {
             policy.decide("The microphone keeps cutting out", settings.copy(initiative = 70)))
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
             policy.decide("Hand me the wrench", settings))
+    }
+
+
+    @Test fun naturalFollowUpsContinueAsTextOnlyWithNoReawakening() {
+        var millis = 1_000L
+        val policy = AmbientParticipationPolicy { millis }
+        val settings = LiveChatCompanionSettings(style = "companion", initiative = 55)
+        assertEquals(AmbientParticipationPolicy.Decision.RESPOND,
+            policy.decide("Jarvis, help me troubleshoot the microphone", settings))
+        millis += 1_000
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("I tried that and it still cuts out", settings))
+        millis += 1_000
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("That's exactly what I meant", settings))
+        millis += 1_000
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("Go on", settings))
+
+        // An unaddressed conversational reply never gets action authority.
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Can you please delete my messages", settings))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Please open settings", settings))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Will you send a text", settings))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Hand me the wrench", settings))
+
+        millis += 45_001
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("That still didn't work", settings))
+    }
+
+    @Test fun contextualReplyNeedsContextAndDoesNotOverrideQuietMode() {
+        val policy = AmbientParticipationPolicy { 1_000L }
+        val default = LiveChatCompanionSettings()
+        policy.decide("Jarvis, explain the problem", default)
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Exactly", default.copy(contextEnabled = false)))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Exactly", default.copy(style = "quiet")))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Exactly", default, AmbientParticipationPolicy.Speaker.OTHER))
+        policy.reset()
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Exactly", default))
+    }
+
+    @Test fun anAmbientAnswerCanStartANaturalTextOnlyThread() {
+        var millis = 1_000L
+        val policy = AmbientParticipationPolicy { millis }
+        val active = LiveChatCompanionSettings(style = "active", initiative = 100)
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("The microphone keeps cutting out", active))
+        millis += 2_000
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("Yes, that's what I was saying", active))
+        millis += 1_000
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("What about the noise suppression?", active))
     }
 
     @Test fun preferencesNormalizeUnknownValuesAndPreserveApprovedDefaults() {
