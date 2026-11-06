@@ -709,15 +709,19 @@ class MainActivity : Activity() {
         val reviewFromChat = Button(this).apply {
             text = "Review proposed changes"
             isAllCaps = false
-            // An AI explanation is not a patch; never offer a misleading
+            // An AI explanation is not a patch; never show a misleading
             // review action until a source-pinned preview has been started.
             isEnabled = false
+            visibility = View.GONE
             setOnClickListener {
                 if (chatReviewStaged) revealImportedReview?.invoke()
                 else status.text = "No code proposal is staged. Choose one feature and ask Jarvis to implement it."
             }
         }
-        updateChatReviewButton = { ready -> reviewFromChat.isEnabled = ready }
+        updateChatReviewButton = { ready ->
+            reviewFromChat.isEnabled = ready
+            reviewFromChat.visibility = if (ready) View.VISIBLE else View.GONE
+        }
         val reviewPosition = root.indexOfChild(output)
         root.addView(reviewFromChat, reviewPosition + 1)
         projects.addView(refreshProjects)
@@ -1094,7 +1098,9 @@ class MainActivity : Activity() {
         val homeCodeReviewToggle = Button(this).apply {
             text = "Open inline code review"
             isAllCaps = false
+            visibility = View.GONE
             setOnClickListener {
+                visibility = View.VISIBLE
                 val opening = homeCodeReview.visibility != View.VISIBLE
                 homeCodeReview.visibility = if (opening) View.VISIBLE else View.GONE
                 text = if (opening) "Close inline code review" else "Open inline code review"
@@ -1103,6 +1109,7 @@ class MainActivity : Activity() {
         root.addView(homeCodeReviewToggle)
         root.addView(homeCodeReview)
         revealImportedReview = {
+            homeCodeReviewToggle.visibility = View.VISIBLE
             homeCodeReview.visibility = View.VISIBLE
             homeCodeReviewToggle.text = "Close inline code review"
             homeCodeReviewToggle.post { homeCodeReviewToggle.requestRectangleOnScreen(
@@ -1123,6 +1130,7 @@ class MainActivity : Activity() {
                     "analysis-" + plan.analysisId.take(16), plan.task,
                     eligiblePaths, plan.commitSha, PatchEngine.Target.DEVELOPER)
                 if (loaded) {
+                    homeCodeReviewToggle.visibility = View.VISIBLE
                     homeCodeReview.visibility = View.VISIBLE
                     homeCodeReviewToggle.text = "Close inline code review"
                     stageHomeAnalysisButton.isEnabled = false
@@ -1135,6 +1143,7 @@ class MainActivity : Activity() {
             }
         }
         openInlineReview = {
+            homeCodeReviewToggle.visibility = View.VISIBLE
             homeCodeReview.visibility = View.VISIBLE
             homeCodeReviewToggle.text = "Close inline code review"
             homeCodeReviewToggle.post {
