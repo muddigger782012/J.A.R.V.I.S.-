@@ -129,6 +129,22 @@ class DeveloperHomeActivityIntegrationTest {
         assertFalse(button(activity, "Review proposed changes").isEnabled)
         assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
 
+        // Codex-style "New" is a guarded local chat reset, not navigation
+        // to an unrelated page or a bypass of exact-diff approval.
+        val toolbar = all(activity).filterIsInstance<LinearLayout>().single {
+            it.tag == "developer-workspace-toolbar"
+        }
+        val newTask = DeveloperUiState.descendants(toolbar).filterIsInstance<Button>().single {
+            it.text.toString() == "New"
+        }
+        newTask.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(prompt.text.isEmpty())
+        assertFalse(DeveloperUiState.descendants(transcript(activity))
+            .filterIsInstance<LinearLayout>().any { it.tag == "developer-chat-user-turn" })
+        assertTrue(composer.isShown)
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+
         button(activity, "Settings").performClick()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(View.GONE, composer.visibility)
