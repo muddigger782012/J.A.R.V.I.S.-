@@ -98,16 +98,24 @@ class NeuralPcmPlayer(context: Context) {
         }
 
         /** Finish only after the last queued PCM frame has actually played. */
-        fun drain(active: () -> Boolean) {
+        fun drain(active: () -> Boolean, onPlaybackProgress: () -> Unit = {}) {
             val output = track ?: return
             if (timeline.framesQueued == 0L) return
             var deadline = SystemClock.elapsedRealtime() +
                 (timeline.framesQueued * 1000L / timeline.sampleRate + 10_000L).coerceAtMost(300_000L)
             var pausedAt = -1L
+            var lastReportedHead = -1L
+            var lastProgressAt = 0L
             while (active() && !cancelled.get() &&
                 !timeline.isDrained(output.playbackHeadPosition.toLong() and 0xffffffffL)) {
                 check(!focusLost.get()) { "Speech audio focus was permanently lost" }
                 val now = SystemClock.elapsedRealtime()
+                val head = output.playbackHeadPosition.toLong() and 0xffffffffL
+                if (head > lastReportedHead && now - lastProgressAt >= 1000L) {
+                    lastProgressAt = now
+                    lastReportedHead = head
+                    onPlaybackProgress()
+                }
                 if (temporaryFocusLoss.get()) {
                     if (pausedAt < 0L) pausedAt = now
                     check(now - pausedAt < 60_000L) { "Temporary audio focus was not restored" }

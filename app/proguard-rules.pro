@@ -6,3 +6,11 @@
 }
 -keepattributes *Annotation*
 
+
+# Sherpa 1.13.8 native callback calls invoke([F)Ljava/lang/Integer; on
+# the concrete object. R8 may remove that typed bridge on a Kotlin lambda.
+# Preserve only our stable Java JNI adapter in both release and voiceCheck.
+-keep class com.assistant.core.services.NativeTtsCallback { *; }
+# NativeTtsCallback.Consumer is implemented in the separately compiled test APK.
+# R8 must not merge or rename this interface (ClassCastException at runtime).
+-keep interface com.assistant.core.services.NativeTtsCallback$Consumer { *; }
