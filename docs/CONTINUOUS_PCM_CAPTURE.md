@@ -33,3 +33,18 @@ Limitations:
 This architecture is an incremental transition from repeated microphone
 ownership to one explicitly started, continuously owned audio source. It is
 not intended for a silent background recording mode.
+
+
+## Speech-triggered PCM (follow-up)
+
+In opted-in PCM mode, the app's single AudioRecord now monitors PCM energy
+without starting Android SpeechRecognizer while the room is quiet. The first
+confirmed speech onset starts one recognition session and feeds up to 500 ms of
+bounded RAM-only preroll into its input descriptor. The next recognition attempt
+waits for the next speech onset rather than cycling the provider during silence.
+Normal recognizer fallback is retained for unsupported vendor implementations.
+
+The gate remains a basic energy detector, not neural VAD. It can false-trigger
+on equipment noise or miss quiet speakers, and Android can still chime when a
+recognizer **actually starts**. Device testing is required before enabling PCM
+mode by default.
