@@ -25,6 +25,7 @@ class SettingsActivity : MenuActivity("Settings") {
         panel.addView(SettingsMenuViews.heading(this, "Settings").apply { textSize = 24f })
         section("Voice")
         destination("Wake word and listening", "Activation, sensitivity and command recognition", R.drawable.ic_composer_mic, VoiceSettingsActivity::class.java)
+        destination("Ambient companion", "When Jarvis listens, responds and stays silent", R.drawable.ic_jarvis_core, AmbientCompanionSettingsActivity::class.java)
         destination("Assistant voice", "Voice choices, previews and spoken responses", R.drawable.ic_composer_headset, AssistantVoiceSettingsActivity::class.java)
         destination("My voice profile", "Practice phrases and approved speech hints", R.drawable.ic_composer_mic, VoiceProfileActivity::class.java)
         section("Personalize")

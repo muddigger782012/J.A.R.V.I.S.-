@@ -78,6 +78,7 @@ class VoiceForegroundService : Service() {
         override fun onReceive(context: Context?, intent: Intent?) { dialogueOverlay.refresh(liveChatActive) }
     }
     private val liveSession = LiveChatSession()
+    private val ambientParticipation = AmbientParticipationPolicy()
     private val liveHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val liveCapture by lazy { LiveSpeechCapture(this) }
     private var liveMessage = ""
@@ -225,6 +226,7 @@ class VoiceForegroundService : Service() {
                         liveSession.configureIdleTimeout(RuntimeSettings.read(this, "voice_settings")
                             .getLong("live_idle_millis", 300_000))
                         liveSession.start()
+                        ambientParticipation.reset()
                         liveSilenceTurns = 0
                         liveEngineOnDevice = false
                         liveStatus(VoiceInteractionState.LISTENING, "Starting live chat…")
@@ -415,6 +417,16 @@ class VoiceForegroundService : Service() {
                     if (liveChatActive && liveSession.transcript(turn)) {
                         liveFailures = 0
                         liveSilenceTurns = 0
+                        val participation = ambientParticipation.decide(text, LiveChatCompanionSettings.load(this))
+                        // Ambient observations must never reach command execution or the AI router.
+                        // STOP remains a reliable explicit exit even in Quiet mode.
+                        if (participation == AmbientParticipationPolicy.Decision.OBSERVE &&
+                            LiveChatCommands.parse(text) != LiveChatCommands.Control.STOP) {
+                            if (liveSession.recover(turn)) {
+                                liveStatus(VoiceInteractionState.IDLE, "Listening; no response needed.")
+                                nextLiveTurn(250L)
+                            }
+                        } else {
                         liveLine("You: $text")
                         if (packageName == "com.assistant.core" && !VoiceDevelopmentApprovalScope.valid(text, developmentScope, DevelopmentInstallConsent.voiceScope())) {
                             liveSession.response(turn)
@@ -469,6 +481,7 @@ class VoiceForegroundService : Service() {
                                 }
                             }, 60000L)
                         }
+                        } // End response-worthy ambient decision.
                     }
                 },
                 onError = { error -> liveCaptureError(turn, error) },
