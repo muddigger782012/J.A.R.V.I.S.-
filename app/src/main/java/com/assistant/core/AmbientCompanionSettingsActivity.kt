@@ -101,12 +101,12 @@ class AmbientCompanionSettingsActivity : MenuActivity("Ambient companion") {
         }
         val context = option("Maintain conversational context", current.contextEnabled)
         val keepListening = option("Keep Live Chat available until I stop it", current.keepListeningUntilStopped)
-        val avoidChimes = option("Prevent repeated microphone startup beeps", current.avoidRepeatedChimes)
+        val avoidChimes = option("Quiet microphone: no wake tone or repeated startup beeps", current.avoidRepeatedChimes)
         val continuousPcm = option("Experimental continuous microphone pipeline (Android 13+)", current.experimentalPcmStream)
         continuousPcm.isEnabled = android.os.Build.VERSION.SDK_INT >= 33
         val interruptions = option("Allow natural interruptions and barge-in", current.interruptionsEnabled)
         val otherSpeakers = option("Respond when other people address Jarvis", current.replyToOtherSpeakers)
-        panel.addView(label("When beep prevention is enabled, normal system recognition pauses after repeated silence instead of sounding the mic-start tone again and again. Tap the microphone to restart it. The experimental PCM option can remain ready for speech without repeatedly starting recognition, if supported on your device.", 12f))
+        panel.addView(label("Quiet microphone mode disables Jarvis's own wake-word acknowledgment beep and pauses repeated normal-system recognition after silence to avoid recurring provider tones. Tap the microphone to restart it. The experimental PCM option can remain ready for speech without repeatedly starting recognition, if supported on your device.", 12f))
         panel.addView(label("High initiative (80%+ in Companion or 60%+ in Active) allows occasional useful replies without saying Jarvis first. Jarvis still does not know who is speaking, and direct commands require explicit interaction.", 12f))
         panel.addView(label("The experimental microphone pipeline is OFF by default. If enabled, it tries one persistent audio input with speech-activity detection; some Android recognizers ignore audio injection and will fall back. This is not speaker identification or full-duplex speech.", 12f))
         panel.addView(label("With this option on, Live Chat remains available through long quiet periods. Until the continuous audio engine is finished, Android speech recognition still restarts between turns, and the system provider takes longer rests to reduce repeated chimes. These rests are not active listening. Stop Live Chat when anyone needs privacy.", 12f))
