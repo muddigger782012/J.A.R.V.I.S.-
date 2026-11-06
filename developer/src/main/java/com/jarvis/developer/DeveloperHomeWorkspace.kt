@@ -51,7 +51,7 @@ internal object DeveloperHomeWorkspace {
                 it in setOf("PASSED", "FAILED", "RUNNING", "PENDING", "BLOCKED", "UNKNOWN", "NOT_RUN")
             } ?: "Unverified")
         }
-        return "$summary\\n$state\\n$gates"
+        return "$summary\n$state\n$gates"
     }
 
     internal class Session(
