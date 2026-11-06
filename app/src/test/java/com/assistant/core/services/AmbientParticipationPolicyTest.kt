@@ -116,10 +116,13 @@ class AmbientParticipationPolicyTest {
             policy.decide("What about noise suppression?", active.copy(initiative = 0)))
     }
 
-    @Test fun companionAtApproved55RespondsToAdvisoryRequestsButNotEveryQuestion() {
+    @Test fun companionAtApproved55AnswersClearQuestionsAndAdvisoryRequests() {
         val policy = AmbientParticipationPolicy { 1_000L }
-        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
             policy.decide("Why does the engine surge", LiveChatCompanionSettings(style = "companion", initiative = 55)))
+        policy.reset()
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("What about that other one", LiveChatCompanionSettings(style = "companion", initiative = 55)))
         assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
             policy.decide("I wonder why it is surging", LiveChatCompanionSettings(style = "companion", initiative = 55)))
         policy.reset()
@@ -202,6 +205,36 @@ class AmbientParticipationPolicyTest {
         millis += 1_000
         assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
             policy.decide("What about the noise suppression?", active))
+    }
+
+    @Test fun defaultCompanionDoesNotIgnoreClearQuestions() {
+        val settings = LiveChatCompanionSettings()
+        for (spoken in listOf("Can you hear me?", "Are you there?", "How do I test the microphone?",
+            "Why did Jarvis stop talking?", "Tell me why the engine is surging", "Hello")) {
+            assertEquals(spoken, AmbientParticipationPolicy.Decision.OFFER_HELP,
+                AmbientParticipationPolicy { 1_000L }.decide(spoken, settings))
+        }
+        for (spoken in listOf("Pass me the wrench", "Please delete my messages",
+            "Can you please install that app", "Jarvis has several problems")) {
+            assertEquals(spoken, AmbientParticipationPolicy.Decision.OBSERVE,
+                AmbientParticipationPolicy { 1_000L }.decide(spoken, settings))
+        }
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            AmbientParticipationPolicy { 1_000L }.decide("Why is it stalling?", settings.copy(style = "quiet")))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            AmbientParticipationPolicy { 1_000L }.decide("Why is it stalling?", settings,
+                AmbientParticipationPolicy.Speaker.OTHER))
+    }
+
+    @Test fun directPersonalAddressHandlesNaturalOpeningWithoutAComma() {
+        val settings = LiveChatCompanionSettings(style = "quiet")
+        for (spoken in listOf("Hey Jarvis I need your help", "Jarvis are you there",
+            "Hello Jarvis we have a problem", "Jarvis, how are you?")) {
+            assertEquals(spoken, AmbientParticipationPolicy.Decision.RESPOND,
+                AmbientParticipationPolicy { 1_000L }.decide(spoken, settings))
+        }
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            AmbientParticipationPolicy { 1_000L }.decide("Jarvis has been buggy", settings))
     }
 
     @Test fun preferencesNormalizeUnknownValuesAndPreserveApprovedDefaults() {
