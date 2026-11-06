@@ -4,8 +4,10 @@ package com.assistant.core.services
  * First conservative participation gate for Ambient Companion mode.
  *
  * Without voice diarization an Android transcript has no trusted speaker ID.
- * UNKNOWN is never treated as OWNER for spontaneous replies. Live Chat keeps
- * listening without sending passive room speech to the AI or executing commands.
+ * UNKNOWN is never treated as verified OWNER. In an explicitly started
+ * Personal Live Chat the user may select high-initiative participation:
+ * question-like unknown speech can generate conversational text ONLY, never
+ * device commands, and known OTHER speakers remain subject to their toggle.
  */
 class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { System.nanoTime() / 1_000_000 }) {
     enum class Speaker { OWNER, OTHER, UNKNOWN }
@@ -43,15 +45,21 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
             return Decision.RESPOND
         }
 
-        // No verified owner diarization exists yet. In active mode a high
-        // initiative setting can offer *advice* only on an explicit request
-        // for input and only when the owner is known or the user explicitly
-        // opted in to broader room participation.
-        val speakerPermitted = speaker == Speaker.OWNER || preferences.replyToOtherSpeakers
+        // This policy is called only while the user has explicitly opened
+        // Live Chat. Active/very-high-initiative Companion opts into answering
+        // question-like room conversation without a wake word. UNKNOWN is not
+        // proof of the owner's identity: OFFER_HELP must NEVER use the device
+        // action router, confirmations, or privilege-bearing commands.
+        val optedIntoAmbientTalk = (preferences.style == "active" && preferences.initiative >= 75) ||
+            (preferences.style == "companion" && preferences.initiative >= 95)
+        val permitted = speaker != Speaker.OTHER || preferences.replyToOtherSpeakers
+        val questionLike = CONVERSATIONAL_QUESTION.containsMatchIn(words) ||
+            ADVISORY_PROMPT.containsMatchIn(words)
+        val cooldown = (50_000L - preferences.initiative * 350L).coerceIn(15_000L, 50_000L)
         val last = lastOfferAt
-        if (preferences.style == "active" && preferences.initiative >= 70 &&
-            speakerPermitted && ADVISORY_PROMPT.containsMatchIn(words) &&
-            (last == null || now - last >= 90_000L)) {
+        if (optedIntoAmbientTalk && permitted && questionLike &&
+            !DEVICE_COMMAND.containsMatchIn(words) &&
+            (last == null || now - last >= cooldown)) {
             lastOfferAt = now
             return Decision.OFFER_HELP
         }
@@ -71,7 +79,15 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
             RegexOption.IGNORE_CASE
         )
         private val ADVISORY_PROMPT = Regex(
-            """\b(?:i wonder (?:what|why|how)|i can'?t figure out why|what do you think|can someone help me understand)\b""",
+            """\b(?:i wonder (?:what|why|how)|i can'?t figure out why|what do you think|can someone help me understand|any idea(?:s)?\s+(?:what|why|how)|what(?:'s| is) (?:wrong|going on))\b""",
+            RegexOption.IGNORE_CASE
+        )
+        private val CONVERSATIONAL_QUESTION = Regex(
+            """^(?:(?:well|so|and|okay|hey)\s+)?(?:what|why|how|where|when|who|is|are|can|could|should|would|do|does|did)\b""",
+            RegexOption.IGNORE_CASE
+        )
+        private val DEVICE_COMMAND = Regex(
+            """^\s*(?:stop|start|open|set|turn|call|dial|send|text|delete|install|uninstall|run|launch|navigate|execute|tap|press)\b""",
             RegexOption.IGNORE_CASE
         )
     }

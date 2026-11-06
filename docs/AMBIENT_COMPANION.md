@@ -7,15 +7,19 @@
   conversation-context toggle, interruption preference, third-party
   response preference, and **Keep Live Chat available until I stop it**. Save persists an atomic, per-installation file and is
   re-read from the microphone service in the separate `:wake` process.
-- Live Chat now **observes ordinary room speech silently**. It does not send
-  uninterpreted ambient utterances to the AI/action router, does not speak,
-  and immediately returns to listening.
-- Saying **Jarvis** directs a turn to the assistant. The Companion profile
-  accepts bounded, question-like follow-ups within 45 seconds when context
-  is enabled. Quiet only responds when addressed. Active may offer limited
-  advice when the initiative threshold is high and speaker permission is
-  present. Unknown speakers are *not* assumed to be the owner for proactive
-  participation.
+- Live Chat observes casual room speech without treating it as a command.
+  At **Companion initiative 95–100%** or **Active initiative 75–100%**, it may
+  reply to question-like unaddressed conversation when Live Chat is explicitly
+  open. Such turns use a separate **text-only AI path** that cannot execute
+  device commands. Directly addressed Jarvis requests retain normal routing.
+  The owner explicitly selects the initiative/style to enable this behavior.
+  Recognition and text-only AI may send selected room speech to providers.
+- Saying **Jarvis** directs a turn to the full assistant. Companion accepts
+  bounded question-like follow-ups within 45 seconds with context. Quiet
+  speaks only when addressed. High initiative lets Jarvis answer unaddressed
+  questions using text-only AI, not action routing, with a bounded cooldown.
+  An UNKNOWN speaker remains unidentified; a verified OTHER is still subject
+  to the third-party reply toggle. Neither identity is permission for actions.
 - Personal Live Chat can now stay active across long quiet periods when the new
   toggle is enabled (default on for explicitly started Personal Live Chat only).
   The existing timeout remains available when the toggle is off, and the Beta
@@ -25,16 +29,17 @@
   not remove Android microphone/battery/provider restrictions or turn-based ASR.
 - Existing explicit `stop live chat` commands still work, even in Quiet mode.
   Mic button behavior, wake-word engine, TTS, signer and updater are unchanged.
-- Passive room speech is **not** submitted to Jarvis's AI/action router or added to saved Live Chat history. A bounded 90-second in-memory window now permits explicitly requested local recall; quoting an observation in the answer can appear in visible chat history. Speech-to-text may still use Android's network recognizer.
+- Ordinary passive room speech is **not** submitted to Jarvis's privileged action router. High-initiative conversational questions may be submitted to text-only AI and may appear in visible chat history. A bounded 90-second in-memory window now permits explicitly requested local recall; quoting an observation in the answer can appear in visible chat history. Speech-to-text may still use Android's network recognizer.
 
 ## Important limits (not yet implemented)
 
 - **Speaker recognition / diarization:** Android's recognizer supplies text,
   not a reliable person identity. The third-party setting is persisted and
   supported by the participation policy, but the service passes UNKNOWN until
-  a separate voice-identity/diarization component exists. Direct address
-  from an unknown voice can still be answered, even when third-party replies
-  are off. Do not advertise this switch as an existing security or voice-ID gate.
+  a separate voice-identity/diarization component exists. High-initiative
+  text-only responses may therefore answer people other than the owner.
+  Direct address from an unknown voice can also be answered. Do not advertise
+  this switch as an existing security or voice-ID gate.
 - **Full duplex / spoken barge-in:** the manual microphone interruption path
   is preserved, but speech and recognition are still sequenced. The stored
   interruption setting is for later automatic barge-in implementation.

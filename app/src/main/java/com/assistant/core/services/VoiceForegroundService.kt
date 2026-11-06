@@ -521,7 +521,16 @@ class VoiceForegroundService : Service() {
                             // prepending a transcript here can hide actionable commands
                             // (Developer tasks, reminders, confirmations) from parsers.
                             val replyStartedAt = android.os.SystemClock.elapsedRealtime()
-                            askAssistant(text) { reply ->
+                            // Unaddressed high-initiative conversation is text-only
+                            // AI. Never send it through the privileged action router.
+                            val dispatch: ((HybridAssistantReply) -> Unit) -> Unit =
+                                if (participation == AmbientParticipationPolicy.Decision.OFFER_HELP) {
+                                    { deliver -> hybridAssistantService.respondToAmbientConversationAsync(
+                                        text, companionSettings.contextEnabled, deliver) }
+                                } else {
+                                    { deliver -> askAssistant(text, deliver) }
+                                }
+                            dispatch { reply ->
                                 liveHandler.post {
                                     if (!liveChatActive || liveSession.token != turn ||
                                         liveSession.phase != LiveChatSession.Phase.THINKING) return@post

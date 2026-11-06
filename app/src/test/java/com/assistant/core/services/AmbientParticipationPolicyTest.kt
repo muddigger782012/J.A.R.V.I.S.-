@@ -33,20 +33,40 @@ class AmbientParticipationPolicyTest {
             policy.decide("Can you check the timing?", settings))
     }
 
-    @Test fun unknownSpeakerNeverTriggersUnsolicitedHelpWithoutOptIn() {
+    @Test fun activeMaxInitiativeAnswersUnaddressedQuestionsWithoutOwnerIdentity() {
         var time = 1_000L
         val policy = AmbientParticipationPolicy { time }
         val active = LiveChatCompanionSettings(style = "active", initiative = 100)
-        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
-            policy.decide("I can't figure out why the pressure drops", active))
         assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
-            policy.decide("I can't figure out why the pressure drops", active, AmbientParticipationPolicy.Speaker.OWNER))
+            policy.decide("I can't figure out why the pressure drops", active))
+        time += 16_000L
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("What should we try next", active))
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
-            policy.decide("Jarvis, help", active, AmbientParticipationPolicy.Speaker.OTHER))
-        time += 90_000L
+            policy.decide("Can you find the problem", active)) // Cooldown prevents constant interruptions.
+        time += 16_000L
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Hand me that thirteen millimeter wrench", active))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Open my messages", active)) // No unaddressed device actions.
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("I wonder what makes it surge", active, AmbientParticipationPolicy.Speaker.OTHER))
         assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
             policy.decide("I wonder what makes it surge", active.copy(replyToOtherSpeakers = true),
                 AmbientParticipationPolicy.Speaker.OTHER))
+    }
+
+    @Test fun highCompanionInitiativeEnablesConversationButModerateAndQuietRemainSilent() {
+        val policy = AmbientParticipationPolicy { 1_000L }
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Why does the engine surge", LiveChatCompanionSettings(style = "companion", initiative = 55)))
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("Why does the engine surge", LiveChatCompanionSettings(style = "companion", initiative = 100)))
+        policy.reset()
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Why does the engine surge", LiveChatCompanionSettings(style = "quiet", initiative = 100)))
+        assertEquals(AmbientParticipationPolicy.Decision.RESPOND,
+            policy.decide("Jarvis, why does it surge", LiveChatCompanionSettings(style = "quiet")))
     }
 
     @Test fun preferencesNormalizeUnknownValuesAndPreserveApprovedDefaults() {
