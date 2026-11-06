@@ -51,6 +51,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (activePage == 2) developmentHistory?.refreshNow()
+        if (activePage == 0) homeWorkspace?.refreshJobEvidence()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -1331,8 +1332,12 @@ class MainActivity : Activity() {
                 if (remember) pageHistory.add(activePage)
             }
             val enteringTrack = next == 2 && activePage != 2
+            val previousPage = activePage
             activePage = next
-            if (next == 0) homeWorkspace?.syncTarget(guidedTarget?.selectedItemPosition ?: 0)
+            if (next == 0) {
+                homeWorkspace?.syncTarget(guidedTarget?.selectedItemPosition ?: 0)
+                if (activePage != previousPage) homeWorkspace?.refreshJobEvidence()
+            }
             homeWorkspace?.composer?.visibility = if (next == 0) View.VISIBLE else View.GONE
             if (enteringTrack) developmentHistory?.refreshNow()
             pages.forEachIndexed { pageIndex, page ->
