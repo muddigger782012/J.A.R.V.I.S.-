@@ -142,8 +142,9 @@ class LiveChatSessionTest {
         session.start()
         assertNotNull(session.listen())
         elapsed += 60_000
-        assertNull(session.listen())
+        assertFalse(session.silence(session.token))
         assertFalse(session.active)
+        assertNull(session.listen())
     }
 
     @Test fun timedOutReplyAndOldTtsCompletionCannotAdvanceANewerLiveTurn() {
