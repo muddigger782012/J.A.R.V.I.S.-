@@ -50,7 +50,13 @@ class PersonalRepairDeviceTest {
     private fun button(activity: MainActivity, text: String) = buttons(activity).single { it.text.toString() == text }
     private fun openTools(activity: MainActivity, sectionName: String = "Assistant diagnostics") {
         if (sectionName == "Code changes and review") {
-            button(activity, "Track").performClick()
+            // Source review lives in the Home inline panel; Track shows job
+            // history. Exercise the same destination after Activity recreation.
+            button(activity, "Home").performClick()
+            val toggle = buttons(activity).single {
+                it.text.toString() in setOf("Open inline code review", "Close inline code review")
+            }
+            if (toggle.text.toString() == "Open inline code review") toggle.performClick()
             assertTrue(button(activity, "Load private repair history (local only)").isShown)
             return
         }
@@ -70,6 +76,28 @@ class PersonalRepairDeviceTest {
     }
     private fun intent(text: String) = Intent(context, MainActivity::class.java).setAction(Intent.ACTION_SEND)
         .setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+
+    @Test fun advancedCodeReviewShortcutReopensActualHomePanelAfterActivityRecreation() {
+        ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
+            repeat(2) { round ->
+                scenario.onActivity { activity ->
+                    button(activity, "Settings").performClick()
+                    button(activity, "Advanced tools").performClick()
+                    val section = buttons(activity).single {
+                        it.contentDescription?.toString() in setOf(
+                            "Open Code changes and review tools", "Close Code changes and review tools")
+                    }
+                    if (section.contentDescription?.toString()?.startsWith("Open ") == true)
+                        section.performClick()
+                    button(activity, "Open code review on Home").performClick()
+                    assertTrue("Existing Home code-review tools must be visible from Advanced",
+                        button(activity, "Load private repair history (local only)").isShown)
+                    noApproval(activity)
+                }
+                if (round == 0) scenario.recreate()
+            }
+        }
+    }
 
     @Test fun publicSourceReviewStagesPersonalScopeButNeverApprovesOrCallsAProvider() {
         ActivityScenario.launch<MainActivity>(intent(share())).use { scenario ->

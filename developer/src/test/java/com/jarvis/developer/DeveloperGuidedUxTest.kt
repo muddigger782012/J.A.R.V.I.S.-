@@ -130,6 +130,28 @@ class DeveloperGuidedUxTest {
         assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
     }
 
+    @Test fun advancedShortcutOpensRealHomeCodeReviewBeforeAndAfterRecreation() {
+        val activity = start()
+        fun routeToReview(target: MainActivity) {
+            button(target, "Settings").performClick()
+            button(target, "Advanced tools").performClick()
+            idle()
+            assertEquals("developer-page-4", page(target))
+            val category = button(target, "Code changes and review")
+            if (category.contentDescription.toString().startsWith("Open ")) category.performClick()
+            button(target, "Open code review on Home").performClick()
+            idle()
+            assertEquals("developer-page-0", page(target))
+            assertTrue(button(target, "Load private repair history (local only)").isShown)
+            assertTrue(button(target, "Close inline code review").isShown)
+            assertFalse(button(target, "Create task branch and commit approved files (writes)").isEnabled)
+        }
+        routeToReview(activity)
+        controller!!.recreate()
+        idle()
+        routeToReview(controller!!.get())
+    }
+
     @Test fun analyzedFileHandoffRequiresSuccessfulReadOnlyAnalysis() {
         val activity = start()
         val stage = button(activity, "Load analyzed files into code review")
