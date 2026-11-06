@@ -226,6 +226,10 @@ class VoiceForegroundService : Service() {
                         liveChatActive = true
                         liveSession.configureIdleTimeout(RuntimeSettings.read(this, "voice_settings")
                             .getLong("live_idle_millis", 300_000))
+                        // Only explicitly started Personal Live Chat can bypass inactivity
+                        // expiry. The visible foreground microphone and Stop action remain.
+                        liveSession.configurePersistentListening(packageName == "com.assistant.core" &&
+                            LiveChatCompanionSettings.load(this).keepListeningUntilStopped)
                         liveSession.start()
                         ambientParticipation.reset()
                         ambientContext.clear()

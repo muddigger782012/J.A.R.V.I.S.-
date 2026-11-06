@@ -56,6 +56,9 @@ class AmbientParticipationPolicyTest {
         assertEquals(true, defaults.interruptionsEnabled)
         assertEquals(true, defaults.contextEnabled)
         assertEquals(false, defaults.replyToOtherSpeakers)
+        assertEquals(true, defaults.keepListeningUntilStopped)
+        assertEquals(false, LiveChatCompanionSettings.fromJson(
+            LiveChatCompanionSettings(keepListeningUntilStopped = false).toJson()).keepListeningUntilStopped)
         val invalid = LiveChatCompanionSettings(style = "other", initiative = -20).normalized()
         assertEquals("companion", invalid.style)
         assertEquals(0, invalid.initiative)

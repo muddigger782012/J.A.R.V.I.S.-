@@ -4,8 +4,8 @@
 
 - **Settings → Voice → Ambient companion** is a real Android editor, with the
   initiative slider (default 55%), Quiet / Companion / Active participation,
-  conversation-context toggle, interruption preference, and third-party
-  response preference. Save persists an atomic, per-installation file and is
+  conversation-context toggle, interruption preference, third-party
+  response preference, and **Keep Live Chat listening until I stop it**. Save persists an atomic, per-installation file and is
   re-read from the microphone service in the separate `:wake` process.
 - Live Chat now **observes ordinary room speech silently**. It does not send
   uninterpreted ambient utterances to the AI/action router, does not speak,
@@ -16,6 +16,11 @@
   advice when the initiative threshold is high and speaker permission is
   present. Unknown speakers are *not* assumed to be the owner for proactive
   participation.
+- Personal Live Chat can now stay active across long quiet periods when the new
+  toggle is enabled (default on for explicitly started Personal Live Chat only).
+  The existing timeout remains available when the toggle is off, and the Beta
+  package retains its previous timeout behavior. This does not remove
+  Android microphone/battery/provider restrictions or turn-based ASR.
 - Existing explicit `stop live chat` commands still work, even in Quiet mode.
   Mic button behavior, wake-word engine, TTS, signer and updater are unchanged.
 - Passive room speech is **not** submitted to Jarvis's AI/action router or added to saved Live Chat history. A bounded 90-second in-memory window now permits explicitly requested local recall; quoting an observation in the answer can appear in visible chat history. Speech-to-text may still use Android's network recognizer.

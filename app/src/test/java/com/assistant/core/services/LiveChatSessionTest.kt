@@ -121,6 +121,31 @@ class LiveChatSessionTest {
         time = 300_000
         assertNull(session.listen()); assertFalse(session.active)
     }
+    @Test fun explicitPersistentLiveChatSurvivesLongSilenceUntilStopped() {
+        var elapsed = 0L
+        val session = LiveChatSession(now = { elapsed })
+        session.configureIdleTimeout(60_000)
+        session.configurePersistentListening(true)
+        session.start()
+        repeat(10) {
+            elapsed += 900_000
+            assertTrue(session.silence(session.listen()!!))
+            assertTrue(session.active)
+        }
+        val activeTurn = session.listen()!!
+        assertTrue(session.transcript(activeTurn))
+        session.stop()
+        assertFalse(session.active)
+        assertFalse(session.response(activeTurn))
+        assertNull(session.listen())
+        session.configurePersistentListening(false)
+        session.start()
+        assertNotNull(session.listen())
+        elapsed += 60_000
+        assertNull(session.listen())
+        assertFalse(session.active)
+    }
+
     @Test fun timedOutReplyAndOldTtsCompletionCannotAdvanceANewerLiveTurn() {
         val session = LiveChatSession()
         session.start(); val old = session.listen()!!
