@@ -39,8 +39,8 @@ class AmbientParticipationPolicyTest {
         val active = LiveChatCompanionSettings(style = "active", initiative = 100)
         assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
             policy.decide("I can't figure out why the pressure drops", active))
-        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
-            policy.decide("I can't figure out why the pressure drops", active, AmbientParticipationPolicy.Speaker.OWNER)) // Answered exchange can continue text-only.
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("I can't figure out why the pressure drops", active, AmbientParticipationPolicy.Speaker.OWNER)) // Duplicate provider turn must not trigger a second response.
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
             policy.decide("Jarvis, help", active, AmbientParticipationPolicy.Speaker.OTHER))
         time += 90_000L
@@ -83,8 +83,8 @@ class AmbientParticipationPolicyTest {
         time += 16_000L
         assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
             policy.decide("What should we try next", active))
-        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
-            policy.decide("Can you find the problem", active)) // Thread followup; text-only.
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Can you find the problem", active)) // Same-moment follow-up is duplicate-suppressed.
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
             policy.decide("I wonder what makes it surge", active)) // Separate spontaneous offer on cooldown.
         time += 16_000L
@@ -97,6 +97,23 @@ class AmbientParticipationPolicyTest {
         assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
             policy.decide("I wonder what makes it surge", active.copy(replyToOtherSpeakers = true),
                 AmbientParticipationPolicy.Speaker.OTHER))
+    }
+
+    @Test fun rapidAmbientTurnsAreDebouncedButRealFollowUpsRemainAvailable() {
+        var clock = 1_000L
+        val policy = AmbientParticipationPolicy { clock }
+        val active = LiveChatCompanionSettings(style = "active", initiative = 100)
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("The microphone keeps cutting out", active))
+        clock += 200L
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("What about noise suppression?", active))
+        clock += 800L
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("What about noise suppression?", active))
+        policy.reset()
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("What about noise suppression?", active.copy(initiative = 0)))
     }
 
     @Test fun companionAtApproved55RespondsToAdvisoryRequestsButNotEveryQuestion() {

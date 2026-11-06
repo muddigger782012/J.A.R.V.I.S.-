@@ -520,7 +520,10 @@ class VoiceForegroundService : Service() {
                         liveFailures = 0
                         liveSilenceTurns = 0
                         val companionSettings = LiveChatCompanionSettings.load(this)
-                        if (!companionSettings.contextEnabled) ambientContext.clear()
+                        if (!companionSettings.contextEnabled) {
+                            ambientContext.clear()
+                            hybridAssistantService.clearAmbientConversation()
+                        }
                         val participation = ambientParticipation.decide(text, companionSettings)
                         // Ambient observations must never reach command execution or the AI router.
                         // STOP remains a reliable explicit exit even in Quiet mode.
