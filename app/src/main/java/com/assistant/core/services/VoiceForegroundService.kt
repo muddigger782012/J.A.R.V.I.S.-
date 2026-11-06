@@ -609,10 +609,12 @@ class VoiceForegroundService : Service() {
                 val silentTurns = ++liveSilenceTurns
                 val persistentSession = packageName == "com.assistant.core" &&
                     LiveChatCompanionSettings.load(this).keepListeningUntilStopped
-                when (LiveChatChimePolicy.afterSilence(liveEngineOnDevice, silentTurns, persistentSession)) {
+                val settings = LiveChatCompanionSettings.load(this)
+                when (LiveChatChimePolicy.afterSilence(liveEngineOnDevice, silentTurns, persistentSession,
+                        settings.avoidRepeatedChimes && pcmSource == null)) {
                     LiveChatChimePolicy.Action.PAUSE ->
                         liveStatus(VoiceInteractionState.IDLE,
-                            "System microphone paused after repeated silence to avoid recurring notification tones. Tap the microphone to resume.")
+                            "Mic-start beeps prevented: recognition is paused after silence. Tap the microphone to resume; experimental PCM can listen without repeated startup.")
                     LiveChatChimePolicy.Action.RETRY -> {
                         if (persistentSession && !liveEngineOnDevice) {
                             liveStatus(VoiceInteractionState.IDLE,

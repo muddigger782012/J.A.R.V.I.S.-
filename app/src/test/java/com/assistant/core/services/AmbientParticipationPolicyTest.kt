@@ -37,9 +37,9 @@ class AmbientParticipationPolicyTest {
         var time = 1_000L
         val policy = AmbientParticipationPolicy { time }
         val active = LiveChatCompanionSettings(style = "active", initiative = 100)
-        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
-            policy.decide("I can't figure out why the pressure drops", active))
         assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("I can't figure out why the pressure drops", active))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
             policy.decide("I can't figure out why the pressure drops", active, AmbientParticipationPolicy.Speaker.OWNER))
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
             policy.decide("Jarvis, help", active, AmbientParticipationPolicy.Speaker.OTHER))
@@ -47,6 +47,31 @@ class AmbientParticipationPolicyTest {
         assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
             policy.decide("I wonder what makes it surge", active.copy(replyToOtherSpeakers = true),
                 AmbientParticipationPolicy.Speaker.OTHER))
+    }
+
+    @Test fun activeHighInitiativeRespondsToUsefulUnaddressedTalkButNotEverySentence() {
+        var clock = 1_000L
+        val policy = AmbientParticipationPolicy { clock }
+        val active = LiveChatCompanionSettings(style = "active", initiative = 100)
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("This truck is surging at idle again", active))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Pass me the thirteen millimeter wrench", active))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("I wonder why it keeps stalling", active))
+        clock += 45_000L
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("I wonder why it keeps stalling", active))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("I wonder why it keeps stalling", active, AmbientParticipationPolicy.Speaker.OTHER))
+    }
+
+    @Test fun companionInitiativeActuallyAffectsUnaddressedParticipation() {
+        val prompt = "What should we do about the fuel pressure?"
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            AmbientParticipationPolicy { 5L }.decide(prompt, LiveChatCompanionSettings(style = "companion", initiative = 55)))
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            AmbientParticipationPolicy { 5L }.decide(prompt, LiveChatCompanionSettings(style = "companion", initiative = 100)))
     }
 
     @Test fun preferencesNormalizeUnknownValuesAndPreserveApprovedDefaults() {
@@ -57,6 +82,7 @@ class AmbientParticipationPolicyTest {
         assertEquals(true, defaults.contextEnabled)
         assertEquals(false, defaults.replyToOtherSpeakers)
         assertEquals(true, defaults.keepListeningUntilStopped)
+        assertEquals(true, defaults.avoidRepeatedChimes)
         assertEquals(false, LiveChatCompanionSettings.fromJson(
             LiveChatCompanionSettings(keepListeningUntilStopped = false).toJson()).keepListeningUntilStopped)
         val invalid = LiveChatCompanionSettings(style = "other", initiative = -20).normalized()

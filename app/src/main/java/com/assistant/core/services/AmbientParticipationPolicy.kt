@@ -43,15 +43,19 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
             return Decision.RESPOND
         }
 
-        // No verified owner diarization exists yet. In active mode a high
-        // initiative setting can offer *advice* only on an explicit request
-        // for input and only when the owner is known or the user explicitly
-        // opted in to broader room participation.
-        val speakerPermitted = speaker == Speaker.OWNER || preferences.replyToOtherSpeakers
+        // UNKNOWN is expected until real speaker identification exists.
+        // Selecting proactive participation at high initiative is the user's
+        // explicit opt-in to occasional *advisory* comments from nearby talk;
+        // a voice VERIFIED as OTHER still obeys replyToOtherSpeakers above.
+        // Do not infer ownership, accept approvals, or convert ordinary room
+        // conversation into commands.
+        val proactive = (preferences.style == "active" && preferences.initiative >= 60) ||
+            (preferences.style == "companion" && preferences.initiative >= 80)
+        val usefulPrompt = ADVISORY_PROMPT.containsMatchIn(words) ||
+            (preferences.initiative >= 90 && TROUBLESHOOTING_PROMPT.containsMatchIn(words))
         val last = lastOfferAt
-        if (preferences.style == "active" && preferences.initiative >= 70 &&
-            speakerPermitted && ADVISORY_PROMPT.containsMatchIn(words) &&
-            (last == null || now - last >= 90_000L)) {
+        if (proactive && usefulPrompt &&
+            (last == null || now >= last && now - last >= 45_000L)) {
             lastOfferAt = now
             return Decision.OFFER_HELP
         }
@@ -71,7 +75,11 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
             RegexOption.IGNORE_CASE
         )
         private val ADVISORY_PROMPT = Regex(
-            """\b(?:i wonder (?:what|why|how)|i can'?t figure out why|what do you think|can someone help me understand)\b""",
+            """\b(?:i wonder (?:what|why|how)|i can'?t figure out (?:why|how|what)|what do you think|can someone help me understand|any ideas(?: why| how)?|what should (?:we|i) do|why does (?:it|this|the)|how (?:can|do) (?:i|we)|do you think (?:it|that)|could use (?:a hand|some help))\b""",
+            RegexOption.IGNORE_CASE
+        )
+        private val TROUBLESHOOTING_PROMPT = Regex(
+            """\b(?:it keeps (?:stalling|surging|missing|dying|cutting out)|this (?:truck|engine|machine|app|microphone) (?:is|keeps|won't|doesn't)|i'?m trying to (?:fix|figure out|diagnose|repair)|i still can'?t get (?:it|this) to work)\b""",
             RegexOption.IGNORE_CASE
         )
     }

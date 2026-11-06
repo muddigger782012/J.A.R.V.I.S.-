@@ -18,7 +18,8 @@ data class LiveChatCompanionSettings(
     val contextEnabled: Boolean = true,
     val replyToOtherSpeakers: Boolean = false,
     val keepListeningUntilStopped: Boolean = true,
-    val experimentalPcmStream: Boolean = false
+    val experimentalPcmStream: Boolean = false,
+    val avoidRepeatedChimes: Boolean = true
 ) {
     fun normalized() = copy(
         style = style.takeIf { it in STYLES } ?: "companion",
@@ -33,6 +34,7 @@ data class LiveChatCompanionSettings(
         .put("replyToOtherSpeakers", replyToOtherSpeakers)
         .put("keepListeningUntilStopped", keepListeningUntilStopped)
         .put("experimentalPcmStream", experimentalPcmStream)
+        .put("avoidRepeatedChimes", avoidRepeatedChimes)
 
     companion object {
         private const val FILE_NAME = "ambient-companion-settings.json"
@@ -46,7 +48,8 @@ data class LiveChatCompanionSettings(
             contextEnabled = json.optBoolean("contextEnabled", true),
             replyToOtherSpeakers = json.optBoolean("replyToOtherSpeakers", false),
             keepListeningUntilStopped = json.optBoolean("keepListeningUntilStopped", true),
-            experimentalPcmStream = json.optBoolean("experimentalPcmStream", false)
+            experimentalPcmStream = json.optBoolean("experimentalPcmStream", false),
+            avoidRepeatedChimes = json.optBoolean("avoidRepeatedChimes", true)
         ).normalized()
 
         fun load(context: Context): LiveChatCompanionSettings {
