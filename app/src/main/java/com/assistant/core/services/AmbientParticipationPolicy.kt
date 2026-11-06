@@ -49,6 +49,7 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         val ambientReplyGap = priorAmbientAnswer == null ||
             (now >= priorAmbientAnswer && now - priorAmbientAnswer >= 800L)
         val isConversationalFollowUp = FOLLOW_UP.containsMatchIn(words) ||
+            CONVERSATIONAL_QUESTION.containsMatchIn(words) ||
             (words.length <= 140 && CONTEXTUAL_REPLY.containsMatchIn(words))
         if (preferences.contextEnabled && recentConversation != null &&
             now >= recentConversation && now - recentConversation <= 45_000L &&
@@ -67,6 +68,13 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         val permitted = speaker != Speaker.OTHER || preferences.replyToOtherSpeakers
         val advisory = ADVISORY_PROMPT.containsMatchIn(words)
         val question = CONVERSATIONAL_QUESTION.containsMatchIn(words)
+        // During an explicitly opened Personal Live Chat, clear questions are
+        // conversational requests even at the owner's 55% initiative setting.
+        // A context-dependent "what about..." still needs an existing thread.
+        val clearQuestion = question &&
+            !CONTEXT_DEPENDENT_QUESTION.containsMatchIn(words) &&
+            !UNADDRESSED_CONTEXT_REQUEST.containsMatchIn(words)
+        val requestForConversation = CONVERSATIONAL_REQUEST.containsMatchIn(words)
         val relevantObservation = PROBLEM_STATEMENT.containsMatchIn(words) ||
             TROUBLESHOOTING_PROMPT.containsMatchIn(words)
         // Even the approved Companion 55% level can weigh in when asked a
@@ -74,10 +82,10 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         // natural questions and then relevant problem statements; it no longer
         // requires a verified owner or the wake word for every useful reply.
         val optedIntoAmbientTalk = when (preferences.style) {
-            "companion" -> preferences.initiative >= 55 && advisory ||
+            "companion" -> preferences.initiative >= 55 && (advisory || clearQuestion || requestForConversation) ||
                 preferences.initiative >= 85 && question ||
                 preferences.initiative >= 100 && relevantObservation
-            "active" -> preferences.initiative >= 50 && advisory ||
+            "active" -> preferences.initiative >= 50 && (advisory || requestForConversation) ||
                 preferences.initiative >= 75 && question ||
                 preferences.initiative >= 90 && relevantObservation
             else -> false
@@ -99,7 +107,7 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         // A casual mention such as "Jarvis has bugs" is not an address.
         // Only a vocative at the beginning or end of an utterance qualifies.
         private val DIRECT_ADDRESS = Regex(
-            """^\s*(?:(?:hey|ok|okay|yo|please)\s+)?jarvis(?:\s*[,!?;:]\s*|\s+(?=(?:can|could|would|will|please|look|find|check|show|tell|explain|what|why|how|when|where|help|stop|start|open|set|turn|remind)\b)|\s*$)""",
+            """^\s*(?:(?:hey|ok|okay|yo|please|hi|hello)\s+)?jarvis\b(?:\s*[,!?;:]\s*|\s+(?=(?:i|we|are|do|did|can|could|would|will|please|look|find|check|show|tell|explain|what|why|how|when|where|help|stop|start|open|set|turn|remind)\b)|\s*$)""",
             RegexOption.IGNORE_CASE
         )
         private val END_VOCATIVE = Regex(""",\s*jarvis\s*[?.!]*$""", RegexOption.IGNORE_CASE)
@@ -117,6 +125,20 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         )
         private val CONVERSATIONAL_QUESTION = Regex(
             """^(?:(?:well|so|and|okay|hey)\s+)?(?:what|why|how|where|when|who|is|are|can|could|should|would|do|does|did)\b""",
+            RegexOption.IGNORE_CASE
+        )
+        private val CONTEXT_DEPENDENT_QUESTION = Regex(
+            """^\s*(?:(?:and|so|then|well)\s+)?(?:what|how)\s+about\b""", RegexOption.IGNORE_CASE
+        )
+        // Without a preceding thread these references do not identify an
+        // object or permission to operate the phone. They remain available
+        // as text-only follow-ups once the owner establishes context.
+        private val UNADDRESSED_CONTEXT_REQUEST = Regex(
+            """^\s*(?:can|could|would|will)\s+you\s+(?:check\b|look\s+(?:that|it)\s+up\b|do\s+(?:that|it)\b)""",
+            RegexOption.IGNORE_CASE
+        )
+        private val CONVERSATIONAL_REQUEST = Regex(
+            """^\s*(?:tell me\b|explain\b|help me (?:understand|figure out)\b|are you (?:there|listening|hearing me)\b|do you hear me\b|can you hear me\b|(?:hello|hi)(?:\s+there)?[!?.]*\s*$)""",
             RegexOption.IGNORE_CASE
         )
         private val PROBLEM_STATEMENT = Regex(

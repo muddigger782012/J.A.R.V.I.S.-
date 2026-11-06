@@ -13,8 +13,9 @@
 - Saying **Jarvis** directs a turn to the assistant. When context is enabled,
   natural question-like or short conversational follow-ups within 45 seconds
   receive strictly text-only responses, never device commands. Companion
-  initiative 55%+ may answer explicit advisory questions; higher initiative
-  can answer ordinary questions. Active high initiative can offer occasional
+  initiative 55%+ answers clear normal questions and advisory requests
+  without requiring another "Jarvis" wake address; isolated "what about" questions
+  still need recent context. Active high initiative can offer occasional
   help for recognized problems. Quiet only responds when addressed. Unaddressed
   responses are user-opted-in and may be transmitted to AI providers; UNKNOWN
   voices are not identified as the owner. Recognized OTHER voices still require
@@ -26,7 +27,10 @@
   setting (enabled by default) disables the app-owned wake acknowledgment beep
   and pauses the system recognizer's automatic retries after two empty turns,
   avoiding a repeating provider startup chime. A supported on-device recognizer
-  **continues rearming** in quiet mode instead of silently going idle. With the
+  **continues rearming** in quiet mode instead of silently going idle. After
+  two empty on-device recognizer turns, Personal Live Chat can attempt one
+  bounded system-provider probe rather than silently pretending it heard speech.
+  A manual microphone restart also clears the prior silence counter. With the
   system provider paused, Live Chat remains available, but the microphone is
   **not actively transcribing** until the user taps it.
   The experimental continuous-PCM mode instead keeps the AudioRecord open and
