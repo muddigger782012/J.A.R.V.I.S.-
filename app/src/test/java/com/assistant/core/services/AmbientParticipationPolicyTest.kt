@@ -237,6 +237,24 @@ class AmbientParticipationPolicyTest {
             AmbientParticipationPolicy { 1_000L }.decide("Jarvis has been buggy", settings))
     }
 
+    @Test fun vagueCheckOrLookupRequestsNeedConversationContext() {
+        var now = 1_000L
+        val settings = LiveChatCompanionSettings()
+        val policy = AmbientParticipationPolicy { now }
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Can you check the timing?", settings))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Can you look that up?", settings))
+        assertEquals(AmbientParticipationPolicy.Decision.RESPOND,
+            policy.decide("Jarvis, I'm reviewing this truck", settings))
+        now += 2_000L
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("Can you look that up?", settings))
+        policy.reset()
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Can you look that up?", settings))
+    }
+
     @Test fun ordinaryFollowUpQuestionsBypassProactiveCooldownOnlyInActiveThread() {
         var now = 1_000L
         val policy = AmbientParticipationPolicy { now }
