@@ -30,10 +30,14 @@ internal object DeveloperTaskAdvance {
     fun evaluate(plans: List<TaskPlanner.Plan>, jobs: List<JSONObject>): Offer {
         val diagnosis = DeveloperTaskTriage.summarize(plans, jobs)
         val next = DeveloperPlanContinuation.suggest(plans)
-        val pending = jobs.lastOrNull()?.getString("state")
-        if (pending in unresolved) return Offer(
-            diagnosis + "\n\nA saved Developer job still needs review or outcome " +
-                "reconciliation in Track before another source preview can start. " +
+        // Check the whole bounded inbox. A newer cancelled job does not
+        // make an older uncertain commit safe to ignore.
+        val pending = jobs.asReversed().firstOrNull {
+            it.optString("state") in unresolved
+        }?.getString("state")
+        if (pending != null) return Offer(
+            diagnosis + "\n\nUnresolved Developer job: $pending. Review or " +
+                "reconcile it in Track before another source preview can start. " +
                 "No old approval may be reused.",
             null
         )
