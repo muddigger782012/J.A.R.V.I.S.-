@@ -94,6 +94,7 @@ class VoiceForegroundService : Service() {
     private val liveCapture by lazy { LiveSpeechCapture(this) }
     private var pcmSource: PersistentPcmAudioSource? = null
     private var pcmInjectionRejected = false
+    private val pcmTurnHealth = PcmTurnHealthPolicy()
     private fun shutdownPcmSource() {
         pcmSource?.stop()
         pcmSource = null
@@ -255,6 +256,7 @@ class VoiceForegroundService : Service() {
                         ambientContext.clear()
                         shutdownPcmSource()
                         pcmInjectionRejected = false
+                        pcmTurnHealth.reset()
                         if (packageName == "com.assistant.core" && android.os.Build.VERSION.SDK_INT >= 33 &&
                             LiveChatCompanionSettings.load(this).experimentalPcmStream) {
                             lateinit var candidate: PersistentPcmAudioSource
@@ -470,6 +472,7 @@ class VoiceForegroundService : Service() {
                     // PCM feed belonging to a subsequent Live Chat turn.
                     if (liveChatActive && liveSession.transcript(turn)) {
                         pcmSource?.closeTurn()
+                        pcmTurnHealth.recordSuccessfulTranscript()
                         liveFailures = 0
                         liveSilenceTurns = 0
                         val companionSettings = LiveChatCompanionSettings.load(this)
@@ -560,18 +563,31 @@ class VoiceForegroundService : Service() {
                         // Some vendor recognizers silently ignore an injected PCM source.
                         // If our stream contained speech but no transcript arrived,
                         // disable the experimental path instead of silently retrying it.
-                        val speechMissed = pcmSource?.heardSpeechThisTurn() == true &&
-                            error in setOf(android.speech.SpeechRecognizer.ERROR_NO_MATCH,
-                                android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
+                        val ordinarySilence = error in setOf(
+                            android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                            android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                        )
+                        val locallyHeardSpeech = pcmSource?.heardSpeechThisTurn() == true
                         pcmSource?.closeTurn()
-                        if (speechMissed || error !in setOf(
-                                android.speech.SpeechRecognizer.ERROR_NO_MATCH,
-                                android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
+                        val restoreLegacy = if (ordinarySilence)
+                            pcmTurnHealth.recordNoTranscript(locallyHeardSpeech)
+                        else true
+                        if (restoreLegacy) {
+                            // Once a speech-bearing turn is lost (or repeated empty
+                            // turns offer no proof this provider consumes injected
+                            // audio), stop owning the mic before legacy recognition.
                             pcmInjectionRejected = true
                             shutdownPcmSource()
                             liveFailures = 0
                             liveSilenceTurns = 0
-                            publishEvent("Experimental PCM did not produce a transcript (recognizer $error); normal microphone restored.")
+                            val reason = when {
+                                !ordinarySilence -> "the provider returned error $error"
+                                locallyHeardSpeech -> "the provider missed locally detected speech"
+                                else -> "three silent turns produced no transcript"
+                            }
+                            publishEvent("Experimental PCM fallback: $reason; restoring normal microphone capture.")
+                            liveStatus(VoiceInteractionState.IDLE,
+                                "Experimental microphone input was not confirmed; restarting with normal recognition.")
                             if (liveSession.recover(turn)) nextLiveTurn(650L)
                             else finishLiveChat("Streaming recognition recovery failed; use normal Live Chat.")
                             return@listen
