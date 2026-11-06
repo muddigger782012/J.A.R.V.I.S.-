@@ -85,7 +85,10 @@ class VoiceForegroundService : Service() {
             liveSession.configurePersistentListening(
                 packageName == "com.assistant.core" && saved.keepListeningUntilStopped
             )
-            if (!saved.contextEnabled) ambientContext.clear()
+            if (!saved.contextEnabled) {
+                ambientContext.clear()
+                if (::hybridAssistantService.isInitialized) hybridAssistantService.clearAmbientConversation()
+            }
         }
     }
     private val ambientParticipation = AmbientParticipationPolicy()
@@ -254,6 +257,7 @@ class VoiceForegroundService : Service() {
                         liveSession.start()
                         ambientParticipation.reset()
                         ambientContext.clear()
+                        hybridAssistantService.clearAmbientConversation()
                         shutdownPcmSource()
                         pcmInjectionRejected = false
                         pcmTurnHealth.reset()
@@ -674,6 +678,7 @@ class VoiceForegroundService : Service() {
         liveChatActive = false
         liveSession.stop()
         ambientContext.clear()
+        if (::hybridAssistantService.isInitialized) hybridAssistantService.clearAmbientConversation()
         liveHandler.removeCallbacksAndMessages(null)
         liveCapture.stop()
         shutdownPcmSource()

@@ -20,6 +20,9 @@
   45 seconds of the last accepted conversational turn when context is enabled.
   These unaddressed follow-ups always use the **text-only** AI path; even
   "can you open/delete/send" does not gain device-action authorization.
+  A maximum of three answered ambient turns (90-second expiry) is retained
+  **in process memory only** to give natural follow-ups meaningful context;
+  this buffer clears on Live Chat stop/start or when context is disabled.
   Quiet speaks only when addressed. High initiative lets Jarvis answer unaddressed
   questions using text-only AI, not action routing, with a bounded cooldown.
   An UNKNOWN speaker remains unidentified; a verified OTHER is still subject
@@ -47,7 +50,7 @@
 - **Full duplex / spoken barge-in:** the manual microphone interruption path
   is preserved, but speech and recognition are still sequenced. The stored
   interruption setting is for later automatic barge-in implementation.
-- **Semantic reasoning from room speech:** direct local recall of recent observed phrases is implemented. These are not yet provided to cloud AI as semantic background, never authorize actions, and do not identify the speaker.
+- **Semantic reasoning from room speech:** direct local recall of recent observed phrases is implemented. Unanswered passive observations are not uploaded as semantic background. Answered ambient conversation uses a short-lived, bounded context window sent only when context is enabled; it never authorizes actions or identifies the speaker.
 - **Per-account sync:** settings are per app installation, not synchronized
   across separate user logins/devices.
 - **Device acceptance:** on-device tests must check no accidental responses,
