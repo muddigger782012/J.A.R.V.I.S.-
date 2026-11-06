@@ -1379,7 +1379,21 @@ class MainActivity : Activity() {
                 else homeWorkspace?.syncTarget(guidedTarget?.selectedItemPosition ?: 0)
             },
             { selectPage?.invoke(4) }, savedInstanceState,
-            onRuns = { selectPage?.invoke(2) })
+            onRuns = { selectPage?.invoke(2) },
+            onNewTask = {
+                // Same guarded reset as Create Project, but keep the owner on
+                // the chat workspace instead of forcing a page transition.
+                if (!patchWorkbench.invalidate()) {
+                    status.setText(R.string.project_generation_finish_code_operation)
+                } else {
+                    projectGeneration?.cancel()
+                    activeProject = null
+                    prompt.text.clear()
+                    output.text = ""
+                    homeWorkspace?.reset()
+                    status.text = "New task ready. Describe what to build or repair."
+                }
+            })
         // One direct attachment control inside the existing chat composer.
         // ACTION_OPEN_DOCUMENT needs no media/storage permission and never uploads
         // without a subsequent explicit Send press.
