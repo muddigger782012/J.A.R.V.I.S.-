@@ -57,8 +57,8 @@ class LiveSpeechCapture(private val context: Context,
             val timing = RuntimeSettings.read(context, "voice_settings")
             val window = VoiceCaptureWindow({ android.os.SystemClock.elapsedRealtime() },
                 idleMillis = timing.getLong("capture_idle_millis", 30_000).coerceIn(10_000, 120_000),
-                maximumMillis = timing.getLong("capture_max_millis", 180_000)
-                    .coerceAtLeast(minimumCaptureMaximumMillis).coerceIn(60_000, 600_000))
+                maximumMillis = ConversationCaptureTiming.captureMaximumMillis(
+                    timing.getLong("capture_max_millis", 180_000), minimumCaptureMaximumMillis))
             val currentTrace = trace
             try {
                 val listener = object : RecognitionListener {
@@ -143,13 +143,14 @@ class LiveSpeechCapture(private val context: Context,
                     putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, offlineHint)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                     // These documented hints are provider-dependent; watchdog behavior does not assume they work.
-                    val pause = timing
-                        .getLong("speech_pause_millis", 1700L).coerceAtLeast(minimumSpeechPauseMillis).coerceIn(1000L, 10_000L)
+                    val silence = ConversationCaptureTiming.silenceHints(
+                        timing.getLong("speech_pause_millis", 1700L), minimumSpeechPauseMillis)
                     // Providers may decide a turn ended at the shorter possibly-complete
                     // threshold. Do not let it override the longer conversational pause.
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, pause)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                        silence.possiblyCompleteMillis)
                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
-                        (pause + 750L).coerceAtMost(10_000L))
+                        silence.completeMillis)
                     VoiceRecognitionHints.apply(context, this, useProfileHints)
                 })
                 val watchdog = object : Runnable {
