@@ -79,7 +79,7 @@ class DeveloperHomeActivityIntegrationTest {
         // The working offline pathway sends a real message through the same
         // ProjectGenerationWorkbench without ever creating a patch or approval.
         prompt.setText("What are three improvements for Personal Jarvis?")
-        send.performClick()
+        button(activity, "Send").performClick()
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue(DeveloperUiState.descendants(transcript(activity))
             .filterIsInstance<TextView>().any {
@@ -88,9 +88,11 @@ class DeveloperHomeActivityIntegrationTest {
         assertFalse(button(activity, "Review proposed changes").isEnabled)
         assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
 
-        button(activity, "Advanced development tools").performClick()
+        button(activity, "Settings").performClick()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(View.GONE, composer.visibility)
+        button(activity, "Advanced tools").performClick()
+        shadowOf(Looper.getMainLooper()).idle()
         button(activity, "Home").performClick()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(View.VISIBLE, composer.visibility)
@@ -109,7 +111,7 @@ class DeveloperHomeActivityIntegrationTest {
         }.selectedItemPosition)
 
         prompt.setText("Explain Personal Jarvis reminder scheduling")
-        button(activity, "Ask Jarvis / save instructions").performClick()
+        button(activity, "Send").performClick()
         shadowOf(Looper.getMainLooper()).idle()
         val before = all(activity).filterIsInstance<TextView>()
             .single { it.tag == "project-generation-reply" }.text.toString()
