@@ -40,10 +40,11 @@ internal class PersistentPcmAudioSource(
 
     private class PipeWriter(private val output: ParcelFileDescriptor.AutoCloseOutputStream) {
         private val chunks = ArrayBlockingQueue<ByteArray>(40)
-        @Volatile private var closed = false
+        @Volatile private var aborting = false
+        @Volatile private var sealed = false
         private val thread = Thread({
             try {
-                while (!closed) {
+                while (!aborting) {
                     val frame = chunks.poll(200, TimeUnit.MILLISECONDS) ?: continue
                     if (frame.isEmpty()) break
                     output.write(frame)
@@ -60,20 +61,20 @@ internal class PersistentPcmAudioSource(
 
         fun start() = thread.start()
         fun feed(frame: ByteArray) {
-            if (!closed) chunks.offer(frame) // Never block the microphone thread.
+            if (!sealed && !aborting) chunks.offer(frame) // Never block the microphone thread.
         }
         fun finish() {
-            if (closed) return
+            if (sealed || aborting) return
+            sealed = true
             // Close after queued trailing silence; the provider sees EOF.
             if (!chunks.offer(ByteArray(0))) {
                 chunks.poll()
                 chunks.offer(ByteArray(0))
             }
-            closed = true
-            // The worker drains until EOF even though no more frames are accepted.
         }
         fun abort() {
-            closed = true
+            aborting = true
+            sealed = true
             chunks.clear()
             runCatching { output.close() }
             thread.interrupt()
@@ -153,7 +154,11 @@ internal class PersistentPcmAudioSource(
                         pcm16[i * 2 + 1] = ((value shr 8) and 0xff).toByte()
                     }
                     activePipe.feed(pcm16)
-                    if (activity.accept(samples, read) == PcmSpeechActivityGate.Event.ENDED) {
+                    val event = synchronized(lock) {
+                        if (pipe === activePipe) activity.accept(samples, read)
+                        else PcmSpeechActivityGate.Event.NONE
+                    }
+                    if (event == PcmSpeechActivityGate.Event.ENDED) {
                         activePipe.finish()
                         synchronized(lock) { if (pipe === activePipe) pipe = null }
                     }

@@ -257,7 +257,8 @@ class VoiceForegroundService : Service() {
                         pcmInjectionRejected = false
                         if (packageName == "com.assistant.core" && android.os.Build.VERSION.SDK_INT >= 33 &&
                             LiveChatCompanionSettings.load(this).experimentalPcmStream) {
-                            val candidate = PersistentPcmAudioSource(this) { description ->
+                            lateinit var candidate: PersistentPcmAudioSource
+                            candidate = PersistentPcmAudioSource(this) { description ->
                                 liveHandler.post {
                                     if (!liveChatActive || pcmSource !== candidate) return@post
                                     publishEvent(description)
@@ -552,11 +553,15 @@ class VoiceForegroundService : Service() {
                 },
                 onError = { error ->
                     if (injected != null) {
-                        // If the provider rejects/ignores external audio, relinquish
-                        // AudioRecord before the normal recognizer is rearmed.
-                        pcmInjectionRejected = true
-                        shutdownPcmSource()
-                        publishEvent("Streaming audio was not accepted (recognizer $error); restoring normal microphone capture.")
+                        pcmSource?.closeTurn()
+                        if (error != android.speech.SpeechRecognizer.ERROR_NO_MATCH &&
+                            error != android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                            // Hard provider error: relinquish AudioRecord before normal
+                            // microphone capture can be rearmed.
+                            pcmInjectionRejected = true
+                            shutdownPcmSource()
+                            publishEvent("Streaming audio was rejected (recognizer $error); restoring normal microphone capture.")
+                        }
                     }
                     liveCaptureError(turn, error)
                 },
