@@ -24,9 +24,11 @@
   The existing timeout remains available when the toggle is off, and the Beta
   package retains its previous timeout behavior. The new **Quiet microphone**
   setting (enabled by default) disables the app-owned wake acknowledgment beep
-  and pauses the ordinary recognizer's automatic retries after two empty turns,
-  avoiding a repeating system chime. Live Chat remains available, but during
-  that pause **the provider is not listening** until the user taps the mic.
+  and pauses the system recognizer's automatic retries after two empty turns,
+  avoiding a repeating provider startup chime. A supported on-device recognizer
+  **continues rearming** in quiet mode instead of silently going idle. With the
+  system provider paused, Live Chat remains available, but the microphone is
+  **not actively transcribing** until the user taps it.
   The experimental continuous-PCM mode instead keeps the AudioRecord open and
   starts provider recognition only after local speech onset. This does not
   eliminate a vendor's recognition start tone or guarantee vendor support.
@@ -43,7 +45,8 @@
 - The microphone/chime repair merged as PR #302 remains intact. In default
   system recognition, after repeated silence Android recognition pauses to
   avoid recurring tones. The **session stays available but is not actively
-  listening** until the microphone is tapped; experimental PCM is opt-in.
+  listening** until the microphone is tapped; on-device recognition remains
+  eligible to rearm, and experimental PCM is opt-in.
   Continuous vendor-independent ASR and Samsung acceptance are not complete.
 - Text-only responses cannot approve installs, operate the device, or use
   privilege-bearing tool actions. Ordinary addressed commands retain the
