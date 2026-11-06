@@ -59,7 +59,7 @@ class AmbientCompanionSettingsActivity : MenuActivity("Ambient companion") {
         panel.addView(triggerProgress)
         val voiceSensitivity = SeekBar(this).apply {
             max = 100
-            progress = current.speechDetectionSensitivity
+            this.progress = current.speechDetectionSensitivity
             contentDescription = "Continuous microphone speech detection sensitivity"
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
