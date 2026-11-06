@@ -95,10 +95,12 @@ internal class PersistentPcmAudioSource(
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
                     maxOf(minimum * 2, FRAMES * 2 * 6)
                 )
+                // Assign before starting: a failure to initialize/start must
+                // release this already-allocated microphone resource.
+                recorder = mic
                 check(mic.state == AudioRecord.STATE_INITIALIZED)
                 mic.startRecording()
                 check(mic.recordingState == AudioRecord.RECORDSTATE_RECORDING)
-                recorder = mic
                 running = true
                 worker = Thread({ readLoop(mic) }, "jarvis-persistent-voice-pcm").apply {
                     isDaemon = true
