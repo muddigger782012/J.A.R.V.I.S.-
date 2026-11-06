@@ -40,7 +40,8 @@ class ProjectGenerationTest {
         checkedCi: ((String, PatchPublisher.CommitResult) -> PatchPublisher.CiStatus)? = null,
         currentCommit: (() -> PatchPublisher.CommitResult?)? = null,
         githubCredential: String = "",
-        canReadSavedCompletion: () -> Boolean = { true }) : AutoCloseable {
+        canReadSavedCompletion: () -> Boolean = { true },
+        sourceRead: (() -> Boolean)? = null) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -78,11 +79,44 @@ class ProjectGenerationTest {
                 stagePlan?.invoke(DeveloperPlanContinuation.Packet(id, task, paths, base)) ?: false
             }, currentDeveloperCommit = { currentCommit?.invoke() },
             githubToken = { githubCredential },
-            mayReadSavedCompletion = canReadSavedCompletion)
+            mayReadSavedCompletion = canReadSavedCompletion,
+            requestDeveloperSourceAnalysis = { sourceRead?.invoke() ?: false })
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun repositoryInspectionChatUsesExistingReadOnlyActionNotModelOrWrite() {
+        var reads = 0
+        Screen(sourceRead = { reads++; true },
+            ask = { _, _, _, _, _ -> error("Explicit read-only source inspection must not call AI") }).use { s ->
+            s.prompt.setText("Inspect Developer repository for chat navigation regressions")
+            s.send.performClick()
+            assertEquals(1, reads)
+            assertTrue(s.pending.isEmpty())
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.status.text.contains("read-only"))
+            assertTrue(s.send.isEnabled)
+        }
+        Screen(sourceRead = { reads++; false },
+            ask = { _, _, _, _, _ -> error("Rejected read must not call AI") }).use { s ->
+            s.prompt.setText("Analyze the Developer codebase for missing history actions")
+            s.send.performClick()
+            assertEquals(2, reads)
+            assertTrue(s.pending.isEmpty())
+            assertTrue(s.output.text.contains("could not start"))
+            assertFalse(s.output.text.contains("source committed"))
+        }
+        Screen(sourceRead = { reads++; true },
+            ask = { _, _, _, _, _ -> error("Wrong target must not call AI") }).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("Inspect Developer repository for history navigation issues")
+            s.send.performClick()
+            assertEquals(2, reads)
+            assertTrue(s.pending.isEmpty())
+            assertTrue(s.output.text.contains("requires the Developer target"))
+        }
+    }
+
     @Test fun savedCompletionCannotStartDuringBusyOrUncertainCodingState() {
         val f = DeveloperSavedCompletionReviewTest.createFixture()
         var readCount = 0

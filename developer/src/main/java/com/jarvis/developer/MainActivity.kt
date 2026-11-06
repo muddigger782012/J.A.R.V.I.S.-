@@ -636,7 +636,16 @@ class MainActivity : Activity() {
                 started
             }, currentDeveloperCommit = { patchWorkbench.currentDeveloperCommit() },
             mayReadSavedCompletion = { patchWorkbench.mayReadSavedCompletion() },
-            onUserMessage = { request -> homeWorkspace?.sent(request) })
+            onUserMessage = { request -> homeWorkspace?.sent(request) },
+            requestDeveloperSourceAnalysis = {
+                // Execute the already reviewed, read-only Home analysis path.
+                // Its completion stages only an eligible scope; it never approves a diff.
+                if (!analyzeFromHome.isEnabled) false
+                else {
+                    analyzeFromHome.performClick()
+                    true
+                }
+            })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

@@ -40,7 +40,8 @@ internal object ProjectGenerationWorkbench {
         continueDeveloperPlan: (String, String, List<String>, String) -> Boolean = { _, _, _, _ -> false },
         currentDeveloperCommit: () -> PatchPublisher.CommitResult? = { null },
         mayReadSavedCompletion: () -> Boolean = { false },
-        onUserMessage: (String) -> Unit = {}): Handle {
+        onUserMessage: (String) -> Unit = {},
+        requestDeveloperSourceAnalysis: () -> Boolean = { false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
@@ -97,6 +98,26 @@ internal object ProjectGenerationWorkbench {
             // The Home conversation is presentation only. Existing workbench and
             // exact scoped approval mechanisms remain the sole executors.
             runCatching { onUserMessage(task) }
+            // Explicit read-only source inspection stays in the existing GitHub
+            // inventory/analysis engine. No AI call, diff approval, or source write.
+            if (DeveloperSourceChatCommand.isRequest(task)) {
+                if (target() != 0) {
+                    output.text = "Developer repository inspection requires the Developer target. " +
+                        "No Personal source was read and no code change was requested."
+                    status.text = "Select Developer before inspecting its repository."
+                } else {
+                    val started = runCatching { requestDeveloperSourceAnalysis() }.getOrDefault(false)
+                    if (started) {
+                        status.text = "Reading Developer repository (read-only). " +
+                            "Eligible source may be staged for a separate exact diff review."
+                    } else {
+                        output.text = "Repository inspection could not start, or another source read " +
+                            "is active. Retry after it finishes. No source or approval was changed."
+                        status.text = "Developer source inspection not started."
+                    }
+                }
+                return@setOnClickListener
+            }
             // Full exact-diff review is read directly from verified in-memory proposal
             // state. The chat provider, saved discussion, and GitHub are not touched.
             if (DeveloperDiffChatCommand.isRequest(task)) {
