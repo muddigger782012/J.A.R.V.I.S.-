@@ -8,9 +8,10 @@
   response preference, and **Keep Live Chat available until I stop it**. Save persists an atomic, per-installation file and is
   re-read from the microphone service in the separate `:wake` process.
 - Live Chat observes casual room speech without treating it as a command.
-  At **Companion initiative 95–100%** or **Active initiative 75–100%**, it may
-  reply to question-like unaddressed conversation when Live Chat is explicitly
-  open. Such turns use a separate **text-only AI path** that cannot execute
+  At **Companion initiative 55%+** it can respond to explicit requests
+  for input; at 85%+ it responds to more natural questions. **Active at
+  75%+** can answer ordinary questions and at 90%+ can comment on some
+  problem statements even without its name, when Live Chat is explicitly open. Such turns use a separate **text-only AI path** that cannot execute
   device commands. Directly addressed Jarvis requests retain normal routing.
   The owner explicitly selects the initiative/style to enable this behavior.
   Recognition and text-only AI may send selected room speech to providers.

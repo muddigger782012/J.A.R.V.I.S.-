@@ -56,10 +56,13 @@ class AmbientParticipationPolicyTest {
                 AmbientParticipationPolicy.Speaker.OTHER))
     }
 
-    @Test fun highCompanionInitiativeEnablesConversationButModerateAndQuietRemainSilent() {
+    @Test fun companionAtApproved55RespondsToAdvisoryRequestsButNotEveryQuestion() {
         val policy = AmbientParticipationPolicy { 1_000L }
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
             policy.decide("Why does the engine surge", LiveChatCompanionSettings(style = "companion", initiative = 55)))
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("I wonder why it is surging", LiveChatCompanionSettings(style = "companion", initiative = 55)))
+        policy.reset()
         assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
             policy.decide("Why does the engine surge", LiveChatCompanionSettings(style = "companion", initiative = 100)))
         policy.reset()
@@ -67,6 +70,18 @@ class AmbientParticipationPolicyTest {
             policy.decide("Why does the engine surge", LiveChatCompanionSettings(style = "quiet", initiative = 100)))
         assertEquals(AmbientParticipationPolicy.Decision.RESPOND,
             policy.decide("Jarvis, why does it surge", LiveChatCompanionSettings(style = "quiet")))
+    }
+
+    @Test fun activeMaximumCanCommentOnProblemStatementsWithoutWakeWord() {
+        val policy = AmbientParticipationPolicy { 100L }
+        val settings = LiveChatCompanionSettings(style = "active", initiative = 100)
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("The microphone keeps cutting out", settings))
+        policy.reset()
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("The microphone keeps cutting out", settings.copy(initiative = 70)))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Hand me the wrench", settings))
     }
 
     @Test fun preferencesNormalizeUnknownValuesAndPreserveApprovedDefaults() {

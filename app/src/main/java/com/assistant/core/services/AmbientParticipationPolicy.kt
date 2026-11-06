@@ -50,14 +50,26 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         // question-like room conversation without a wake word. UNKNOWN is not
         // proof of the owner's identity: OFFER_HELP must NEVER use the device
         // action router, confirmations, or privilege-bearing commands.
-        val optedIntoAmbientTalk = (preferences.style == "active" && preferences.initiative >= 75) ||
-            (preferences.style == "companion" && preferences.initiative >= 95)
         val permitted = speaker != Speaker.OTHER || preferences.replyToOtherSpeakers
-        val questionLike = CONVERSATIONAL_QUESTION.containsMatchIn(words) ||
-            ADVISORY_PROMPT.containsMatchIn(words)
-        val cooldown = (50_000L - preferences.initiative * 350L).coerceIn(15_000L, 50_000L)
+        val advisory = ADVISORY_PROMPT.containsMatchIn(words)
+        val question = CONVERSATIONAL_QUESTION.containsMatchIn(words)
+        val relevantObservation = PROBLEM_STATEMENT.containsMatchIn(words)
+        // Even the approved Companion 55% level can weigh in when asked a
+        // clearly open-ended question. Raising initiative broadens this to
+        // natural questions and then relevant problem statements; it no longer
+        // requires a verified owner or the wake word for every useful reply.
+        val optedIntoAmbientTalk = when (preferences.style) {
+            "companion" -> preferences.initiative >= 55 && advisory ||
+                preferences.initiative >= 85 && question ||
+                preferences.initiative >= 100 && relevantObservation
+            "active" -> preferences.initiative >= 50 && advisory ||
+                preferences.initiative >= 75 && question ||
+                preferences.initiative >= 90 && relevantObservation
+            else -> false
+        }
+        val cooldown = (90_000L - preferences.initiative * 750L).coerceIn(15_000L, 75_000L)
         val last = lastOfferAt
-        if (optedIntoAmbientTalk && permitted && questionLike &&
+        if (optedIntoAmbientTalk && permitted &&
             !DEVICE_COMMAND.containsMatchIn(words) &&
             (last == null || now - last >= cooldown)) {
             lastOfferAt = now
@@ -84,6 +96,10 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         )
         private val CONVERSATIONAL_QUESTION = Regex(
             """^(?:(?:well|so|and|okay|hey)\s+)?(?:what|why|how|where|when|who|is|are|can|could|should|would|do|does|did)\b""",
+            RegexOption.IGNORE_CASE
+        )
+        private val PROBLEM_STATEMENT = Regex(
+            """\b(?:i (?:can'?t|cannot) (?:figure|understand)|(?:it|this|that|he|she|the microphone|my microphone|the app|the engine|the truck) (?:keeps?|doesn'?t|won'?t)\b|something(?:'s| is) wrong|(?:this|it) is driving me crazy)""",
             RegexOption.IGNORE_CASE
         )
         private val DEVICE_COMMAND = Regex(
