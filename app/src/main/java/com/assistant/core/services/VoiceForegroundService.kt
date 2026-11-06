@@ -557,14 +557,24 @@ class VoiceForegroundService : Service() {
                     if (!liveChatActive || liveSession.token != turn ||
                         liveSession.phase != LiveChatSession.Phase.LISTENING) return@listen
                     if (injected != null) {
+                        // Some vendor recognizers silently ignore an injected PCM source.
+                        // If our stream contained speech but no transcript arrived,
+                        // disable the experimental path instead of silently retrying it.
+                        val speechMissed = pcmSource?.heardSpeechThisTurn() == true &&
+                            error in setOf(android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                                android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
                         pcmSource?.closeTurn()
-                        if (error != android.speech.SpeechRecognizer.ERROR_NO_MATCH &&
-                            error != android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-                            // Hard provider error: relinquish AudioRecord before normal
-                            // microphone capture can be rearmed.
+                        if (speechMissed || error !in setOf(
+                                android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                                android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
                             pcmInjectionRejected = true
                             shutdownPcmSource()
-                            publishEvent("Streaming audio was rejected (recognizer $error); restoring normal microphone capture.")
+                            liveFailures = 0
+                            liveSilenceTurns = 0
+                            publishEvent("Experimental PCM did not produce a transcript (recognizer $error); normal microphone restored.")
+                            if (liveSession.recover(turn)) nextLiveTurn(650L)
+                            else finishLiveChat("Streaming recognition recovery failed; use normal Live Chat.")
+                            return@listen
                         }
                     }
                     liveCaptureError(turn, error)

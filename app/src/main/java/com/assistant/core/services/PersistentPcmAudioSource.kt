@@ -36,7 +36,10 @@ internal class PersistentPcmAudioSource(
     private var recorder: AudioRecord? = null
     private var worker: Thread? = null
     private var pipe: PipeWriter? = null
+    @Volatile private var turnHeardSpeech = false
     private val activity = PcmSpeechActivityGate()
+    /** True only when this app's own PCM input showed speech activity. */
+    fun heardSpeechThisTurn() = turnHeardSpeech
 
     private class PipeWriter(private val output: ParcelFileDescriptor.AutoCloseOutputStream) {
         private val chunks = ArrayBlockingQueue<ByteArray>(40)
@@ -123,6 +126,7 @@ internal class PersistentPcmAudioSource(
         pipe?.abort()
         pipe = null
         activity.reset()
+        turnHeardSpeech = false
         return@synchronized runCatching {
             val descriptors = ParcelFileDescriptor.createPipe()
             val sender = PipeWriter(ParcelFileDescriptor.AutoCloseOutputStream(descriptors[1]))
@@ -167,6 +171,9 @@ internal class PersistentPcmAudioSource(
                         if (pipe === activePipe) activity.accept(samples, read)
                         else PcmSpeechActivityGate.Event.NONE
                     }
+                    if (event == PcmSpeechActivityGate.Event.STARTED) {
+                        turnHeardSpeech = true
+                    }
                     if (event == PcmSpeechActivityGate.Event.ENDED) {
                         activePipe.finish()
                         synchronized(lock) { if (pipe === activePipe) pipe = null }
@@ -189,6 +196,7 @@ internal class PersistentPcmAudioSource(
             previous = recorder
             recorder = null
             activity.reset()
+            turnHeardSpeech = false
         }
         runCatching { previous?.stop() }
         worker?.interrupt()

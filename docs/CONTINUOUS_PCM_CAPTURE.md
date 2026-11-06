@@ -14,8 +14,9 @@ that the existing Android recognizer supports every streaming feature.
 - The microphone reader is isolated from provider backpressure with a bounded
   byte queue; voice samples are not written to disk. No passive audio is sent to
   Jarvis AI/action routing without a response-worthy addressed transcript.
-- A vendor may ignore the injected PCM source and open another mic. On provider
-  errors the experimental source is stopped and standard capture resumes.
+- A vendor may ignore the injected PCM source and open another mic. On hard
+  errors, or a missing transcript after the local PCM gate detected speech,
+  the experimental source is stopped and standard capture resumes.
 - Manual stop, foreground microphone visibility and rollback to the default
   turn-based capture remain mandatory.
 
