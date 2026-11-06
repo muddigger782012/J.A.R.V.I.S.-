@@ -44,6 +44,26 @@ class VoiceCaptureAcceptanceTest {
         putFloatArray(SpeechRecognizer.CONFIDENCE_SCORES, floatArrayOf(.99f, .24f, .98f))
     }
 
+    @Test fun manualMicBeforeSpeechIsNotMistakenForFinishingARecordedUtterance() {
+        instrumentation.runOnMainSync {
+            val platform = Engines()
+            val capture = LiveSpeechCapture(context, platform)
+            try {
+                capture.listen(true, {}, {}, { fail("Unexpected capture failure") })
+                val listener = platform.sessions.single().listener
+                assertTrue(capture.isActive)
+                assertFalse(capture.hasSpeechActivity)
+                listener.onReadyForSpeech(Bundle())
+                assertFalse(capture.hasSpeechActivity)
+                listener.onPartialResults(results("Some useful words"))
+                assertTrue(capture.hasSpeechActivity)
+                listener.onError(SpeechRecognizer.ERROR_NO_MATCH)
+                assertFalse(capture.hasSpeechActivity)
+                assertFalse(capture.isActive)
+            } finally { capture.stop() }
+        }
+    }
+
     @Test fun partialsAndEndOfSpeechDoNotFinalizeAnIncompleteUtterance() {
         instrumentation.runOnMainSync {
             val engines = Engines()

@@ -142,7 +142,14 @@ class VoiceForegroundService : Service() {
                     // otherwise interrupt pending TTS/replies and rearm capture.
                     // A recognizer awaiting its final transcript is still active but a
                     // second finish() would be ignored. Treat that tap as recovery.
-                    when (liveSession.microphoneTapped(liveCapture.isActive && !liveCapture.isFinishing)) {
+                    // Do not treat a manual mic tap as "finish recording" when
+                    // Android opened recognition but has never heard speech:
+                    // restart capture instead. This prevents accidental empty
+                    // turns when the user taps an apparently unresponsive mic.
+                    val capturedSpeech = liveCapture.hasSpeechActivity ||
+                        pcmSource?.heardSpeechThisTurn() == true
+                    when (liveSession.microphoneTapped(
+                            liveCapture.isActive && capturedSpeech && !liveCapture.isFinishing)) {
                         LiveChatSession.MicrophoneTap.FINISH_CAPTURE -> {
                             pcmSource?.finishTurn()
                             liveCapture.finish()
