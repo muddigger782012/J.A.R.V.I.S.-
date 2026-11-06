@@ -12,9 +12,12 @@ class LiveChatSession(private val maxSilentTurns: Int = Int.MAX_VALUE,
     var token = 0L
         private set
     private var silentTurns = 0
+    private var keepListeningUntilStopped = false
     private var lastActivity = now()
     val active get() = phase != Phase.OFF
     fun configureIdleTimeout(millis: Long) { idleTimeoutMillis = millis.coerceIn(60_000, 1_800_000) }
+    /** Explicit user-started Live Chat can remain active through silence; manual stop still ends it. */
+    fun configurePersistentListening(enabled: Boolean) { keepListeningUntilStopped = enabled }
     /** Mic taps use the recognizer's actual state, not a delayed UI status label. */
     fun microphoneTapped(captureActive: Boolean): MicrophoneTap = when {
         !active -> MicrophoneTap.IGNORE
@@ -71,5 +74,5 @@ class LiveChatSession(private val maxSilentTurns: Int = Int.MAX_VALUE,
         if (turn != token || phase != Phase.THINKING) return ReplyRecovery.STALE
         return if (recover(turn)) ReplyRecovery.RETRY else ReplyRecovery.EXPIRED
     }
-    fun expired() = now() - lastActivity >= idleTimeoutMillis
+    fun expired() = !keepListeningUntilStopped && now() - lastActivity >= idleTimeoutMillis
 }

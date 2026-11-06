@@ -78,6 +78,16 @@ class VoiceForegroundService : Service() {
         override fun onReceive(context: Context?, intent: Intent?) { dialogueOverlay.refresh(liveChatActive) }
     }
     private val liveSession = LiveChatSession()
+    private val companionOptionsReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (!liveChatActive) return
+            val saved = LiveChatCompanionSettings.load(this@VoiceForegroundService)
+            liveSession.configurePersistentListening(
+                packageName == "com.assistant.core" && saved.keepListeningUntilStopped
+            )
+            if (!saved.contextEnabled) ambientContext.clear()
+        }
+    }
     private val ambientParticipation = AmbientParticipationPolicy()
     private val ambientContext = AmbientContextWindow()
     private val liveHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -111,6 +121,7 @@ class VoiceForegroundService : Service() {
         // crash containment entirely.
         voicePreferences = VoicePreferences(this)
         ContextCompat.registerReceiver(this, responseOptionsReceiver, android.content.IntentFilter(VoiceResponsePreferences.ACTION_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(this, companionOptionsReceiver, android.content.IntentFilter(LiveChatCompanionSettings.ACTION_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
         ContextCompat.registerReceiver(this, screenChanges, android.content.IntentFilter(ScreenTaskNotifications.CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
         createNotificationChannel()
         PersonalReminderRuntime.restoreAsync(applicationContext)
@@ -226,6 +237,10 @@ class VoiceForegroundService : Service() {
                         liveChatActive = true
                         liveSession.configureIdleTimeout(RuntimeSettings.read(this, "voice_settings")
                             .getLong("live_idle_millis", 300_000))
+                        // Only explicitly started Personal Live Chat can bypass inactivity
+                        // expiry. The visible foreground microphone and Stop action remain.
+                        liveSession.configurePersistentListening(packageName == "com.assistant.core" &&
+                            LiveChatCompanionSettings.load(this).keepListeningUntilStopped)
                         liveSession.start()
                         ambientParticipation.reset()
                         ambientContext.clear()
@@ -318,6 +333,7 @@ class VoiceForegroundService : Service() {
         val restoreRequestedWake = pipelineStarted && voicePreferences.isForegroundServiceRunning()
         runCatching { unregisterReceiver(screenChanges) }
         runCatching { unregisterReceiver(responseOptionsReceiver) }
+        runCatching { unregisterReceiver(companionOptionsReceiver) }
         dialogueOverlay.hide()
         liveHandler.removeCallbacksAndMessages(null)
         liveCapture.stop()
@@ -528,13 +544,18 @@ class VoiceForegroundService : Service() {
         if (error == android.speech.SpeechRecognizer.ERROR_NO_MATCH || error == android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
             if (liveSession.silence(turn)) {
                 val silentTurns = ++liveSilenceTurns
-                when (LiveChatChimePolicy.afterSilence(liveEngineOnDevice, silentTurns)) {
+                val persistentSession = packageName == "com.assistant.core" &&
+                    LiveChatCompanionSettings.load(this).keepListeningUntilStopped
+                when (LiveChatChimePolicy.afterSilence(liveEngineOnDevice, silentTurns, persistentSession)) {
                     LiveChatChimePolicy.Action.PAUSE ->
                         liveStatus(VoiceInteractionState.IDLE,
                             "System microphone paused after repeated silence to avoid recurring notification tones. Tap the microphone to resume.")
                     LiveChatChimePolicy.Action.RETRY -> {
-                        liveStatus(VoiceInteractionState.IDLE, "Still here. Listening for your next thought…")
-                        nextLiveTurn(LiveChatChimePolicy.silenceRetryDelayMillis(liveEngineOnDevice, silentTurns))
+                        if (persistentSession && !liveEngineOnDevice) {
+                            liveStatus(VoiceInteractionState.IDLE,
+                                "Live Chat is active. System recognition is resting between listening attempts; it may chime on restart.")
+                        } else liveStatus(VoiceInteractionState.IDLE, "Still here. Listening for your next thought…")
+                        nextLiveTurn(LiveChatChimePolicy.silenceRetryDelayMillis(liveEngineOnDevice, silentTurns, persistentSession))
                     }
                 }
             } else finishLiveChat("Live chat reached your configured inactivity limit.")

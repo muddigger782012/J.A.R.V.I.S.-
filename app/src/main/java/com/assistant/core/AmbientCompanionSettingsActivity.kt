@@ -82,8 +82,10 @@ class AmbientCompanionSettingsActivity : MenuActivity("Ambient companion") {
             return view
         }
         val context = option("Maintain conversational context", current.contextEnabled)
+        val keepListening = option("Keep Live Chat available until I stop it", current.keepListeningUntilStopped)
         val interruptions = option("Allow natural interruptions and barge-in", current.interruptionsEnabled)
         val otherSpeakers = option("Respond when other people address Jarvis", current.replyToOtherSpeakers)
+        panel.addView(label("With this option on, Live Chat remains available through long quiet periods. Until the continuous audio engine is finished, Android speech recognition still restarts between turns, and the system provider takes longer rests to reduce repeated chimes. These rests are not active listening. Stop Live Chat when anyone needs privacy.", 12f))
         panel.addView(label("Speaker identification and automatic spoken barge-in are still being developed. These choices are saved now; unknown voices cannot yet be reliably identified as you or another person. The microphone button still works.", 12f))
         panel.addView(label("While listening, Jarvis stays quiet unless addressed. With conversational context enabled, he can locally recall up to 90 seconds of nearby speech if you explicitly ask what was discussed. No speaker identity is assumed, and ambient context is cleared when Live Chat ends. The system recognizer may use a network provider.", 12f))
         panel.addView(MaterialButton(this).apply {
@@ -96,7 +98,8 @@ class AmbientCompanionSettingsActivity : MenuActivity("Ambient companion") {
                     initiative = initiative.progress,
                     interruptionsEnabled = interruptions.isChecked,
                     contextEnabled = context.isChecked,
-                    replyToOtherSpeakers = otherSpeakers.isChecked
+                    replyToOtherSpeakers = otherSpeakers.isChecked,
+                    keepListeningUntilStopped = keepListening.isChecked
                 )
                 runCatching { LiveChatCompanionSettings.save(this@AmbientCompanionSettingsActivity, saved) }
                     .onSuccess {
