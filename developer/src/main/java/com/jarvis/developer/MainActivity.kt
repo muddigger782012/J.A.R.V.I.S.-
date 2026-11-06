@@ -46,6 +46,8 @@ class MainActivity : Activity() {
     private var developmentHistory: DevelopmentInboxWorkbench.Handle? = null
     private var artifactReviewGeneration = 0L
     private var taskTriageGeneration = 0L
+    // Volatile UI offer only: never restored, never authorizes a source write.
+    private var nextPreviewPacket: DeveloperPlanContinuation.Packet? = null
     private var artifactInstallWhenFocused: (() -> Unit)? = null
     private var pendingArtifactInstall: Pair<Long, String>? = null
     private var selectedScreenshot: DeveloperScreenshot? = null
@@ -658,6 +660,8 @@ class MainActivity : Activity() {
                 // Invalidate a late one-tap Next result when a new user
                 // message takes ownership of the visible conversation.
                 taskTriageGeneration++
+                nextPreviewPacket = null
+                homeWorkspace?.setPrepareNextAvailable(false)
                 homeWorkspace?.sent(request)
             },
             screenshot = { selectedScreenshot },
@@ -1381,6 +1385,11 @@ class MainActivity : Activity() {
             reviewFromChat, homeCodeReviewToggle, homeCodeReview,
             guidedTarget?.selectedItemPosition ?: 0,
             { selected ->
+                if ((guidedTarget?.selectedItemPosition ?: 0) != selected) {
+                    taskTriageGeneration++
+                    nextPreviewPacket = null
+                    homeWorkspace?.setPrepareNextAvailable(false)
+                }
                 if (guidedTarget?.isEnabled != false) guidedTarget?.setSelection(selected)
                 else homeWorkspace?.syncTarget(guidedTarget?.selectedItemPosition ?: 0)
             },
@@ -1394,6 +1403,7 @@ class MainActivity : Activity() {
                 } else {
                     projectGeneration?.cancel()
                     taskTriageGeneration++
+                    nextPreviewPacket = null
                     // A new task must not inherit an attached screenshot or a
                     // still-decoding image from the previous conversation.
                     screenshotReadGeneration++
@@ -1420,22 +1430,85 @@ class MainActivity : Activity() {
                     status.text = "Finish the current chat operation before checking the next Developer action."
                 } else {
                     val generation = ++taskTriageGeneration
+                    nextPreviewPacket = null
+                    homeWorkspace?.setPrepareNextAvailable(false)
                     val projectAtStart = activeProject
                     homeWorkspace?.sent("What should Developer do next?")
                     status.text = "Reading saved Developer job and plan evidence; no source write."
                     thread(name = "developer-next-task-diagnosis", isDaemon = true) {
-                        val result = runCatching { DeveloperTaskTriage.read(this@MainActivity) }
+                        val result = runCatching {
+                            // Both records must be verified independently. A corrupt
+                            // plan never becomes an eligible proposal by fallback.
+                            DeveloperTaskAdvance.read(this@MainActivity)
+                        }
                         runOnUiThread {
                             if (isFinishing || isDestroyed || generation != taskTriageGeneration ||
                                 activePage != 0 || activeProject != projectAtStart ||
                                 (guidedTarget?.selectedItemPosition ?: 0) != 0) return@runOnUiThread
-                            output.text = result.getOrElse {
-                                "Saved task evidence could not be verified. Open Track to inspect it; " +
-                                    "no empty task history was assumed."
-                            }
+                            nextPreviewPacket = result.getOrNull()?.packet
+                            homeWorkspace?.setPrepareNextAvailable(nextPreviewPacket != null)
+                            output.text = result.fold(onSuccess = { offer ->
+                                offer.diagnosis + if (offer.packet == null) "" else
+                                    "\n\nEligible scoped plan found. Tap 'Prepare next diff' to request " +
+                                        "a NEW source-pinned preview; no code approval or write is granted."
+                            }, onFailure = {
+                                "Saved task or plan evidence could not be verified. Open Track " +
+                                    "to inspect it; no empty history or eligible task was assumed."
+                            })
                             status.text = if (result.isSuccess)
                                 "Local task diagnosis loaded; live CI and releases were not checked."
                             else "Developer task diagnosis unavailable; no action was started."
+                        }
+                    }
+                }
+            },
+            onPrepareNext = {
+                val offered = nextPreviewPacket
+                nextPreviewPacket = null
+                homeWorkspace?.setPrepareNextAvailable(false)
+                if (offered == null || (guidedTarget?.selectedItemPosition ?: 0) != 0 ||
+                    !send.isEnabled || activePage != 0 || screenshotLoading ||
+                    selectedScreenshot != null) {
+                    status.text = "Source preview unavailable. Diagnose again after finishing " +
+                        "the current chat or removing the screenshot. No source write started."
+                } else {
+                    // The single-use UI offer is only permission for source READ
+                    // and diff preview. Re-verify the current plan before staging.
+                    val generation = ++taskTriageGeneration
+                    val projectAtStart = activeProject
+                    homeWorkspace?.sent("Prepare next Developer diff")
+                    status.text = "Rechecking saved plan revision and immutable source scope."
+                    thread(name = "developer-prepare-next-source", isDaemon = true) {
+                        val current = runCatching {
+                            DeveloperTaskAdvance.read(this@MainActivity).packet
+                        }
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed || generation != taskTriageGeneration ||
+                                activePage != 0 || activeProject != projectAtStart ||
+                                (guidedTarget?.selectedItemPosition ?: 0) != 0) return@runOnUiThread
+                            val latest = current.getOrNull()
+                            if (latest == null || latest != offered || !send.isEnabled ||
+                                screenshotLoading || selectedScreenshot != null) {
+                                output.text = "Saved plan changed or its source-scope checkpoint is " +
+                                    "unverified. Use Next to recheck; no proposal was staged."
+                                status.text = "Developer next-step preview refused: stale or busy plan."
+                            } else {
+                                val started = runCatching {
+                                    patchWorkbench.continueDeveloperPlan(latest.id, latest.task,
+                                        latest.paths, latest.base)
+                                }.getOrDefault(false)
+                                if (started) revealImportedReview?.invoke()
+                                output.text = if (started)
+                                    "Fresh source-scoped Developer diff preview started for " +
+                                        "${latest.paths.size} eligible file(s) at pinned base " +
+                                        "${latest.base.take(12)}. Review the complete diff and " +
+                                        "separately approve its exact fingerprint before any commit."
+                                else "A current diff review, source operation or source-preparation " +
+                                    "gate blocked this attempt. No old approval or write was reused."
+                                status.text = if (started)
+                                    "Pinned-source diff preview running; no source write authorized."
+                                else "Developer preview not started; existing coding state preserved."
+                            }
                         }
                     }
                 }
@@ -1528,6 +1601,8 @@ class MainActivity : Activity() {
             val next = index.coerceIn(0, pages.lastIndex)
             if (next != activePage) {
                 taskTriageGeneration++
+                nextPreviewPacket = null
+                homeWorkspace?.setPrepareNextAvailable(false)
                 DeveloperUpdater.cancel(this, report = true)
                 dismissKeyboard()
                 positions[activePage] = pages[activePage].scrollY
@@ -1774,12 +1849,16 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        taskTriageGeneration++
+        nextPreviewPacket = null
+        homeWorkspace?.setPrepareNextAvailable(false)
         DeveloperUpdater.onBackground(this)
         super.onPause()
     }
 
     override fun onDestroy() {
         taskTriageGeneration++
+        nextPreviewPacket = null
         DeveloperUpdater.cancel(this)
         projectGeneration?.dispose()
         projectGeneration = null
