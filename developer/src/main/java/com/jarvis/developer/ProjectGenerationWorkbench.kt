@@ -17,6 +17,7 @@ internal object ProjectGenerationWorkbench {
             CodingAssistantProvider::askScreenshot,
         val context: (String, PatchEngine.Target, String, String, PatchPreviewCancellation) -> RepositoryCodingContext.Context = RepositoryIntelligence::codingContext,
         val progress: (Activity) -> String = DeveloperProgressReport::read,
+        val triage: (Activity) -> String = DeveloperTaskTriage::read,
         val releaseReadiness: (String) -> DeveloperReleaseControl.Candidate =
             DeveloperReleaseControl.Client()::inspect,
         val releaseDispatch: (String, String) -> DeveloperReleaseControl.Candidate =
@@ -333,6 +334,52 @@ internal object ProjectGenerationWorkbench {
                         "No provider request, approval or source write was started."
                     status.text = if (started) "Developer repair preparation started from chat; exact diff review pending."
                         else "Chat repair unavailable: a verified failed Developer source build is required."
+                }
+                return@setOnClickListener
+            }
+            // Codex-style "what next?" is a strict read-only diagnosis over
+            // bounded private job receipts and validated task plans. It cannot
+            // silently run the provider, resume tasks or grant any approval.
+            if (DeveloperTaskTriage.isRequest(task)) {
+                if (target() != 0) {
+                    output.text = "Developer task diagnosis is unavailable for Personal Jarvis. " +
+                        "Switch the target to Developer. No private Developer job was read."
+                    status.text = "Cross-product diagnosis blocked; no work started."
+                    return@setOnClickListener
+                }
+                val cancellation = PatchPreviewCancellation()
+                val projectAtStart = selected()
+                localProgressRead = cancellation
+                inputs(false)
+                status.text = "Reading local Developer task and job checkpoints; no network or code execution."
+                val work: () -> Unit = {
+                    val answer = runCatching {
+                        cancellation.check()
+                        services.triage(activity).also { cancellation.check() }
+                    }
+                    activity.runOnUiThread {
+                        if (!alive() || localProgressRead !== cancellation ||
+                            cancellation.isCancelled) return@runOnUiThread
+                        localProgressRead = null
+                        inputs(true)
+                        if (target() != 0 || selected() != projectAtStart) {
+                            output.text = "The project or target changed. Stale task diagnosis discarded."
+                            status.text = "No Developer job or approval was changed."
+                        } else answer.onSuccess {
+                            output.text = it
+                            status.text = "Local blocker diagnosis complete. Exact CI and releases not checked."
+                        }.onFailure {
+                            output.text = "Developer task records could not be verified. " +
+                                "Inspect Track and local planning; no empty-result fallback was invented."
+                            status.text = "Task diagnosis unavailable; no approval, retry or write occurred."
+                        }
+                    }
+                }
+                runCatching { services.worker(work) }.onFailure {
+                    cancellation.cancel()
+                    localProgressRead = null
+                    inputs(true)
+                    status.text = "Task diagnosis worker unavailable; no operation started."
                 }
                 return@setOnClickListener
             }
