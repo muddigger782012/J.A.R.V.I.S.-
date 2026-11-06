@@ -32,6 +32,7 @@ internal object DeveloperHomeWorkspace {
         private val feed: LinearLayout,
         private val response: TextView,
         private val phase: TextView,
+        private val targetPicker: Spinner,
         saved: Bundle?
     ) {
         private val turns = ArrayList<String>()
@@ -85,6 +86,11 @@ internal object DeveloperHomeWorkspace {
             response.text = "Working on your request…"
             feed.addView(response)
             phase.text = "UNDERSTANDING"
+        }
+
+        fun syncTarget(index: Int) {
+            val next = index.coerceIn(0, 1)
+            if (targetPicker.selectedItemPosition != next) targetPicker.setSelection(next)
         }
 
         /** Persists presentation text only. No write authority, diff or API key. */
@@ -141,6 +147,7 @@ internal object DeveloperHomeWorkspace {
         send: Button,
         output: TextView,
         status: TextView,
+        codingStatus: TextView,
         review: Button,
         reviewToggle: Button,
         reviewPanel: LinearLayout,
@@ -208,6 +215,26 @@ internal object DeveloperHomeWorkspace {
             }
             override fun afterTextChanged(s: Editable?) = Unit
         })
+        // Show the real patch engine and CI status without opening another page.
+        // The detailed diff and controls remain the existing inline review.
+        val codingEvidence = TextView(activity).apply {
+            tag = "developer-home-build-evidence"
+            textSize = 12f
+            setTextColor(activity.getColor(R.color.developer_primary))
+            visibility = if (codingStatus.text.isNullOrBlank()) View.GONE else View.VISIBLE
+            text = codingStatus.text
+        }
+        taskCard.addView(codingEvidence)
+        codingStatus.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val detail = s.orEmpty().toString().take(500)
+                codingEvidence.text = detail
+                codingEvidence.visibility = if (detail.isBlank()) View.GONE else View.VISIBLE
+                if (detail.isNotBlank()) phase.text = stageLabel(detail)
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
 
         val feed = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -267,12 +294,13 @@ internal object DeveloperHomeWorkspace {
         composer.addView(row)
         (prompt.parent as? ViewGroup)?.removeView(prompt)
         prompt.apply {
-            hint = "Ask Jarvis to build, fix, or explain…"
+            // Retain the original accessibility/hint identity used by saved
+            // drafts and screen readers; the workspace heading supplies context.
             minLines = 2
             maxLines = 5
         }
         composer.addView(prompt)
         composer.addView(send)
-        return Session(composer, activity, feed, output, phase, saved)
+        return Session(composer, activity, feed, output, phase, choice, saved)
     }
 }
