@@ -1434,18 +1434,16 @@ class MainActivity : Activity() {
                         val result = runCatching {
                             // Both records must be verified independently. A corrupt
                             // plan never becomes an eligible proposal by fallback.
-                            val diagnosis = DeveloperTaskTriage.read(this@MainActivity)
-                            val next = DeveloperPlanContinuation.suggest(this@MainActivity)
-                            diagnosis to next
+                            DeveloperTaskAdvance.read(this@MainActivity)
                         }
                         runOnUiThread {
                             if (isFinishing || isDestroyed || generation != taskTriageGeneration ||
                                 activePage != 0 || activeProject != projectAtStart ||
                                 (guidedTarget?.selectedItemPosition ?: 0) != 0) return@runOnUiThread
-                            nextPreviewPacket = result.getOrNull()?.second?.packet
+                            nextPreviewPacket = result.getOrNull()?.packet
                             homeWorkspace?.setPrepareNextAvailable(nextPreviewPacket != null)
-                            output.text = result.fold(onSuccess = { (diagnosis, next) ->
-                                diagnosis + if (next.packet == null) "" else
+                            output.text = result.fold(onSuccess = { offer ->
+                                offer.diagnosis + if (offer.packet == null) "" else
                                     "\n\nEligible scoped plan found. Tap 'Prepare next diff' to request " +
                                         "a NEW source-pinned preview; no code approval or write is granted."
                             }, onFailure = {
@@ -1477,7 +1475,7 @@ class MainActivity : Activity() {
                     status.text = "Rechecking saved plan revision and immutable source scope."
                     thread(name = "developer-prepare-next-source", isDaemon = true) {
                         val current = runCatching {
-                            DeveloperPlanContinuation.suggest(this@MainActivity).packet
+                            DeveloperTaskAdvance.read(this@MainActivity).packet
                         }
                         runOnUiThread {
                             if (isFinishing || isDestroyed || generation != taskTriageGeneration ||
