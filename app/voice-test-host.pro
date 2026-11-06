@@ -1,3 +1,6 @@
+# The instrumented JNI callback's Consumer interface is implemented by a
+# synthetic class in the separately compiled test APK; never rename/merge it.
+-keep interface com.assistant.core.services.NativeTtsCallback$Consumer { *; }
 # APIs referenced by the separately compiled instrumentation APK must survive
 # the target R8 pass. Bodies can still be optimized; production release rules
 # are unchanged. Kotlin support is needed by AndroidX test runner.
