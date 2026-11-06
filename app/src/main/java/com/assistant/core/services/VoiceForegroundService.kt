@@ -523,7 +523,10 @@ class VoiceForegroundService : Service() {
                             // through the AI, action router, or persistent Live Chat history.
                             ambientContext.observe(text, companionSettings.contextEnabled)
                             if (liveSession.recover(turn)) {
-                                liveStatus(VoiceInteractionState.IDLE, "Listening; no response needed.")
+                                liveStatus(VoiceInteractionState.IDLE,
+                                    if (companionSettings.contextEnabled)
+                                        "Speech recognized; keeping brief context while listening."
+                                    else "Speech recognized; observing without interrupting.")
                                 nextLiveTurn(250L)
                             }
                         } else {
