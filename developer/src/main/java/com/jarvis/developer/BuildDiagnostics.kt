@@ -20,7 +20,7 @@ object BuildDiagnostics {
 
     private const val MAX_LOG = 1_048_576
     private const val MAX_LINE = 8_192
-    private const val MAX_SUMMARY = 100_000
+    private const val MAX_SUMMARY = 300_000
     private const val MAX_DIAGNOSTICS = 50
     private const val MAX_TESTS = 2_000
     private const val MARKER = "JARVIS_JUNIT_SUMMARY="
@@ -78,14 +78,14 @@ object BuildDiagnostics {
             else limitations.add("Diagnostic count exceeded 50; additional diagnostics omitted")
         }
         for (raw in bounded.lineSequence()) {
-            // The generated structured JUnit record is deliberately permitted up to 100 KiB.
+            // Structured JUnit evidence is permitted up to the same 300 KiB limit as the CI producer.
             val line = timestamp.replace(ansi.replace(raw, ""), "").trim()
             if (line.startsWith(MARKER)) {
                 markerCount++
                 val summaryLimit = if (target == PatchEngine.Target.PERSONAL) 300_000 else MAX_SUMMARY
                 if (line.length > summaryLimit || line.toByteArray(Charsets.UTF_8).size > summaryLimit) {
                     limitations.add(if (target == PatchEngine.Target.PERSONAL) "Private JUnit summary exceeded its 300 KiB budget"
-                        else "JUnit summary exceeded its 100 KiB budget")
+                        else "JUnit summary exceeded its 300 KiB budget")
                 } else if (markerCount == 1) {
                     try {
                         val parsed = readSummary(line.substring(MARKER.length), commitSha)
@@ -262,7 +262,7 @@ object BuildDiagnostics {
         val totals = counts(root["totals"])
         val suites = root["suites"].list()
         val cases = root["cases"].list()
-        require(suites.isNotEmpty() && suites.size <= 50 && totals.tests > 0 && cases.size <= MAX_TESTS && cases.size == totals.tests)
+        require(suites.isNotEmpty() && suites.size <= 128 && totals.tests > 0 && cases.size <= MAX_TESTS && cases.size == totals.tests)
         val expected = linkedMapOf<String, Totals>()
         for (value in suites) {
             val suite = value.map()

@@ -51,6 +51,59 @@ class CandidateAuditTest(unittest.TestCase):
         self.environment.start()
         self.addCleanup(self.environment.stop)
 
+
+    def test_junit_evidence_accepts_large_complete_suite_but_rejects_omission_corruption_and_failed_cases(self):
+        from xml.etree import ElementTree as ET
+        result_dir = self.root / "developer/build/test-results/testDebugUnitTest"
+        result_dir.mkdir(parents=True)
+        def add_suite(index, failure=False):
+            root = ET.Element("testsuite", name=f"com.jarvis.developer.Suite{index}",
+                              tests="12", failures="1" if failure else "0",
+                              errors="0", skipped="0")
+            for case in range(12):
+                element = ET.SubElement(root, "testcase", name=f"case{case}")
+                if failure and case == 0:
+                    ET.SubElement(element, "failure", message="fixture assertion")
+            (result_dir / f"TEST-Suite{index:03}.xml").write_bytes(ET.tostring(root))
+
+        for index in range(76):
+            add_suite(index)
+        counts = audit.read_junit_counts(self.root)
+        self.assertEqual(counts, dict(tests=912, failures=0, errors=0, skipped=0))
+
+        add_suite(3, failure=True)
+        self.assertEqual(audit.read_junit_counts(self.root)["failures"], 1)
+
+        # Reports must agree with their cases, not merely declare success.
+        invalid = result_dir / "TEST-Suite003.xml"
+        invalid.write_bytes(invalid.read_bytes().replace(b'failures="1"', b'failures="0"'))
+        with self.assertRaises(audit.AuditFailure):
+            audit.read_junit_counts(self.root)
+        add_suite(3)
+        (result_dir / "TEST-Suite003.xml").write_text(
+            '<!DOCTYPE testsuite><testsuite tests="0" failures="0" errors="0" skipped="0"/>')
+        with self.assertRaises(audit.AuditFailure):
+            audit.read_junit_counts(self.root)
+        add_suite(3)
+
+        for index in range(76, 129):
+            add_suite(index)
+        with self.assertRaises(audit.AuditFailure):
+            audit.read_junit_counts(self.root)
+
+    def test_ci_producer_candidate_reader_and_android_parser_agree_on_junit_budgets(self):
+        root = Path(__file__).resolve().parents[2]
+        producer = (root / ".github/workflows/build-jarvis-developer.yml").read_text()
+        parser = (root / "developer/src/main/java/com/jarvis/developer/BuildDiagnostics.kt").read_text()
+        self.assertIn("len(files) <= 128", producer)
+        self.assertIn("6_000_000, 'JUnit evidence exceeds budget'", producer)
+        self.assertIn("len(encoded.encode()) <= 300_000", producer)
+        self.assertIn("suites.size <= 128", parser)
+        self.assertIn("MAX_SUMMARY = 300_000", parser)
+        self.assertEqual(audit.MAX_JUNIT_SUITES, 128)
+        self.assertEqual(audit.MAX_JUNIT_BYTES, 6_000_000)
+        self.assertEqual(audit.MAX_JUNIT_CASES, 2_000)
+
     def test_actual_fixture_bytes_are_hashed_and_inspected_using_explicit_modeled_sdk(self):
         data = apk_fixture()
         path = self.root / "fixture.apk"

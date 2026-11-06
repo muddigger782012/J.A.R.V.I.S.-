@@ -465,6 +465,55 @@ def resolve(args):
             output.write(f"{name}={value}\n")
 
 
+# The Developer JVM suite outgrew the legacy 64-class budget. Keep exact,
+# bounded proof of every suite instead of accepting an incomplete subset.
+# The same ceilings are enforced by the canonical CI summary producer.
+MAX_JUNIT_SUITES = 128
+MAX_JUNIT_BYTES = 6_000_000
+MAX_JUNIT_SUITE_BYTES = 256_000
+MAX_JUNIT_CASES = 2_000
+
+
+def read_junit_counts(checkout):
+    files = sorted((checkout / "developer/build/test-results/testDebugUnitTest").glob("TEST-*.xml"))
+    require(0 < len(files) <= MAX_JUNIT_SUITES, "Expected bounded JUnit evidence")
+    counts = dict.fromkeys(("tests", "failures", "errors", "skipped"), 0)
+    observed_bytes = 0
+    for path in files:
+        require(path.is_file() and not path.is_symlink(), "Regular JUnit evidence required")
+        size = path.stat().st_size
+        observed_bytes += size
+        require(0 < size <= MAX_JUNIT_SUITE_BYTES and observed_bytes <= MAX_JUNIT_BYTES,
+                "JUnit XML exceeds bounded file or aggregate budget")
+        data = path.read_bytes()
+        require(b"<!DOCTYPE" not in data.upper() and b"<!ENTITY" not in data.upper(),
+                "JUnit declarations forbidden")
+        try:
+            suite = ET.fromstring(data)
+            require(suite.tag == "testsuite", "Expected JUnit testsuite")
+            children = suite.findall("testcase")
+            suite_counts = {name: int(suite.attrib[name]) for name in counts}
+        except (ET.ParseError, KeyError, ValueError, TypeError):
+            raise AuditFailure("Invalid JUnit suite evidence") from None
+        require(all(0 <= value <= MAX_JUNIT_CASES for value in suite_counts.values()) and
+                suite_counts["tests"] == len(children), "JUnit suite counts are invalid")
+        actual = dict.fromkeys(("failures", "errors", "skipped"), 0)
+        for case in children:
+            states = [kind for kind, name in (("failures", "failure"), ("errors", "error"),
+                                               ("skipped", "skipped")) if case.find(name) is not None]
+            require(len(states) <= 1, "Conflicting JUnit case states")
+            if states:
+                actual[states[0]] += 1
+        require(all(suite_counts[name] == actual[name] for name in actual),
+                "JUnit declared and observed case states disagree")
+        for name in counts:
+            counts[name] += suite_counts[name]
+    require(0 < counts["tests"] <= MAX_JUNIT_CASES and
+            sum(counts[name] for name in ("failures", "errors", "skipped")) <= counts["tests"],
+            "JUnit aggregate counts are invalid")
+    return counts
+
+
 def collect(args, kind):
     checkout = Path(args.checkout)
     output = Path(args.directory)
@@ -477,19 +526,7 @@ def collect(args, kind):
     if kind == "recovery":
         (output / "recovery-unsigned.apk").write_bytes(apk_bytes(checkout / "developer/build/outputs/apk/release/developer-release-unsigned.apk"))
         return
-    files = sorted((checkout / "developer/build/test-results/testDebugUnitTest").glob("TEST-*.xml"))
-    require(0 < len(files) <= 64 and sum(path.stat().st_size for path in files) <= 3_000_000, "Expected bounded JUnit evidence")
-    counts = dict.fromkeys(("tests", "failures", "errors", "skipped"), 0)
-    for path in files:
-        require(path.is_file() and not path.is_symlink(), "Regular JUnit evidence required")
-        data = path.read_bytes()
-        require(b"<!DOCTYPE" not in data.upper() and b"<!ENTITY" not in data.upper(), "JUnit declarations forbidden")
-        suite = ET.fromstring(data)
-        for name in counts:
-            count = int(suite.attrib[name])
-            require(0 <= count <= 10_000, "Invalid JUnit counts")
-            counts[name] += count
-        require(int(suite.attrib["tests"]) == len(suite.findall("testcase")), "JUnit case count mismatch")
+    counts = read_junit_counts(checkout)
     lint = checkout / "developer/build/reports/lint-results-debug.xml"
     require(lint.is_file() and not lint.is_symlink() and lint.stat().st_size <= 3_000_000, "Bounded lint evidence required")
     data = lint.read_bytes()
