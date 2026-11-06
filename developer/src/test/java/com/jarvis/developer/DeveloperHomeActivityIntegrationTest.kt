@@ -62,6 +62,37 @@ class DeveloperHomeActivityIntegrationTest {
             it.tag == "developer-home-conversation"
         }
 
+    @Test fun nextActionUsesChatWithoutOverwritingDraftOrRegrantingCodeApproval() {
+        val activity = activity()
+        val prompt = all(activity).filterIsInstance<EditText>().single {
+            it.hint?.toString() == "Example: Build me an app to track equipment maintenance."
+        }
+        val next = all(activity).filterIsInstance<Button>().single {
+            it.tag == "developer-task-next"
+        }
+        assertEquals("Next", next.text.toString())
+        assertNotNull(all(activity).filterIsInstance<LinearLayout>().single {
+            it.tag == "developer-home-task-summary"
+        })
+        prompt.setText("Preserve this unsent task request")
+        next.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("Preserve this unsent task request", prompt.text.toString())
+        assertTrue(DeveloperUiState.descendants(transcript(activity))
+            .filterIsInstance<TextView>().any {
+                it.text.toString().contains("What should Developer do next?")
+            })
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+
+        val target = composer(activity).findViewWithTag<Spinner>("developer-home-target")
+        target.setSelection(1)
+        shadowOf(Looper.getMainLooper()).idle()
+        next.performClick()
+        assertTrue(all(activity).filterIsInstance<TextView>()
+            .any { it.text.toString().contains("available for Developer, not Personal Jarvis") })
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+    }
+
     @Test fun compactWorkspacePresentsBranchRunsAndOneActionStripWithoutSkippingApproval() {
         val activity = activity()
         val toolbar = all(activity).filterIsInstance<LinearLayout>().single {

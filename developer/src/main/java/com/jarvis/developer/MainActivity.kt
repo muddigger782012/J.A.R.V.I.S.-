@@ -45,6 +45,7 @@ class MainActivity : Activity() {
     private var artifactReviewJob: String? = null
     private var developmentHistory: DevelopmentInboxWorkbench.Handle? = null
     private var artifactReviewGeneration = 0L
+    private var taskTriageGeneration = 0L
     private var artifactInstallWhenFocused: (() -> Unit)? = null
     private var pendingArtifactInstall: Pair<Long, String>? = null
     private var selectedScreenshot: DeveloperScreenshot? = null
@@ -653,7 +654,12 @@ class MainActivity : Activity() {
                 started
             }, currentDeveloperCommit = { patchWorkbench.currentDeveloperCommit() },
             mayReadSavedCompletion = { patchWorkbench.mayReadSavedCompletion() },
-            onUserMessage = { request -> homeWorkspace?.sent(request) },
+            onUserMessage = { request ->
+                // Invalidate a late one-tap Next result when a new user
+                // message takes ownership of the visible conversation.
+                taskTriageGeneration++
+                homeWorkspace?.sent(request)
+            },
             screenshot = { selectedScreenshot },
             screenshotLoading = { screenshotLoading },
             onScreenshotSent = { sent ->
@@ -1387,6 +1393,7 @@ class MainActivity : Activity() {
                     status.setText(R.string.project_generation_finish_code_operation)
                 } else {
                     projectGeneration?.cancel()
+                    taskTriageGeneration++
                     // A new task must not inherit an attached screenshot or a
                     // still-decoding image from the previous conversation.
                     screenshotReadGeneration++
@@ -1401,6 +1408,36 @@ class MainActivity : Activity() {
                     output.text = ""
                     homeWorkspace?.reset()
                     status.text = "New task ready. Describe what to build or repair."
+                }
+            },
+            onTaskNext = {
+                // Read-only direct task diagnosis, with no change to a typed
+                // draft, selected image, source diff, provider or commit state.
+                // The chat bubble is presentation only; the inbox is authority.
+                if ((guidedTarget?.selectedItemPosition ?: 0) != 0) {
+                    status.text = "Next action is available for Developer, not Personal Jarvis."
+                } else if (!send.isEnabled) {
+                    status.text = "Finish the current chat operation before checking the next Developer action."
+                } else {
+                    val generation = ++taskTriageGeneration
+                    val projectAtStart = activeProject
+                    homeWorkspace?.sent("What should Developer do next?")
+                    status.text = "Reading saved Developer job and plan evidence; no source write."
+                    thread(name = "developer-next-task-diagnosis", isDaemon = true) {
+                        val result = runCatching { DeveloperTaskTriage.read(this@MainActivity) }
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed || generation != taskTriageGeneration ||
+                                activePage != 0 || activeProject != projectAtStart ||
+                                (guidedTarget?.selectedItemPosition ?: 0) != 0) return@runOnUiThread
+                            output.text = result.getOrElse {
+                                "Saved task evidence could not be verified. Open Track to inspect it; " +
+                                    "no empty task history was assumed."
+                            }
+                            status.text = if (result.isSuccess)
+                                "Local task diagnosis loaded; live CI and releases were not checked."
+                            else "Developer task diagnosis unavailable; no action was started."
+                        }
+                    }
                 }
             })
         // One direct attachment control inside the existing chat composer.
@@ -1490,6 +1527,7 @@ class MainActivity : Activity() {
         fun showPage(index: Int, remember: Boolean = true) {
             val next = index.coerceIn(0, pages.lastIndex)
             if (next != activePage) {
+                taskTriageGeneration++
                 DeveloperUpdater.cancel(this, report = true)
                 dismissKeyboard()
                 positions[activePage] = pages[activePage].scrollY
@@ -1741,6 +1779,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        taskTriageGeneration++
         DeveloperUpdater.cancel(this)
         projectGeneration?.dispose()
         projectGeneration = null

@@ -25,6 +25,7 @@ class ProjectGenerationTest {
     private inner class Screen(val prefs: android.content.SharedPreferences = preferences(),
         launchFails: Boolean = false, failure: Exception? = null,
         progressRead: (() -> String)? = null,
+        triageRead: (() -> String)? = null,
         ask: ((String, String, String, String, PatchPreviewCancellation) -> String)? = null,
         repair: (() -> Boolean)? = null,
         buildCheck: (() -> Boolean)? = null,
@@ -66,6 +67,8 @@ class ProjectGenerationTest {
                         ?: if (failure != null) throw failure else "Reply for $task"
                 }, context = { task, product, _, _, _ -> RepositoryCodingContext.unavailable(task, product) },
                 progress = { _ -> progressRead?.invoke() ?: "Verified local progress fixture" },
+                triage = { _ -> triageRead?.invoke()
+                    ?: error("Unexpected ungrounded Developer task triage read") },
                 releaseReadiness = { token -> releaseInspect?.invoke(token)
                     ?: error("Unexpected live release-readiness request") },
                 releaseDispatch = { token, sha -> releasePost?.invoke(token, sha)
@@ -123,6 +126,60 @@ class ProjectGenerationTest {
             assertEquals(2, previewCalls)
             assertTrue(s.pending.isEmpty())
             assertTrue(s.output.text.contains("different application"))
+        }
+    }
+
+    @Test fun developerTriageAnswersInChatWithoutModelWritesOrClaimingLiveCi() {
+        var reads = 0
+        val report = "Developer task diagnosis — local records only\\nBuild: PENDING"
+        Screen(triageRead = { reads++; report },
+            ask = { _, _, _, _, _ -> error("Task triage must not call an AI provider") }).use { s ->
+            s.prompt.setText("What's blocking Developer?")
+            s.send.performClick()
+            assertEquals(1, s.pending.size)
+            assertFalse(s.send.isEnabled)
+            assertEquals(0, reads)
+            s.complete()
+            assertEquals(1, reads)
+            assertEquals(report, s.output.text.toString())
+            assertTrue(s.status.text.contains("not checked"))
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.send.isEnabled)
+        }
+    }
+
+    @Test fun personalTargetAndCancellationCannotRevealLateDeveloperTaskEvidence() {
+        var reads = 0
+        Screen(triageRead = { reads++; "PRIVATE DEVELOPER TASK RECEIPT" },
+            ask = { _, _, _, _, _ -> error("No model request allowed") }).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("What should Developer do next?")
+            s.send.performClick()
+            assertTrue(s.pending.isEmpty())
+            assertEquals(0, reads)
+            assertTrue(s.output.text.contains("unavailable for Personal"))
+
+            s.target.setSelection(0)
+            s.send.performClick()
+            assertEquals(1, s.pending.size)
+            s.cancel.performClick()
+            s.complete()
+            assertEquals(0, reads)
+            assertFalse(s.output.text.contains("PRIVATE DEVELOPER TASK"))
+            assertTrue(s.send.isEnabled)
+            assertTrue(s.prefs.all.isEmpty())
+        }
+    }
+
+    @Test fun triageStoreFailureRefusesFalseEmptyTaskResult() {
+        Screen(triageRead = { error("Unverified private task record") },
+            ask = { _, _, _, _, _ -> error("No model request allowed") }).use { s ->
+            s.prompt.setText("Diagnose Developer task")
+            s.send.performClick()
+            s.complete()
+            assertTrue(s.output.text.contains("could not be verified"))
+            assertFalse(s.output.text.contains("No saved Developer plan"))
+            assertTrue(s.prefs.all.isEmpty())
         }
     }
 

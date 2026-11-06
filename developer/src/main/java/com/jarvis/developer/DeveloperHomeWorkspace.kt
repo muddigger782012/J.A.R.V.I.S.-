@@ -272,7 +272,8 @@ internal object DeveloperHomeWorkspace {
         onAdvanced: () -> Unit,
         saved: Bundle?,
         onRuns: (() -> Unit)? = null,
-        onNewTask: (() -> Unit)? = null
+        onNewTask: (() -> Unit)? = null,
+        onTaskNext: (() -> Unit)? = null
     ): Session {
         val original = (0 until home.childCount).map { home.getChildAt(it) }
         val header = original.firstOrNull()
@@ -374,6 +375,17 @@ internal object DeveloperHomeWorkspace {
         }
         stageRow.addView(status, LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        if (onTaskNext != null) stageRow.addView(Button(activity).apply {
+            text = "Next"
+            textSize = 12f
+            isAllCaps = false
+            minHeight = dp(40)
+            tag = "developer-task-next"
+            contentDescription = "Diagnose next Developer task action from saved local evidence"
+            setTextColor(activity.getColor(R.color.developer_primary))
+            background = surface(0xFF132F3B.toInt())
+            setOnClickListener { onTaskNext() }
+        })
         taskCard.addView(stageRow)
         taskCard.visibility = if (stageLabel(status.text.toString()) == "READY" && codingStatus.text.isNullOrBlank()) View.GONE else View.VISIBLE
         home.addView(taskCard, LinearLayout.LayoutParams(
