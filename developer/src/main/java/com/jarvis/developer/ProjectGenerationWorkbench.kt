@@ -13,8 +13,14 @@ internal object ProjectGenerationWorkbench {
     internal class Services(
         val worker: (() -> Unit) -> Unit = { work -> thread(name = "DeveloperCodingAssistant", isDaemon = true) { work() }; Unit },
         val ask: (String, String, String, String, PatchPreviewCancellation, RepositoryCodingContext.Context) -> String = CodingAssistantProvider::ask,
+        val askScreenshot: (String, String, String, String, PatchPreviewCancellation, RepositoryCodingContext.Context, DeveloperScreenshot) -> String =
+            CodingAssistantProvider::askScreenshot,
         val context: (String, PatchEngine.Target, String, String, PatchPreviewCancellation) -> RepositoryCodingContext.Context = RepositoryIntelligence::codingContext,
         val progress: (Activity) -> String = DeveloperProgressReport::read,
+        val releaseReadiness: (String) -> DeveloperReleaseControl.Candidate =
+            DeveloperReleaseControl.Client()::inspect,
+        val releaseDispatch: (String, String) -> DeveloperReleaseControl.Candidate =
+            DeveloperReleaseControl.Client()::publish,
         val nextPlan: (Activity) -> DeveloperPlanContinuation.Suggestion = DeveloperPlanContinuation::suggest,
         val planAnalysis: DeveloperPlanAnalysisReview = DeveloperPlanAnalysisReview(),
         val completion: DeveloperPlanCompletionReview = DeveloperPlanCompletionReview(),
@@ -41,10 +47,15 @@ internal object ProjectGenerationWorkbench {
         currentDeveloperCommit: () -> PatchPublisher.CommitResult? = { null },
         mayReadSavedCompletion: () -> Boolean = { false },
         onUserMessage: (String) -> Unit = {},
+        screenshot: () -> DeveloperScreenshot? = { null },
+        screenshotLoading: () -> Boolean = { false },
+        onScreenshotSent: (DeveloperScreenshot) -> Unit = {},
         requestDeveloperSourceAnalysis: () -> Boolean = { false }): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
+        var releaseReadySha: String? = null
+        var releaseDispatchMayHaveStarted = false
         var disposed = false
         fun inputs(enabled: Boolean) {
             listOf(send, provider, key, model, prompt).forEach { it.isEnabled = enabled }
@@ -62,7 +73,9 @@ internal object ProjectGenerationWorkbench {
                 read.cancel()
                 if (alive()) {
                     inputs(true)
-                    status.text = "Local development progress read cancelled. No task or approval was changed."
+                    status.text = if (releaseDispatchMayHaveStarted)
+                        "Signed release dispatch may have reached GitHub. Check Developer Actions before trying again; cancellation cannot undo a queued workflow."
+                    else "Read-only operation cancelled. No source, release or approval was changed."
                 }
                 return
             }
@@ -90,6 +103,17 @@ internal object ProjectGenerationWorkbench {
             if (!alive() || running != null || localProgressRead != null) return@setOnClickListener
             val task = prompt.text.toString().trim()
             if (task.isEmpty()) { status.setText(R.string.project_generation_describe); prompt.requestFocus(); return@setOnClickListener }
+            if (screenshotLoading()) {
+                status.text = "Screenshot import in progress. Send after the preview appears."
+                return@setOnClickListener
+            }
+            val selectedScreenshot = screenshot()
+            if (selectedScreenshot != null && DeveloperDiffApprovalCommand.isAttempt(task)) {
+                output.text = "Remove the screenshot before approving a source diff. " +
+                    "Image analysis never approves a code write."
+                status.text = "Source approval kept separate from screenshot analysis."
+                return@setOnClickListener
+            }
             val secret = key.text.toString().trim()
             val readToken = githubToken().trim()
             if ((secret.isNotEmpty() && task.contains(secret)) || (readToken.isNotEmpty() && task.contains(readToken))) {
@@ -115,6 +139,92 @@ internal object ProjectGenerationWorkbench {
                             "is active. Retry after it finishes. No source or approval was changed."
                         status.text = "Developer source inspection not started."
                     }
+                }
+                return@setOnClickListener
+            }
+            // Release promotion is a two-step, owner-controlled chat operation.
+            // First verify the canonical source and exact successful CI, then
+            // explicitly type its entire SHA. No provider, source write, merge,
+            // local signing, APK installation, or implicit approval is involved.
+            val releaseCheck = DeveloperReleaseChatCommand.check(task)
+            val releaseAttempt = DeveloperReleaseChatCommand.publishAttempt(task)
+            if (releaseCheck || releaseAttempt) {
+                if (target() != 0) {
+                    output.text = "Signed Developer publication is unavailable for the Personal Jarvis target."
+                    status.text = "Developer release command rejected."
+                    return@setOnClickListener
+                }
+                val publishSha = if (releaseAttempt) DeveloperReleaseChatCommand.publishSha(task) else null
+                if (releaseAttempt && (publishSha == null || publishSha != releaseReadySha)) {
+                    output.text = "Publication requires a fresh passing exact-commit check. " +
+                        "First type 'Check Developer release readiness', then send exactly " +
+                        "'Publish Developer update' followed by the 40-character approved SHA. " +
+                        "No release was requested."
+                    status.text = "Signed update approval missing or stale."
+                    return@setOnClickListener
+                }
+                if (readToken.isBlank()) {
+                    output.text = "Connect GitHub in Settings. Release readiness requires read access; " +
+                        "publication additionally requires GitHub Actions write permission."
+                    status.text = "GitHub release connection unavailable."
+                    return@setOnClickListener
+                }
+                val cancellation = PatchPreviewCancellation()
+                localProgressRead = cancellation
+                releaseDispatchMayHaveStarted = false
+                inputs(false)
+                status.text = if (publishSha == null)
+                    "Verifying canonical Developer SHA and all required isolated CI."
+                else "Rechecking exact source before requesting a signed Developer workflow."
+                if (publishSha != null) releaseReadySha = null // One-use owner approval.
+                val work: () -> Unit = {
+                    val result = runCatching {
+                        cancellation.check()
+                        if (publishSha == null) services.releaseReadiness(readToken)
+                        else {
+                            cancellation.check()
+                            releaseDispatchMayHaveStarted = true
+                            services.releaseDispatch(readToken, publishSha)
+                        }
+                    }
+                    activity.runOnUiThread {
+                        if (!alive() || localProgressRead !== cancellation || cancellation.isCancelled)
+                            return@runOnUiThread
+                        localProgressRead = null
+                        releaseDispatchMayHaveStarted = false
+                        inputs(true)
+                        result.onSuccess { verified ->
+                            if (publishSha == null) {
+                                releaseReadySha = verified.sha
+                                output.text = "Canonical Developer source: ${verified.sha}\n" +
+                                    "Verified successful isolated CI run: ${verified.runId}.\n\n" +
+                                    "To authorize ONLY a signed workflow dispatch, type exactly:\n" +
+                                    "Publish Developer update ${verified.sha}\n\n" +
+                                    "No publication, merge, APK download or installation has occurred."
+                                status.text = "Release candidate verified; exact owner authorization required."
+                            } else {
+                                output.text = "GitHub accepted a signed Developer release workflow request for " +
+                                    "${verified.sha}. Follow Actions for the final signing and publication " +
+                                    "result. The APK was NOT installed on your device."
+                                status.text = "Signed release workflow queued; publication not yet verified."
+                            }
+                        }.onFailure {
+                            if (publishSha == null) releaseReadySha = null
+                            output.text = if (publishSha == null)
+                                "Developer release readiness is blocked: canonical CI or source " +
+                                    "could not be verified as complete and green. Inspect Developer " +
+                                    "Actions and retry after resolving the failure. No release was requested."
+                            else "Signed Developer workflow was not confirmed. Check GitHub Actions " +
+                                "before trying again; do not assume it failed or was published."
+                            status.text = "Developer release gate blocked or unverified."
+                        }
+                    }
+                }
+                runCatching { services.worker(work) }.onFailure {
+                    localProgressRead = null
+                    releaseReadySha = null
+                    inputs(true)
+                    status.text = "Release verification worker unavailable; no result verified."
                 }
                 return@setOnClickListener
             }
@@ -458,8 +568,10 @@ internal object ProjectGenerationWorkbench {
             // The checkbox may request source changes for either product. Pure
             // brainstorming first returns suggestions: no selected feature means
             // there is not yet a scoped change to review or approve.
-            val wantsPatch = developerCodeRequest || personalCodeRequest ||
-                (requestPatch() && !brainstorming)
+            // Screenshot requests are diagnosis-only. An image is never parsed as a
+            // proposed edit or used as approval, even if the prompt starts with Fix.
+            val wantsPatch = selectedScreenshot == null && (developerCodeRequest || personalCodeRequest ||
+                (requestPatch() && !brainstorming))
             if ((developerCodeRequest && product != 0) || (personalCodeRequest && product != 1)) {
                 status.text = "Select the app named in the request before preparing its code."
                 output.text = "The request targets a different application than the selected product. " +
@@ -469,6 +581,12 @@ internal object ProjectGenerationWorkbench {
             }
             val project = selected() ?: java.util.UUID.randomUUID().toString()
             if (secret.isEmpty()) {
+                if (selectedScreenshot != null) {
+                    status.text = "Connect a vision-capable AI provider in Settings."
+                    output.text = "The selected screenshot remains on this device. " +
+                        "Nothing was uploaded; connect Gemini or OpenAI and send again."
+                    return@setOnClickListener
+                }
                 if (store.saveLocal(project, task, product)) {
                     select(project); changed(); status.setText(R.string.project_generation_saved_offline)
                     output.setText(R.string.project_generation_not_started)
@@ -485,7 +603,11 @@ internal object ProjectGenerationWorkbench {
                     "controllers, permissions, voice-capture security, build, releases and installation are forbidden. "
             else
                 "developer/src/main/java/com/jarvis/developer/ or developer/src/test/java/com/jarvis/developer/. "
-            val instruction = if (!wantsPatch) task else task +
+            val instruction = if (selectedScreenshot != null)
+                task + "\n\nAnalyze the attached failure screenshot. Identify visible messages, " +
+                    "likely causes, next diagnostic checks, and any source evidence required. " +
+                    "This is advice only: do not output a code patch or claim a repair."
+            else if (!wantsPatch) task else task +
                 "\n\nCODE PATCH MODE (proposal only, never execute): Return ONLY a JSON object with summary (string) and edits (array of path and content strings). " +
                 "Every edit must be a complete replacement Kotlin or Java source file under " + allowedRoots +
                 "Modify only exact eligible paths and existing contents from the verified repository context. " +
@@ -526,7 +648,10 @@ internal object ProjectGenerationWorkbench {
                     sourceSummary = context.summary()
                     activity.runOnUiThread { if (current(run)) status.text = activity.getString(
                         if (context.verified) R.string.project_generation_context_ready else R.string.project_generation_context_unavailable, providerName) }
-                    val text = services.ask(providerName, secret, modelName, instruction, run.cancellation, context)
+                    val text = if (selectedScreenshot == null)
+                        services.ask(providerName, secret, modelName, instruction, run.cancellation, context)
+                    else services.askScreenshot(providerName, secret, modelName, instruction,
+                        run.cancellation, context, selectedScreenshot)
                     run.cancellation.check()
                     if (wantsPatch) {
                         // Reject free-form prose and unsafe edits before saving a proposal.
@@ -598,6 +723,10 @@ internal object ProjectGenerationWorkbench {
                             } else output.text = text
                             if (scope == null) status.text = if (saved != ProjectGenerationStore.Result.SAVED)
                                 activity.getString(R.string.project_generation_response_unsaved)
+                                else if (selectedScreenshot != null) {
+                                    runCatching { onScreenshotSent(selectedScreenshot) }
+                                    "Screenshot analyzed with $providerName. No source changes or approval."
+                                }
                                 else if (brainstorming)
                                     "Ideas received. Choose one and say 'Implement [feature] in " +
                                         (if (product == 1) "Personal Jarvis" else "Jarvis Developer") +

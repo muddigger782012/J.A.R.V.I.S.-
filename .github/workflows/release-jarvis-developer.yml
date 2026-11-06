@@ -15,6 +15,10 @@ on:
         required: false
         type: boolean
         default: false
+      expected_source_sha:
+        description: 'Exact canonical source SHA approved in Developer chat; reject if branch moved'
+        required: false
+        type: string
       recovery_sha:
         description: 'Optional previously verified Developer commit SHA to rebuild as a newer APK'
         required: false
@@ -35,6 +39,18 @@ jobs:
     if: github.repository == 'muddigger782012/J.A.R.V.I.S.-' && github.ref == 'refs/heads/feature/jarvis-developer'
     runs-on: ubuntu-latest
     steps:
+      - name: Reject changed or mismatched chat-approved source before signing
+        if: github.event_name == 'workflow_dispatch' && inputs.expected_source_sha != ''
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          ACTUAL_SOURCE_SHA: ${{ github.sha }}
+          RECOVERY_SHA: ${{ inputs.recovery_sha }}
+          RECOVER_PREVIOUS: ${{ inputs.recover_previous }}
+        shell: bash
+        run: |
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid approved source SHA"; exit 1; }
+          test "$EXPECTED_SOURCE_SHA" = "$ACTUAL_SOURCE_SHA" || { echo "::error::Canonical source changed since owner review"; exit 1; }
+          test -z "$RECOVERY_SHA" && test "$RECOVER_PREVIOUS" != "true" || { echo "::error::Chat-approved update cannot be combined with recovery"; exit 1; }
       - name: Resolve approved recovery source
         id: recovery
         if: github.event_name == 'workflow_dispatch'
