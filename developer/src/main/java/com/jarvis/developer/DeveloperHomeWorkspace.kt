@@ -142,17 +142,35 @@ internal object DeveloperHomeWorkspace {
 
         private fun appendHistorical(role: Char, message: String) {
             val user = role == 'U'
-            val label = TextView(activity).apply {
-                text = (if (user) "You\n" else "Jarvis\n") + message.take(MAX_SAVED_CHARS)
-                textSize = 14f
-                setTextColor(activity.getColor(R.color.developer_text))
-                setPadding(dp(12), dp(12), dp(12), dp(12))
-                background = surface(if (user) 0xFF224453.toInt() else 0xFF112B36.toInt())
+            // Compact thread cards: user tasks and Developer responses are visually
+            // distinct, selectable, and remain in one continuous conversation.
+            val bubble = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                tag = if (user) "developer-chat-user-turn" else "developer-chat-agent-turn"
+                setPadding(dp(11), dp(8), dp(11), dp(10))
+                background = surface(if (user) 0xFF214453.toInt() else 0xFF112B36.toInt())
             }
+            bubble.addView(TextView(activity).apply {
+                text = if (user) "YOU" else "J.A.R.V.I.S."
+                textSize = 10f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(activity.getColor(if (user)
+                    R.color.developer_text else R.color.developer_primary))
+            })
+            bubble.addView(TextView(activity).apply {
+                text = message.take(MAX_SAVED_CHARS)
+                textSize = 14f
+                setTextIsSelectable(true)
+                setTextColor(activity.getColor(R.color.developer_text))
+                setPadding(0, dp(3), 0, 0)
+            })
             val margin = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(10); if (user) leftMargin = dp(26) else rightMargin = dp(14) }
-            feed.addView(label, margin)
+            ).apply {
+                bottomMargin = dp(10)
+                if (user) leftMargin = dp(22) else rightMargin = dp(14)
+            }
+            feed.addView(bubble, margin)
         }
 
         /** Called only for a validated, explicit tap on the original chat send control. */
