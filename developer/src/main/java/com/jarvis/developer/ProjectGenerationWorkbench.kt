@@ -13,6 +13,8 @@ internal object ProjectGenerationWorkbench {
     internal class Services(
         val worker: (() -> Unit) -> Unit = { work -> thread(name = "DeveloperCodingAssistant", isDaemon = true) { work() }; Unit },
         val ask: (String, String, String, String, PatchPreviewCancellation, RepositoryCodingContext.Context) -> String = CodingAssistantProvider::ask,
+        val askScreenshot: (String, String, String, String, PatchPreviewCancellation, RepositoryCodingContext.Context, DeveloperScreenshot) -> String =
+            CodingAssistantProvider::askScreenshot,
         val context: (String, PatchEngine.Target, String, String, PatchPreviewCancellation) -> RepositoryCodingContext.Context = RepositoryIntelligence::codingContext,
         val progress: (Activity) -> String = DeveloperProgressReport::read,
         val nextPlan: (Activity) -> DeveloperPlanContinuation.Suggestion = DeveloperPlanContinuation::suggest,
@@ -40,7 +42,10 @@ internal object ProjectGenerationWorkbench {
         continueDeveloperPlan: (String, String, List<String>, String) -> Boolean = { _, _, _, _ -> false },
         currentDeveloperCommit: () -> PatchPublisher.CommitResult? = { null },
         mayReadSavedCompletion: () -> Boolean = { false },
-        onUserMessage: (String) -> Unit = {}): Handle {
+        onUserMessage: (String) -> Unit = {},
+        screenshot: () -> DeveloperScreenshot? = { null },
+        screenshotLoading: () -> Boolean = { false },
+        onScreenshotSent: (DeveloperScreenshot) -> Unit = {}): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
@@ -89,6 +94,17 @@ internal object ProjectGenerationWorkbench {
             if (!alive() || running != null || localProgressRead != null) return@setOnClickListener
             val task = prompt.text.toString().trim()
             if (task.isEmpty()) { status.setText(R.string.project_generation_describe); prompt.requestFocus(); return@setOnClickListener }
+            if (screenshotLoading()) {
+                status.text = "Screenshot import in progress. Send after the preview appears."
+                return@setOnClickListener
+            }
+            val selectedScreenshot = screenshot()
+            if (selectedScreenshot != null && DeveloperDiffApprovalCommand.isAttempt(task)) {
+                output.text = "Remove the screenshot before approving a source diff. " +
+                    "Image analysis never approves a code write."
+                status.text = "Source approval kept separate from screenshot analysis."
+                return@setOnClickListener
+            }
             val secret = key.text.toString().trim()
             val readToken = githubToken().trim()
             if ((secret.isNotEmpty() && task.contains(secret)) || (readToken.isNotEmpty() && task.contains(readToken))) {
@@ -437,8 +453,10 @@ internal object ProjectGenerationWorkbench {
             // The checkbox may request source changes for either product. Pure
             // brainstorming first returns suggestions: no selected feature means
             // there is not yet a scoped change to review or approve.
-            val wantsPatch = developerCodeRequest || personalCodeRequest ||
-                (requestPatch() && !brainstorming)
+            // Screenshot requests are diagnosis-only. An image is never parsed as a
+            // proposed edit or used as approval, even if the prompt starts with Fix.
+            val wantsPatch = selectedScreenshot == null && (developerCodeRequest || personalCodeRequest ||
+                (requestPatch() && !brainstorming))
             if ((developerCodeRequest && product != 0) || (personalCodeRequest && product != 1)) {
                 status.text = "Select the app named in the request before preparing its code."
                 output.text = "The request targets a different application than the selected product. " +
@@ -448,6 +466,12 @@ internal object ProjectGenerationWorkbench {
             }
             val project = selected() ?: java.util.UUID.randomUUID().toString()
             if (secret.isEmpty()) {
+                if (selectedScreenshot != null) {
+                    status.text = "Connect a vision-capable AI provider in Settings."
+                    output.text = "The selected screenshot remains on this device. " +
+                        "Nothing was uploaded; connect Gemini or OpenAI and send again."
+                    return@setOnClickListener
+                }
                 if (store.saveLocal(project, task, product)) {
                     select(project); changed(); status.setText(R.string.project_generation_saved_offline)
                     output.setText(R.string.project_generation_not_started)
@@ -464,7 +488,11 @@ internal object ProjectGenerationWorkbench {
                     "controllers, permissions, voice-capture security, build, releases and installation are forbidden. "
             else
                 "developer/src/main/java/com/jarvis/developer/ or developer/src/test/java/com/jarvis/developer/. "
-            val instruction = if (!wantsPatch) task else task +
+            val instruction = if (selectedScreenshot != null)
+                task + "\n\nAnalyze the attached failure screenshot. Identify visible messages, " +
+                    "likely causes, next diagnostic checks, and any source evidence required. " +
+                    "This is advice only: do not output a code patch or claim a repair."
+            else if (!wantsPatch) task else task +
                 "\n\nCODE PATCH MODE (proposal only, never execute): Return ONLY a JSON object with summary (string) and edits (array of path and content strings). " +
                 "Every edit must be a complete replacement Kotlin or Java source file under " + allowedRoots +
                 "Modify only exact eligible paths and existing contents from the verified repository context. " +
@@ -505,7 +533,10 @@ internal object ProjectGenerationWorkbench {
                     sourceSummary = context.summary()
                     activity.runOnUiThread { if (current(run)) status.text = activity.getString(
                         if (context.verified) R.string.project_generation_context_ready else R.string.project_generation_context_unavailable, providerName) }
-                    val text = services.ask(providerName, secret, modelName, instruction, run.cancellation, context)
+                    val text = if (selectedScreenshot == null)
+                        services.ask(providerName, secret, modelName, instruction, run.cancellation, context)
+                    else services.askScreenshot(providerName, secret, modelName, instruction,
+                        run.cancellation, context, selectedScreenshot)
                     run.cancellation.check()
                     if (wantsPatch) {
                         // Reject free-form prose and unsafe edits before saving a proposal.
@@ -577,6 +608,10 @@ internal object ProjectGenerationWorkbench {
                             } else output.text = text
                             if (scope == null) status.text = if (saved != ProjectGenerationStore.Result.SAVED)
                                 activity.getString(R.string.project_generation_response_unsaved)
+                                else if (selectedScreenshot != null) {
+                                    runCatching { onScreenshotSent(selectedScreenshot) }
+                                    "Screenshot analyzed with $providerName. No source changes or approval."
+                                }
                                 else if (brainstorming)
                                     "Ideas received. Choose one and say 'Implement [feature] in " +
                                         (if (product == 1) "Personal Jarvis" else "Jarvis Developer") +
