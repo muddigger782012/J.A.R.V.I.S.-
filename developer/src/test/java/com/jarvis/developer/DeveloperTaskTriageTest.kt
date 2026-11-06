@@ -5,7 +5,8 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DeveloperTaskTriageTest {
-    private val path = "developer/src/main/java/com/jarvis/developer/MainActivity.kt"
+    // An ordinary editable source path; MainActivity is intentionally protected.
+    private val path = "developer/src/main/java/com/jarvis/developer/ChatTimeline.kt"
 
     private fun plan() = TaskPlanner.Plan(
         id = "plan-1",
@@ -15,7 +16,7 @@ class DeveloperTaskTriageTest {
         scope = listOf(path),
         steps = listOf(
             TaskPlanner.Step("analyze", "Review analysis", "Review exact scope", emptyList(), emptyList()),
-            TaskPlanner.Step("implement-1", "Implement MainActivity", "Scoped review only",
+            TaskPlanner.Step("implement-1", "Implement ChatTimeline", "Scoped review only",
                 listOf(path), listOf("analyze")),
             TaskPlanner.Step("validate", "Validate exact build", "Verify CI", emptyList(), listOf("implement-1")),
             TaskPlanner.Step("review", "Review evidence", "Owner review", emptyList(), listOf("validate"))
