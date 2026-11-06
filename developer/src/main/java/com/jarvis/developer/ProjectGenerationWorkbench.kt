@@ -50,7 +50,11 @@ internal object ProjectGenerationWorkbench {
         screenshot: () -> DeveloperScreenshot? = { null },
         screenshotLoading: () -> Boolean = { false },
         onScreenshotSent: (DeveloperScreenshot) -> Unit = {},
-        requestDeveloperSourceAnalysis: () -> Boolean = { false }): Handle {
+        requestDeveloperSourceAnalysis: () -> Boolean = { false },
+        // The Activity wires explicit Developer implementation requests to the
+        // pinned source-analysis + PatchWorkbench proposal engine. A null hook
+        // preserves existing test/legacy clients without silently bypassing them.
+        requestDeveloperAutonomousPreview: (() -> Boolean)? = null): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
@@ -565,6 +569,22 @@ internal object ProjectGenerationWorkbench {
             val brainstorming = DevelopmentExplorationIntent.isRequest(task) &&
                 !developerCodeRequest && !personalCodeRequest
             val product = target()
+            if (developerCodeRequest && product == 0 && selectedScreenshot == null &&
+                requestDeveloperAutonomousPreview != null) {
+                // Prepare only a NEW source-scoped proposal. No model JSON
+                // whole-file shortcut, implicit approval or GitHub write.
+                val started = runCatching { requestDeveloperAutonomousPreview() }.getOrDefault(false)
+                output.text = if (started)
+                    "Reading Developer source to select eligible files, then generating " +
+                        "a fresh reviewable diff in the existing code engine. " +
+                        "Only the exact reviewed diff may be approved and committed."
+                else "Developer source scan could not start or another operation is active. " +
+                    "No AI request, code write or approval was started."
+                status.text = if (started)
+                    "Autonomous source-scoped proposal started; awaiting verified diff."
+                else "Source-scoped proposal unavailable."
+                return@setOnClickListener
+            }
             // The checkbox may request source changes for either product. Pure
             // brainstorming first returns suggestions: no selected feature means
             // there is not yet a scoped change to review or approve.
