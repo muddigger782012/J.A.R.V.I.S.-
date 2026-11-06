@@ -18,8 +18,7 @@
   participation.
 - Existing explicit `stop live chat` commands still work, even in Quiet mode.
   Mic button behavior, wake-word engine, TTS, signer and updater are unchanged.
-- Passive room speech is **not** uploaded to the AI and **not** added to the
-  saved Live Chat transcript in this first implementation.
+- Passive room speech is **not** submitted to Jarvis's AI/action router or added to saved Live Chat history. A bounded 90-second in-memory window now permits explicitly requested local recall; quoting an observation in the answer can appear in visible chat history. Speech-to-text may still use Android's network recognizer.
 
 ## Important limits (not yet implemented)
 
@@ -32,10 +31,7 @@
 - **Full duplex / spoken barge-in:** the manual microphone interruption path
   is preserved, but speech and recognition are still sequenced. The stored
   interruption setting is for later automatic barge-in implementation.
-- **Semantic memory of unaddressed room speech:** passive turns remain local
-  and are not used as semantic context by the AI yet. The context toggle in
-  this milestone controls the immediate addressed-turn follow-up window, not
-  a transcript of other people.
+- **Semantic reasoning from room speech:** direct local recall of recent observed phrases is implemented. These are not yet provided to cloud AI as semantic background, never authorize actions, and do not identify the speaker.
 - **Per-account sync:** settings are per app installation, not synchronized
   across separate user logins/devices.
 - **Device acceptance:** on-device tests must check no accidental responses,
@@ -49,8 +45,7 @@
 2. Explicit opt-in owner voice verification and optional ephemeral speaker
    diarization, with UNKNOWN remaining conservative. Consent and visibility
    are required when other people are present.
-3. Bounded, ephemeral context buffer for passive speech and optional
-   permissioned semantic references, never routed into privileged commands.
+3. Integrate the implemented bounded in-memory context with explicitly approved semantic references; never route room speech into privileged commands or cloud processing without deliberate opt-in.
 4. Context-aware participation scoring combining direct address, topic,
    speaker evidence, timing and interruption cost, with measured false
    interruption and missed-address rates. Add real-time full-duplex barge-in.
