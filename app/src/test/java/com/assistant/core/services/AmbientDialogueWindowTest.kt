@@ -39,6 +39,16 @@ class AmbientDialogueWindowTest {
         assertFalse(context.contains("a".repeat(651)))
     }
 
+    @Test fun revokingContextBlocksStaleCloudAnswersFromRestoringMemory() {
+        val window = AmbientDialogueWindow { 1_000L }
+        val oldGeneration = window.generation()
+        window.clear() // Live Chat stops or context toggle is disabled.
+        assertFalse(window.recordIfCurrent(oldGeneration, "Stale reply", "Too late"))
+        assertEquals("", window.snapshot())
+        assertTrue(window.recordIfCurrent(window.generation(), "New session", "Good reply"))
+        assertTrue(window.snapshot().contains("New session"))
+    }
+
     @Test fun backwardClockDropsPreviousConversation() {
         var now = 10_000L
         val window = AmbientDialogueWindow { now }

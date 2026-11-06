@@ -1348,6 +1348,7 @@ class HybridAssistantService(
         if (!personalAssistant || spoken.isBlank()) {
             callback(HybridAssistantReply("")); return
         }
+        val dialogueGeneration = ambientDialogue.generation()
         val turn = responseTurns.begin()
         responseThread(turn, callback) {
             val context = if (includeConversationContext) {
@@ -1368,7 +1369,7 @@ class HybridAssistantService(
             // Only a still-current response may extend ephemeral conversation
             // memory. No action permissions and no persistent history writes.
             if (includeConversationContext && answer.isNotBlank()) {
-                responseTurns.mutate { ambientDialogue.record(spoken, answer) }
+                responseTurns.mutate { ambientDialogue.recordIfCurrent(dialogueGeneration, spoken, answer) }
             }
             callback(HybridAssistantReply(answer))
         }.start()

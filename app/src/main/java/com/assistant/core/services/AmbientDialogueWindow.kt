@@ -9,6 +9,16 @@ import java.util.ArrayDeque
 class AmbientDialogueWindow(private val elapsedMillis: () -> Long = { System.nanoTime() / 1_000_000L }) {
     private data class Turn(val timestamp: Long, val user: String, val assistant: String)
     private val turns = ArrayDeque<Turn>()
+    private var generation = 0L
+
+    /** Captured before sending a cloud request; invalidated by clear(). */
+    @Synchronized fun generation(): Long = generation
+
+    @Synchronized fun recordIfCurrent(expectedGeneration: Long, userSpeech: String, assistantReply: String): Boolean {
+        if (generation != expectedGeneration) return false
+        record(userSpeech, assistantReply)
+        return true
+    }
 
     @Synchronized fun record(userSpeech: String, assistantReply: String) {
         val user = userSpeech.trim().take(250)
@@ -27,7 +37,10 @@ class AmbientDialogueWindow(private val elapsedMillis: () -> Long = { System.nan
         }
     }
 
-    @Synchronized fun clear() = turns.clear()
+    @Synchronized fun clear() {
+        turns.clear()
+        generation++
+    }
 
     private fun prune(now: Long) {
         while (turns.isNotEmpty() &&
