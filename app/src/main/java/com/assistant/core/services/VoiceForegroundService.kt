@@ -486,7 +486,10 @@ class VoiceForegroundService : Service() {
                    minimumCaptureMaximumMillis = ConversationCaptureTiming.LIVE_MINIMUM_MAX_CAPTURE_MILLIS,
                 // Normal silence must not start a second system recognizer,
                 // because many Android providers chime on every startup.
-                fallbackOnSilence = false
+                fallbackOnSilence = false,
+                // Some providers emit useful partial recognition but no final
+                // result after a thought pause. Do not discard those words.
+                recoverPartialOnFinalFailure = true
             )
         }, delay)
     }
