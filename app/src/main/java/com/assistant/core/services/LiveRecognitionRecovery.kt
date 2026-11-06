@@ -11,7 +11,7 @@ internal object LiveRecognitionRecovery {
     // A partial result is not an authoritative final command. Never treat
     // provisional audio as consent for modifying apps, data or finances.
     private val privilegedWords = Regex(
-        """\\b(?:approve|authorize|confirm|grant|allow|install|uninstall|delete|erase|wipe|buy|purchase|pay|transfer|send|publish|merge|commit|deploy|execute|sign|reset|stop)\\b""",
+        """\b(?:approve|authorize|confirm|grant|allow|install|uninstall|delete|erase|wipe|buy|purchase|pay|transfer|send|publish|merge|commit|deploy|execute|sign|reset|stop)\b""",
         RegexOption.IGNORE_CASE
     )
     fun usablePartial(speechStarted: Boolean, lastPartial: String): String? {
