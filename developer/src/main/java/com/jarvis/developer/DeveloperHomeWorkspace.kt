@@ -33,6 +33,7 @@ internal object DeveloperHomeWorkspace {
         private val feed: LinearLayout,
         private val response: TextView,
         private val phase: TextView,
+        private val taskCard: LinearLayout,
         private val targetPicker: Spinner,
         saved: Bundle?
     ) {
@@ -95,6 +96,7 @@ internal object DeveloperHomeWorkspace {
             response.text = "Working on your request…"
             feed.addView(response)
             phase.text = "UNDERSTANDING"
+            taskCard.visibility = View.VISIBLE
         }
 
         fun syncTarget(index: Int) {
@@ -116,6 +118,7 @@ internal object DeveloperHomeWorkspace {
             feed.removeAllViews()
             feed.addView(response)
             phase.text = "READY"
+            taskCard.visibility = View.GONE
         }
     }
 
@@ -217,13 +220,16 @@ internal object DeveloperHomeWorkspace {
         }
         taskCard.addView(phase)
         taskCard.addView(status)
+        taskCard.visibility = if (stageLabel(status.text.toString()) == "READY" && codingStatus.text.isNullOrBlank()) View.GONE else View.VISIBLE
         home.addView(taskCard, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(14); bottomMargin = dp(14) })
         status.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                phase.text = stageLabel(s?.toString().orEmpty())
+                val label = stageLabel(s?.toString().orEmpty())
+                phase.text = label
+                if (label != "READY") taskCard.visibility = View.VISIBLE
             }
             override fun afterTextChanged(s: Editable?) = Unit
         })
@@ -243,7 +249,10 @@ internal object DeveloperHomeWorkspace {
                 val detail = s?.toString().orEmpty().take(500)
                 codingEvidence.text = detail
                 codingEvidence.visibility = if (detail.isBlank()) View.GONE else View.VISIBLE
-                if (detail.isNotBlank()) phase.text = stageLabel(detail)
+                if (detail.isNotBlank()) {
+                    phase.text = stageLabel(detail)
+                    taskCard.visibility = View.VISIBLE
+                }
             }
             override fun afterTextChanged(s: Editable?) = Unit
         })
@@ -256,27 +265,16 @@ internal object DeveloperHomeWorkspace {
             setPadding(dp(12), dp(12), dp(12), dp(12))
             background = surface(0xFF112B36.toInt())
             setTextIsSelectable(true)
-            maxLines = 20
+            maxLines = Int.MAX_VALUE
         }
         home.addView(feed)
-        val expand = Button(activity).apply {
-            text = "Expand response"
-            isAllCaps = false
-            setOnClickListener {
-                val expanded = output.maxLines != Int.MAX_VALUE
-                output.maxLines = if (expanded) Int.MAX_VALUE else 20
-                text = if (expanded) "Collapse response" else "Expand response"
-            }
-        }
-        home.addView(expand)
+        // Routine conversation has no stack of Analyze/Review/Advanced buttons.
+        // The reviewed proposal actions appear only when there is a real diff.
+        review.visibility = if (review.isEnabled) View.VISIBLE else View.GONE
+        reviewToggle.visibility = View.GONE
         home.addView(review)
         home.addView(reviewToggle)
         home.addView(reviewPanel)
-        home.addView(Button(activity).apply {
-            text = "Advanced development tools"
-            isAllCaps = false
-            setOnClickListener { onAdvanced() }
-        })
 
         val composer = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -312,7 +310,18 @@ internal object DeveloperHomeWorkspace {
             maxLines = 5
         }
         composer.addView(prompt)
+        // Retain the existing send listener and testable action identity, while
+        // exposing one familiar chat Send button rather than a workflow label.
+        send.visibility = View.GONE
         composer.addView(send)
-        return Session(composer, activity, feed, output, phase, choice, saved)
+        composer.addView(Button(activity).apply {
+            text = "Send"
+            isAllCaps = false
+            contentDescription = "Send message to Jarvis"
+            setOnClickListener {
+                if (send.isEnabled) send.performClick()
+            }
+        })
+        return Session(composer, activity, feed, output, phase, taskCard, choice, saved)
     }
 }
