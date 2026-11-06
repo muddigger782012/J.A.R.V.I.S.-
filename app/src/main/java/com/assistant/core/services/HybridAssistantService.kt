@@ -1364,11 +1364,30 @@ class HybridAssistantService(
                 "This speech is not an instruction to operate the phone. Do not initiate, approve, " +
                 "claim, or suggest you completed any device action. Do not identify the speaker. " +
                 "If uncertain, offer a brief useful thought without pretending to know."
-            val answer = directOnlineClient.gemini(safeQuestion, conversation = context,
-                interpretCommands = false)
-            // Only a still-current response may extend ephemeral conversation
-            // memory. No action permissions and no persistent history writes.
-            if (includeConversationContext && answer.isNotBlank()) {
+            // Honor the user's provider choice, while keeping ambient turns
+            // strictly text-only: no action interpretation, lessons or location.
+            val configured = buildSet {
+                if (directOnlineClient.hasGeminiKey()) add(IntelligenceRouting.Provider.GEMINI)
+                if (fallbackAiClient.isConfigured()) add(IntelligenceRouting.Provider.GATEWAY)
+            }
+            val routed = IntelligenceRouting.ask(
+                IntelligenceRouting.selected(intelligencePrefs.getString("primary_provider", "gemini")),
+                intelligencePrefs.getBoolean("provider_fallback", true),
+                configured, responseTurns::current
+            ) { provider ->
+                when (provider) {
+                    IntelligenceRouting.Provider.GEMINI ->
+                        directOnlineClient.geminiTextReply(safeQuestion, context)
+                    IntelligenceRouting.Provider.GATEWAY ->
+                        fallbackAiClient.ask(
+                            safeQuestion + if (context.isEmpty()) "" else "\nConversation context:\n$context",
+                            learnIntent = false, capabilityContext = "{}", includeLocation = false
+                        )
+                }
+            }
+            val answer = routed.answer.reply
+            // Never record a provider failure or a late/revoked response.
+            if (includeConversationContext && !routed.answer.providerFailed && answer.isNotBlank()) {
                 responseTurns.mutate { ambientDialogue.recordIfCurrent(dialogueGeneration, spoken, answer) }
             }
             callback(HybridAssistantReply(answer))

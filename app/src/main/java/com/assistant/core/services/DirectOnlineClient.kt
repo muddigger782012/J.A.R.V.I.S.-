@@ -232,6 +232,12 @@ class DirectOnlineClient(private val context: Context) {
         )
     }
 
+    /** Text-only Gemini with explicit failure status for safe provider failover. */
+    fun geminiTextReply(question: String, conversation: String = ""): FallbackAiResult {
+        val result = geminiResponse(question, conversation, interpretCommands = false)
+        return FallbackAiResult(result.text, null, providerFailed = !result.successful)
+    }
+
     fun gemini(question: String, conversation: String = "", attachments: List<ChatAttachment> = emptyList(), interpretCommands: Boolean = false, capabilityContext: String = "{}"): String {
         return geminiResponse(question, conversation, attachments, interpretCommands, capabilityContext).text
     }
