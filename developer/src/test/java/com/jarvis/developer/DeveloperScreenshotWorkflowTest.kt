@@ -66,8 +66,11 @@ class DeveloperScreenshotWorkflowTest {
             val json = JSONObject(String(sent.body, Charsets.UTF_8))
             assertFalse(json.toString().contains(key))
             assertFalse(json.has("tools"))
-            assertTrue(json.getString("systemInstruction").contains("untrusted").not() ||
-                provider == "Gemini") // Gemini instruction is an object, not a user image command
+            val instruction = if (provider == "Gemini")
+                json.getJSONObject("systemInstruction").getJSONArray("parts")
+                    .getJSONObject(0).getString("text")
+            else json.getString("instructions")
+            assertTrue(instruction.contains("untrusted"))
             val encoded = if (provider == "Gemini") {
                 val parts = json.getJSONArray("contents").getJSONObject(0).getJSONArray("parts")
                 assertTrue(parts.getJSONObject(0).getString("text").contains("Diagnose"))
