@@ -108,9 +108,18 @@ class VoiceForegroundService : Service() {
     private var liveFailures = 0
     private var liveSilenceTurns = 0
     private var liveEngineOnDevice = false
+    private val liveInputRecovery = LiveChatInputRecovery()
     private val heartbeat = object : Runnable {
         override fun run() {
             if (!liveChatActive) return
+            // A cached status label must never claim a recognizer still owns
+            // the microphone after capture has unexpectedly stopped.
+            if (liveSession.phase == LiveChatSession.Phase.LISTENING &&
+                livePhase == VoiceInteractionState.LISTENING && !liveCapture.isActive &&
+                pcmSource == null) {
+                liveStatus(VoiceInteractionState.IDLE,
+                    "Microphone capture stopped unexpectedly. Tap the microphone to restart.")
+            }
             LiveChatStore.state(this@VoiceForegroundService, true, livePhase, liveMessage)
             if (::voiceService.isInitialized) VoiceRuntimeObservation.write(this@VoiceForegroundService,
                 VoiceRuntimeObservation.Owner.FOREGROUND, voiceService.wakeState, livePhase)
@@ -164,6 +173,8 @@ class VoiceForegroundService : Service() {
                             liveCapture.stop()
                             pcmSource?.closeTurn()
                             liveFailures = 0
+                            liveSilenceTurns = 0
+                            liveInputRecovery.reset()
                             if (::voiceService.isInitialized) voiceService.stopSpeaking()
                             liveHandler.removeCallbacksAndMessages(null)
                             liveStatus(VoiceInteractionState.IDLE, "Microphone requested; listening again…")
@@ -208,6 +219,8 @@ class VoiceForegroundService : Service() {
                 if (liveChatActive) {
                     hybridAssistantService.cancelActiveResponse()
                     liveCapture.stop(); pcmSource?.closeTurn(); voiceService.stopSpeaking()
+                    liveSilenceTurns = 0
+                    liveInputRecovery.reset()
                     liveHandler.removeCallbacksAndMessages(null)
                     if (liveSession.interrupt()) {
                         liveStatus(VoiceInteractionState.IDLE, "Turn cancelled. Live chat remains active; listening again…")
@@ -304,8 +317,9 @@ class VoiceForegroundService : Service() {
                             }
                         }
                         liveSilenceTurns = 0
+                        liveInputRecovery.reset()
                         liveEngineOnDevice = false
-                        liveStatus(VoiceInteractionState.LISTENING, "Starting live chat…")
+                        liveStatus(VoiceInteractionState.IDLE, "Starting live chat; microphone not ready yet…")
                         liveHandler.post(heartbeat)
                         nextLiveTurn(800L)
                     } catch (error: Throwable) {
@@ -473,7 +487,8 @@ class VoiceForegroundService : Service() {
         liveHandler.postDelayed(monitor, 30_000L)
     }
 
-    private fun nextLiveTurn(delay: Long, fromPcmSpeech: Boolean = false) {
+    private fun nextLiveTurn(delay: Long, fromPcmSpeech: Boolean = false,
+                             systemProbe: Boolean = false) {
         val token = liveSession.token
         liveHandler.postDelayed({
             if (!liveChatActive || liveSession.token != token) return@postDelayed
@@ -509,8 +524,16 @@ class VoiceForegroundService : Service() {
                 pcmInjectionRejected = true
                 shutdownPcmSource()
             }
+            var partialAcknowledged = false
             liveCapture.listen(currentConfig.preferOfflineCommandRecognition,
-                onPartial = { /* Partial transcripts stay transient; only complete turns enter chat. */ },
+                onPartial = { partial ->
+                    if (partial.isNotBlank() && !partialAcknowledged &&
+                        liveChatActive && liveSession.token == turn) {
+                        partialAcknowledged = true
+                        liveStatus(VoiceInteractionState.LISTENING,
+                            "Speech detected; waiting for completed transcription…")
+                    }
+                },
                 onResult = { text ->
                     // A delayed recognizer callback must never close the new
                     // PCM feed belonging to a subsequent Live Chat turn.
@@ -519,6 +542,7 @@ class VoiceForegroundService : Service() {
                         pcmTurnHealth.recordSuccessfulTranscript()
                         liveFailures = 0
                         liveSilenceTurns = 0
+                        liveInputRecovery.reset()
                         val companionSettings = LiveChatCompanionSettings.load(this)
                         if (!companionSettings.contextEnabled) {
                             ambientContext.clear()
@@ -534,9 +558,7 @@ class VoiceForegroundService : Service() {
                             ambientContext.observe(text, companionSettings.contextEnabled)
                             if (liveSession.recover(turn)) {
                                 liveStatus(VoiceInteractionState.IDLE,
-                                    if (companionSettings.contextEnabled)
-                                        "Speech recognized; keeping brief context while listening."
-                                    else "Speech recognized; observing without interrupting.")
+                                    "Speech recognized but not selected for a reply. Ask a question to start talking.")
                                 nextLiveTurn(250L)
                             }
                         } else {
@@ -669,6 +691,7 @@ class VoiceForegroundService : Service() {
                 // Normal silence must not start a second system recognizer,
                 // because many Android providers chime on every startup.
                 fallbackOnSilence = false,
+                requestedEngine = if (systemProbe) SpeechCaptureRouting.Engine.SYSTEM else null,
                 // Some providers emit useful partial recognition but no final
                 // result after a thought pause. Do not discard those words.
                 recoverPartialOnFinalFailure = true,
@@ -685,6 +708,16 @@ class VoiceForegroundService : Service() {
                 val persistentSession = packageName == "com.assistant.core" &&
                     LiveChatCompanionSettings.load(this).keepListeningUntilStopped
                 val settings = LiveChatCompanionSettings.load(this)
+                if (packageName == "com.assistant.core" &&
+                    liveInputRecovery.shouldProbeSystem(
+                        liveEngineOnDevice, silentTurns, pcmSource != null,
+                        android.speech.SpeechRecognizer.isRecognitionAvailable(this))) {
+                    liveSilenceTurns = 0
+                    liveStatus(VoiceInteractionState.IDLE,
+                        "On-device recognition returned no transcript twice; trying the system recognizer once…")
+                    nextLiveTurn(650L, systemProbe = true)
+                    return
+                }
                 when (LiveChatChimePolicy.afterSilence(liveEngineOnDevice, silentTurns, persistentSession,
                         settings.avoidRepeatedChimes && pcmSource == null)) {
                     LiveChatChimePolicy.Action.PAUSE ->
