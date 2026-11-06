@@ -12,20 +12,27 @@
   and immediately returns to listening.
 - Saying **Jarvis** directs a turn to the assistant. The Companion profile
   accepts bounded, question-like follow-ups within 45 seconds when context
-  is enabled. Quiet only responds when addressed. Active may offer limited
-  advice when the initiative threshold is high and speaker permission is
-  present. Unknown speakers are *not* assumed to be the owner for proactive
-  participation.
+  is enabled. Quiet only responds when addressed. Active at 60%+ and Companion
+  at 80%+ can offer occasional rate-limited useful advice about recognized
+  unaddressed speech. The user explicitly opts in through their participation
+  style and high initiative. Unknown speakers are *not* identified as the owner;
+  a voice known to be OTHER is restricted by the third-party setting. A selected
+  advisory utterance **may be sent to the configured AI provider**. Unselected
+  ambient observations remain out of Jarvis's AI/action router.
 - Personal Live Chat can now stay active across long quiet periods when the new
   toggle is enabled (default on for explicitly started Personal Live Chat only).
   The existing timeout remains available when the toggle is off, and the Beta
-  package retains its previous timeout behavior. System recognizer no-match retries continue at bounded increasing delays
-  (maximum 45 seconds) rather than silently pausing after three quiet turns.
-  During those gaps the provider is **not** actively listening. This does
-  not remove Android microphone/battery/provider restrictions or turn-based ASR.
+  package retains its previous timeout behavior. The new **Quiet microphone**
+  setting (enabled by default) disables the app-owned wake acknowledgment beep
+  and pauses the ordinary recognizer's automatic retries after two empty turns,
+  avoiding a repeating system chime. Live Chat remains available, but during
+  that pause **the provider is not listening** until the user taps the mic.
+  The experimental continuous-PCM mode instead keeps the AudioRecord open and
+  starts provider recognition only after local speech onset. This does not
+  eliminate a vendor's recognition start tone or guarantee vendor support.
 - Existing explicit `stop live chat` commands still work, even in Quiet mode.
   Mic button behavior, wake-word engine, TTS, signer and updater are unchanged.
-- Passive room speech is **not** submitted to Jarvis's AI/action router or added to saved Live Chat history. A bounded 90-second in-memory window now permits explicitly requested local recall; quoting an observation in the answer can appear in visible chat history. Speech-to-text may still use Android's network recognizer.
+- Ordinary passive room speech classified as OBSERVE is **not** submitted to Jarvis's AI/action router or added to saved Live Chat history. High-initiative advisor prompts classified as OFFER_HELP can be submitted to the configured AI provider for a response. Speech recognition itself may also use network processing. A bounded 90-second in-memory window now permits explicitly requested local recall; quoting an observation in the answer can appear in visible chat history. Speech-to-text may still use Android's network recognizer.
 
 ## Important limits (not yet implemented)
 
