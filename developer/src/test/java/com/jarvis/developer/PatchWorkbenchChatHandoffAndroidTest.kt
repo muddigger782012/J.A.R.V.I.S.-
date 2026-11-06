@@ -41,7 +41,14 @@ class PatchWorkbenchChatHandoffAndroidTest {
         ).joinToString("") { "%02x".format(it.toInt() and 255) }
     }
 
-    private inner class Screen {
+    private inner class Screen(private val product: PatchEngine.Target = PatchEngine.Target.DEVELOPER) {
+        val sourcePath = if (product == PatchEngine.Target.PERSONAL)
+            path.replace("developer/src", "app/src").replace("com/jarvis/developer", "com/assistant/core") else path
+        val initialSource = if (product == PatchEngine.Target.PERSONAL)
+            original.replace("com.jarvis.developer", "com.assistant.core") else original
+        val editedSource = if (product == PatchEngine.Target.PERSONAL)
+            replacement.replace("com.jarvis.developer", "com.assistant.core") else replacement
+        val requestedBranch = if (product == PatchEngine.Target.PERSONAL) "main" else branch
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
@@ -71,15 +78,15 @@ class PatchWorkbenchChatHandoffAndroidTest {
                 output, status, { true }, PatchWorkbench.Services(
                     inventory = { _, requestedBranch, target, cancellation ->
                         cancellation.check(); inventoryReads++
-                        assertEquals(branch, requestedBranch)
-                        assertEquals(PatchEngine.Target.DEVELOPER, target)
-                        RepositoryAnalysis.Inventory(listOf(RepositoryAnalysis.SourceFile(path, blob(original),
-                            original.toByteArray(Charsets.UTF_8).size.toLong())), false,
+                        assertEquals(this@Screen.requestedBranch, requestedBranch)
+                        assertEquals(product, target)
+                        RepositoryAnalysis.Inventory(listOf(RepositoryAnalysis.SourceFile(sourcePath, blob(initialSource),
+                            initialSource.toByteArray(Charsets.UTF_8).size.toLong())), false,
                             if (changedSha) "b".repeat(40) else sha)
                     },
                     readSource = { _, _, requestedPath, cancellation ->
                         cancellation.check(); sourceReads++
-                        assertEquals(path, requestedPath); original
+                        assertEquals(sourcePath, requestedPath); initialSource
                     },
                     propose = { _, _, _ ->
                         providerCalls++; error("Imported code must not call another AI provider")
@@ -99,7 +106,7 @@ class PatchWorkbenchChatHandoffAndroidTest {
             .single { it.text.toString().startsWith(text) }
         fun approval(): CheckBox = descendants(root).filterIsInstance<CheckBox>().single()
         fun import(): Boolean = handle.importChatProposal("Fix voice response delay", "Reduce latency",
-            listOf(PatchEngine.Edit(path, replacement)), sha)
+            listOf(PatchEngine.Edit(sourcePath, editedSource)), sha, product)
         fun finish() { queued.removeFirst().invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
@@ -119,6 +126,38 @@ class PatchWorkbenchChatHandoffAndroidTest {
             assertFalse(screen.approval().isChecked)
             assertFalse(screen.button("Create task branch").isEnabled)
             assertTrue(screen.output.text.toString().contains("Scoped preview ready"))
+            assertEquals(0, screen.providerCalls)
+            assertEquals(0, screen.writes)
+        } finally { screen.close() }
+    }
+
+    @Test fun personalChatProposalUsesPinnedMainSourceAndNeverAutoApprovesOrWrites() {
+        val screen = Screen(PatchEngine.Target.PERSONAL)
+        try {
+            assertTrue(screen.import())
+            assertEquals(1, screen.queued.size)
+            assertFalse(screen.approval().isEnabled)
+            screen.finish()
+            assertEquals(1, screen.inventoryReads)
+            assertEquals(1, screen.sourceReads)
+            assertTrue(screen.approval().isEnabled)
+            assertFalse(screen.approval().isChecked)
+            assertFalse(screen.button("Create task branch").isEnabled)
+            assertTrue(screen.output.text.toString().contains("Scoped preview ready"))
+            // Developer-only chat fingerprint approval cannot be reused for Personal.
+            assertNull(screen.handle.showDeveloperDiff())
+            assertEquals(0, screen.providerCalls)
+            assertEquals(0, screen.writes)
+        } finally { screen.close() }
+    }
+
+    @Test fun personalChatCannotImportProtectedAssistantMainActivity() {
+        val screen = Screen(PatchEngine.Target.PERSONAL)
+        try {
+            assertFalse(screen.handle.importChatProposal("Change Personal Jarvis activity", "Unsafe",
+                listOf(PatchEngine.Edit("app/src/main/java/com/assistant/core/MainActivity.kt",
+                    "package com.assistant.core\\nclass MainActivity {}")), sha, PatchEngine.Target.PERSONAL))
+            assertEquals(0, screen.inventoryReads)
             assertEquals(0, screen.providerCalls)
             assertEquals(0, screen.writes)
         } finally { screen.close() }
