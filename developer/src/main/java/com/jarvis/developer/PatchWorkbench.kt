@@ -86,7 +86,7 @@ object PatchWorkbench {
         private val disposeAction: () -> Unit = cancelPreviewAction,
         private val engineeringAction: (DevelopmentEngineering.Draft) -> Boolean = { false },
         private val guidedAction: (String, String, List<String>, String, PatchEngine.Target) -> Boolean = { _, _, _, _, _ -> false },
-        private val importAction: (String, String, List<PatchEngine.Edit>, String) -> Boolean = { _, _, _, _ -> false },
+        private val importAction: (String, String, List<PatchEngine.Edit>, String, PatchEngine.Target) -> Boolean = { _, _, _, _, _ -> false },
         private val developerRepairAction: () -> Boolean = { false },
         private val exactDeveloperCiAction: () -> Boolean = { false },
         private val saveDeveloperBookmarkAction: () -> Boolean = { false },
@@ -122,8 +122,9 @@ object PatchWorkbench {
             continueDeveloperPlanAction(id, task, paths, base)
         fun invalidate(): Boolean = invalidateAction()
         fun preparePersonal(review: PersonalRepair.Review): Boolean = personalAction(review)
-        internal fun importChatProposal(task: String, summary: String, edits: List<PatchEngine.Edit>, base: String) =
-            importAction(task, summary, edits, base)
+        internal fun importChatProposal(task: String, summary: String, edits: List<PatchEngine.Edit>, base: String,
+            target: PatchEngine.Target = PatchEngine.Target.DEVELOPER) =
+            importAction(task, summary, edits, base, target)
         fun cancelPreview() = cancelPreviewAction()
         fun dispose() = disposeAction()
         internal fun prepareEngineering(draft: DevelopmentEngineering.Draft) = engineeringAction(draft)
@@ -1418,12 +1419,14 @@ object PatchWorkbench {
         }, guidedAction = { id, description, paths, base, target ->
             prepareInputs(id, description, paths, base,
                 if (target == PatchEngine.Target.PERSONAL) "main" else "feature/jarvis-developer", target)
-        }, importAction = { taskText, summary, edits, base ->
+        }, importAction = { taskText, summary, edits, base, target ->
             if (edits.isEmpty() || edits.size > PatchEngine.MAX_FILES ||
-                edits.any { !PatchEngine.allowedPath(it.path) } || edits.map { it.path }.distinct().size != edits.size) false
+                edits.any { !PatchEngine.allowedPath(it.path, target) } ||
+                edits.map { it.path }.distinct().size != edits.size) false
             else {
                 val id = "chat-" + UUID.randomUUID().toString().replace("-", "").take(16)
-                val ready = prepareInputs(id, taskText, edits.map { it.path }, base, "feature/jarvis-developer")
+                val branch = if (target == PatchEngine.Target.PERSONAL) "main" else "feature/jarvis-developer"
+                val ready = prepareInputs(id, taskText, edits.map { it.path }, base, branch, target)
                 if (!ready) false else {
                     // The owner already requested this proposal in chat. Preparing its
                     // exact diff is read-only and needs no additional menu action or AI call.

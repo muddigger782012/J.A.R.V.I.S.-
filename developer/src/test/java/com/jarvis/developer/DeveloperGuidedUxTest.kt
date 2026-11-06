@@ -75,6 +75,21 @@ class DeveloperGuidedUxTest {
         assertEquals("developer-page-2", page(activity))
     }
 
+    @Test fun brainstormingResponseHasNoFakeCodeReviewUntilAnExactPatchIsStaged() {
+        val activity = start()
+        val review = button(activity, "Review proposed changes")
+        assertFalse("An AI answer is not a source-verified code patch", review.isEnabled)
+        assertEquals("developer-page-0", page(activity))
+        // Opening the existing inline panel cannot authorize a source write.
+        button(activity, "Open inline code review").performClick()
+        idle()
+        assertFalse(review.isEnabled)
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+        button(activity, "Settings").performClick()
+        button(activity, "Home").performClick()
+        assertFalse(review.isEnabled)
+    }
+
     @Test fun homeRepositoryAnalysisValidatesEmptyTaskWithoutLeavingConversation() {
         val activity = start()
         assertEquals("developer-page-0", page(activity))

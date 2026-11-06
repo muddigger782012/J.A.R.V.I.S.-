@@ -36,6 +36,7 @@ class MainActivity : Activity() {
     private var disposeGuidance: (() -> Unit)? = null
     private var activeProject: String? = null
     private var projectGeneration: ProjectGenerationWorkbench.Handle? = null
+    private var homeWorkspace: DeveloperHomeWorkspace.Session? = null
     internal val connectionVerification = ConnectionVerification()
     private var selectPage: ((Int) -> Unit)? = null
     private var artifactReviewIntent: ((Intent) -> Unit)? = null
@@ -50,6 +51,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (activePage == 2) developmentHistory?.refreshNow()
+        if (activePage == 0) homeWorkspace?.refreshJobEvidence()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -60,6 +62,7 @@ class MainActivity : Activity() {
         outState.putInt("developer_guided_target", guidedTarget?.selectedItemPosition ?: 0)
         outState.putString("developer_active_project", activeProject)
         uiRoot?.let { outState.putBundle("developer_drafts", DeveloperUiState.save(it)) }
+        homeWorkspace?.save(outState)
         artifactReviewJob?.let { outState.putString("developer_artifact_review_job", it) }
         developmentHistory?.let { outState.putBundle("developer_job_history", it.saveState()) }
         super.onSaveInstanceState(outState)
@@ -168,7 +171,7 @@ class MainActivity : Activity() {
             text = "Prepare reviewable code changes"
             isChecked = true
             setTextColor(getColor(R.color.developer_text))
-            contentDescription = "Request a reviewable code patch proposal, not an automatic code change"
+            contentDescription = "For implementation requests, prepare a source-verified code proposal for the selected app; questions remain advisory and no write is automatic"
         }
         root.addView(proposeCodePatch)
         val send = Button(this).apply { text = "Ask Jarvis / save instructions"; isAllCaps = false }
@@ -605,13 +608,17 @@ class MainActivity : Activity() {
         val projectPrefs = getSharedPreferences("developer_local_projects_v1", MODE_PRIVATE)
         var refreshSavedProjectsAfterChange: (() -> Unit)? = null
         var revealImportedReview: (() -> Unit)? = null
+        var chatReviewStaged = false
+        var updateChatReviewButton: ((Boolean) -> Unit)? = null
         projectGeneration = ProjectGenerationWorkbench.attach(this, send, cancelGeneration, provider, key, model,
             prompt, output, status, { guidedTarget?.selectedItemPosition ?: 0 }, { guidedTarget },
             { activeProject }, { activeProject = it }, ProjectGenerationStore(projectPrefs),
             { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() }, forget = forgetDiscussion,
-            requestPatch = { proposeCodePatch.isChecked && (guidedTarget?.selectedItemPosition ?: 0) == 0 },
-            stageReview = { taskText, summary, edits, commitSha ->
-                val staged = patchWorkbench.importChatProposal(taskText, summary, edits, commitSha)
+            requestPatch = { proposeCodePatch.isChecked },
+            stageReview = { taskText, summary, edits, commitSha, patchTarget ->
+                val staged = patchWorkbench.importChatProposal(taskText, summary, edits, commitSha, patchTarget)
+                chatReviewStaged = staged
+                updateChatReviewButton?.invoke(staged)
                 if (staged) revealImportedReview?.invoke()
                 staged
             }, requestDeveloperRepair = {
@@ -628,7 +635,8 @@ class MainActivity : Activity() {
                 if (started) revealImportedReview?.invoke()
                 started
             }, currentDeveloperCommit = { patchWorkbench.currentDeveloperCommit() },
-            mayReadSavedCompletion = { patchWorkbench.mayReadSavedCompletion() })
+            mayReadSavedCompletion = { patchWorkbench.mayReadSavedCompletion() },
+            onUserMessage = { request -> homeWorkspace?.sent(request) })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -702,11 +710,18 @@ class MainActivity : Activity() {
         val reviewFromChat = Button(this).apply {
             text = "Review proposed changes"
             isAllCaps = false
+            // An AI explanation is not a patch; never show a misleading
+            // review action until a source-pinned preview has been started.
+            isEnabled = false
+            visibility = View.GONE
             setOnClickListener {
-                val reveal = revealImportedReview
-                if (reveal != null) reveal() else
-                    status.text = "Generate a verified code proposal to open inline review."
+                if (chatReviewStaged) revealImportedReview?.invoke()
+                else status.text = "No code proposal is staged. Choose one feature and ask Jarvis to implement it."
             }
+        }
+        updateChatReviewButton = { ready ->
+            reviewFromChat.isEnabled = ready
+            reviewFromChat.visibility = if (ready) View.VISIBLE else View.GONE
         }
         val reviewPosition = root.indexOfChild(output)
         root.addView(reviewFromChat, reviewPosition + 1)
@@ -1084,7 +1099,9 @@ class MainActivity : Activity() {
         val homeCodeReviewToggle = Button(this).apply {
             text = "Open inline code review"
             isAllCaps = false
+            visibility = View.GONE
             setOnClickListener {
+                visibility = View.VISIBLE
                 val opening = homeCodeReview.visibility != View.VISIBLE
                 homeCodeReview.visibility = if (opening) View.VISIBLE else View.GONE
                 text = if (opening) "Close inline code review" else "Open inline code review"
@@ -1093,6 +1110,7 @@ class MainActivity : Activity() {
         root.addView(homeCodeReviewToggle)
         root.addView(homeCodeReview)
         revealImportedReview = {
+            homeCodeReviewToggle.visibility = View.VISIBLE
             homeCodeReview.visibility = View.VISIBLE
             homeCodeReviewToggle.text = "Close inline code review"
             homeCodeReviewToggle.post { homeCodeReviewToggle.requestRectangleOnScreen(
@@ -1113,6 +1131,7 @@ class MainActivity : Activity() {
                     "analysis-" + plan.analysisId.take(16), plan.task,
                     eligiblePaths, plan.commitSha, PatchEngine.Target.DEVELOPER)
                 if (loaded) {
+                    homeCodeReviewToggle.visibility = View.VISIBLE
                     homeCodeReview.visibility = View.VISIBLE
                     homeCodeReviewToggle.text = "Close inline code review"
                     stageHomeAnalysisButton.isEnabled = false
@@ -1125,6 +1144,7 @@ class MainActivity : Activity() {
             }
         }
         openInlineReview = {
+            homeCodeReviewToggle.visibility = View.VISIBLE
             homeCodeReview.visibility = View.VISIBLE
             homeCodeReviewToggle.text = "Close inline code review"
             homeCodeReviewToggle.post {
@@ -1166,8 +1186,11 @@ class MainActivity : Activity() {
         val codingViews = (0 until sectionGroups[1].childCount).map { sectionGroups[1].getChildAt(it) }
         codingViews.forEach { sectionGroups[1].removeView(it); activityPage.addView(it) }
         sectionGroups[1].addView(Button(this).apply {
-            text = "Open code review in Track"; isAllCaps = false
-            setOnClickListener { selectPage?.invoke(2) }
+            text = "Open code review on Home"; isAllCaps = false
+            setOnClickListener {
+                selectPage?.invoke(0)
+                openInlineReview?.invoke()
+            }
         })
         // Always give a clear route back to the category overview.
         val sectionIntro = TextView(this).apply {
@@ -1226,7 +1249,9 @@ class MainActivity : Activity() {
             button.backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.developer_primary))
         }
         fun openCodeReview() {
-            selectPage?.invoke(2)
+            // The exact review engine is already hosted on Home, not Track.
+            selectPage?.invoke(0)
+            openInlineReview?.invoke()
             codingWidgets.firstOrNull()?.let { first -> first.post {
                 first.requestRectangleOnScreen(android.graphics.Rect(0, 0, first.width, 1), false)
             } }
@@ -1278,6 +1303,15 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(16), dp(16), dp(12))
             background = roundedSurface(0xFF142F3B.toInt())
         }
+        homeWorkspace = DeveloperHomeWorkspace.install(this, root, advanced,
+            prompt, send, output, status, codingFeedback.second,
+            reviewFromChat, homeCodeReviewToggle, homeCodeReview,
+            guidedTarget?.selectedItemPosition ?: 0,
+            { selected ->
+                if (guidedTarget?.isEnabled != false) guidedTarget?.setSelection(selected)
+                else homeWorkspace?.syncTarget(guidedTarget?.selectedItemPosition ?: 0)
+            },
+            { selectPage?.invoke(4) }, savedInstanceState)
         val pages = listOf(root, projects, activityPage, settings, advanced).mapIndexed { index, page ->
             ScrollView(this).apply {
                 tag = "developer-page-$index"
@@ -1298,7 +1332,13 @@ class MainActivity : Activity() {
                 if (remember) pageHistory.add(activePage)
             }
             val enteringTrack = next == 2 && activePage != 2
+            val previousPage = activePage
             activePage = next
+            if (next == 0) {
+                homeWorkspace?.syncTarget(guidedTarget?.selectedItemPosition ?: 0)
+                if (activePage != previousPage) homeWorkspace?.refreshJobEvidence()
+            }
+            homeWorkspace?.composer?.visibility = if (next == 0) View.VISIBLE else View.GONE
             if (enteringTrack) developmentHistory?.refreshNow()
             pages.forEachIndexed { pageIndex, page ->
                 page.visibility = if (pageIndex == activePage) View.VISIBLE else View.GONE
@@ -1361,6 +1401,7 @@ class MainActivity : Activity() {
             activeProject = null
             prompt.text.clear()
             output.text = ""
+            homeWorkspace?.reset()
             status.text = "Describe your new project."
             showPage(1)
         }
@@ -1373,6 +1414,11 @@ class MainActivity : Activity() {
             shell.addView(page, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         }
+        // Composer stays visible below the scrolling conversation on Home.
+        homeWorkspace?.composer?.let { shell.addView(it, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )) }
         navigation.setBackgroundColor(getColor(R.color.developer_panel))
         shell.addView(navigation)
         uiRoot = shell
@@ -1499,6 +1545,7 @@ class MainActivity : Activity() {
         DeveloperUpdater.cancel(this)
         projectGeneration?.dispose()
         projectGeneration = null
+        homeWorkspace = null
         artifactReviewGeneration++
         artifactReviewIntent = null
         artifactInstallWhenFocused = null

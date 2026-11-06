@@ -28,4 +28,21 @@ class DeveloperCodeChangeIntentTest {
         assertTrue(DeveloperCodeChangeIntent.isRequest(" Fix   Developer voice network latency "))
         assertFalse(DeveloperCodeChangeIntent.isRequest("Fix Developer app " + "x".repeat(12_001)))
     }
+    @Test fun personalImperativesAreTargetSpecificAndNeverAuthorizeDeveloperWrites() {
+        assertTrue(PersonalCodeChangeIntent.isRequest("Fix my personal Jarvis voice latency"))
+        assertTrue(PersonalCodeChangeIntent.isRequest("Implement recurring reminders in Personal J.A.R.V.I.S."))
+        assertTrue(PersonalCodeChangeIntent.isRequest("Add an offline list in my personal app"))
+        assertFalse(PersonalCodeChangeIntent.isRequest("What new features would you propose for my personal J.A.R.V.I.S. app?"))
+        assertFalse(PersonalCodeChangeIntent.isRequest("Fix Developer voice network latency"))
+        assertFalse(PersonalCodeChangeIntent.isRequest("Fix the microphone"))
+        assertFalse(PersonalCodeChangeIntent.isRequest("Explain Personal Jarvis source"))
+    }
+
+    @Test fun brainstormingCannotBeMistakenForAnActionableSourceChange() {
+        assertTrue(DevelopmentExplorationIntent.isRequest("What new features would you propose for my personal i.a.r.v.i.s. app"))
+        assertTrue(DevelopmentExplorationIntent.isRequest("Suggest improvements for Personal Jarvis"))
+        assertFalse(DevelopmentExplorationIntent.isRequest("Implement recurring reminders in Personal J.A.R.V.I.S."))
+        assertFalse(DevelopmentExplorationIntent.isRequest("Repair Developer chat code"))
+    }
+
 }

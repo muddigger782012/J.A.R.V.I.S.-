@@ -53,6 +53,7 @@ class ProjectGenerationContextTest {
         var providerFailure: Exception? = null
         var replyText = "Use the voice evidence."
         var stagedReviews = 0
+        val stagedTargets = mutableListOf<PatchEngine.Target>()
         val handle = ProjectGenerationWorkbench.attach(activity, send, cancel, provider, key, model, prompt, output, status,
             { target.selectedItemPosition }, { target }, { selected }, { selected = it }, ProjectGenerationStore(prefs), {},
             ProjectGenerationWorkbench.Services(worker = { pending.add(it) }, context = { task, product, token, apiKey, stop ->
@@ -72,7 +73,7 @@ class ProjectGenerationContextTest {
                     CodingAssistantProvider.PostResponse(200, bytes.size.toLong(), request.url, ByteArrayInputStream(bytes))
                 }, cancellation = stop).ask(provider, apiKey, selectedModel, task, context = context)
             }), githubToken = { readToken }, forget = forget, requestPatch = { patchMode },
-            stageReview = { _, _, _, _ -> stagedReviews++; true })
+            stageReview = { _, _, _, _, patchTarget -> stagedReviews++; stagedTargets.add(patchTarget); true })
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = prefs.getString("project_context-project", "")!!
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
@@ -156,7 +157,72 @@ class ProjectGenerationContextTest {
             assertTrue(s.pending.isEmpty())
             assertTrue(s.requests.isEmpty())
             assertTrue(s.reads.isEmpty())
-            assertTrue(s.output.text.contains("require the Developer target"))
+            assertTrue(s.output.text.contains("different application"))
+        }
+    }
+
+    @Test fun personalChatCheckboxProducesASeparateMainBranchProposalWithoutAnyWrite() {
+        val personal = "app/src/main/java/com/assistant/core/VoiceNetwork.kt"
+        val json = JSONObject().put("summary", "Reduce Personal Jarvis response latency")
+            .put("edits", JSONArray().put(JSONObject().put("path", personal)
+                .put("content", "package com.assistant.core\\nclass VoiceNetwork { fun voiceLatency() = 3 }")))
+            .toString()
+        Screen(patchMode = true).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("Implement better voice latency in Personal Jarvis")
+            s.replyText = json
+            s.send.performClick(); s.complete()
+            assertEquals(listOf(PatchEngine.Target.PERSONAL), s.stagedTargets)
+            assertTrue(s.requests.single().toString().contains("CODE PATCH MODE"))
+            val requestText = s.requests.single().getJSONArray("contents").getJSONObject(0)
+                .getJSONArray("parts").getJSONObject(0).getString("text")
+            assertTrue(requestText.contains("app/src/main/java/com/assistant/core"))
+            assertTrue(s.output.text.contains("Code changes staged for verified diff review"))
+            assertTrue(s.output.text.contains("Nothing committed"))
+            assertFalse(s.record().contains(secret))
+        }
+    }
+
+    @Test fun personalImplementationWithoutCheckboxStillRequestsReviewOnlyProposal() {
+        val personal = "app/src/main/java/com/assistant/core/VoiceNetwork.kt"
+        Screen(patchMode = false).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("Fix my Personal Jarvis response latency")
+            s.replyText = JSONObject().put("summary", "Reduce latency")
+                .put("edits", JSONArray().put(JSONObject()
+                    .put("path", personal)
+                    .put("content", "package com.assistant.core\\nclass VoiceNetwork { fun voiceLatency() = 3 }"))).toString()
+            s.send.performClick(); s.complete()
+            assertEquals(listOf(PatchEngine.Target.PERSONAL), s.stagedTargets)
+        }
+    }
+
+    @Test fun featureBrainstormingWithCheckboxStillReturnsIdeasAndNextActionNotFakePatch() {
+        Screen(patchMode = true).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("What new features would you propose for my personal J.A.R.V.I.S. app?")
+            s.replyText = "Here are five ideas: recurring reminders, offline lists, daily briefings."
+            s.send.performClick(); s.complete()
+            assertEquals(0, s.stagedReviews)
+            assertEquals(1, s.requests.size)
+            assertFalse(s.requests.single().toString().contains("CODE PATCH MODE"))
+            assertTrue(s.output.text.contains("recurring reminders"))
+            assertTrue(s.status.text.contains("Ideas received"))
+            assertTrue(s.status.text.contains("Implement [feature] in Personal Jarvis"))
+        }
+    }
+
+    @Test fun protectedPersonalPathCannotBeStagedFromChatEvenWhenAiReturnsJson() {
+        Screen(patchMode = true).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("Implement Personal Jarvis voice improvements")
+            s.replyText = JSONObject().put("summary", "Change protected app UI")
+                .put("edits", JSONArray().put(JSONObject()
+                    .put("path", "app/src/main/java/com/assistant/core/MainActivity.kt")
+                    .put("content", "package com.assistant.core\\nclass MainActivity {}"))).toString()
+            s.send.performClick(); s.complete()
+            assertEquals(0, s.stagedReviews)
+            assertTrue(s.output.text.contains("AI request or response format validation failed"))
         }
     }
 
