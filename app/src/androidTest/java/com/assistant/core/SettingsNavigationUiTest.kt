@@ -112,8 +112,11 @@ class SettingsNavigationUiTest {
                         val root = activity.findViewById<android.view.ViewGroup>(R.id.menuPageContent).getChildAt(0) as ScrollView
                         val panel = root.getChildAt(0) as LinearLayout
                         val rows = (0 until panel.childCount).map { panel.getChildAt(it) }.filter { it.isClickable }
-                        assertEquals(9, rows.size)
-                        assertEquals(9, rows.map { it.contentDescription }.distinct().size)
+                        assertEquals(10, rows.size)
+                        assertEquals(10, rows.map { it.contentDescription }.distinct().size)
+                        assertTrue("Ambient Companion must be reachable in Settings", rows.any {
+                            it.contentDescription?.toString()?.contains("Ambient companion") == true
+                        })
                         assertTrue(rows.all { it.isFocusable && it.minimumHeight >= SettingsMenuViews.dp(activity, 48) })
                         rows.forEach { row ->
                             row.measure(android.view.View.MeasureSpec.makeMeasureSpec(SettingsMenuViews.dp(activity, 240), android.view.View.MeasureSpec.EXACTLY),
@@ -151,6 +154,7 @@ class SettingsNavigationUiTest {
             AppearanceSettingsActivity::class.java to R.id.btnCloseAppearances,
             ThemeSettingsActivity::class.java to R.id.btnCloseThemes,
             VoiceSettingsActivity::class.java to R.id.btnCloseVoiceSettings,
+            AmbientCompanionSettingsActivity::class.java to R.id.menuPageBack,
             AssistantVoiceSettingsActivity::class.java to R.id.btnCloseAssistantVoice,
             VoiceProfileActivity::class.java to R.id.voiceProfileBack,
             IntelligenceActivity::class.java to R.id.btnCloseIntelligence,
