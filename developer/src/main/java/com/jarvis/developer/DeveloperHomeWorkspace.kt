@@ -25,6 +25,7 @@ internal object DeveloperHomeWorkspace {
     private const val MAX_TURNS = 12
     private const val MAX_SAVED_CHARS = 1800
     private const val STATE_TURNS = "developer_home_turns_v1"
+    private const val STATE_LAST_REPLY = "developer_home_last_reply_v1"
 
     internal class Session(
         val composer: LinearLayout,
@@ -46,6 +47,14 @@ internal object DeveloperHomeWorkspace {
                     turns.add(encoded.take(MAX_SAVED_CHARS + 2))
                     hasUserTurn = true
                 }
+            }
+            // The workbench's live reply TextView is otherwise initialized with
+            // its default placeholder again on Activity recreation. Restore only
+            // bounded display content, never approval, a source diff or a job lease.
+            saved?.getString(STATE_LAST_REPLY)?.take(MAX_SAVED_CHARS)?.let { last ->
+                response.text = if (last.startsWith("Working on your request")) {
+                    "Previous request was interrupted. Resubmit to continue; no code change was approved."
+                } else last
             }
             feed.addView(response)
         }
@@ -96,11 +105,14 @@ internal object DeveloperHomeWorkspace {
         /** Persists presentation text only. No write authority, diff or API key. */
         fun save(outState: Bundle) {
             outState.putStringArrayList(STATE_TURNS, ArrayList(turns.takeLast(MAX_TURNS)))
+            outState.putString(STATE_LAST_REPLY,
+                response.text.toString().take(MAX_SAVED_CHARS))
         }
 
         fun reset() {
             turns.clear()
             hasUserTurn = false
+            response.text = "Your assistant’s response will appear here."
             feed.removeAllViews()
             feed.addView(response)
             phase.text = "READY"
