@@ -12,6 +12,8 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.ImageView
+import android.graphics.BitmapFactory
+import android.content.ActivityNotFoundException
 import android.view.View
 import android.graphics.drawable.GradientDrawable
 import android.graphics.Typeface
@@ -45,6 +47,12 @@ class MainActivity : Activity() {
     private var artifactReviewGeneration = 0L
     private var artifactInstallWhenFocused: (() -> Unit)? = null
     private var pendingArtifactInstall: Pair<Long, String>? = null
+    private var selectedScreenshot: DeveloperScreenshot? = null
+    private var screenshotLoading = false
+    private var screenshotReadGeneration = 0L
+    private var screenshotLabel: TextView? = null
+    private var screenshotPreview: ImageView? = null
+    private val screenshotPickerRequest = 7306
 
     // A job may complete while Developer is in the background. Reconcile Track
     // with the persisted inbox whenever the activity becomes visible again.
@@ -636,7 +644,17 @@ class MainActivity : Activity() {
                 started
             }, currentDeveloperCommit = { patchWorkbench.currentDeveloperCommit() },
             mayReadSavedCompletion = { patchWorkbench.mayReadSavedCompletion() },
-            onUserMessage = { request -> homeWorkspace?.sent(request) })
+            onUserMessage = { request -> homeWorkspace?.sent(request) },
+            screenshot = { selectedScreenshot },
+            screenshotLoading = { screenshotLoading },
+            onScreenshotSent = { sent ->
+                if (selectedScreenshot === sent) {
+                    selectedScreenshot = null
+                    screenshotPreview?.setImageDrawable(null)
+                    screenshotPreview?.visibility = View.GONE
+                    screenshotLabel?.text = "Screenshot sent for analysis; attach another if needed."
+                }
+            })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1312,6 +1330,63 @@ class MainActivity : Activity() {
                 else homeWorkspace?.syncTarget(guidedTarget?.selectedItemPosition ?: 0)
             },
             { selectPage?.invoke(4) }, savedInstanceState)
+        // One direct attachment control inside the existing chat composer.
+        // ACTION_OPEN_DOCUMENT needs no media/storage permission and never uploads
+        // without a subsequent explicit Send press.
+        val screenshotControls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val attachScreenshot = Button(this).apply {
+            text = "Attach screenshot"
+            isAllCaps = false
+            contentDescription = "Choose an error screenshot from your files"
+            setOnClickListener {
+                if (!send.isEnabled || screenshotLoading) return@setOnClickListener
+                val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "image/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/png", "image/jpeg", "image/webp"))
+                }
+                try { startActivityForResult(picker, screenshotPickerRequest) }
+                catch (_: ActivityNotFoundException) {
+                    screenshotLabel?.text = "No Android image picker is available."
+                }
+            }
+        }
+        screenshotControls.addView(attachScreenshot,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        screenshotControls.addView(Button(this).apply {
+            text = "Remove"
+            isAllCaps = false
+            contentDescription = "Remove attached screenshot"
+            setOnClickListener {
+                if (!send.isEnabled) return@setOnClickListener
+                screenshotReadGeneration++
+                screenshotLoading = false
+                selectedScreenshot = null
+                screenshotPreview?.setImageDrawable(null)
+                screenshotPreview?.visibility = View.GONE
+                screenshotLabel?.text = "No screenshot attached."
+            }
+        })
+        screenshotLabel = TextView(this).apply {
+            text = "Optional: attach one screenshot. It stays on your phone until you press Send; " +
+                "check it for passwords, tokens and other private information."
+            textSize = 12f
+            setTextColor(getColor(R.color.developer_secondary))
+            tag = "developer-screenshot-status"
+        }
+        screenshotPreview = ImageView(this).apply {
+            tag = "developer-screenshot-preview"
+            visibility = View.GONE
+            adjustViewBounds = true
+            maxHeight = dp(136)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "Selected debugging screenshot preview"
+        }
+        homeWorkspace?.composer?.apply {
+            addView(screenshotControls, 1)
+            addView(screenshotLabel, 2)
+            addView(screenshotPreview, 3)
+        }
         val pages = listOf(root, projects, activityPage, settings, advanced).mapIndexed { index, page ->
             ScrollView(this).apply {
                 tag = "developer-page-$index"
@@ -1532,6 +1607,36 @@ class MainActivity : Activity() {
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == screenshotPickerRequest) {
+            val uri = if (resultCode == Activity.RESULT_OK) data?.data else null
+            if (uri != null) {
+                val generation = ++screenshotReadGeneration
+                screenshotLoading = true
+                selectedScreenshot = null
+                screenshotPreview?.setImageDrawable(null)
+                screenshotPreview?.visibility = View.GONE
+                screenshotLabel?.text = "Preparing selected screenshot on-device…"
+                thread(name = "developer-screenshot-import", isDaemon = true) {
+                    val result = runCatching { DeveloperScreenshot.fromUri(contentResolver, uri) }
+                    runOnUiThread {
+                        if (generation != screenshotReadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                        screenshotLoading = false
+                        result.onSuccess { image ->
+                            selectedScreenshot = image
+                            screenshotPreview?.setImageBitmap(BitmapFactory.decodeByteArray(
+                                image.jpegBytes, 0, image.jpegBytes.size))
+                            screenshotPreview?.visibility = View.VISIBLE
+                            screenshotLabel?.text = "Screenshot attached (one image). " +
+                                "Press Send to analyze it with the selected AI provider. No code will be changed."
+                        }.onFailure {
+                            screenshotLabel?.text = "Image could not be attached. " +
+                                "Choose a valid PNG, JPEG or WebP screenshot under 12 MB."
+                        }
+                    }
+                }
+            }
+            return
+        }
         if (applicationWorkbench?.onActivityResult(requestCode, resultCode, data) == true) return
         super.onActivityResult(requestCode, resultCode, data)
     }
@@ -1546,6 +1651,12 @@ class MainActivity : Activity() {
         projectGeneration?.dispose()
         projectGeneration = null
         homeWorkspace = null
+        screenshotReadGeneration++
+        screenshotLoading = false
+        selectedScreenshot = null
+        screenshotPreview?.setImageDrawable(null)
+        screenshotPreview = null
+        screenshotLabel = null
         artifactReviewGeneration++
         artifactReviewIntent = null
         artifactInstallWhenFocused = null
