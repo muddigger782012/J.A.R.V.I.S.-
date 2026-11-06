@@ -82,10 +82,15 @@ class DeveloperHomeWorkspaceTest {
             session.save(state)
             assertTrue(state.getStringArrayList("developer_home_turns_v1").orEmpty().any { it.contains("Implement") })
             assertFalse(state.keySet().any { it.contains("approval", true) })
-            val extra = DeveloperUiState.descendants(home).filterIsInstance<Button>()
-                .single { it.text == "Advanced development tools" }
-            extra.performClick()
-            assertEquals(1, advancedCalls)
+            val sendButton = DeveloperUiState.descendants(session.composer)
+                .filterIsInstance<Button>().single { it.text.toString() == "Send" }
+            assertTrue(sendButton.isShown)
+            assertFalse(send.isShown)
+            assertTrue(DeveloperUiState.descendants(home).filterIsInstance<Button>()
+                .none { it.isShown && it.text.toString() in setOf(
+                    "Advanced development tools", "Expand response", "Open inline code review",
+                    "Review proposed changes") })
+            assertEquals(0, advancedCalls)
         } finally {
             controller.pause().stop().destroy()
         }
