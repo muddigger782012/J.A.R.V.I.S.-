@@ -143,7 +143,14 @@ class VoiceForegroundService : Service() {
                     // otherwise interrupt pending TTS/replies and rearm capture.
                     // A recognizer awaiting its final transcript is still active but a
                     // second finish() would be ignored. Treat that tap as recovery.
-                    when (liveSession.microphoneTapped(liveCapture.isActive && !liveCapture.isFinishing)) {
+                    // Do not treat a manual mic tap as "finish recording" when
+                    // Android opened recognition but has never heard speech:
+                    // restart capture instead. This prevents accidental empty
+                    // turns when the user taps an apparently unresponsive mic.
+                    val capturedSpeech = liveCapture.hasSpeechActivity ||
+                        pcmSource?.heardSpeechThisTurn() == true
+                    when (liveSession.microphoneTapped(
+                            liveCapture.isActive && capturedSpeech && !liveCapture.isFinishing)) {
                         LiveChatSession.MicrophoneTap.FINISH_CAPTURE -> {
                             pcmSource?.finishTurn()
                             liveCapture.finish()
@@ -158,7 +165,7 @@ class VoiceForegroundService : Service() {
                             liveHandler.removeCallbacksAndMessages(null)
                             liveStatus(VoiceInteractionState.IDLE, "Microphone requested; listening again…")
                             liveHandler.post(heartbeat)
-                            nextLiveTurn(150L)
+                            nextLiveTurn(150L, fromPcmSpeech = pcmSource != null && !pcmInjectionRejected)
                         }
                         LiveChatSession.MicrophoneTap.IGNORE -> Unit
                     }
@@ -201,7 +208,8 @@ class VoiceForegroundService : Service() {
                     liveHandler.removeCallbacksAndMessages(null)
                     if (liveSession.interrupt()) {
                         liveStatus(VoiceInteractionState.IDLE, "Turn cancelled. Live chat remains active; listening again…")
-                        liveHandler.post(heartbeat); nextLiveTurn(300L)
+                        liveHandler.post(heartbeat)
+                        nextLiveTurn(300L, fromPcmSpeech = pcmSource != null && !pcmInjectionRejected)
                     }
                     return START_NOT_STICKY
                 }
@@ -260,18 +268,31 @@ class VoiceForegroundService : Service() {
                         if (packageName == "com.assistant.core" && android.os.Build.VERSION.SDK_INT >= 33 &&
                             LiveChatCompanionSettings.load(this).experimentalPcmStream) {
                             lateinit var candidate: PersistentPcmAudioSource
-                            candidate = PersistentPcmAudioSource(this) { description ->
-                                liveHandler.post {
-                                    if (!liveChatActive || pcmSource !== candidate) return@post
-                                    publishEvent(description)
-                                    pcmInjectionRejected = true
-                                    shutdownPcmSource()
-                                    liveCapture.stop()
-                                    if (liveSession.interrupt()) nextLiveTurn(650L)
+                            candidate = PersistentPcmAudioSource(this,
+                                speechSensitivity = LiveChatCompanionSettings.load(this).speechDetectionSensitivity,
+                                onFailure = { description ->
+                                    liveHandler.post {
+                                        if (!liveChatActive || pcmSource !== candidate) return@post
+                                        publishEvent(description)
+                                        pcmInjectionRejected = true
+                                        shutdownPcmSource()
+                                        liveCapture.stop()
+                                        if (liveSession.interrupt()) nextLiveTurn(650L)
+                                    }
+                                },
+                                onSpeechDetected = {
+                                    liveHandler.post {
+                                        if (liveChatActive && pcmSource === candidate &&
+                                            liveSession.phase == LiveChatSession.Phase.WAITING &&
+                                            !pcmInjectionRejected) {
+                                            nextLiveTurn(0L, fromPcmSpeech = true)
+                                        }
+                                    }
                                 }
-                            }
+                            )
                             if (candidate.start()) {
                                 pcmSource = candidate
+                                candidate.armForSpeech() // Start monitoring immediately.
                                 publishEvent("Experimental continuous PCM microphone activated for this Live Chat session.")
                             } else {
                                 pcmInjectionRejected = true
@@ -448,10 +469,23 @@ class VoiceForegroundService : Service() {
         liveHandler.postDelayed(monitor, 30_000L)
     }
 
-    private fun nextLiveTurn(delay: Long) {
+    private fun nextLiveTurn(delay: Long, fromPcmSpeech: Boolean = false) {
         val token = liveSession.token
         liveHandler.postDelayed({
             if (!liveChatActive || liveSession.token != token) return@postDelayed
+            // PCM mode owns the mic continuously. Do not start Android's often
+            // audible recognizer until the local PCM gate sees actual speech.
+            // Once a response ends this stays in WAITING with the mic active,
+            // instead of restarting the provider merely because it's quiet.
+            if (pcmSource != null && !pcmInjectionRejected && !fromPcmSpeech) {
+                if (pcmSource?.armForSpeech() == true) {
+                    liveStatus(VoiceInteractionState.IDLE,
+                        "Continuous microphone is active; waiting for speech without restarting recognition.")
+                    return@postDelayed
+                }
+                pcmInjectionRejected = true
+                shutdownPcmSource()
+            }
             val turn = liveSession.listen() ?: run {
                 if (liveSession.expired()) finishLiveChat("Live chat reached your configured inactivity limit.")
                 return@postDelayed
@@ -464,7 +498,13 @@ class VoiceForegroundService : Service() {
             // cancel an actively speaking user before results can be delivered.
             val captureScope = if (packageName == "com.assistant.core") screenAccess.voiceScope() else ""
             val developmentScope = DevelopmentInstallConsent.voiceScope()
-            val injected = if (!pcmInjectionRejected) pcmSource?.openTurn() else null
+            var injected = if (!pcmInjectionRejected) pcmSource?.openTurn() else null
+            if (fromPcmSpeech && pcmSource != null && injected == null) {
+                // Never allow two simultaneously owned microphones if an IPC
+                // pipe could not be created for this speech-triggered turn.
+                pcmInjectionRejected = true
+                shutdownPcmSource()
+            }
             liveCapture.listen(currentConfig.preferOfflineCommandRecognition,
                 onPartial = { /* Partial transcripts stay transient; only complete turns enter chat. */ },
                 onResult = { text ->
@@ -486,7 +526,10 @@ class VoiceForegroundService : Service() {
                             // through the AI, action router, or persistent Live Chat history.
                             ambientContext.observe(text, companionSettings.contextEnabled)
                             if (liveSession.recover(turn)) {
-                                liveStatus(VoiceInteractionState.IDLE, "Listening; no response needed.")
+                                liveStatus(VoiceInteractionState.IDLE,
+                                    if (companionSettings.contextEnabled)
+                                        "Speech recognized; keeping brief context while listening."
+                                    else "Speech recognized; observing without interrupting.")
                                 nextLiveTurn(250L)
                             }
                         } else {
@@ -625,10 +668,12 @@ class VoiceForegroundService : Service() {
                 val silentTurns = ++liveSilenceTurns
                 val persistentSession = packageName == "com.assistant.core" &&
                     LiveChatCompanionSettings.load(this).keepListeningUntilStopped
-                when (LiveChatChimePolicy.afterSilence(liveEngineOnDevice, silentTurns, persistentSession)) {
+                val settings = LiveChatCompanionSettings.load(this)
+                when (LiveChatChimePolicy.afterSilence(liveEngineOnDevice, silentTurns, persistentSession,
+                        settings.avoidRepeatedChimes && pcmSource == null)) {
                     LiveChatChimePolicy.Action.PAUSE ->
                         liveStatus(VoiceInteractionState.IDLE,
-                            "System microphone paused after repeated silence to avoid recurring notification tones. Tap the microphone to resume.")
+                            "Mic-start beeps prevented: recognition is paused after silence. Tap the microphone to resume; experimental PCM can listen without repeated startup.")
                     LiveChatChimePolicy.Action.RETRY -> {
                         if (persistentSession && !liveEngineOnDevice) {
                             liveStatus(VoiceInteractionState.IDLE,

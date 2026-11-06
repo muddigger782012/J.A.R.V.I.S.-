@@ -599,7 +599,11 @@ class VoiceAssistantService(
         // Provide immediate audible feedback for a genuine detected wake word,
         // never for ordinary Live Chat capture cycles. Do not wait for seconds
         // of offline Kokoro synthesis merely to announce the default "Yes?".
-        val acknowledged = WakeAcknowledgement.play()
+        // A true wake hit may be followed by an audible confirmation tone.
+        // When the user chooses quiet-microphone mode, suppress OUR tone;
+        // this does not stop the Sherpa wake detector or wake command capture.
+        val acknowledged = if (LiveChatCompanionSettings.load(context).avoidRepeatedChimes)
+            false else WakeAcknowledgement.play()
         onStatus(if (acknowledged) "Wake word detected (acknowledgment sounded)." else "Wake word detected; preparing microphone.")
         val reply = AssistantPhrasePreferences.load(context).reply(wakeReplyIndex++)
         if (reply.isBlank() || reply.equals("Yes?", ignoreCase = true)) {

@@ -18,11 +18,14 @@ data class LiveChatCompanionSettings(
     val contextEnabled: Boolean = true,
     val replyToOtherSpeakers: Boolean = false,
     val keepListeningUntilStopped: Boolean = true,
-    val experimentalPcmStream: Boolean = false
+    val experimentalPcmStream: Boolean = false,
+    val avoidRepeatedChimes: Boolean = true,
+    val speechDetectionSensitivity: Int = 75
 ) {
     fun normalized() = copy(
         style = style.takeIf { it in STYLES } ?: "companion",
-        initiative = initiative.coerceIn(0, 100)
+        initiative = initiative.coerceIn(0, 100),
+        speechDetectionSensitivity = speechDetectionSensitivity.coerceIn(0, 100)
     )
 
     fun toJson() = JSONObject()
@@ -33,6 +36,8 @@ data class LiveChatCompanionSettings(
         .put("replyToOtherSpeakers", replyToOtherSpeakers)
         .put("keepListeningUntilStopped", keepListeningUntilStopped)
         .put("experimentalPcmStream", experimentalPcmStream)
+        .put("avoidRepeatedChimes", avoidRepeatedChimes)
+        .put("speechDetectionSensitivity", speechDetectionSensitivity.coerceIn(0, 100))
 
     companion object {
         private const val FILE_NAME = "ambient-companion-settings.json"
@@ -46,7 +51,9 @@ data class LiveChatCompanionSettings(
             contextEnabled = json.optBoolean("contextEnabled", true),
             replyToOtherSpeakers = json.optBoolean("replyToOtherSpeakers", false),
             keepListeningUntilStopped = json.optBoolean("keepListeningUntilStopped", true),
-            experimentalPcmStream = json.optBoolean("experimentalPcmStream", false)
+            experimentalPcmStream = json.optBoolean("experimentalPcmStream", false),
+            avoidRepeatedChimes = json.optBoolean("avoidRepeatedChimes", true),
+            speechDetectionSensitivity = json.optInt("speechDetectionSensitivity", 75)
         ).normalized()
 
         fun load(context: Context): LiveChatCompanionSettings {

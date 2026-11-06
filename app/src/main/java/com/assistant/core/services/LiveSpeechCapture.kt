@@ -21,7 +21,10 @@ class LiveSpeechCapture(private val context: Context,
     private var trace = 0L
     private var finishCapture: (() -> Unit)? = null
     private var finishRequested = false
+    private var speechActivitySeen = false
     val isActive get() = recognizer != null
+    /** A session can be open without ever having received speech. */
+    val hasSpeechActivity get() = recognizer != null && speechActivitySeen
     /** A second mic tap can recover a recognizer stuck after stopListening(). */
     val isFinishing get() = recognizer != null && finishRequested
     fun finish() { finishCapture?.invoke() }
@@ -35,6 +38,7 @@ class LiveSpeechCapture(private val context: Context,
         injectedAudio = null
         finishCapture = null
         finishRequested = false
+        speechActivitySeen = false
         runCatching { previous?.cancel() }
         runCatching { previous?.destroy() }
         if (cancelled && previous != null) VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.CANCELLED, trace)
@@ -83,6 +87,7 @@ class LiveSpeechCapture(private val context: Context,
                         if (current != generation) return
                         window.speechStarted()
                         speechStarted = true
+                        speechActivitySeen = true
                         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_STARTED, currentTrace)
                         onPhase(VoiceInteractionState.LISTENING)
                     }
@@ -100,6 +105,15 @@ class LiveSpeechCapture(private val context: Context,
                         val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                         if (text.isNotBlank()) {
                             lastPartial = text
+                            speechActivitySeen = true
+                            // Some Android recognizers skip onBeginningOfSpeech
+                            // yet deliver useful partial words. Treat that as
+                            // confirmed speech so an empty final result can
+                            // recover the phrase rather than silently lose it.
+                            if (!speechStarted) {
+                                speechStarted = true
+                                window.speechStarted()
+                            }
                             window.speechActivity()
                             VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.PARTIAL, currentTrace)
                         }

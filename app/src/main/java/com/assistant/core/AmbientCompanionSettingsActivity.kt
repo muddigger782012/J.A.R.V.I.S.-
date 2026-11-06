@@ -54,6 +54,24 @@ class AmbientCompanionSettingsActivity : MenuActivity("Ambient companion") {
         panel.addView(initiative, LinearLayout.LayoutParams(-1, dp(52)))
         panel.addView(label("0% mostly silent  •  100% more proactive", 12f))
 
+        panel.addView(SettingsMenuViews.heading(this, "Continuous microphone speech detection"))
+        val triggerProgress = label("Speech detection sensitivity: ${current.speechDetectionSensitivity}%")
+        panel.addView(triggerProgress)
+        val voiceSensitivity = SeekBar(this).apply {
+            max = 100
+            this.progress = current.speechDetectionSensitivity
+            contentDescription = "Continuous microphone speech detection sensitivity"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
+                    triggerProgress.text = "Speech detection sensitivity: ${value}%"
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            })
+        }
+        panel.addView(voiceSensitivity, LinearLayout.LayoutParams(-1, dp(52)))
+        panel.addView(label("Higher catches quieter speech but may react to workshop noise. Affects the experimental PCM input, not the Hey Jarvis wake-word model.", 12f))
+
         panel.addView(SettingsMenuViews.heading(this, "Participation style"))
         val styles = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
         fun choice(tagValue: String, title: String) = RadioButton(this).apply {
@@ -83,10 +101,13 @@ class AmbientCompanionSettingsActivity : MenuActivity("Ambient companion") {
         }
         val context = option("Maintain conversational context", current.contextEnabled)
         val keepListening = option("Keep Live Chat available until I stop it", current.keepListeningUntilStopped)
+        val avoidChimes = option("Quiet microphone: no wake tone or repeated startup beeps", current.avoidRepeatedChimes)
         val continuousPcm = option("Experimental continuous microphone pipeline (Android 13+)", current.experimentalPcmStream)
         continuousPcm.isEnabled = android.os.Build.VERSION.SDK_INT >= 33
         val interruptions = option("Allow natural interruptions and barge-in", current.interruptionsEnabled)
         val otherSpeakers = option("Respond when other people address Jarvis", current.replyToOtherSpeakers)
+        panel.addView(label("Quiet microphone mode disables Jarvis's own wake-word acknowledgment beep and pauses repeated normal-system recognition after silence to avoid recurring provider tones. Tap the microphone to restart it. The experimental PCM option can remain ready for speech without repeatedly starting recognition, if supported on your device.", 12f))
+        panel.addView(label("High initiative (80%+ Companion or 60%+ Active) can answer occasional useful comments without saying Jarvis. These selected comments may be sent to your AI provider. Jarvis cannot identify who spoke; passive observations that are not answered stay out of Jarvis's AI/action router. Android speech recognition may separately use a network service.", 12f))
         panel.addView(label("The experimental microphone pipeline is OFF by default. If enabled, it tries one persistent audio input with speech-activity detection; some Android recognizers ignore audio injection and will fall back. This is not speaker identification or full-duplex speech.", 12f))
         panel.addView(label("With this option on, Live Chat remains available through long quiet periods. Until the continuous audio engine is finished, Android speech recognition still restarts between turns, and the system provider takes longer rests to reduce repeated chimes. These rests are not active listening. Stop Live Chat when anyone needs privacy.", 12f))
         panel.addView(label("Speaker identification and automatic spoken barge-in are still being developed. These choices are saved now; unknown voices cannot yet be reliably identified as you or another person. The microphone button still works.", 12f))
@@ -103,7 +124,9 @@ class AmbientCompanionSettingsActivity : MenuActivity("Ambient companion") {
                     contextEnabled = context.isChecked,
                     replyToOtherSpeakers = otherSpeakers.isChecked,
                     keepListeningUntilStopped = keepListening.isChecked,
-                    experimentalPcmStream = continuousPcm.isChecked && continuousPcm.isEnabled
+                    experimentalPcmStream = continuousPcm.isChecked && continuousPcm.isEnabled,
+                    avoidRepeatedChimes = avoidChimes.isChecked,
+                    speechDetectionSensitivity = voiceSensitivity.progress
                 )
                 runCatching { LiveChatCompanionSettings.save(this@AmbientCompanionSettingsActivity, saved) }
                     .onSuccess {
