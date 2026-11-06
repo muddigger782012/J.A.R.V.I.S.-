@@ -2,6 +2,9 @@ package com.assistant.core
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.Build
+import android.os.ParcelFileDescriptor
+import android.media.AudioFormat
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -287,6 +290,40 @@ class VoiceCaptureAcceptanceTest {
                 assertTrue(heard.isEmpty())
                 assertEquals(listOf(SpeechRecognizer.ERROR_NO_MATCH), errors)
             } finally { capture.stop() }
+        }
+    }
+
+    @Test fun experimentalPcmUsesOneExternalAudioSourceAndNeverStartsASecondRecognizerOnError() {
+        instrumentation.runOnMainSync {
+            if (Build.VERSION.SDK_INT < 33) return@runOnMainSync
+            val platform = Engines()
+            val capture = LiveSpeechCapture(context, platform)
+            val pipe = ParcelFileDescriptor.createPipe()
+            val errors = mutableListOf<Int>()
+            try {
+                capture.listen(true, {}, { fail("No result expected") }, errors::add,
+                    externalAudioSource = pipe[0])
+                assertEquals(1, platform.sessions.size)
+                val selected = platform.sessions.single()
+                val intent = requireNotNull(selected.intent)
+                assertNotNull(intent.getParcelableExtra<ParcelFileDescriptor>(
+                    RecognizerIntent.EXTRA_AUDIO_SOURCE))
+                assertEquals(1, intent.getIntExtra(
+                    RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, -1))
+                assertEquals(16_000, intent.getIntExtra(
+                    RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, -1))
+                assertEquals(AudioFormat.ENCODING_PCM_16BIT, intent.getIntExtra(
+                    RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, -1))
+                selected.listener.onError(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
+                assertEquals(listOf(SpeechRecognizer.ERROR_RECOGNIZER_BUSY), errors)
+                assertEquals(1, platform.sessions.size)
+                assertTrue(selected.cancelled && selected.destroyed)
+                selected.listener.onResults(results("stale private speech"))
+            } finally {
+                capture.stop()
+                runCatching { pipe[0].close() }
+                runCatching { pipe[1].close() }
+            }
         }
     }
 
