@@ -9,7 +9,10 @@ class AmbientParticipationPolicyTest {
         val quiet = LiveChatCompanionSettings(style = "quiet")
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE, policy.decide("Hand me that thirteen millimeter wrench", quiet))
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE, policy.decide("I wonder what the torque spec is", quiet))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE, policy.decide("Jarvis has been running poorly lately", quiet))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE, policy.decide("I mentioned Jarvis to the mechanic", quiet))
         assertEquals(AmbientParticipationPolicy.Decision.RESPOND, policy.decide("Jarvis, can you look that up?", quiet))
+        assertEquals(AmbientParticipationPolicy.Decision.RESPOND, policy.decide("What is the torque, Jarvis?", quiet))
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE, policy.decide("What about the next bolt?", quiet))
     }
 
