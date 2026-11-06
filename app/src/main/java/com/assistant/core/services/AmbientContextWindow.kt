@@ -17,7 +17,7 @@ class AmbientContextWindow(private val nowMillis: () -> Long = { System.nanoTime
         if (!enabled) { clear(); return }
         val now = nowMillis()
         prune(now)
-        val normalized = transcript.trim().replace(Regex("""\\s+"""), " ").take(MAX_OBSERVATION_CHARS)
+        val normalized = transcript.trim().replace(Regex("""\s+"""), " ").take(MAX_OBSERVATION_CHARS)
         if (normalized.length < 8 || !normalized.any(Char::isLetter)) return
         // Never interpret a passive utterance as a command or an authorization.
         if (LiveChatCommands.parse(normalized) != LiveChatCommands.Control.NONE) return
@@ -28,7 +28,7 @@ class AmbientContextWindow(private val nowMillis: () -> Long = { System.nanoTime
     /** A recall request is answered locally, never passed to the AI/action router. */
     fun recall(question: String, enabled: Boolean): String? {
         val input = question.trim().lowercase()
-            .replace(Regex("""^(?:(?:hey|okay|ok)\\s+)?jarvis\\b\\s*[,!?;:]?\\s*"""), "")
+            .replace(Regex("""^(?:(?:hey|okay|ok)\s+)?jarvis\b\s*[,!?;:]?\s*"""), "")
             .trim()
         if (question.length > 180 || !RECALL_QUESTIONS.matches(input)) return null
         if (!enabled) { clear(); return "Ambient conversation context is turned off in Settings." }
