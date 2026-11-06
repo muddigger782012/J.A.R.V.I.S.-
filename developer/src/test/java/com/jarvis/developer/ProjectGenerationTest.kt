@@ -43,7 +43,8 @@ class ProjectGenerationTest {
         canReadSavedCompletion: () -> Boolean = { true },
         sourceRead: (() -> Boolean)? = null,
         releaseInspect: ((String) -> DeveloperReleaseControl.Candidate)? = null,
-        releasePost: ((String, String) -> DeveloperReleaseControl.Candidate)? = null) : AutoCloseable {
+        releasePost: ((String, String) -> DeveloperReleaseControl.Candidate)? = null,
+        autonomousPreview: (() -> Boolean)? = null) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -86,11 +87,45 @@ class ProjectGenerationTest {
             }, currentDeveloperCommit = { currentCommit?.invoke() },
             githubToken = { githubCredential },
             mayReadSavedCompletion = canReadSavedCompletion,
-            requestDeveloperSourceAnalysis = { sourceRead?.invoke() ?: false })
+            requestDeveloperSourceAnalysis = { sourceRead?.invoke() ?: false },
+            requestDeveloperAutonomousPreview = autonomousPreview)
         fun complete() { pending.removeAt(0).invoke(); shadowOf(Looper.getMainLooper()).idle() }
         fun record() = JSONObject(prefs.getString("project_project-a", "{}")!!)
         override fun close() { handle.dispose(); controller.pause().stop().destroy() }
     }
+    @Test fun explicitDeveloperFeatureInstructionStartsSourceScopedPreviewWithoutLegacyJson() {
+        var previewCalls = 0
+        Screen(autonomousPreview = { previewCalls++; true },
+            ask = { _, _, _, _, _ -> error("Legacy full-file JSON path must not execute") }).use { s ->
+            s.prompt.setText("Let's add a feature into developer for loading screenshots of failures")
+            s.send.performClick()
+            assertEquals(1, previewCalls)
+            assertTrue(s.pending.isEmpty())
+            assertTrue(s.prefs.all.isEmpty())
+            assertTrue(s.output.text.contains("reviewable diff"))
+            assertTrue(s.status.text.contains("source-scoped proposal"))
+            assertTrue(s.send.isEnabled)
+        }
+        Screen(autonomousPreview = { previewCalls++; false },
+            ask = { _, _, _, _, _ -> error("Failed source scan cannot call AI") }).use { s ->
+            s.prompt.setText("Fix Developer chat navigation")
+            s.send.performClick()
+            assertEquals(2, previewCalls)
+            assertTrue(s.pending.isEmpty())
+            assertTrue(s.output.text.contains("could not start"))
+            assertTrue(s.prefs.all.isEmpty())
+        }
+        Screen(autonomousPreview = { previewCalls++; true },
+            ask = { _, _, _, _, _ -> error("Wrong target must not run Developer preview") }).use { s ->
+            s.target.setSelection(1)
+            s.prompt.setText("Implement retries in the Developer app")
+            s.send.performClick()
+            assertEquals(2, previewCalls)
+            assertTrue(s.pending.isEmpty())
+            assertTrue(s.output.text.contains("different application"))
+        }
+    }
+
     @Test fun repositoryInspectionChatUsesExistingReadOnlyActionNotModelOrWrite() {
         var reads = 0
         Screen(sourceRead = { reads++; true },
