@@ -40,6 +40,8 @@ internal class PersistentPcmAudioSource(
     private var pipe: PipeWriter? = null
     private val preRoll = PcmPreRollBuffer(PREROLL_FRAMES)
     private var armedForSpeech = false
+    // Keep the onset and pre-roll while the main thread starts recognition.
+    private var speechLaunchPending = false
     @Volatile private var turnHeardSpeech = false
     private val activity = PcmSpeechActivityGate()
     /** True only when this app's own PCM input showed speech activity. */
@@ -127,11 +129,12 @@ internal class PersistentPcmAudioSource(
     /** Passively detect a voice before starting the provider's often-audible recognition. */
     fun armForSpeech(): Boolean = synchronized(lock) {
         if (!running) return@synchronized false
-        if (!armedForSpeech && pipe == null) {
+        if (!armedForSpeech && pipe == null && !speechLaunchPending) {
             activity.reset()
             preRoll.clear()
         }
         armedForSpeech = true
+        speechLaunchPending = false
         true
     }
 
@@ -141,6 +144,7 @@ internal class PersistentPcmAudioSource(
         pipe?.abort()
         pipe = null
         armedForSpeech = false
+        speechLaunchPending = false
         return@synchronized runCatching {
             val descriptors = ParcelFileDescriptor.createPipe()
             val sender = PipeWriter(ParcelFileDescriptor.AutoCloseOutputStream(descriptors[1]))
@@ -157,6 +161,7 @@ internal class PersistentPcmAudioSource(
         pipe?.finish()
         pipe = null
         armedForSpeech = false
+        speechLaunchPending = false
         preRoll.clear()
         activity.reset()
     }
@@ -166,6 +171,7 @@ internal class PersistentPcmAudioSource(
         pipe?.abort()
         pipe = null
         armedForSpeech = false
+        speechLaunchPending = false
         preRoll.clear()
         activity.reset()
     }
@@ -198,11 +204,12 @@ internal class PersistentPcmAudioSource(
                             }
                             PcmSpeechActivityGate.Event.NONE -> Unit
                         }
-                    } else if (armedForSpeech) {
+                    } else if (armedForSpeech || speechLaunchPending) {
                         preRoll.offer(pcm16)
-                        if (activity.accept(samples, read) == PcmSpeechActivityGate.Event.STARTED) {
+                        if (armedForSpeech && activity.accept(samples, read) == PcmSpeechActivityGate.Event.STARTED) {
                             turnHeardSpeech = true
                             armedForSpeech = false // One event per listening turn.
+                            speechLaunchPending = true
                             startRecognition = true
                         }
                     } else {
@@ -228,6 +235,7 @@ internal class PersistentPcmAudioSource(
             pipe?.abort()
             pipe = null
             armedForSpeech = false
+            speechLaunchPending = false
             preRoll.clear()
             previous = recorder
             recorder = null

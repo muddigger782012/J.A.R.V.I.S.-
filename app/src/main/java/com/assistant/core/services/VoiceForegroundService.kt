@@ -282,6 +282,7 @@ class VoiceForegroundService : Service() {
                             )
                             if (candidate.start()) {
                                 pcmSource = candidate
+                                candidate.armForSpeech() // Start monitoring immediately.
                                 publishEvent("Experimental continuous PCM microphone activated for this Live Chat session.")
                             } else {
                                 pcmInjectionRejected = true
