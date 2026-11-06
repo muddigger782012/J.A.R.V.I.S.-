@@ -39,7 +39,9 @@ class LiveSpeechCapture(private val context: Context,
                onEngine: (SpeechCaptureRouting.Engine) -> Unit = {},
                requestedEngine: SpeechCaptureRouting.Engine? = null,
                onPhase: (VoiceInteractionState) -> Unit = {},
-               minimumSpeechPauseMillis: Long = 0L, fallbackOnSilence: Boolean = true) {
+               minimumSpeechPauseMillis: Long = 0L, fallbackOnSilence: Boolean = true,
+                minimumCaptureMaximumMillis: Long = 0L,
+                recoverPartialOnFinalFailure: Boolean = false) {
         stop()
         trace = VoiceSessionDiagnostics.begin()
         val strictDevice = onDeviceOnly || requestedEngine == SpeechCaptureRouting.Engine.ON_DEVICE
@@ -56,8 +58,11 @@ class LiveSpeechCapture(private val context: Context,
             val timing = RuntimeSettings.read(context, "voice_settings")
             val window = VoiceCaptureWindow({ android.os.SystemClock.elapsedRealtime() },
                 idleMillis = timing.getLong("capture_idle_millis", 30_000).coerceIn(10_000, 120_000),
-                maximumMillis = timing.getLong("capture_max_millis", 180_000).coerceIn(60_000, 600_000))
+                maximumMillis = ConversationCaptureTiming.captureMaximumMillis(
+                    timing.getLong("capture_max_millis", 180_000), minimumCaptureMaximumMillis))
             val currentTrace = trace
+            var speechStarted = false
+            var lastPartial = ""
             try {
                 val listener = object : RecognitionListener {
                     override fun onReadyForSpeech(params: Bundle?) {
@@ -68,6 +73,7 @@ class LiveSpeechCapture(private val context: Context,
                     override fun onBeginningOfSpeech() {
                         if (current != generation) return
                         window.speechStarted()
+                        speechStarted = true
                         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.SPEECH_STARTED, currentTrace)
                         onPhase(VoiceInteractionState.LISTENING)
                     }
@@ -84,6 +90,7 @@ class LiveSpeechCapture(private val context: Context,
                         if (current != generation) return
                         val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                         if (text.isNotBlank()) {
+                            lastPartial = text
                             window.speechActivity()
                             VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.PARTIAL, currentTrace)
                         }
@@ -94,7 +101,11 @@ class LiveSpeechCapture(private val context: Context,
                         val candidates = SpeechRecognitionCandidates.read(
                             results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty(),
                             results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES))
-                        val text = candidates.firstOrNull()?.transcript.orEmpty()
+                        val text = candidates.firstOrNull()?.transcript.orEmpty().ifBlank {
+                            if (recoverPartialOnFinalFailure)
+                                LiveRecognitionRecovery.usablePartial(speechStarted, lastPartial).orEmpty()
+                            else ""
+                        }
                         release(cancelled = false)
                         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.PROCESSING, currentTrace)
                         val completed = generation
@@ -106,6 +117,15 @@ class LiveSpeechCapture(private val context: Context,
                     override fun onError(error: Int) {
                         if (current != generation) return
                         VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.ERROR, currentTrace, error)
+                        val recovered = if (recoverPartialOnFinalFailure && error in setOf(
+                                SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT))
+                            LiveRecognitionRecovery.usablePartial(speechStarted, lastPartial) else null
+                        if (recovered != null) {
+                            release(cancelled = false)
+                            VoiceSessionDiagnostics.record(VoiceSessionDiagnostics.Stage.PROCESSING, currentTrace)
+                            onResult(recovered)
+                            return
+                        }
                         if (!strictDevice && provider == SpeechCaptureRouting.Engine.ON_DEVICE && !fallbackUsed && platform.systemAvailable() &&
                             (error in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
                                 SpeechRecognizer.ERROR_SERVER, SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
@@ -141,10 +161,14 @@ class LiveSpeechCapture(private val context: Context,
                     putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, offlineHint)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                     // These documented hints are provider-dependent; watchdog behavior does not assume they work.
-                    val pause = timing
-                        .getLong("speech_pause_millis", 1700L).coerceAtLeast(minimumSpeechPauseMillis).coerceIn(1000L, 10_000L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, pause)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, pause)
+                    val silence = ConversationCaptureTiming.silenceHints(
+                        timing.getLong("speech_pause_millis", 1700L), minimumSpeechPauseMillis)
+                    // Providers may decide a turn ended at the shorter possibly-complete
+                    // threshold. Do not let it override the longer conversational pause.
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                        silence.possiblyCompleteMillis)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
+                        silence.completeMillis)
                     VoiceRecognitionHints.apply(context, this, useProfileHints)
                 })
                 val watchdog = object : Runnable {

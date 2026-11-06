@@ -242,4 +242,52 @@ class VoiceCaptureAcceptanceTest {
         }
     }
 
+    @Test fun liveChatKeepsLongerPauseHintsAndRescuesInterruptedSpeech() {
+        instrumentation.runOnMainSync {
+            val engines = Engines()
+            val capture = LiveSpeechCapture(context, engines)
+            val heard = mutableListOf<String>()
+            val errors = mutableListOf<Int>()
+            try {
+                capture.listen(true, {}, heard::add, errors::add,
+                    minimumSpeechPauseMillis = 3600L, minimumCaptureMaximumMillis = 600_000L,
+                    fallbackOnSilence = false, recoverPartialOnFinalFailure = true)
+                val active = engines.sessions.single()
+                val intent = active.intent!!
+                assertEquals(3600L, intent.getLongExtra(
+                    RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, -1L))
+                assertEquals(4350L, intent.getLongExtra(
+                    RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, -1L))
+                active.listener.onBeginningOfSpeech()
+                active.listener.onPartialResults(results("Could you explain that again after my pause"))
+                active.listener.onError(SpeechRecognizer.ERROR_NO_MATCH)
+                assertEquals(listOf("Could you explain that again after my pause"), heard)
+                assertTrue(errors.isEmpty())
+                assertFalse(capture.isActive)
+                active.listener.onResults(results("stale speech must not reach conversation"))
+                assertEquals(1, heard.size)
+            } finally { capture.stop() }
+        }
+    }
+
+    @Test fun liveChatNeverUsesPartialSpeechToApproveSensitiveActions() {
+        instrumentation.runOnMainSync {
+            val engines = Engines()
+            val capture = LiveSpeechCapture(context, engines)
+            val heard = mutableListOf<String>()
+            val errors = mutableListOf<Int>()
+            try {
+                capture.listen(true, {}, heard::add, errors::add,
+                    minimumSpeechPauseMillis = 3600L, fallbackOnSilence = false,
+                    recoverPartialOnFinalFailure = true)
+                val active = engines.sessions.single()
+                active.listener.onBeginningOfSpeech()
+                active.listener.onPartialResults(results("Please approve the installation now"))
+                active.listener.onError(SpeechRecognizer.ERROR_NO_MATCH)
+                assertTrue(heard.isEmpty())
+                assertEquals(listOf(SpeechRecognizer.ERROR_NO_MATCH), errors)
+            } finally { capture.stop() }
+        }
+    }
+
 }

@@ -23,11 +23,12 @@ voice_log_pid=$!
 trap 'kill "$voice_log_pid" 2>/dev/null || true' EXIT
 # Exercise the new real-service bridge before the longer voice suite. A failed
 # preflight blocks delivery; the full acceptance gate below is still required.
-# Run the two conversation regressions before voice-pack installation/playback too.
+# Run the voice capture and conversation regressions before voice-pack installation/playback.
+# This suite now contains 21 preflight cases, including two newly added capture protections.
 preflight_classes=com.assistant.core.SettingsNavigationUiTest#selfDiagnosticsReviewsOnlyValidatedReferencesAndRestoresScrollWithoutGrantingApproval,com.assistant.core.ScreenControlAcceptanceTest,com.assistant.core.VoiceCaptureAcceptanceTest,com.assistant.core.PersonalFoundationAcceptanceTest#screenReadDiagnosticsStayLocalWithoutLearningOrDeviceExecution,com.assistant.core.PersonalFoundationAcceptanceTest#naturalMediaCommandsExecuteOfflineAndVerifyActualAndroidVolumeChanges,com.assistant.core.PersonalFoundationAcceptanceTest#conflictingVolumeTeachingAndAnOlderPendingApprovalCannotChangeAndroidVolume,com.assistant.core.PersonalFoundationAcceptanceTest#cancellingResearchThroughTheActualServiceRejectsLateSyntheticResults,com.assistant.core.PersonalFoundationAcceptanceTest#conversationalGoalAppEditsStayLocalAndExpiredReviewLabelsCannotBecomeNetworkOffers
 timeout 120s adb shell am instrument -w -r -e jarvis_disposable_emulator true -e class "$preflight_classes" com.assistant.core.test/androidx.test.runner.AndroidJUnitRunner > voice-screen-preflight.txt 2>&1
 cat voice-screen-preflight.txt
-grep -Eq 'OK \(19 tests\)' voice-screen-preflight.txt
+grep -Eq 'OK \(21 tests\)' voice-screen-preflight.txt
 set +e
 timeout 600s adb shell am instrument -w -r -e jarvis_disposable_emulator true com.assistant.core.test/androidx.test.runner.AndroidJUnitRunner > voice-regression-results.txt 2>&1 &
 voice_test_pid=$!
