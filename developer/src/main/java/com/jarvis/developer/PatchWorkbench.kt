@@ -1329,7 +1329,15 @@ object PatchWorkbench {
             refresh()
         }
         refresh()
-        val disposeHistory = RepairHistoryWorkbench.attach(activity, root, githubToken,
+        // Keep the existing bookmark controls together so the Activity can
+        // display them on Track instead of trapping them behind Home's hidden
+        // diff-review panel. The control instances and callbacks are unchanged.
+        val historyPanel = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            tag = "developer-private-repair-history"
+        }
+        root.addView(historyPanel)
+        val disposeHistory = RepairHistoryWorkbench.attach(activity, historyPanel, githubToken,
             currentCommit = { if (busy) null else lastCommit },
             begin = {
                 if (busy) false else {
