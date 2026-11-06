@@ -79,6 +79,7 @@ class VoiceForegroundService : Service() {
     }
     private val liveSession = LiveChatSession()
     private val ambientParticipation = AmbientParticipationPolicy()
+    private val ambientContext = AmbientContextWindow()
     private val liveHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val liveCapture by lazy { LiveSpeechCapture(this) }
     private var liveMessage = ""
@@ -227,6 +228,7 @@ class VoiceForegroundService : Service() {
                             .getLong("live_idle_millis", 300_000))
                         liveSession.start()
                         ambientParticipation.reset()
+                        ambientContext.clear()
                         liveSilenceTurns = 0
                         liveEngineOnDevice = false
                         liveStatus(VoiceInteractionState.LISTENING, "Starting live chat…")
@@ -417,11 +419,16 @@ class VoiceForegroundService : Service() {
                     if (liveChatActive && liveSession.transcript(turn)) {
                         liveFailures = 0
                         liveSilenceTurns = 0
-                        val participation = ambientParticipation.decide(text, LiveChatCompanionSettings.load(this))
+                        val companionSettings = LiveChatCompanionSettings.load(this)
+                        if (!companionSettings.contextEnabled) ambientContext.clear()
+                        val participation = ambientParticipation.decide(text, companionSettings)
                         // Ambient observations must never reach command execution or the AI router.
                         // STOP remains a reliable explicit exit even in Quiet mode.
                         if (participation == AmbientParticipationPolicy.Decision.OBSERVE &&
                             LiveChatCommands.parse(text) != LiveChatCommands.Control.STOP) {
+                            // Unaddressed room speech remains volatile and is never sent
+                            // through the AI, action router, or persistent Live Chat history.
+                            ambientContext.observe(text, companionSettings.contextEnabled)
                             if (liveSession.recover(turn)) {
                                 liveStatus(VoiceInteractionState.IDLE, "Listening; no response needed.")
                                 nextLiveTurn(250L)
@@ -442,6 +449,15 @@ class VoiceForegroundService : Service() {
                             liveSession.response(turn)
                             liveLine("J.A.R.V.I.S.: Live chat is already active.")
                             speakLiveReply("Live chat is already active.")
+                        } else if (ambientContext.recall(text, companionSettings.contextEnabled)?.let { remembered ->
+                            if (liveSession.response(turn)) {
+                                liveLine("J.A.R.V.I.S.: $remembered")
+                                speakLiveReply(remembered)
+                            }
+                            true
+                        } == true) {
+                            // Local ambient recall never executes a tool, calls cloud AI,
+                            // or attributes speech to a specific person.
                         } else {
                             liveStatus(VoiceInteractionState.PROCESSING, "Thinking…")
                             // Send the original utterance through the shared assistant router.
@@ -548,6 +564,7 @@ class VoiceForegroundService : Service() {
         dialogueOverlay.hide()
         liveChatActive = false
         liveSession.stop()
+        ambientContext.clear()
         liveHandler.removeCallbacksAndMessages(null)
         liveCapture.stop()
         if (::voiceService.isInitialized) voiceService.stopSpeaking()

@@ -85,7 +85,7 @@ class AmbientCompanionSettingsActivity : MenuActivity("Ambient companion") {
         val interruptions = option("Allow natural interruptions and barge-in", current.interruptionsEnabled)
         val otherSpeakers = option("Respond when other people address Jarvis", current.replyToOtherSpeakers)
         panel.addView(label("Speaker identification and automatic spoken barge-in are still being developed. These choices are saved now; unknown voices cannot yet be reliably identified as you or another person. The microphone button still works.", 12f))
-        panel.addView(label("While listening, Jarvis will ignore ordinary room speech instead of sending every sentence to the assistant. Say “Jarvis” to address him; in Companion mode, brief follow-up questions can continue without repeating his name.", 12f))
+        panel.addView(label("While listening, Jarvis stays quiet unless addressed. With conversational context enabled, he can locally recall up to 90 seconds of nearby speech if you explicitly ask what was discussed. No speaker identity is assumed, and ambient context is cleared when Live Chat ends. The system recognizer may use a network provider.", 12f))
         panel.addView(MaterialButton(this).apply {
             text = "Save companion settings"
             isAllCaps = false
