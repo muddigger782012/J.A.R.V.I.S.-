@@ -237,6 +237,28 @@ class AmbientParticipationPolicyTest {
             AmbientParticipationPolicy { 1_000L }.decide("Jarvis has been buggy", settings))
     }
 
+    @Test fun ordinaryFollowUpQuestionsBypassProactiveCooldownOnlyInActiveThread() {
+        var now = 1_000L
+        val policy = AmbientParticipationPolicy { now }
+        val settings = LiveChatCompanionSettings(style = "companion", initiative = 55)
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("Can you hear me?", settings))
+        now += 1_200L
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("When can we try the next test?", settings))
+        now += 1_200L
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("Is the microphone still active?", settings))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Open my messages", settings))
+        now += 46_000L
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("What about that other one?", settings))
+        policy.reset()
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("When can we try it?", settings.copy(initiative = 0)))
+    }
+
     @Test fun preferencesNormalizeUnknownValuesAndPreserveApprovedDefaults() {
         val defaults = LiveChatCompanionSettings.fromJson(org.json.JSONObject())
         assertEquals("companion", defaults.style)
