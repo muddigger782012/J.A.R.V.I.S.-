@@ -78,6 +78,16 @@ class VoiceForegroundService : Service() {
         override fun onReceive(context: Context?, intent: Intent?) { dialogueOverlay.refresh(liveChatActive) }
     }
     private val liveSession = LiveChatSession()
+    private val companionOptionsReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (!liveChatActive) return
+            val saved = LiveChatCompanionSettings.load(this@VoiceForegroundService)
+            liveSession.configurePersistentListening(
+                packageName == "com.assistant.core" && saved.keepListeningUntilStopped
+            )
+            if (!saved.contextEnabled) ambientContext.clear()
+        }
+    }
     private val ambientParticipation = AmbientParticipationPolicy()
     private val ambientContext = AmbientContextWindow()
     private val liveHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -111,6 +121,7 @@ class VoiceForegroundService : Service() {
         // crash containment entirely.
         voicePreferences = VoicePreferences(this)
         ContextCompat.registerReceiver(this, responseOptionsReceiver, android.content.IntentFilter(VoiceResponsePreferences.ACTION_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(this, companionOptionsReceiver, android.content.IntentFilter(LiveChatCompanionSettings.ACTION_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
         ContextCompat.registerReceiver(this, screenChanges, android.content.IntentFilter(ScreenTaskNotifications.CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
         createNotificationChannel()
         PersonalReminderRuntime.restoreAsync(applicationContext)
@@ -322,6 +333,7 @@ class VoiceForegroundService : Service() {
         val restoreRequestedWake = pipelineStarted && voicePreferences.isForegroundServiceRunning()
         runCatching { unregisterReceiver(screenChanges) }
         runCatching { unregisterReceiver(responseOptionsReceiver) }
+        runCatching { unregisterReceiver(companionOptionsReceiver) }
         dialogueOverlay.hide()
         liveHandler.removeCallbacksAndMessages(null)
         liveCapture.stop()
