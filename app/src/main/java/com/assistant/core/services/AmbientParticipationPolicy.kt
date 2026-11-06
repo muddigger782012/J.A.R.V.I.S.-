@@ -49,6 +49,7 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         val ambientReplyGap = priorAmbientAnswer == null ||
             (now >= priorAmbientAnswer && now - priorAmbientAnswer >= 800L)
         val isConversationalFollowUp = FOLLOW_UP.containsMatchIn(words) ||
+            CONVERSATIONAL_QUESTION.containsMatchIn(words) ||
             (words.length <= 140 && CONTEXTUAL_REPLY.containsMatchIn(words))
         if (preferences.contextEnabled && recentConversation != null &&
             now >= recentConversation && now - recentConversation <= 45_000L &&
