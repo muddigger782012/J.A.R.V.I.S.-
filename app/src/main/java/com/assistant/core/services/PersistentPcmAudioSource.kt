@@ -8,6 +8,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import java.io.IOException
 import java.util.concurrent.ArrayBlockingQueue
@@ -37,6 +38,7 @@ internal class PersistentPcmAudioSource(
     private val lock = Any()
     @Volatile private var running = false
     private var recorder: AudioRecord? = null
+    private var cpuWakeLock: PowerManager.WakeLock? = null
     private var worker: Thread? = null
     private var pipe: PipeWriter? = null
     private val preRoll = PcmPreRollBuffer(PREROLL_FRAMES)
@@ -111,6 +113,14 @@ internal class PersistentPcmAudioSource(
                 check(mic.state == AudioRecord.STATE_INITIALIZED)
                 mic.startRecording()
                 check(mic.recordingState == AudioRecord.RECORDSTATE_RECORDING)
+                // The explicitly started foreground Live Chat can remain active
+                // with the screen off. Keep the PCM reader scheduled until stop;
+                // foreground microphone notification remains visible.
+                val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                cpuWakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "JARVIS:LivePcm").apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
                 running = true
                 worker = Thread({ readLoop(mic) }, "jarvis-persistent-voice-pcm").apply {
                     isDaemon = true
@@ -122,6 +132,8 @@ internal class PersistentPcmAudioSource(
                 runCatching { recorder?.stop() }
                 runCatching { recorder?.release() }
                 recorder = null
+                runCatching { if (cpuWakeLock?.isHeld == true) cpuWakeLock?.release() }
+                cpuWakeLock = null
                 false
             }
         }
@@ -231,6 +243,7 @@ internal class PersistentPcmAudioSource(
 
     fun stop() {
         val previous: AudioRecord?
+        val lockToRelease: PowerManager.WakeLock?
         synchronized(lock) {
             running = false
             pipe?.abort()
@@ -240,12 +253,15 @@ internal class PersistentPcmAudioSource(
             preRoll.clear()
             previous = recorder
             recorder = null
+            lockToRelease = cpuWakeLock
+            cpuWakeLock = null
             activity.reset()
             turnHeardSpeech = false
         }
         runCatching { previous?.stop() }
         worker?.interrupt()
         runCatching { previous?.release() }
+        runCatching { if (lockToRelease?.isHeld == true) lockToRelease.release() }
         worker = null
     }
 }
