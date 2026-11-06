@@ -84,6 +84,8 @@ class VoiceForegroundService : Service() {
     private var livePhase = VoiceInteractionState.IDLE
     private var voicePhase = VoiceInteractionState.IDLE
     private var liveFailures = 0
+    private var liveSilenceTurns = 0
+    private var liveEngineOnDevice = false
     private val heartbeat = object : Runnable {
         override fun run() {
             if (!liveChatActive) return
@@ -223,6 +225,8 @@ class VoiceForegroundService : Service() {
                         liveSession.configureIdleTimeout(RuntimeSettings.read(this, "voice_settings")
                             .getLong("live_idle_millis", 300_000))
                         liveSession.start()
+                        liveSilenceTurns = 0
+                        liveEngineOnDevice = false
                         liveStatus(VoiceInteractionState.LISTENING, "Starting live chat…")
                         liveHandler.post(heartbeat)
                         nextLiveTurn(800L)
@@ -358,14 +362,14 @@ class VoiceForegroundService : Service() {
         if (!audible) {
             // Text-only Live Chat must not invoke TTS or wait for a speech
             // completion callback that a muted engine may never deliver.
-            if (liveSession.silentResponseFinished(turn)) nextLiveTurn(650L)
+            if (liveSession.silentResponseFinished(turn)) nextLiveTurn(250L)
             return
         }
         voiceService.speak(text, SpeechChannel.LIVE_CHAT, after = {
             // TTS completion may arrive on an engine callback thread. Serialize
             // session transitions with the main-thread capture and watchdog.
             liveHandler.post {
-                if (liveChatActive && liveSession.speechFinished(turn)) nextLiveTurn(650L)
+                if (liveChatActive && liveSession.speechFinished(turn)) nextLiveTurn(250L)
             }
         })
         // An absolute-length timeout can cut off a healthy long spoken reply.
@@ -410,6 +414,7 @@ class VoiceForegroundService : Service() {
                 onResult = { text ->
                     if (liveChatActive && liveSession.transcript(turn)) {
                         liveFailures = 0
+                        liveSilenceTurns = 0
                         liveLine("You: $text")
                         if (packageName == "com.assistant.core" && !VoiceDevelopmentApprovalScope.valid(text, developmentScope, DevelopmentInstallConsent.voiceScope())) {
                             liveSession.response(turn)
@@ -469,6 +474,7 @@ class VoiceForegroundService : Service() {
                 onError = { error -> liveCaptureError(turn, error) },
                 onEngine = { engine ->
                     if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING) {
+                        liveEngineOnDevice = engine == SpeechCaptureRouting.Engine.ON_DEVICE
                         val source = if (engine == SpeechCaptureRouting.Engine.ON_DEVICE) "Listening on device."
                             else "Listening with the system speech recognizer; it may use a network connection."
                         liveStatus(VoiceInteractionState.IDLE, "$source Waiting for microphone readiness.")
@@ -476,7 +482,8 @@ class VoiceForegroundService : Service() {
                 }, onPhase = { phase ->
                     if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING)
                         liveStatus(phase, phase.userLabel())
-                }, minimumSpeechPauseMillis = 2800L,
+                }, minimumSpeechPauseMillis = 3600L,
+                   minimumCaptureMaximumMillis = 600_000L,
                 // Normal silence must not start a second system recognizer,
                 // because many Android providers chime on every startup.
                 fallbackOnSilence = false
@@ -488,11 +495,15 @@ class VoiceForegroundService : Service() {
         if (!liveChatActive || liveSession.token != turn || liveSession.phase != LiveChatSession.Phase.LISTENING) return
         if (error == android.speech.SpeechRecognizer.ERROR_NO_MATCH || error == android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
             if (liveSession.silence(turn)) {
-                when (LiveChatChimePolicy.afterSilence()) {
+                val silentTurns = ++liveSilenceTurns
+                when (LiveChatChimePolicy.afterSilence(liveEngineOnDevice, silentTurns)) {
                     LiveChatChimePolicy.Action.PAUSE ->
                         liveStatus(VoiceInteractionState.IDLE,
-                            "No speech heard. Live chat is paused; tap the microphone to continue.")
-                    LiveChatChimePolicy.Action.RETRY -> nextLiveTurn(1500L)
+                            "System microphone paused after repeated silence to avoid recurring notification tones. Tap the microphone to resume.")
+                    LiveChatChimePolicy.Action.RETRY -> {
+                        liveStatus(VoiceInteractionState.IDLE, "Still here. Listening for your next thought…")
+                        nextLiveTurn(LiveChatChimePolicy.silenceRetryDelayMillis(liveEngineOnDevice, silentTurns))
+                    }
                 }
             } else finishLiveChat("Live chat reached your configured inactivity limit.")
         } else {
