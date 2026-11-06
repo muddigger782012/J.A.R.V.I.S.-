@@ -271,7 +271,8 @@ internal object DeveloperHomeWorkspace {
         onTargetChanged: (Int) -> Unit,
         onAdvanced: () -> Unit,
         saved: Bundle?,
-        onRuns: (() -> Unit)? = null
+        onRuns: (() -> Unit)? = null,
+        onNewTask: (() -> Unit)? = null
     ): Session {
         val original = (0 until home.childCount).map { home.getChildAt(it) }
         val header = original.firstOrNull()
@@ -329,6 +330,14 @@ internal object DeveloperHomeWorkspace {
         projectIdentity.addView(branchLabel)
         workspaceBar.addView(projectIdentity, LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        if (onNewTask != null) workspaceBar.addView(Button(activity).apply {
+            text = "New"
+            isAllCaps = false
+            contentDescription = "Start a new development task after safety checks"
+            setTextColor(activity.getColor(R.color.developer_primary))
+            background = surface(0xFF132F3B.toInt())
+            setOnClickListener { onNewTask() }
+        })
         if (onRuns != null) workspaceBar.addView(Button(activity).apply {
             text = "Runs"
             isAllCaps = false
