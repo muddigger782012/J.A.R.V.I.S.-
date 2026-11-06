@@ -104,13 +104,18 @@ class DeveloperTaskTriageTest {
             "VERIFYING", "READY_FOR_REVIEW", "REVIEW_REQUIRED")) {
             val offer = DeveloperTaskAdvance.evaluate(listOf(ready), listOf(job(state)))
             assertNull("No new preview during $state", offer.packet)
-            assertTrue(offer.diagnosis.contains("reconciliation in Track"))
+            assertTrue(offer.diagnosis.contains("reconcile it in Track"))
             assertTrue(offer.diagnosis.contains(state))
         }
         // A cancelled unrelated job grants no approval, but does not claim an
         // in-flight source write is currently holding the coding slot.
         val cleared = DeveloperTaskAdvance.evaluate(listOf(ready), listOf(job("CANCELLED")))
         assertNotNull(cleared.packet)
+        // Older uncertain work cannot be obscured by a newer cancelled job.
+        val unresolvedOlder = DeveloperTaskAdvance.evaluate(listOf(ready),
+            listOf(job("OUTCOME_UNKNOWN"), job("CANCELLED")))
+        assertNull(unresolvedOlder.packet)
+        assertTrue(unresolvedOlder.diagnosis.contains("Unresolved Developer job: OUTCOME_UNKNOWN"))
     }
 
     @Test fun oneTapSourceOfferNeverSkipsAnalysisOrRestoresPausedPlan() {
