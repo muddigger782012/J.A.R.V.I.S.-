@@ -482,8 +482,8 @@ class VoiceForegroundService : Service() {
                 }, onPhase = { phase ->
                     if (liveChatActive && liveSession.token == turn && liveSession.phase == LiveChatSession.Phase.LISTENING)
                         liveStatus(phase, phase.userLabel())
-                }, minimumSpeechPauseMillis = 3600L,
-                   minimumCaptureMaximumMillis = 600_000L,
+                }, minimumSpeechPauseMillis = ConversationCaptureTiming.LIVE_MINIMUM_PAUSE_MILLIS,
+                   minimumCaptureMaximumMillis = ConversationCaptureTiming.LIVE_MINIMUM_MAX_CAPTURE_MILLIS,
                 // Normal silence must not start a second system recognizer,
                 // because many Android providers chime on every startup.
                 fallbackOnSilence = false
