@@ -41,7 +41,9 @@ class ProjectGenerationTest {
         currentCommit: (() -> PatchPublisher.CommitResult?)? = null,
         githubCredential: String = "",
         canReadSavedCompletion: () -> Boolean = { true },
-        sourceRead: (() -> Boolean)? = null) : AutoCloseable {
+        sourceRead: (() -> Boolean)? = null,
+        releaseInspect: ((String) -> DeveloperReleaseControl.Candidate)? = null,
+        releasePost: ((String, String) -> DeveloperReleaseControl.Candidate)? = null) : AutoCloseable {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val activity = controller.get()
         val send = Button(activity); val cancel = Button(activity)
@@ -63,6 +65,10 @@ class ProjectGenerationTest {
                         ?: if (failure != null) throw failure else "Reply for $task"
                 }, context = { task, product, _, _, _ -> RepositoryCodingContext.unavailable(task, product) },
                 progress = { _ -> progressRead?.invoke() ?: "Verified local progress fixture" },
+                releaseReadiness = { token -> releaseInspect?.invoke(token)
+                    ?: error("Unexpected live release-readiness request") },
+                releaseDispatch = { token, sha -> releasePost?.invoke(token, sha)
+                    ?: error("Unexpected live release publication request") },
                 nextPlan = { _ -> nextPlan?.invoke() ?: DeveloperPlanContinuation.Suggestion("No saved plans") },
                 planAnalysis = planAnalysis,
                 completion = completion,
@@ -114,6 +120,66 @@ class ProjectGenerationTest {
             assertEquals(2, reads)
             assertTrue(s.pending.isEmpty())
             assertTrue(s.output.text.contains("requires the Developer target"))
+        }
+    }
+
+    @Test fun releaseApprovalIsExactOneUseAndNeverInvokesModelOrSourceWriter() {
+        val sha = "a".repeat(40)
+        val candidate = DeveloperReleaseControl.Candidate(sha, 1234L)
+        var checked = 0
+        var dispatched = 0
+        Screen(githubCredential = "github_pat_test_fixture_12345678",
+            releaseInspect = { token ->
+                assertTrue(token.startsWith("github_pat_"))
+                checked++; candidate
+            }, releasePost = { token, exact ->
+                assertTrue(token.startsWith("github_pat_"))
+                assertEquals(sha, exact)
+                dispatched++; candidate
+            }, ask = { _, _, _, _, _ -> error("Release commands must not use the coding provider") }).use { s ->
+            s.prompt.setText("Publish Developer update $sha")
+            s.send.performClick()
+            assertEquals(0, checked); assertEquals(0, dispatched)
+            assertTrue(s.pending.isEmpty())
+            assertTrue(s.output.text.contains("fresh passing exact-commit check"))
+
+            s.prompt.setText("Check Developer release readiness")
+            s.send.performClick()
+            assertEquals(1, s.pending.size)
+            assertFalse(s.send.isEnabled)
+            assertEquals(0, dispatched)
+            s.complete()
+            assertEquals(1, checked)
+            assertTrue(s.output.text.contains(sha))
+            assertTrue(s.output.text.contains("No publication"))
+            assertTrue(s.send.isEnabled)
+
+            s.prompt.setText("Publish Developer update $sha")
+            s.send.performClick()
+            assertEquals(1, s.pending.size)
+            s.complete()
+            assertEquals(1, dispatched)
+            assertTrue(s.output.text.contains("workflow request"))
+            assertTrue(s.output.text.contains("NOT installed"))
+            assertTrue(s.prefs.all.isEmpty())
+
+            s.send.performClick() // Explicit publication request cannot be reused.
+            assertEquals(1, dispatched)
+            assertTrue(s.output.text.contains("fresh passing exact-commit check"))
+        }
+    }
+
+    @Test fun releaseCheckCannotPublishWhenTargetIsPersonalOrGitHubMissing() {
+        var checks = 0
+        Screen(githubCredential = "", releaseInspect = { checks++; error("Must not run") }).use { s ->
+            s.prompt.setText("Check Developer release readiness")
+            s.send.performClick()
+            assertTrue(s.output.text.contains("Connect GitHub"))
+            assertTrue(s.pending.isEmpty())
+            s.target.setSelection(1)
+            s.send.performClick()
+            assertTrue(s.output.text.contains("unavailable for the Personal"))
+            assertEquals(0, checks)
         }
     }
 
