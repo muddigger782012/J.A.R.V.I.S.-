@@ -26,6 +26,18 @@ class PcmSpeechActivityGateTest {
         assertFalse(gate.inSpeech)
     }
 
+    @Test fun sensitivityHasRealImpactOnQuietSpeechAndCanBeLimitedForWorkshops() {
+        val quietSpeech = ShortArray(320) { if (it % 2 == 0) 285 else -285 }
+        val responsive = PcmSpeechActivityGate(sensitivity = 100)
+        val conservative = PcmSpeechActivityGate(sensitivity = 0)
+        repeat(4) {
+            assertEquals(PcmSpeechActivityGate.Event.NONE, responsive.accept(quietSpeech))
+            assertEquals(PcmSpeechActivityGate.Event.NONE, conservative.accept(quietSpeech))
+        }
+        assertEquals(PcmSpeechActivityGate.Event.STARTED, responsive.accept(quietSpeech))
+        assertEquals(PcmSpeechActivityGate.Event.NONE, conservative.accept(quietSpeech))
+    }
+
     @Test fun resetDiscardsPriorSessionAndNoisyFrameCannotStartTurn() {
         val gate = PcmSpeechActivityGate()
         repeat(5) { gate.accept(voice) }

@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit
  */
 internal class PersistentPcmAudioSource(
     private val context: Context,
+    speechSensitivity: Int = 75,
     private val onFailure: (String) -> Unit,
     private val onSpeechDetected: () -> Unit = {}
 ) {
@@ -43,7 +44,7 @@ internal class PersistentPcmAudioSource(
     // Keep the onset and pre-roll while the main thread starts recognition.
     private var speechLaunchPending = false
     @Volatile private var turnHeardSpeech = false
-    private val activity = PcmSpeechActivityGate()
+    private val activity = PcmSpeechActivityGate(sensitivity = speechSensitivity)
     /** True only when this app's own PCM input showed speech activity. */
     fun heardSpeechThisTurn() = turnHeardSpeech
 

@@ -10,8 +10,14 @@ import kotlin.math.sqrt
  */
 internal class PcmSpeechActivityGate(
     private val onsetFrames: Int = 5,
-    private val endQuietFrames: Int = 160
+    private val endQuietFrames: Int = 160,
+    sensitivity: Int = 75
 ) {
+    // Separate from wake-word recognition sensitivity: this threshold
+    // determines whether the continuous PCM input detects a human turn.
+    private val normalizedSensitivity = sensitivity.coerceIn(0, 100)
+    private val minSpeechRms = 800.0 - normalizedSensitivity * 5.7
+    private val noiseMultiplier = 3.6 - normalizedSensitivity * 0.019
     enum class Event { NONE, STARTED, ENDED }
     private var baseline = 110.0
     private var onset = 0
@@ -34,7 +40,7 @@ internal class PcmSpeechActivityGate(
             power += v * v
         }
         val rms = sqrt(power / count)
-        val energy = rms >= max(550.0, baseline * 2.8)
+        val energy = rms >= max(minSpeechRms, baseline * noiseMultiplier)
         if (!speaking) {
             // Slowly track ordinary room noise without chasing a sudden voice.
             if (!energy) baseline = (baseline * 0.985 + rms * 0.015).coerceIn(70.0, 3000.0)

@@ -54,6 +54,24 @@ class AmbientCompanionSettingsActivity : MenuActivity("Ambient companion") {
         panel.addView(initiative, LinearLayout.LayoutParams(-1, dp(52)))
         panel.addView(label("0% mostly silent  •  100% more proactive", 12f))
 
+        panel.addView(SettingsMenuViews.heading(this, "Continuous microphone speech detection"))
+        val triggerProgress = label("Speech detection sensitivity: ${current.speechDetectionSensitivity}%")
+        panel.addView(triggerProgress)
+        val voiceSensitivity = SeekBar(this).apply {
+            max = 100
+            progress = current.speechDetectionSensitivity
+            contentDescription = "Continuous microphone speech detection sensitivity"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
+                    triggerProgress.text = "Speech detection sensitivity: ${value}%"
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            })
+        }
+        panel.addView(voiceSensitivity, LinearLayout.LayoutParams(-1, dp(52)))
+        panel.addView(label("Higher catches quieter speech but may react to workshop noise. Affects the experimental PCM input, not the Hey Jarvis wake-word model.", 12f))
+
         panel.addView(SettingsMenuViews.heading(this, "Participation style"))
         val styles = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
         fun choice(tagValue: String, title: String) = RadioButton(this).apply {
@@ -107,7 +125,8 @@ class AmbientCompanionSettingsActivity : MenuActivity("Ambient companion") {
                     replyToOtherSpeakers = otherSpeakers.isChecked,
                     keepListeningUntilStopped = keepListening.isChecked,
                     experimentalPcmStream = continuousPcm.isChecked && continuousPcm.isEnabled,
-                    avoidRepeatedChimes = avoidChimes.isChecked
+                    avoidRepeatedChimes = avoidChimes.isChecked,
+                    speechDetectionSensitivity = voiceSensitivity.progress
                 )
                 runCatching { LiveChatCompanionSettings.save(this@AmbientCompanionSettingsActivity, saved) }
                     .onSuccess {

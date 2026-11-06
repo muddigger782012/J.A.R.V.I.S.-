@@ -48,3 +48,9 @@ The gate remains a basic energy detector, not neural VAD. It can false-trigger
 on equipment noise or miss quiet speakers, and Android can still chime when a
 recognizer **actually starts**. Device testing is required before enabling PCM
 mode by default.
+
+### Speech-onset sensitivity
+The new Ambient Companion **Continuous microphone speech detection** slider
+controls the opt-in PCM gate (default 75%). High values lower its RMS threshold
+for soft/quiet speech; low values require clearer/louder speech, useful in
+machinery-heavy environments. This is distinct from wake-word sensitivity.

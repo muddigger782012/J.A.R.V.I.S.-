@@ -260,6 +260,7 @@ class VoiceForegroundService : Service() {
                             LiveChatCompanionSettings.load(this).experimentalPcmStream) {
                             lateinit var candidate: PersistentPcmAudioSource
                             candidate = PersistentPcmAudioSource(this,
+                                speechSensitivity = LiveChatCompanionSettings.load(this).speechDetectionSensitivity,
                                 onFailure = { description ->
                                     liveHandler.post {
                                         if (!liveChatActive || pcmSource !== candidate) return@post
