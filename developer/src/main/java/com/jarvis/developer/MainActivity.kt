@@ -1294,9 +1294,13 @@ class MainActivity : Activity() {
             background = roundedSurface(0xFF142F3B.toInt())
         }
         homeWorkspace = DeveloperHomeWorkspace.install(this, root, advanced,
-            prompt, send, output, status, reviewFromChat, homeCodeReviewToggle, homeCodeReview,
+            prompt, send, output, status, codingFeedback.second,
+            reviewFromChat, homeCodeReviewToggle, homeCodeReview,
             guidedTarget?.selectedItemPosition ?: 0,
-            { selected -> if (guidedTarget?.isEnabled != false) guidedTarget?.setSelection(selected) },
+            { selected ->
+                if (guidedTarget?.isEnabled != false) guidedTarget?.setSelection(selected)
+                else homeWorkspace?.syncTarget(guidedTarget?.selectedItemPosition ?: 0)
+            },
             { selectPage?.invoke(4) }, savedInstanceState)
         val pages = listOf(root, projects, activityPage, settings, advanced).mapIndexed { index, page ->
             ScrollView(this).apply {
@@ -1319,6 +1323,7 @@ class MainActivity : Activity() {
             }
             val enteringTrack = next == 2 && activePage != 2
             activePage = next
+            if (next == 0) homeWorkspace?.syncTarget(guidedTarget?.selectedItemPosition ?: 0)
             homeWorkspace?.composer?.visibility = if (next == 0) View.VISIBLE else View.GONE
             if (enteringTrack) developmentHistory?.refreshNow()
             pages.forEachIndexed { pageIndex, page ->
