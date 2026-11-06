@@ -8,11 +8,11 @@ import java.util.Locale
  * work remain conversational. No pattern can authorize a GitHub write.
  */
 internal object DeveloperCodeChangeIntent {
-    private val imperative = Regex("^(?:implement|fix|repair|modify|refactor|improve|change|add|build|create)\\b")
+    private val imperative = Regex("^(?:(?:please\\s+|let(?:'|’)?s\\s+|can you\\s+)?(?:implement|fix|repair|modify|refactor|improve|change|add|build|create))\\b")
     private val developerObject = Regex(
         "(?:\\b(?:jarvis|j\\.a\\.r\\.v\\.i\\.s\\.) developer\\b|" +
         "\\bdeveloper (?:app|code|source|project|module|tests?|voice|network|chat|ui|workflow|build system)\\b|" +
-        "\\bin (?:the )?developer\\b)"
+        "\\b(?:in|into) (?:the )?developer\\b)"
     )
     fun isRequest(text: String): Boolean {
         if (text.length !in 12..12_000) return false
