@@ -62,6 +62,47 @@ class DeveloperHomeActivityIntegrationTest {
             it.tag == "developer-home-conversation"
         }
 
+    @Test fun compactWorkspacePresentsBranchRunsAndOneActionStripWithoutSkippingApproval() {
+        val activity = activity()
+        val toolbar = all(activity).filterIsInstance<LinearLayout>().single {
+            it.tag == "developer-workspace-toolbar"
+        }
+        assertTrue(toolbar.isShown)
+        assertTrue(DeveloperUiState.descendants(toolbar).filterIsInstance<TextView>()
+            .any { it.text.toString() == "J.A.R.V.I.S. Developer" })
+        val branch = all(activity).filterIsInstance<TextView>().single {
+            it.tag == "developer-workspace-branch"
+        }
+        assertTrue(branch.text.toString().contains("feature/jarvis-developer"))
+
+        val composer = composer(activity)
+        val actions = composer.findViewWithTag<LinearLayout>("developer-home-composer-actions")
+        assertNotNull(actions)
+        val attach = all(activity).filterIsInstance<Button>().single { it.text.toString() == "+ Image" }
+        assertSame(actions, attach.parent)
+        assertSame(actions, button(activity, "Send").parent)
+        assertTrue(composer.isShown)
+        assertFalse(all(activity).filterIsInstance<TextView>().single {
+            it.tag == "developer-screenshot-status"
+        }.isShown)
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+
+        val runs = DeveloperUiState.descendants(toolbar).filterIsInstance<Button>()
+            .single { it.text.toString() == "Runs" }
+        runs.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(composer.isShown)
+        assertTrue(all(activity).any { it.tag == "developer-page-2" && it.isShown })
+        button(activity, "Home").performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(composer.isShown)
+
+        composer.findViewWithTag<Spinner>("developer-home-target").setSelection(1)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(branch.text.toString().contains("Personal J.A.R.V.I.S."))
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+    }
+
     @Test fun actualHomeUsesStickyChatAndKeepsExactReviewLocked() {
         val activity = activity()
         val composer = composer(activity)
