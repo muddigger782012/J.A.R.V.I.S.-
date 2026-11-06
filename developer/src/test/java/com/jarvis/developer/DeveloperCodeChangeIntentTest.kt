@@ -10,6 +10,12 @@ class DeveloperCodeChangeIntentTest {
         assertTrue(DeveloperCodeChangeIntent.isRequest("Refactor Jarvis Developer code for faster startup"))
         assertTrue(DeveloperCodeChangeIntent.isRequest("Add tests in developer"))
         assertTrue(DeveloperCodeChangeIntent.isRequest("Build a new Android app in Developer"))
+        assertTrue(DeveloperCodeChangeIntent.isRequest(
+            "Let's add a feature into developer for loading screenshots of failures"))
+        assertTrue(DeveloperCodeChangeIntent.isRequest(
+            "Please implement a better review workflow in Developer"))
+        assertTrue(DeveloperCodeChangeIntent.isRequest(
+            "Can you fix Developer chat response handling"))
     }
 
     @Test fun questionsAndProductOperationsDoNotTriggerCodingMode() {
