@@ -12,9 +12,11 @@ internal object LiveChatChimePolicy {
     fun afterSilence(onDevice: Boolean, consecutiveSilentTurns: Int, persistentSession: Boolean = false,
                      avoidRepeatedChimes: Boolean = false): Action = when {
         // Android/vendor recognizer tones cannot be muted from this app.
-        // Stop AUTO rearming after two empty turns when the user enables
-        // chime protection; keep Live Chat active for manual mic rearm.
-        avoidRepeatedChimes && consecutiveSilentTurns >= 2 -> Action.PAUSE
+        // Pause system-provider auto-rearming after two empty turns when
+        // chime protection is on; keep Live Chat available for manual rearm.
+        // Device-local capture can be quietly rearmed; never strand this
+        // engine in a tap-to-resume state solely to silence system chimes.
+        avoidRepeatedChimes && !onDevice && consecutiveSilentTurns >= 2 -> Action.PAUSE
         persistentSession -> Action.RETRY
         onDevice -> Action.RETRY
         consecutiveSilentTurns <= 2 -> Action.RETRY

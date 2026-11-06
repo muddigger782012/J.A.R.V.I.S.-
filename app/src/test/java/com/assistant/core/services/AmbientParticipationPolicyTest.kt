@@ -23,7 +23,7 @@ class AmbientParticipationPolicyTest {
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE, policy.decide("What about the next one?", settings))
         assertEquals(AmbientParticipationPolicy.Decision.RESPOND, policy.decide("Hey Jarvis, can you check that?", settings))
         millis += 10_000
-        assertEquals(AmbientParticipationPolicy.Decision.RESPOND, policy.decide("And what about the other side?", settings))
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP, policy.decide("And what about the other side?", settings))
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
             policy.decide("Hand him the wrench", settings))
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
@@ -40,7 +40,7 @@ class AmbientParticipationPolicyTest {
         assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
             policy.decide("I can't figure out why the pressure drops", active))
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
-            policy.decide("I can't figure out why the pressure drops", active, AmbientParticipationPolicy.Speaker.OWNER))
+            policy.decide("I can't figure out why the pressure drops", active, AmbientParticipationPolicy.Speaker.OWNER)) // Duplicate provider turn must not trigger a second response.
         assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
             policy.decide("Jarvis, help", active, AmbientParticipationPolicy.Speaker.OTHER))
         time += 90_000L
@@ -68,10 +68,140 @@ class AmbientParticipationPolicyTest {
 
     @Test fun companionInitiativeActuallyAffectsUnaddressedParticipation() {
         val prompt = "What should we do about the fuel pressure?"
-        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
             AmbientParticipationPolicy { 5L }.decide(prompt, LiveChatCompanionSettings(style = "companion", initiative = 55)))
         assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
             AmbientParticipationPolicy { 5L }.decide(prompt, LiveChatCompanionSettings(style = "companion", initiative = 100)))
+    }
+
+    @Test fun activeMaxInitiativeAnswersUnaddressedQuestionsWithoutOwnerIdentity() {
+        var time = 1_000L
+        val policy = AmbientParticipationPolicy { time }
+        val active = LiveChatCompanionSettings(style = "active", initiative = 100)
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("I can't figure out why the pressure drops", active))
+        time += 16_000L
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("What should we try next", active))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Can you find the problem", active)) // Same-moment follow-up is duplicate-suppressed.
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("I wonder what makes it surge", active)) // Separate spontaneous offer on cooldown.
+        time += 16_000L
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Hand me that thirteen millimeter wrench", active))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Open my messages", active)) // No unaddressed device actions.
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("I wonder what makes it surge", active, AmbientParticipationPolicy.Speaker.OTHER))
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("I wonder what makes it surge", active.copy(replyToOtherSpeakers = true),
+                AmbientParticipationPolicy.Speaker.OTHER))
+    }
+
+    @Test fun rapidAmbientTurnsAreDebouncedButRealFollowUpsRemainAvailable() {
+        var clock = 1_000L
+        val policy = AmbientParticipationPolicy { clock }
+        val active = LiveChatCompanionSettings(style = "active", initiative = 100)
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("The microphone keeps cutting out", active))
+        clock += 200L
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("What about noise suppression?", active))
+        clock += 800L
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("What about noise suppression?", active))
+        policy.reset()
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("What about noise suppression?", active.copy(initiative = 0)))
+    }
+
+    @Test fun companionAtApproved55RespondsToAdvisoryRequestsButNotEveryQuestion() {
+        val policy = AmbientParticipationPolicy { 1_000L }
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Why does the engine surge", LiveChatCompanionSettings(style = "companion", initiative = 55)))
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("I wonder why it is surging", LiveChatCompanionSettings(style = "companion", initiative = 55)))
+        policy.reset()
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("Why does the engine surge", LiveChatCompanionSettings(style = "companion", initiative = 100)))
+        policy.reset()
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Why does the engine surge", LiveChatCompanionSettings(style = "quiet", initiative = 100)))
+        assertEquals(AmbientParticipationPolicy.Decision.RESPOND,
+            policy.decide("Jarvis, why does it surge", LiveChatCompanionSettings(style = "quiet")))
+    }
+
+    @Test fun activeMaximumCanCommentOnProblemStatementsWithoutWakeWord() {
+        val policy = AmbientParticipationPolicy { 100L }
+        val settings = LiveChatCompanionSettings(style = "active", initiative = 100)
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("The microphone keeps cutting out", settings))
+        policy.reset()
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("The microphone keeps cutting out", settings.copy(initiative = 70)))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Hand me the wrench", settings))
+    }
+
+    @Test fun naturalFollowUpsContinueAsTextOnlyWithNoReawakening() {
+        var millis = 1_000L
+        val policy = AmbientParticipationPolicy { millis }
+        val settings = LiveChatCompanionSettings(style = "companion", initiative = 55)
+        assertEquals(AmbientParticipationPolicy.Decision.RESPOND,
+            policy.decide("Jarvis, help me troubleshoot the microphone", settings))
+        millis += 1_000
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("I tried that and it still cuts out", settings))
+        millis += 1_000
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("That's exactly what I meant", settings))
+        millis += 1_000
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("Go on", settings))
+
+        // An unaddressed conversational reply never gets action authority.
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Can you please delete my messages", settings))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Please open settings", settings))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Will you send a text", settings))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Hand me the wrench", settings))
+
+        millis += 45_001
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("That still didn't work", settings))
+    }
+
+    @Test fun contextualReplyNeedsContextAndDoesNotOverrideQuietMode() {
+        val policy = AmbientParticipationPolicy { 1_000L }
+        val default = LiveChatCompanionSettings()
+        policy.decide("Jarvis, explain the problem", default)
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Exactly", default.copy(contextEnabled = false)))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Exactly", default.copy(style = "quiet")))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Exactly", default, AmbientParticipationPolicy.Speaker.OTHER))
+        policy.reset()
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            policy.decide("Exactly", default))
+    }
+
+    @Test fun anAmbientAnswerCanStartANaturalTextOnlyThread() {
+        var millis = 1_000L
+        val policy = AmbientParticipationPolicy { millis }
+        val active = LiveChatCompanionSettings(style = "active", initiative = 100)
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("The microphone keeps cutting out", active))
+        millis += 2_000
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("Yes, that's what I was saying", active))
+        millis += 1_000
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            policy.decide("What about the noise suppression?", active))
     }
 
     @Test fun preferencesNormalizeUnknownValuesAndPreserveApprovedDefaults() {

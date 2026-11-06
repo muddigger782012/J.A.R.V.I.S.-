@@ -85,7 +85,10 @@ class VoiceForegroundService : Service() {
             liveSession.configurePersistentListening(
                 packageName == "com.assistant.core" && saved.keepListeningUntilStopped
             )
-            if (!saved.contextEnabled) ambientContext.clear()
+            if (!saved.contextEnabled) {
+                ambientContext.clear()
+                if (::hybridAssistantService.isInitialized) hybridAssistantService.clearAmbientConversation()
+            }
         }
     }
     private val ambientParticipation = AmbientParticipationPolicy()
@@ -262,6 +265,7 @@ class VoiceForegroundService : Service() {
                         liveSession.start()
                         ambientParticipation.reset()
                         ambientContext.clear()
+                        hybridAssistantService.clearAmbientConversation()
                         shutdownPcmSource()
                         pcmInjectionRejected = false
                         pcmTurnHealth.reset()
@@ -516,7 +520,10 @@ class VoiceForegroundService : Service() {
                         liveFailures = 0
                         liveSilenceTurns = 0
                         val companionSettings = LiveChatCompanionSettings.load(this)
-                        if (!companionSettings.contextEnabled) ambientContext.clear()
+                        if (!companionSettings.contextEnabled) {
+                            ambientContext.clear()
+                            hybridAssistantService.clearAmbientConversation()
+                        }
                         val participation = ambientParticipation.decide(text, companionSettings)
                         // Ambient observations must never reach command execution or the AI router.
                         // STOP remains a reliable explicit exit even in Quiet mode.
@@ -564,7 +571,16 @@ class VoiceForegroundService : Service() {
                             // prepending a transcript here can hide actionable commands
                             // (Developer tasks, reminders, confirmations) from parsers.
                             val replyStartedAt = android.os.SystemClock.elapsedRealtime()
-                            askAssistant(text) { reply ->
+                            // Unaddressed high-initiative conversation is text-only
+                            // AI. Never send it through the privileged action router.
+                            val dispatch: ((HybridAssistantReply) -> Unit) -> Unit =
+                                if (participation == AmbientParticipationPolicy.Decision.OFFER_HELP) {
+                                    { deliver -> hybridAssistantService.respondToAmbientConversationAsync(
+                                        text, companionSettings.contextEnabled, deliver) }
+                                } else {
+                                    { deliver -> askAssistant(text, deliver) }
+                                }
+                            dispatch { reply ->
                                 liveHandler.post {
                                     if (!liveChatActive || liveSession.token != turn ||
                                         liveSession.phase != LiveChatSession.Phase.THINKING) return@post
@@ -710,6 +726,7 @@ class VoiceForegroundService : Service() {
         liveChatActive = false
         liveSession.stop()
         ambientContext.clear()
+        if (::hybridAssistantService.isInitialized) hybridAssistantService.clearAmbientConversation()
         liveHandler.removeCallbacksAndMessages(null)
         liveCapture.stop()
         shutdownPcmSource()

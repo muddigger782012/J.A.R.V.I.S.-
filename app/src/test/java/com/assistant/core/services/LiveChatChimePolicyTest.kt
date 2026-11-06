@@ -33,13 +33,20 @@ class LiveChatChimePolicyTest {
         assertEquals(4_000L, LiveChatChimePolicy.silenceRetryDelayMillis(false, 3, persistentSession = false))
     }
 
-    @Test fun beepProtectionStopsAutomaticSystemAndOnDeviceRestartLoops() {
-        for (onDevice in listOf(false, true)) {
+    @Test fun quietMicrophoneKeepsOnDeviceRecognitionAvailableWhilePausingSystemProvider() {
+        for (silent in 1..30) {
             assertEquals(LiveChatChimePolicy.Action.RETRY,
-                LiveChatChimePolicy.afterSilence(onDevice, 1, persistentSession = true, avoidRepeatedChimes = true))
-            assertEquals(LiveChatChimePolicy.Action.PAUSE,
-                LiveChatChimePolicy.afterSilence(onDevice, 2, persistentSession = true, avoidRepeatedChimes = true))
+                LiveChatChimePolicy.afterSilence(
+                    onDevice = true, consecutiveSilentTurns = silent,
+                    persistentSession = true, avoidRepeatedChimes = true))
         }
+        assertEquals(LiveChatChimePolicy.Action.RETRY,
+            LiveChatChimePolicy.afterSilence(false, 1, persistentSession = true, avoidRepeatedChimes = true))
+        for (silent in 2..30) {
+            assertEquals(LiveChatChimePolicy.Action.PAUSE,
+                LiveChatChimePolicy.afterSilence(false, silent, persistentSession = true, avoidRepeatedChimes = true))
+        }
+        // When the owner disables beep protection, system-provider retries resume.
         assertEquals(LiveChatChimePolicy.Action.RETRY,
             LiveChatChimePolicy.afterSilence(false, 5, persistentSession = true, avoidRepeatedChimes = false))
     }
