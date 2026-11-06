@@ -43,6 +43,21 @@ class DeveloperPlanContinuationTest {
     }
 
 
+    @Test fun previouslyOfferedSourcePacketIsRejectedByNewPlanRevisionOrPause() {
+        val analyzed = TaskPlanner.transition(plan(), "analyze", TaskPlanner.Status.DONE,
+            "Owner reviewed source analysis", 1001)
+        val offered = requireNotNull(DeveloperPlanContinuation.suggest(listOf(analyzed)).packet)
+        val edited = TaskPlanner.editStep(analyzed, "implement-1", "Updated scope rationale",
+            "Read fresh callers before editing", listOf("analyze"), 1002)
+        val fresh = requireNotNull(DeveloperPlanContinuation.suggest(listOf(edited)).packet)
+        assertNotEquals("The originally displayed revision cannot authorize the new preview",
+            offered, fresh)
+        assertNotEquals(offered.id, fresh.id)
+        assertEquals(analyzed.baseCommitSha, fresh.base)
+        val paused = TaskPlanner.pause(analyzed, true, 1002)
+        assertNull(DeveloperPlanContinuation.suggest(listOf(paused)).packet)
+    }
+
     @Test fun multiStepPlanPreparesOneCumulativeReviewedSourceChange() {
         val second = "developer/src/main/java/com/jarvis/developer/Network.kt"
         val baseline = plan()
