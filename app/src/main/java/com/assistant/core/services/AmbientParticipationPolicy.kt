@@ -71,7 +71,9 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         // During an explicitly opened Personal Live Chat, clear questions are
         // conversational requests even at the owner's 55% initiative setting.
         // A context-dependent "what about..." still needs an existing thread.
-        val clearQuestion = question && !CONTEXT_DEPENDENT_QUESTION.containsMatchIn(words)
+        val clearQuestion = question &&
+            !CONTEXT_DEPENDENT_QUESTION.containsMatchIn(words) &&
+            !UNADDRESSED_CONTEXT_REQUEST.containsMatchIn(words)
         val requestForConversation = CONVERSATIONAL_REQUEST.containsMatchIn(words)
         val relevantObservation = PROBLEM_STATEMENT.containsMatchIn(words) ||
             TROUBLESHOOTING_PROMPT.containsMatchIn(words)
@@ -127,6 +129,13 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         )
         private val CONTEXT_DEPENDENT_QUESTION = Regex(
             """^\s*(?:(?:and|so|then|well)\s+)?(?:what|how)\s+about\b""", RegexOption.IGNORE_CASE
+        )
+        // Without a preceding thread these references do not identify an
+        // object or permission to operate the phone. They remain available
+        // as text-only follow-ups once the owner establishes context.
+        private val UNADDRESSED_CONTEXT_REQUEST = Regex(
+            """^\s*(?:can|could|would|will)\s+you\s+(?:check\b|look\s+(?:that|it)\s+up\b|do\s+(?:that|it)\b)""",
+            RegexOption.IGNORE_CASE
         )
         private val CONVERSATIONAL_REQUEST = Regex(
             """^\s*(?:tell me\b|explain\b|help me (?:understand|figure out)\b|are you (?:there|listening|hearing me)\b|do you hear me\b|can you hear me\b|(?:hello|hi)(?:\s+there)?[!?.]*\s*$)""",
