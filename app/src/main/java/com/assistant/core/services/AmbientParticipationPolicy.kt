@@ -29,7 +29,7 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         val preferences = settings.normalized()
         if (speaker == Speaker.OTHER && !preferences.replyToOtherSpeakers) return Decision.OBSERVE
         val now = elapsedMillis()
-        if (DIRECT_ADDRESS.containsMatchIn(words)) {
+        if (DIRECT_ADDRESS.containsMatchIn(words) || END_VOCATIVE.containsMatchIn(words)) {
             addressedAt = now
             return Decision.RESPOND
         }
@@ -59,7 +59,13 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
     }
 
     companion object {
-        private val DIRECT_ADDRESS = Regex("""\bjarvis\b""", RegexOption.IGNORE_CASE)
+        // A casual mention such as "Jarvis has bugs" is not an address.
+        // Only a vocative at the beginning or end of an utterance qualifies.
+        private val DIRECT_ADDRESS = Regex(
+            """^\\s*(?:(?:hey|ok|okay|yo|please)\\s+)?jarvis(?:\\s*[,!?;:]\\s*|\\s+(?=(?:can|could|would|will|please|look|find|check|show|tell|explain|what|why|how|when|where|help|stop|start|open|set|turn|remind)\\b)|\\s*$)""",
+            RegexOption.IGNORE_CASE
+        )
+        private val END_VOCATIVE = Regex(""",\\s*jarvis\\s*[?.!]*$""", RegexOption.IGNORE_CASE)
         private val FOLLOW_UP = Regex(
             """^(?:and |so |then |well )?(?:what about|how about|can you|could you|would you|will you|please |tell me|explain|look that up|check that|why |how |what do you think)\b""",
             RegexOption.IGNORE_CASE
