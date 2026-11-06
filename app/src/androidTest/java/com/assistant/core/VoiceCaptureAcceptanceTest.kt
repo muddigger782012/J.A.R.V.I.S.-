@@ -48,8 +48,10 @@ class VoiceCaptureAcceptanceTest {
         instrumentation.runOnMainSync {
             val platform = Engines()
             val capture = LiveSpeechCapture(context, platform)
+            val heard = mutableListOf<String>()
             try {
-                capture.listen(true, {}, {}, { fail("Unexpected capture failure") })
+                capture.listen(true, {}, heard::add, { fail("Unexpected capture failure") },
+                    fallbackOnSilence = false, recoverPartialOnFinalFailure = true)
                 val listener = platform.sessions.single().listener
                 assertTrue(capture.isActive)
                 assertFalse(capture.hasSpeechActivity)
@@ -58,6 +60,7 @@ class VoiceCaptureAcceptanceTest {
                 listener.onPartialResults(results("Some useful words"))
                 assertTrue(capture.hasSpeechActivity)
                 listener.onError(SpeechRecognizer.ERROR_NO_MATCH)
+                assertEquals(listOf("Some useful words"), heard)
                 assertFalse(capture.hasSpeechActivity)
                 assertFalse(capture.isActive)
             } finally { capture.stop() }
