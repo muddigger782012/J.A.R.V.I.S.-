@@ -15,6 +15,10 @@ internal object ProjectGenerationWorkbench {
         val ask: (String, String, String, String, PatchPreviewCancellation, RepositoryCodingContext.Context) -> String = CodingAssistantProvider::ask,
         val context: (String, PatchEngine.Target, String, String, PatchPreviewCancellation) -> RepositoryCodingContext.Context = RepositoryIntelligence::codingContext,
         val progress: (Activity) -> String = DeveloperProgressReport::read,
+        val releaseReadiness: (String) -> DeveloperReleaseControl.Candidate =
+            DeveloperReleaseControl.Client()::inspect,
+        val releaseDispatch: (String, String) -> DeveloperReleaseControl.Candidate =
+            DeveloperReleaseControl.Client()::publish,
         val nextPlan: (Activity) -> DeveloperPlanContinuation.Suggestion = DeveloperPlanContinuation::suggest,
         val planAnalysis: DeveloperPlanAnalysisReview = DeveloperPlanAnalysisReview(),
         val completion: DeveloperPlanCompletionReview = DeveloperPlanCompletionReview(),
@@ -44,6 +48,8 @@ internal object ProjectGenerationWorkbench {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
+        var releaseReadySha: String? = null
+        var releaseDispatchMayHaveStarted = false
         var disposed = false
         fun inputs(enabled: Boolean) {
             listOf(send, provider, key, model, prompt).forEach { it.isEnabled = enabled }
@@ -61,7 +67,9 @@ internal object ProjectGenerationWorkbench {
                 read.cancel()
                 if (alive()) {
                     inputs(true)
-                    status.text = "Local development progress read cancelled. No task or approval was changed."
+                    status.text = if (releaseDispatchMayHaveStarted)
+                        "Signed release dispatch may have reached GitHub. Check Developer Actions before trying again; cancellation cannot undo a queued workflow."
+                    else "Read-only operation cancelled. No source, release or approval was changed."
                 }
                 return
             }
@@ -97,6 +105,92 @@ internal object ProjectGenerationWorkbench {
             // The Home conversation is presentation only. Existing workbench and
             // exact scoped approval mechanisms remain the sole executors.
             runCatching { onUserMessage(task) }
+            // Release promotion is a two-step, owner-controlled chat operation.
+            // First verify the canonical source and exact successful CI, then
+            // explicitly type its entire SHA. No provider, source write, merge,
+            // local signing, APK installation, or implicit approval is involved.
+            val releaseCheck = DeveloperReleaseChatCommand.check(task)
+            val releaseAttempt = DeveloperReleaseChatCommand.publishAttempt(task)
+            if (releaseCheck || releaseAttempt) {
+                if (target() != 0) {
+                    output.text = "Signed Developer publication is unavailable for the Personal Jarvis target."
+                    status.text = "Developer release command rejected."
+                    return@setOnClickListener
+                }
+                val publishSha = if (releaseAttempt) DeveloperReleaseChatCommand.publishSha(task) else null
+                if (releaseAttempt && (publishSha == null || publishSha != releaseReadySha)) {
+                    output.text = "Publication requires a fresh passing exact-commit check. " +
+                        "First type 'Check Developer release readiness', then send exactly " +
+                        "'Publish Developer update' followed by the 40-character approved SHA. " +
+                        "No release was requested."
+                    status.text = "Signed update approval missing or stale."
+                    return@setOnClickListener
+                }
+                if (readToken.isBlank()) {
+                    output.text = "Connect GitHub in Settings. Release readiness requires read access; " +
+                        "publication additionally requires GitHub Actions write permission."
+                    status.text = "GitHub release connection unavailable."
+                    return@setOnClickListener
+                }
+                val cancellation = PatchPreviewCancellation()
+                localProgressRead = cancellation
+                releaseDispatchMayHaveStarted = false
+                inputs(false)
+                status.text = if (publishSha == null)
+                    "Verifying canonical Developer SHA and all required isolated CI."
+                else "Rechecking exact source before requesting a signed Developer workflow."
+                if (publishSha != null) releaseReadySha = null // One-use owner approval.
+                val work: () -> Unit = {
+                    val result = runCatching {
+                        cancellation.check()
+                        if (publishSha == null) services.releaseReadiness(readToken)
+                        else {
+                            cancellation.check()
+                            releaseDispatchMayHaveStarted = true
+                            services.releaseDispatch(readToken, publishSha)
+                        }
+                    }
+                    activity.runOnUiThread {
+                        if (!alive() || localProgressRead !== cancellation || cancellation.isCancelled)
+                            return@runOnUiThread
+                        localProgressRead = null
+                        releaseDispatchMayHaveStarted = false
+                        inputs(true)
+                        result.onSuccess { verified ->
+                            if (publishSha == null) {
+                                releaseReadySha = verified.sha
+                                output.text = "Canonical Developer source: ${verified.sha}\n" +
+                                    "Verified successful isolated CI run: ${verified.runId}.\n\n" +
+                                    "To authorize ONLY a signed workflow dispatch, type exactly:\n" +
+                                    "Publish Developer update ${verified.sha}\n\n" +
+                                    "No publication, merge, APK download or installation has occurred."
+                                status.text = "Release candidate verified; exact owner authorization required."
+                            } else {
+                                output.text = "GitHub accepted a signed Developer release workflow request for " +
+                                    "${verified.sha}. Follow Actions for the final signing and publication " +
+                                    "result. The APK was NOT installed on your device."
+                                status.text = "Signed release workflow queued; publication not yet verified."
+                            }
+                        }.onFailure {
+                            if (publishSha == null) releaseReadySha = null
+                            output.text = if (publishSha == null)
+                                "Developer release readiness is blocked: canonical CI or source " +
+                                    "could not be verified as complete and green. Inspect Developer " +
+                                    "Actions and retry after resolving the failure. No release was requested."
+                            else "Signed Developer workflow was not confirmed. Check GitHub Actions " +
+                                "before trying again; do not assume it failed or was published."
+                            status.text = "Developer release gate blocked or unverified."
+                        }
+                    }
+                }
+                runCatching { services.worker(work) }.onFailure {
+                    localProgressRead = null
+                    releaseReadySha = null
+                    inputs(true)
+                    status.text = "Release verification worker unavailable; no result verified."
+                }
+                return@setOnClickListener
+            }
             // Full exact-diff review is read directly from verified in-memory proposal
             // state. The chat provider, saved discussion, and GitHub are not touched.
             if (DeveloperDiffChatCommand.isRequest(task)) {
