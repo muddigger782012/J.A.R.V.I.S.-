@@ -1385,6 +1385,11 @@ class MainActivity : Activity() {
             reviewFromChat, homeCodeReviewToggle, homeCodeReview,
             guidedTarget?.selectedItemPosition ?: 0,
             { selected ->
+                if ((guidedTarget?.selectedItemPosition ?: 0) != selected) {
+                    taskTriageGeneration++
+                    nextPreviewPacket = null
+                    homeWorkspace?.setPrepareNextAvailable(false)
+                }
                 if (guidedTarget?.isEnabled != false) guidedTarget?.setSelection(selected)
                 else homeWorkspace?.syncTarget(guidedTarget?.selectedItemPosition ?: 0)
             },
@@ -1844,6 +1849,9 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        taskTriageGeneration++
+        nextPreviewPacket = null
+        homeWorkspace?.setPrepareNextAvailable(false)
         DeveloperUpdater.onBackground(this)
         super.onPause()
     }
