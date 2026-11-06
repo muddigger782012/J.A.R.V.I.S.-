@@ -44,14 +44,19 @@ class DeveloperScreenshotWorkflowTest {
         val image = image()
         for (provider in listOf("Gemini", "OpenAI")) {
             var request: CodingAssistantProvider.PostRequest? = null
-            val result = if (provider == "Gemini")
-                JSONObject().put("candidates", JSONArray().put(JSONObject().put("finishReason", "STOP")
-                    .put("content", JSONObject().put("role", "model")
-                        .put("parts", JSONArray().put(JSONObject().put("text", "Visible login error.")))))
-            else JSONObject().put("status", "completed").put("output", JSONArray().put(JSONObject()
-                .put("type", "message").put("role", "assistant").put("status", "completed")
-                .put("content", JSONArray().put(JSONObject().put("type", "output_text")
-                    .put("text", "Visible login error.")))))
+            val replyPart = JSONObject().put("text", "Visible login error.")
+            val result = if (provider == "Gemini") {
+                val content = JSONObject().put("role", "model")
+                    .put("parts", JSONArray().put(replyPart))
+                val candidate = JSONObject().put("finishReason", "STOP")
+                    .put("content", content)
+                JSONObject().put("candidates", JSONArray().put(candidate))
+            } else {
+                val content = JSONArray().put(replyPart.put("type", "output_text"))
+                val message = JSONObject().put("type", "message").put("role", "assistant")
+                    .put("status", "completed").put("content", content)
+                JSONObject().put("status", "completed").put("output", JSONArray().put(message))
+            }
             val bytes = result.toString().toByteArray()
             val transport = CodingAssistantProvider.PostTransport { outbound ->
                 request = outbound
