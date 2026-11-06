@@ -144,7 +144,7 @@ class VoiceForegroundService : Service() {
                     // second finish() would be ignored. Treat that tap as recovery.
                     when (liveSession.microphoneTapped(liveCapture.isActive && !liveCapture.isFinishing)) {
                         LiveChatSession.MicrophoneTap.FINISH_CAPTURE -> {
-                            pcmSource?.closeTurn()
+                            pcmSource?.finishTurn()
                             liveCapture.finish()
                             liveStatus(VoiceInteractionState.TRANSCRIBING, "Finishing voice input…")
                         }
@@ -189,7 +189,7 @@ class VoiceForegroundService : Service() {
                 return if (WakeRestartPolicy.shouldRemainSticky(pipelineStarted)) START_STICKY else START_NOT_STICKY
             }
             ACTION_FINISH_CAPTURE -> {
-                if (liveChatActive) { pcmSource?.closeTurn(); liveCapture.finish() }
+                if (liveChatActive) { pcmSource?.finishTurn(); liveCapture.finish() }
                 else if (::voiceService.isInitialized) voiceService.finishCapture()
                 return if (WakeRestartPolicy.shouldRemainSticky(pipelineStarted)) START_STICKY else START_NOT_STICKY
             }
@@ -466,8 +466,10 @@ class VoiceForegroundService : Service() {
             liveCapture.listen(currentConfig.preferOfflineCommandRecognition,
                 onPartial = { /* Partial transcripts stay transient; only complete turns enter chat. */ },
                 onResult = { text ->
-                    pcmSource?.closeTurn()
+                    // A delayed recognizer callback must never close the new
+                    // PCM feed belonging to a subsequent Live Chat turn.
                     if (liveChatActive && liveSession.transcript(turn)) {
+                        pcmSource?.closeTurn()
                         liveFailures = 0
                         liveSilenceTurns = 0
                         val companionSettings = LiveChatCompanionSettings.load(this)
@@ -552,6 +554,8 @@ class VoiceForegroundService : Service() {
                     }
                 },
                 onError = { error ->
+                    if (!liveChatActive || liveSession.token != turn ||
+                        liveSession.phase != LiveChatSession.Phase.LISTENING) return@listen
                     if (injected != null) {
                         pcmSource?.closeTurn()
                         if (error != android.speech.SpeechRecognizer.ERROR_NO_MATCH &&

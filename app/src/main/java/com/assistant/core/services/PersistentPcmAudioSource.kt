@@ -132,7 +132,14 @@ internal class PersistentPcmAudioSource(
         }.getOrNull()
     }
 
-    /** Stops the recognizer feed but keeps the microphone stream running. */
+    /** Finish a manually ended utterance after queued audio reaches its recognizer. */
+    fun finishTurn() = synchronized(lock) {
+        pipe?.finish()
+        pipe = null
+        activity.reset()
+    }
+
+    /** Aborts a cancelled/stale recognizer feed; microphone ownership remains. */
     fun closeTurn() = synchronized(lock) {
         pipe?.abort()
         pipe = null
