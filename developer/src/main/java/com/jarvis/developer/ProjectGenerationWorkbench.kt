@@ -39,7 +39,8 @@ internal object ProjectGenerationWorkbench {
         showDeveloperDiff: () -> String? = { null },
         continueDeveloperPlan: (String, String, List<String>, String) -> Boolean = { _, _, _, _ -> false },
         currentDeveloperCommit: () -> PatchPublisher.CommitResult? = { null },
-        mayReadSavedCompletion: () -> Boolean = { false }): Handle {
+        mayReadSavedCompletion: () -> Boolean = { false },
+        onUserMessage: (String) -> Unit = {}): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var localProgressRead: PatchPreviewCancellation? = null
@@ -93,6 +94,9 @@ internal object ProjectGenerationWorkbench {
             if ((secret.isNotEmpty() && task.contains(secret)) || (readToken.isNotEmpty() && task.contains(readToken))) {
                 status.setText(R.string.project_generation_remove_key); return@setOnClickListener
             }
+            // The Home conversation is presentation only. Existing workbench and
+            // exact scoped approval mechanisms remain the sole executors.
+            runCatching { onUserMessage(task) }
             // Full exact-diff review is read directly from verified in-memory proposal
             // state. The chat provider, saved discussion, and GitHub are not touched.
             if (DeveloperDiffChatCommand.isRequest(task)) {
