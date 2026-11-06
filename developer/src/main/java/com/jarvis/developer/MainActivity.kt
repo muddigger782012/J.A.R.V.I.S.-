@@ -1387,6 +1387,15 @@ class MainActivity : Activity() {
                     status.setText(R.string.project_generation_finish_code_operation)
                 } else {
                     projectGeneration?.cancel()
+                    // A new task must not inherit an attached screenshot or a
+                    // still-decoding image from the previous conversation.
+                    screenshotReadGeneration++
+                    screenshotLoading = false
+                    selectedScreenshot = null
+                    screenshotPreview?.setImageDrawable(null)
+                    screenshotPreview?.visibility = View.GONE
+                    screenshotLabel?.visibility = View.GONE
+                    removeScreenshotButton?.visibility = View.GONE
                     activeProject = null
                     prompt.text.clear()
                     output.text = ""
