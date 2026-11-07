@@ -102,6 +102,58 @@ internal object ReaApkAnalysis {
         return Report(sha, evidence, excerpt, json.getBoolean("truncated"))
     }
 
+    /** A cross-platform authenticated preflight. Sends NO APK bytes. */
+    fun healthEndpoint(base: String): String =
+        endpoint(base).removeSuffix("/v1/apk/analyze") + "/v1/health"
+
+    fun validateHealth(body: String): String {
+        require(body.length in 20..2048) { "REA health response exceeds safe bounds." }
+        val response = JSONObject(body)
+        require(response.getString("schema") == "jarvis.rea.health.v1" &&
+            response.getString("state") == "BRIDGE_REACHABLE") {
+            "Unsupported REA health protocol."
+        }
+        return when (response.getString("engine")) {
+            "DOCTOR_PASSED" -> "REA bridge reachable. REA/JADX doctor passed. " +
+                "APK analysis has not been tested yet."
+            "DOCTOR_FAILED" -> "REA bridge reachable, but REA/JADX doctor failed. " +
+                "Check Node, Java and JADX on the host before uploading an APK."
+            else -> error("REA health reported an unknown engine state.")
+        }
+    }
+
+    fun checkHealth(origin: String, bearer: String): String {
+        require(bearer.length in 24..4096 && bearer.none { it.isISOControl() })
+        val connection = URL(healthEndpoint(origin)).openConnection() as HttpsURLConnection
+        try {
+            connection.requestMethod = "GET"
+            connection.instanceFollowRedirects = false
+            connection.useCaches = false
+            connection.connectTimeout = 15000
+            connection.readTimeout = 40000
+            connection.setRequestProperty("Authorization", "Bearer $bearer")
+            connection.setRequestProperty("Accept", "application/json")
+            require(connection.responseCode == HttpURLConnection.HTTP_OK) {
+                "REA connection check rejected (HTTP ${connection.responseCode})."
+            }
+            val bytes = ByteArrayOutputStream()
+            connection.inputStream.use { input ->
+                val chunk = ByteArray(1024)
+                while (true) {
+                    val size = input.read(chunk)
+                    if (size < 0) break
+                    require(size > 0 && bytes.size() + size <= 2048) {
+                        "REA connection check returned an oversized response."
+                    }
+                    bytes.write(chunk, 0, size)
+                }
+            }
+            return validateHealth(bytes.toString(Charsets.UTF_8.name()))
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     /** Network is only initiated after a separate explicit Analyze tap. */
     fun analyze(origin: String, bearer: String, apk: Selected): Report {
         require(bearer.length in 24..4096 && bearer.none { it.isISOControl() })
