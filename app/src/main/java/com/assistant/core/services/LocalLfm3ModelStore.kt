@@ -76,8 +76,8 @@ class LocalLfm3ModelStore(private val context: Context) {
             ?.takeIf { Regex("[a-f0-9]{64}:[0-9]+").matches(it) }
     }.getOrNull()
 
-    /** Quick state from the locally persisted post-download verification receipt. */
-    @Synchronized fun status(variant: LocalLfm3Models.Variant): Snapshot {
+    /** Nonblocking file-state snapshot; never hold the long-running download monitor on the UI. */
+    fun status(variant: LocalLfm3Models.Variant): Snapshot {
         if (context.packageName != "com.assistant.core") return Snapshot(false, 0, null, 0)
         val file = modelFile(variant)
         val receipt = marked(stamp(variant))?.split(":")
@@ -89,13 +89,14 @@ class LocalLfm3ModelStore(private val context: Context) {
     }
 
     /** Hashes actual bytes when explicitly requested, not on the UI render path. */
-    fun verify(variant: LocalLfm3Models.Variant, progress: (Int) -> Unit = {}): Boolean {
+    fun verify(variant: LocalLfm3Models.Variant, progress: (Int) -> Unit = {},
+        cancelled: () -> Boolean = { false }): Boolean {
         requirePersonal()
         val file = modelFile(variant)
         val receipt = marked(stamp(variant))?.split(":") ?: return false
         val expectedSize = receipt.getOrNull(1)?.toLongOrNull() ?: return false
         if (!file.isFile || file.length() != expectedSize) return false
-        return digest(file, expectedSize, progress) == receipt.first()
+        return digest(file, expectedSize, progress, cancelled) == receipt.first()
     }
 
     fun delete(variant: LocalLfm3Models.Variant): Boolean {
@@ -189,7 +190,7 @@ class LocalLfm3ModelStore(private val context: Context) {
             if (received != info.bytes || temp.length() != info.bytes)
                 throw IOException("Incomplete GGUF transfer; download can be resumed")
             if (cancelled()) throw DownloadCancelled()
-            if (digest(temp, info.bytes) { progress(it) } != info.sha256) {
+            if (digest(temp, info.bytes, progress, cancelled) != info.sha256) {
                 temp.delete(); marker.delete()
                 throw IOException("GGUF SHA-256 check failed. Partial file discarded.")
             }
@@ -207,12 +208,14 @@ class LocalLfm3ModelStore(private val context: Context) {
         } finally { conn.disconnect() }
     }
 
-    private fun digest(file: File, total: Long, progress: (Int) -> Unit = {}): String {
+    private fun digest(file: File, total: Long, progress: (Int) -> Unit = {},
+        cancelled: () -> Boolean = { false }): String {
         val sha = MessageDigest.getInstance("SHA-256")
         var bytes = 0L
         file.inputStream().buffered(65_536).use { source ->
             val buffer = ByteArray(65_536)
             while (true) {
+                if (cancelled()) throw DownloadCancelled()
                 val read = source.read(buffer)
                 if (read < 0) break
                 sha.update(buffer, 0, read)
