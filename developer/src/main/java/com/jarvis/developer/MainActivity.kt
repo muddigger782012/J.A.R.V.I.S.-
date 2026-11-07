@@ -24,6 +24,8 @@ import com.jarvis.integration.DevelopmentBridgeContract as Wire
  * This is API communication, NOT a connection to a ChatGPT conversation or Codex session.
  */
 class MainActivity : Activity() {
+    private var voiceboxSpeech: com.jarvis.voicebox.VoiceboxSpeech? = null
+    private var voiceboxPanel: com.jarvis.voicebox.VoiceboxSettingsPanel? = null
     private var applicationWorkbench: ApplicationApprovalWorkbench.Handle? = null
     private var patchPreview: PatchWorkbench.Handle? = null
     private var activePage = 0
@@ -378,7 +380,13 @@ class MainActivity : Activity() {
         projectGeneration = ProjectGenerationWorkbench.attach(this, send, cancelGeneration, provider, key, model,
             prompt, output, status, { guidedTarget?.selectedItemPosition ?: 0 }, { guidedTarget },
             { activeProject }, { activeProject = it }, ProjectGenerationStore(projectPrefs),
-            { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() })
+            { refreshSavedProjectsAfterChange?.invoke() }, githubToken = { githubToken.text.toString() }, onRequest = { voiceboxSpeech?.stop() }, onReply = { reply ->
+                if (hasWindowFocus() && com.jarvis.voicebox.VoiceboxPreferences.load(this).enabled) {
+                    val speech = voiceboxSpeech ?: com.jarvis.voicebox.VoiceboxSpeech(this).also { voiceboxSpeech = it }
+                    val spoken = reply.substringBefore("```").take(10000)
+                    if (spoken.isNotBlank()) speech.speak(spoken, {}, { message -> status.text = message })
+                }
+            })
         // Preserve all existing controls while separating the beginner home from tools.
         val advanced = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -465,6 +473,7 @@ class MainActivity : Activity() {
             textSize = 22f
             setTextColor(getColor(R.color.developer_primary))
         })
+        voiceboxPanel = com.jarvis.voicebox.VoiceboxSettingsPanel(this, getColor(R.color.developer_primary)).also { settings.addView(it) }
         settings.addView(TextView(this).apply { text = "API key — not a model name"; textSize = 16f; setTextColor(getColor(R.color.developer_primary)) })
         listOf(key, provider, model).forEach { widget ->
             (widget.parent as? android.view.ViewGroup)?.removeView(widget)
@@ -1226,7 +1235,15 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
     }
 
+    override fun onStop() {
+        voiceboxPanel?.stop()
+        voiceboxSpeech?.stop()
+        super.onStop()
+    }
+
     override fun onDestroy() {
+        voiceboxPanel?.close()
+        voiceboxSpeech?.shutdown()
         projectGeneration?.dispose()
         projectGeneration = null
         artifactReviewGeneration++

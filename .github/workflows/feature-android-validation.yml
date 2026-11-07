@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - feature/jarvis-developer-task/voicebox-integration-20261107
       - feature/companion-integrated
       - improve/grounded-technical-search
       - feature/personal-lfm3-uncensored-loopback-20261107

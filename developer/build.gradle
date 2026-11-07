@@ -14,7 +14,8 @@ android {
         versionName System.getenv('DEVELOPER_VERSION_NAME') ?: '0.1.0'
     }
     buildFeatures { buildConfig true }
-    sourceSets { main.java.srcDir(rootProject.file('integration/src/main/kotlin')) }
+    sourceSets { main.java.srcDir(rootProject.file('integration/src/main/kotlin'))
+        test.java.srcDir(rootProject.file('integration/src/test/kotlin')) }
     signingConfigs {
         release {
             def path = System.getenv('JARVIS_SIGNING_STORE_FILE')

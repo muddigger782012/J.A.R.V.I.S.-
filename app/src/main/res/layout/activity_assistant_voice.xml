@@ -6,6 +6,7 @@
         android:orientation="vertical" android:padding="16dp" android:background="@drawable/glass_panel_surface">
         <Button android:id="@+id/btnCloseAssistantVoice" style="@style/Widget.AssistantPlatform.QuietButton"
             android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Back" android:minHeight="48dp" />
+        <LinearLayout android:id="@+id/voiceboxSettingsHost" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="Assistant voice" android:textColor="?attr/jarvis_on_dark" android:textSize="24sp" android:textStyle="bold" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp"
