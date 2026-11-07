@@ -9,8 +9,8 @@ object IntelligenceRouting {
             request: (Provider) -> FallbackAiResult?): Routed {
         // Cloud provider preference remains unchanged unless the owner selects local LFM3.
         val order = if (!fallback) listOf(primary) else when (primary) {
-            Provider.GEMINI -> listOf(Provider.GEMINI, Provider.GATEWAY, Provider.STRATA, Provider.LOCAL_LFM3)
-            Provider.GATEWAY -> listOf(Provider.GATEWAY, Provider.GEMINI, Provider.STRATA, Provider.LOCAL_LFM3)
+            Provider.GEMINI -> listOf(Provider.GEMINI, Provider.GATEWAY)
+            Provider.GATEWAY -> listOf(Provider.GATEWAY, Provider.GEMINI)
             Provider.LOCAL_LFM3 -> listOf(Provider.LOCAL_LFM3, Provider.STRATA, Provider.GEMINI, Provider.GATEWAY)
             Provider.STRATA -> listOf(Provider.STRATA, Provider.LOCAL_LFM3, Provider.GEMINI, Provider.GATEWAY)
         }
