@@ -4,6 +4,7 @@ import http.client
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 import tempfile
 import threading
@@ -34,7 +35,8 @@ class ReaBridgeTests(unittest.TestCase):
 
     def test_artifact_hash_is_bound_to_real_cli_json_without_executing_apk(self):
         with tempfile.TemporaryDirectory() as root:
-            report = bridge.analyze_apk(self.APK, self.DIGEST, self.fake_rea(root))
+            report = bridge.analyze_apk(self.APK, self.DIGEST,
+                                        sys.executable, self.fake_rea(root))
         self.assertEqual(report["schema"], bridge.SCHEMA)
         self.assertEqual(report["state"], "ANALYZED")
         self.assertEqual(report["apk_sha256"], self.DIGEST)
@@ -52,11 +54,19 @@ class ReaBridgeTests(unittest.TestCase):
     def test_malformed_cli_or_missing_binary_never_claims_analyzed(self):
         with tempfile.TemporaryDirectory() as root:
             with self.assertRaises(bridge.BridgeError) as raised:
-                bridge.analyze_apk(self.APK, self.DIGEST, self.fake_rea(root, "{garbled"))
+                bridge.analyze_apk(self.APK, self.DIGEST,
+                                   sys.executable, self.fake_rea(root, "{garbled"))
         self.assertEqual(raised.exception.code, "REA_REPORT")
-        with self.assertRaises(bridge.BridgeError) as raised:
-            bridge.analyze_apk(self.APK, self.DIGEST, "/definitely/missing/rea")
-        self.assertEqual(raised.exception.code, "REA_UNAVAILABLE")
+        with tempfile.TemporaryDirectory() as root:
+            entry = self.fake_rea(root)
+            with self.assertRaises(bridge.BridgeError) as raised:
+                bridge.analyze_apk(self.APK, self.DIGEST,
+                                   "/definitely/missing/rea", entry)
+            self.assertEqual(raised.exception.code, "REA_UNAVAILABLE")
+            with self.assertRaises(bridge.BridgeError) as missing_entry:
+                bridge.analyze_apk(self.APK, self.DIGEST, sys.executable,
+                                   str(Path(root, "not-installed.mjs")))
+            self.assertEqual(missing_entry.exception.code, "REA_CONFIGURATION")
 
     def test_token_validation_and_unauthorized_post_do_not_launch_engine(self):
         token = "a-secure-local-test-token-123456"
@@ -84,7 +94,7 @@ class ReaBridgeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             binary = self.fake_rea(root, '{"ok": false, "error": "failed"}')
             with self.assertRaises(bridge.BridgeError) as raised:
-                bridge.analyze_apk(self.APK, self.DIGEST, binary)
+                bridge.analyze_apk(self.APK, self.DIGEST, sys.executable, binary)
         self.assertEqual(raised.exception.code, "REA_REPORT")
 
 
