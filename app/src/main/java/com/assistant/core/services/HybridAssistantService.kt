@@ -1394,7 +1394,8 @@ class HybridAssistantService(
                     IntelligenceRouting.Provider.GEMINI ->
                         directOnlineClient.geminiTextReply(safeQuestion, context)
                     IntelligenceRouting.Provider.LOCAL_LFM3 ->
-                        localLfm3Client.ask(safeQuestion + if (context.isEmpty()) "" else "\\nConversation context:\\n$context")
+                        localLfm3Client.ask(safeQuestion + if (context.isEmpty()) "" else "\nConversation context:\n$context",
+                            current = responseTurns::current)
                     IntelligenceRouting.Provider.GATEWAY ->
                         fallbackAiClient.ask(
                             safeQuestion + if (context.isEmpty()) "" else "\nConversation context:\n$context",
