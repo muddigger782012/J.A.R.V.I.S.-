@@ -91,17 +91,19 @@ class IntelligenceActivity : MenuActivity("Intelligence", R.id.btnCloseIntellige
         content.removeAllViews()
         val direct = DirectOnlineClient(this)
         val gateway = FallbackAiClient(this)
+        val local = LocalLfm3Client(this)
         val savedCommands = commands.snapshot()
         val savedExamples = examples.snapshot()
         val savedRoutines = routines.snapshot()
         val overview = IntelligenceOverview.build(savedCommands, savedExamples, savedRoutines.size,
             direct.hasGeminiKey(), gateway.isConfigured(), prefs.getBoolean("automatic_command_learning", true),
-            if (packageName == "com.assistant.core") IntelligenceRouting.selected(prefs.getString("primary_provider", "gemini")) else null)
-        val local = section("Learning on this device")
-        text(local, "Saved command entries: ${overview.commandEntries}\nPaused entries: ${overview.pausedEntries}\nIntent examples: ${overview.intentExamples}\nAvailable approved routines: ${overview.approvedRoutines}")
-        text(local, "Counts describe saved learning, not every action J.A.R.V.I.S. can perform. Paused phrases need a new verified lesson or removal.")
-        button(local, "Review learned commands") { reviewLearning(1) }
-        button(local, "Forget a learned phrase") { choosePhrase() }
+            if (packageName == "com.assistant.core") IntelligenceRouting.selected(prefs.getString("primary_provider", "gemini")) else null,
+            local.isConfigured())
+        val learningPanel = section("Learning on this device")
+        text(learningPanel, "Saved command entries: ${overview.commandEntries}\nPaused entries: ${overview.pausedEntries}\nIntent examples: ${overview.intentExamples}\nAvailable approved routines: ${overview.approvedRoutines}")
+        text(learningPanel, "Counts describe saved learning, not every action J.A.R.V.I.S. can perform. Paused phrases need a new verified lesson or removal.")
+        button(learningPanel, "Review learned commands") { reviewLearning(1) }
+        button(learningPanel, "Forget a learned phrase") { choosePhrase() }
         val learningSwitch = SwitchMaterial(this).apply {
             text = "Automatic command learning"
             setTextColor(ThemePreferences.color(this@IntelligenceActivity, R.color.jarvis_on_dark))
@@ -110,8 +112,8 @@ class IntelligenceActivity : MenuActivity("Intelligence", R.id.btnCloseIntellige
             minHeight = dp(48)
             isChecked = overview.automaticLearning
         }
-        local.addView(learningSwitch, LinearLayout.LayoutParams(-1, -2))
-        text(local, "Save new AI interpretations after verified success. Explicit preferences, recent-action confirmations and routine approvals remain available.")
+        learningPanel.addView(learningSwitch, LinearLayout.LayoutParams(-1, -2))
+        text(learningPanel, "Save new AI interpretations after verified success. Explicit preferences, recent-action confirmations and routine approvals remain available.")
         var reverting = false
         learningSwitch.setOnCheckedChangeListener { view, enabled ->
             if (!reverting) {
@@ -168,17 +170,20 @@ class IntelligenceActivity : MenuActivity("Intelligence", R.id.btnCloseIntellige
         text(discovery, "These are feature requests, not installed capabilities. In chat, say 'show offline capabilities', 'request a capability to' followed by its description, or 'show capability requests'. Recording and reviewing requests never runs them.")
 
         val connection = section("AI connection")
-        text(connection, "Primary online AI: ${overview.primaryAi}" + if (overview.primaryAi != "Not configured") " — configured" else "")
+        text(connection, "Selected conversation AI: ${overview.primaryAi}" + if (overview.primaryAi != "Not configured") " — configured" else "")
         val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val capabilities = manager.getNetworkCapabilities(manager.activeNetwork)
         val validated = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         text(connection, if (validated) "Device reports a validated internet connection." else "No validated internet connection reported. Saved local commands and routines remain available.")
         text(connection, lastTest)
+        text(connection, "Local LFM3 is a text model loaded by an on-phone llama-server; a model choice does not install or start the GGUF. " +
+            "Enabled: ${local.isConfigured()}. Selected: ${local.selectedVariant().label}. Local model testing never operates the phone.")
         text(connection, "Configuration is not proof of a working connection. Gemini tests catalog access and generation independently. Testing sends a short test prompt; it sends no conversation, learned phrases, memory or location and performs no device action.")
         button(connection, if (checking) "Testing connection…" else "Test primary AI connection") { testConnection(overview.primaryAi) }
             .isEnabled = !checking && overview.primaryAi != "Not configured"
         button(connection, "Test Gemini independently") { testConnection("Gemini") }.isEnabled = !checking
         button(connection, "Test gateway independently") { testConnection("Gateway") }.isEnabled = !checking
+        if (packageName == "com.assistant.core") button(connection, "Test local LFM3 runtime") { testConnection("Local LFM3") }.isEnabled = !checking && local.isConfigured()
         button(connection, "AI connection settings") { AiConnectionSettings.show(this) }
         button(connection, "Refresh dashboard") { render() }
         val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "unknown"
@@ -280,8 +285,11 @@ class IntelligenceActivity : MenuActivity("Intelligence", R.id.btnCloseIntellige
         val appContext = applicationContext
         thread(name = "jarvis-intelligence-check") {
             val result = runCatching {
-                if (provider == "Gemini") DirectOnlineClient(appContext).connectionTest()
-                else FallbackAiClient(appContext).connectionTest()
+                when (provider) {
+                    "Gemini" -> DirectOnlineClient(appContext).connectionTest()
+                    "Local LFM3" -> LocalLfm3Client(appContext).connectionTest()
+                    else -> FallbackAiClient(appContext).connectionTest()
+                }
             }.getOrElse { AiConnectionDiagnostics.Result(false, problem = AiConnectionDiagnostics.problem(it as? Exception ?: Exception())) }
             runOnUiThread {
                 if (!isFinishing && !isDestroyed) {
