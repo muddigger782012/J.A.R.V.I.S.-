@@ -30,6 +30,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Verify bounded candidate evaluator and JUnit evidence contracts
         run: python3 -m unittest discover -s developer/tools -p 'candidate_audit_test.py' -v
+      - name: Validate isolated REA APK bridge protocol and safety
+        run: python3 -m unittest discover -s developer/tools -p 'rea_bridge_test.py' -v
       - name: Run Developer generation regression tests
         run: ./gradlew -PjarvisDeveloper=true :developer:testDebugUnitTest --stacktrace --no-daemon
       - name: Verify actual Developer JUnit evidence before canonical integration
