@@ -36,6 +36,26 @@ std::string utf(JNIEnv *env, jstring source) {
     return value;
 }
 
+// llama.cpp emits ordinary UTF-8, whereas JNI NewStringUTF expects modified UTF-8.
+// Decode through java.lang.String(byte[], UTF-8) to preserve emoji and other non-BMP text.
+jstring java_utf8(JNIEnv *env, const std::string &value) {
+    if (value.size() > 65536) return nullptr;
+    jbyteArray bytes = env->NewByteArray(static_cast<jsize>(value.size()));
+    if (!bytes) return nullptr;
+    env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(value.size()),
+                            reinterpret_cast<const jbyte *>(value.data()));
+    jclass cls = env->FindClass("java/lang/String");
+    if (!cls) { env->DeleteLocalRef(bytes); return nullptr; }
+    jmethodID constructor = env->GetMethodID(cls, "<init>", "([BLjava/lang/String;)V");
+    if (!constructor) { env->DeleteLocalRef(cls); env->DeleteLocalRef(bytes); return nullptr; }
+    jstring encoding = env->NewStringUTF("UTF-8");
+    jobject result = env->NewObject(cls, constructor, bytes, encoding);
+    env->DeleteLocalRef(encoding);
+    env->DeleteLocalRef(bytes);
+    env->DeleteLocalRef(cls);
+    return static_cast<jstring>(result);
+}
+
 void clear_loaded() {
     g_batch.reset();
     g_templates.reset();
@@ -155,7 +175,7 @@ Java_com_assistant_core_services_EmbeddedLfm3Native_nativeGenerate(
         if (llama_process(g_context, LLAMA_PROCESS_TYPE_DECODE, g_batch->get()) != 0) return nullptr;
     }
     if (g_cancel.load() || output.empty()) return nullptr;
-    return env->NewStringUTF(output.c_str());
+    return java_utf8(env, output);
 }
 
 extern "C" JNIEXPORT void JNICALL
