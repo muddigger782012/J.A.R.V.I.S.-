@@ -32,6 +32,7 @@ internal object ReaApkWorkbench {
         private val proposalButton: Button,
         private val classButton: Button,
         private val detailButton: Button,
+        private val methodButton: Button,
         private val attachmentNote: TextView,
         private val product: () -> Int,
         private val project: () -> String?,
@@ -50,6 +51,7 @@ internal object ReaApkWorkbench {
         private var report: ReaApkAnalysis.Report? = null
         private var classResult: ReaClassSearch.Result? = null
         private var classDetail: ReaClassDetail.Result? = null
+        private var methodResult: ReaMethodInspection.Result? = null
 
         private fun current(ticket: Long): Boolean =
             !disposed && !activity.isFinishing && !activity.isDestroyed &&
@@ -68,6 +70,9 @@ internal object ReaApkWorkbench {
             detailButton.visibility = if (classResult != null && selected != null && !busy)
                 View.VISIBLE else View.GONE
             detailButton.isEnabled = classResult != null && selected != null && !busy
+            methodButton.visibility = if (classDetail != null && selected != null && !busy)
+                View.VISIBLE else View.GONE
+            methodButton.isEnabled = classDetail != null && selected != null && !busy
         }
 
         /** A changed task draft invalidates the proposal offer, not saved evidence. */
@@ -81,6 +86,7 @@ internal object ReaApkWorkbench {
             report = null
             classResult = null
             classDetail = null
+            methodResult = null
             showControls()
         }
 
@@ -91,6 +97,7 @@ internal object ReaApkWorkbench {
             report = null
             classResult = null
             classDetail = null
+            methodResult = null
             busy = false
             attachmentNote.visibility = View.GONE
             showControls()
@@ -106,6 +113,7 @@ internal object ReaApkWorkbench {
             report = null
             classResult = null
             classDetail = null
+            methodResult = null
             showControls()
         }
 
@@ -127,6 +135,7 @@ internal object ReaApkWorkbench {
             report = null
             classResult = null
             classDetail = null
+            methodResult = null
             selected?.bytes?.fill(0)
             selected = null
             busy = true
@@ -219,6 +228,7 @@ internal object ReaApkWorkbench {
                         selected = apk
                         classResult = null
                         classDetail = null
+            methodResult = null
                         output.text = it.display().take(8500)
                         status.text = "REA evidence received for exact APK hash; no source changed."
                         attachmentNote.text = "Find classes by typing a class-name substring and " +
@@ -229,6 +239,7 @@ internal object ReaApkWorkbench {
                         selected = null
                         classResult = null
                         classDetail = null
+            methodResult = null
                         apk.bytes.fill(0)
                         output.text = ReaApkAnalysis.describeFailure(error) +
                             "\nNo evidence, source change, or code approval was accepted."
@@ -261,6 +272,7 @@ internal object ReaApkWorkbench {
             val projectAtStart = project()
             classResult = null
             classDetail = null
+            methodResult = null
             busy = true
             showControls()
             message("Search REA class names in the selected APK: $query")
@@ -280,6 +292,7 @@ internal object ReaApkWorkbench {
                     result.onSuccess {
                         classResult = it
                         classDetail = null
+            methodResult = null
                         output.text = (evidence.overview?.display().orEmpty() + "\n" +
                             it.display()).take(10000)
                         status.text = "REA class evidence received; source remains unchanged."
@@ -288,6 +301,7 @@ internal object ReaApkWorkbench {
                     }.onFailure { error ->
                         classResult = null
                         classDetail = null
+            methodResult = null
                         output.text = ReaApkAnalysis.describeFailure(error)
                         status.text = "REA class search failed; no source change or approval."
                     }
@@ -318,6 +332,7 @@ internal object ReaApkWorkbench {
             val ticket = ++generation
             val projectAtStart = project()
             classDetail = null
+            methodResult = null
             busy = true
             showControls()
             message("Inspect REA class structure: $exact")
@@ -337,6 +352,7 @@ internal object ReaApkWorkbench {
                     }
                     result.onSuccess {
                         classDetail = it
+                        methodResult = null
                         output.text = (evidence.overview?.display().orEmpty() +
                             "\n" + it.display()).take(10000)
                         status.text = "REA class structure inspected; no code was changed."
@@ -344,8 +360,69 @@ internal object ReaApkWorkbench {
                             "tap Prepare REA proposal for an explicit source diff review."
                     }.onFailure { error ->
                         classDetail = null
+            methodResult = null
                         output.text = ReaApkAnalysis.describeFailure(error)
                         status.text = "REA class inspection failed; no code approval or write."
+                    }
+                    showControls()
+                }
+            }
+        }
+
+
+        /** Analyze an exact method/index reported by the previously inspected class. */
+        fun inspectMethod() {
+            val apk = selected ?: return
+            val packageEvidence = report ?: return
+            val classEvidence = classDetail ?: return
+            val chosen = prompt.text.toString().trim()
+            val match = classEvidence.methods.firstOrNull { method ->
+                method.name + "#" + method.overloadIndex == chosen
+            }
+            if (product() != 0 || busy || !ready() ||
+                packageEvidence.apkSha256 != apk.sha256 ||
+                classEvidence.apkSha256 != apk.sha256 || match == null ||
+                !ReaMethodInspection.validMethod(match.name, match.overloadIndex)) {
+                status.text = "Enter a reported method selector, such as onCreate#0, " +
+                    "from the inspected class's method list."
+                return
+            }
+            val host = ProviderCredentialStore.loadRea(activity)
+            if (host == null) {
+                status.text = "Save REA HTTPS host and token in Settings first."
+                return
+            }
+            val ticket = ++generation
+            val projectAtStart = project()
+            methodResult = null
+            busy = true
+            showControls()
+            message("Inspect REA method: " + classEvidence.className + "." + chosen)
+            status.text = "Inspecting method source on the authenticated REA host."
+            worker {
+                val result = runCatching {
+                    ReaMethodInspection.inspect(host.first, host.second, apk,
+                        classEvidence.className, match.name, match.overloadIndex)
+                }
+                activity.runOnUiThread {
+                    if (!current(ticket) || project() != projectAtStart) return@runOnUiThread
+                    busy = false
+                    if (classDetail !== classEvidence ||
+                        prompt.text.toString().trim() != chosen) {
+                        status.text = "Method selection changed; stale result discarded."
+                        showControls()
+                        return@runOnUiThread
+                    }
+                    result.onSuccess {
+                        methodResult = it
+                        output.text = it.display().take(10500)
+                        status.text = "REA method inspection complete. No code was executed or changed."
+                        attachmentNote.text = "Method evidence is available for a reviewed " +
+                            "source proposal. Enter the feature to build and tap Prepare REA proposal."
+                    }.onFailure { error ->
+                        methodResult = null
+                        output.text = ReaApkAnalysis.describeFailure(error)
+                        status.text = "REA method inspection failed; source unchanged."
                     }
                     showControls()
                 }
@@ -371,7 +448,13 @@ internal object ReaApkWorkbench {
                     ?.proposalEvidence().orEmpty() +
                 classDetail?.takeIf { it.apkSha256 == evidence.apkSha256 &&
                     classResult?.matches?.contains(it.className) == true }
-                    ?.proposalEvidence().orEmpty()
+                    ?.proposalEvidence().orEmpty() +
+                methodResult?.takeIf { method ->
+                    method.apkSha256 == evidence.apkSha256 &&
+                        classDetail?.className == method.className &&
+                        classDetail?.methods?.any { it.name == method.methodName &&
+                            it.overloadIndex == method.overloadIndex } == true
+                }?.proposalEvidence().orEmpty()
             worker {
                 val plan = runCatching {
                     val token = ProviderCredentialStore.loadGithub(activity).orEmpty()
@@ -471,9 +554,17 @@ internal object ReaApkWorkbench {
             visibility = View.GONE
             isEnabled = false
         }
+        val inspectMethod = Button(activity).apply {
+            text = "Inspect method"
+            isAllCaps = false
+            tag = "developer-rea-method-inspect"
+            contentDescription = "Read a selected APK method as static JADX evidence without executing it"
+            visibility = View.GONE
+            isEnabled = false
+        }
         actions.addView(analyze, 0)
         val handle = Handle(activity, prompt, output, status, analyze, inspectLocal,
-            propose, searchClasses, inspectClass, note,
+            propose, searchClasses, inspectClass, inspectMethod, note,
             product, project, ready, message, prepare, onReview)
         inspectLocal.setOnClickListener { handle.inspectOffline() }
         analyze.setOnClickListener { handle.analyze() }
@@ -481,6 +572,8 @@ internal object ReaApkWorkbench {
         actions.addView(searchClasses, 1)
         inspectClass.setOnClickListener { handle.inspectClass() }
         actions.addView(inspectClass, 2)
+        inspectMethod.setOnClickListener { handle.inspectMethod() }
+        actions.addView(inspectMethod, 3)
         propose.setOnClickListener { handle.propose() }
         actions.addView(Button(activity).apply {
             text = "+ APK"
