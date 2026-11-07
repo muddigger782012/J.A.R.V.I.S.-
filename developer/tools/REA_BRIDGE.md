@@ -92,6 +92,26 @@ static-only limitations. The host keeps a full evidence bundle only until
 the per-job temporary directory is removed; therefore the mobile excerpt
 must not be mistaken for complete decompilation or a durable full report.
 
+## Test the connection before uploading an APK
+
+Developer Settings now offers **Test REA connection**. It sends one
+authenticated `GET /v1/health` with **no APK bytes**, no file path and no
+remote command supplied by the client. The server runs the fixed
+`rea doctor --provider jadx --json` check with a 30-second timeout.
+Returned states are:
+
+- `BRIDGE_REACHABLE / DOCTOR_PASSED`: TLS and authentication succeeded,
+  and REA/JADX doctor exited successfully; this **does not** establish that
+  any particular APK will decompile.
+- `BRIDGE_REACHABLE / DOCTOR_FAILED`: bridge reachable, but Node/JDK/JADX
+  provider readiness failed; inspect the host's own REA installation.
+- 401/429/transport failure: invalid token, busy service, TLS/network
+  failure. No readiness is invented and no file is uploaded.
+
+The health route is available to both the Android client and a future
+native Windows Developer client. It never returns local host paths,
+API credentials, subprocess output or analysis evidence.
+
 ## AI-assisted implementation handoff
 
 After REA evidence appears in chat, type a **specific Developer feature
