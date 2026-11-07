@@ -181,8 +181,12 @@ object AiConnectionSettings {
             fields.addView(providerChoice); fields.addView(providerFallback)
             fields.addView(localEnabled)
             fields.addView(localModelChoice)
+            val nativeAvailable = com.assistant.core.services.EmbeddedLfm3Client(activity).binaryIncluded()
             fields.addView(TextView(activity).apply {
-                text = "This milestone downloads model weights into J.A.R.V.I.S. private storage. The separate on-phone llama-server still needs its own matching GGUF and model alias until native loading is integrated. See docs/PERSONAL_LFM3.md. Model text cannot authorize phone actions."
+                text = if (nativeAvailable)
+                    "Embedded ARM64 LFM3 is included in this experimental build. When you ask a question, J.A.R.V.I.S. checks and loads the verified app-private GGUF directly. It falls back to the on-phone server only if no downloaded GGUF exists."
+                else
+                    "This build does not include the native LFM3 engine. You can download and verify weights here, but conversation still needs a separate on-phone llama-server with matching alias (see docs/PERSONAL_LFM3.md)."
                 textSize = 12f
             })
             fields.addView(TextView(activity).apply { text = "On-phone llama-server port (127.0.0.1 only)" })
@@ -197,7 +201,8 @@ object AiConnectionSettings {
             fun refreshModelStatus() {
                 val snapshot = modelStore.status(localVariant)
                 modelStatus.text = if (snapshot.exists)
-                    "GGUF saved in app-private storage: ${snapshot.bytes / 1_000_000} MB. SHA-256 verified at download; use Verify for a fresh integrity check. In-app native model loading is the next milestone."
+                    "GGUF saved in app-private storage: ${snapshot.bytes / 1_000_000} MB. SHA-256 checked during download. Use Verify for a fresh integrity check. " +
+                        if (nativeAvailable) "Embedded LFM3 can load this file for local conversation." else "A native-enabled APK is needed for direct inference."
                 else if (snapshot.partialBytes > 0)
                     "Partial GGUF: ${snapshot.partialBytes / 1_000_000} MB. Tap Download to resume."
                 else "This model is not downloaded. Download is around 1.1 GB and requires enough free internal storage."
