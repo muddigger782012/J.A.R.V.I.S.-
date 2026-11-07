@@ -38,6 +38,18 @@ internal class LiveChatManualVoiceTurn {
         return allowed
     }
 
+    /**
+     * A direct microphone request overrides passive room observation for this
+     * transcript only. Preserve the host's established direct-address behavior,
+     * and never grant command-routing authority to an unaddressed utterance.
+     */
+    fun decide(token: Long, ambient: AmbientParticipationPolicy.Decision): AmbientParticipationPolicy.Decision {
+        val manuallyRequested = consume(token)
+        return if (manuallyRequested && ambient == AmbientParticipationPolicy.Decision.OBSERVE)
+            AmbientParticipationPolicy.Decision.OFFER_HELP
+        else ambient
+    }
+
     fun cancelled(token: Long) {
         if (armedTurn == token) armedTurn = null
     }
