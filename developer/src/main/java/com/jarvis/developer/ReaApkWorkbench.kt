@@ -259,6 +259,8 @@ internal object ReaApkWorkbench {
             }
             val ticket = ++generation
             val projectAtStart = project()
+            classResult = null
+            classDetail = null
             busy = true
             showControls()
             message("Search REA class names in the selected APK: $query")
@@ -268,11 +270,13 @@ internal object ReaApkWorkbench {
                     ReaClassSearch.search(configuration.first, configuration.second, apk, query)
                 }
                 activity.runOnUiThread {
-                    if (!current(ticket) || project() != projectAtStart ||
-                        report !== evidence || prompt.text.toString().trim() != query) {
+                    if (!current(ticket) || project() != projectAtStart) return@runOnUiThread
+                    busy = false
+                    if (report !== evidence || prompt.text.toString().trim() != query) {
+                        status.text = "Class query changed; stale REA result discarded."
+                        showControls()
                         return@runOnUiThread
                     }
-                    busy = false
                     result.onSuccess {
                         classResult = it
                         classDetail = null
@@ -313,6 +317,7 @@ internal object ReaApkWorkbench {
             }
             val ticket = ++generation
             val projectAtStart = project()
+            classDetail = null
             busy = true
             showControls()
             message("Inspect REA class structure: $exact")
@@ -322,10 +327,14 @@ internal object ReaApkWorkbench {
                     ReaClassDetail.inspect(connection.first, connection.second, selection, exact)
                 }
                 activity.runOnUiThread {
-                    if (!current(ticket) || project() != projectAtStart ||
-                        report !== evidence || classResult !== classNames ||
-                        prompt.text.toString().trim() != exact) return@runOnUiThread
+                    if (!current(ticket) || project() != projectAtStart) return@runOnUiThread
                     busy = false
+                    if (report !== evidence || classResult !== classNames ||
+                        prompt.text.toString().trim() != exact) {
+                        status.text = "Class selection changed; stale details discarded."
+                        showControls()
+                        return@runOnUiThread
+                    }
                     result.onSuccess {
                         classDetail = it
                         output.text = (evidence.overview?.display().orEmpty() +
@@ -369,10 +378,14 @@ internal object ReaApkWorkbench {
                     RepositoryIntelligence.analyzeSnapshot(token, task).second
                 }
                 activity.runOnUiThread {
-                    if (!current(ticket) || project() != projectAtStart ||
-                        prompt.text.toString().trim() != instruction || !ready() ||
-                        report !== evidence) return@runOnUiThread
+                    if (!current(ticket) || project() != projectAtStart) return@runOnUiThread
                     busy = false
+                    if (prompt.text.toString().trim() != instruction || !ready() ||
+                        report !== evidence) {
+                        status.text = "Task changed; stale REA proposal discarded."
+                        showControls()
+                        return@runOnUiThread
+                    }
                     plan.onSuccess { scoped ->
                         val paths = scoped.files.map { it.path }.distinct()
                             .filter { PatchEngine.allowedPath(it, PatchEngine.Target.DEVELOPER) }
