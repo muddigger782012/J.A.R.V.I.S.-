@@ -93,7 +93,7 @@ class EmbeddedLfm3Client(private val context: Context) {
                     // mmap/model state for a changed file at the same pathname.
                     EmbeddedLfm3Native.nativeUnload()
                     verifiedIdentity = null
-                    if (!models.verify(variant)) {
+                    if (!models.verify(variant, cancelled = { !current() })) {
                         return FallbackAiResult("Saved LFM3 GGUF failed its SHA-256 integrity check. Re-download the model.", null, true)
                     }
                     verifiedIdentity = identity
