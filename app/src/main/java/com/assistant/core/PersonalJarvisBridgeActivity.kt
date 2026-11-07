@@ -83,7 +83,7 @@ class PersonalJarvisBridgeActivity : MenuActivity("Personal AI Bridge") {
         text("Check connection tests the local server only. Test AI response sends one prompt to your selected Personal provider and may incur cloud API usage.")
         button("Test AI response") { testAiResponse() }
         button("Regenerate access token") {
-            androidx.appcompat.app.AlertDialog.Builder(this)
+            ThemedDialogBuilder(this)
                 .setTitle("Replace the bridge access token?")
                 .setMessage("The downloaded Jarvis will disconnect until you paste the new token into its API key field. No model settings or conversations are deleted.")
                 .setNegativeButton("Cancel", null)
