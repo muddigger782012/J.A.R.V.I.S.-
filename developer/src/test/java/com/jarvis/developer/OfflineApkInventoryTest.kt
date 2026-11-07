@@ -91,6 +91,38 @@ class OfflineApkInventoryTest {
         }
     }
 
+    @Test fun verifiedSignerIsAnExactFingerprintNotAClaimOfApplicationSafety() {
+        val signed = OfflineApkInventory.SignatureCheck(
+            OfflineApkInventory.SignatureStatus.VERIFIED,
+            listOf("c".repeat(64)), 34
+        )
+        val inventory = OfflineApkInventory.fromPackageInfo(digest, packageInfo(), signed)
+        assertEquals(OfflineApkInventory.SignatureStatus.VERIFIED, inventory.signature.status)
+        assertTrue(inventory.display().contains("VERIFIED for Android SDK 34"))
+        assertTrue(inventory.display().contains("c".repeat(64)))
+        assertTrue(inventory.display().contains("does NOT mean this APK is safe"))
+        assertTrue(inventory.display().contains("not independently trusted"))
+        assertFalse(inventory.display().contains("trusted developer identity"))
+    }
+
+    @Test fun failedAndUncheckedSignaturesCannotMasqueradeAsVerified() {
+        val failed = OfflineApkInventory.SignatureCheck(
+            OfflineApkInventory.SignatureStatus.FAILED, checkedPlatformSdk = 34
+        )
+        val failedReport = OfflineApkInventory.fromPackageInfo(digest, packageInfo(), failed)
+        assertTrue(failedReport.display().contains("FAILED or unsupported"))
+        assertFalse(failedReport.display().contains("VERIFIED for Android"))
+        val unchecked = OfflineApkInventory.fromPackageInfo(digest, packageInfo())
+        assertTrue(unchecked.display().contains("NOT CHECKED"))
+        assertThrows(IllegalArgumentException::class.java) {
+            OfflineApkInventory.SignatureCheck(OfflineApkInventory.SignatureStatus.VERIFIED)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            OfflineApkInventory.SignatureCheck(OfflineApkInventory.SignatureStatus.VERIFIED,
+                listOf("not-a-sha"), 34)
+        }
+    }
+
     @Test fun declaredPermissionsAreDataNotDevicePermissionGrants() {
         val inventory = OfflineApkInventory.fromPackageInfo(digest, packageInfo())
         assertTrue(inventory.permissions.contains("android.permission.CAMERA"))
