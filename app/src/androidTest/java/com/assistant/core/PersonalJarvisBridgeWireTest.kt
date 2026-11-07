@@ -50,6 +50,53 @@ class PersonalJarvisBridgeWireTest {
         }
     }
 
+    @Test fun streamingRequestSendsSseAndCompletesWithoutAnyConfiguredModel() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("jarvis_cloud_ai", android.content.Context.MODE_PRIVATE)
+        val changed = listOf("primary_provider", "provider_fallback", "lfm3_enabled")
+        val originals = changed.associateWith { prefs.all[it] }
+        // Force a safely unconfigured local model: a test request must never
+        // reach a cloud provider, execute a device action, or need an API key.
+        assertTrue(prefs.edit().putString("primary_provider", "lfm3")
+            .putBoolean("provider_fallback", false)
+            .putBoolean("lfm3_enabled", false).commit())
+        val token = PersonalJarvisBridgeToken.getOrCreate(context)
+        try {
+            ActivityScenario.launch(PersonalJarvisBridgeActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    ContextCompat.startForegroundService(activity,
+                        Intent(activity, PersonalJarvisBridgeService::class.java)
+                            .setAction(PersonalJarvisBridgeService.ACTION_START))
+                }
+                try {
+                    await("Bridge should open local listener") { PersonalJarvisBridgeService.listening }
+                    val body = JSONObject().put("model", PersonalJarvisBridgeProtocol.MODEL)
+                        .put("stream", true).put("messages", org.json.JSONArray()
+                            .put(JSONObject().put("role", "user")
+                                .put("content", "Connection check; no model must be contacted."))).toString()
+                    val result = request("/v1/chat/completions", token, body)
+                    assertEquals(200, result.first)
+                    assertTrue(result.second.contains("data: "))
+                    assertTrue(result.second.contains("Personal Jarvis could not reach its selected AI provider"))
+                    assertTrue(result.second.contains("data: [DONE]"))
+                } finally {
+                    context.stopService(Intent(context, PersonalJarvisBridgeService::class.java))
+                    await("Bridge must stop after streaming test") { !PersonalJarvisBridgeService.listening }
+                }
+            }
+        } finally {
+            val edit = prefs.edit()
+            originals.forEach { (key, value) ->
+                when (value) {
+                    null -> edit.remove(key)
+                    is String -> edit.putString(key, value)
+                    is Boolean -> edit.putBoolean(key, value)
+                }
+            }
+            assertTrue(edit.commit())
+        }
+    }
+
     @Test fun loopbackListenerRequiresTokenAndRejectsInvalidModelBeforeAiRouting() {
         val target = InstrumentationRegistry.getInstrumentation().targetContext
         val token = PersonalJarvisBridgeToken.getOrCreate(target)
