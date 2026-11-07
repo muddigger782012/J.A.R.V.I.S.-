@@ -99,9 +99,10 @@ def analyze_apk(data, claimed_sha, rea_command="rea", rea_entry=None):
             parsed = json.loads(raw)
         except (ValueError, UnicodeDecodeError):
             raise BridgeError("REA_REPORT", "REA returned malformed JSON", 502)
-        if not isinstance(parsed, dict) or not parsed or parsed.get("ok") is False or (
-            parsed.get("success") is False
-        ) or parsed.get("error") or parsed.get("isError"):
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("normalized_result"), dict) or (
+            parsed.get("ok") is False or parsed.get("success") is False or
+            parsed.get("error") or parsed.get("isError")
+        ):
             raise BridgeError("REA_REPORT", "REA returned a failed analysis envelope", 502)
         # Keep a cryptographic identity for the *complete* original CLI output,
         # even when Android only receives a bounded excerpt. No false claims of
