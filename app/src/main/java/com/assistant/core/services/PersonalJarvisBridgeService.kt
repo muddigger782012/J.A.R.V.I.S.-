@@ -23,6 +23,8 @@ import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** User-initiated, foreground, loopback-only endpoint. Deliberately no actions or tools. */
@@ -39,6 +41,7 @@ class PersonalJarvisBridgeService : Service() {
     private val started = AtomicBoolean(false)
     private val acceptor = Executors.newSingleThreadExecutor()
     private val workers = Executors.newFixedThreadPool(2)
+    private val inference = Executors.newFixedThreadPool(2)
     @Volatile private var server: ServerSocket? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -113,6 +116,7 @@ class PersonalJarvisBridgeService : Service() {
         socket.soTimeout = 60000
         val input = BufferedInputStream(socket.getInputStream())
         val output = BufferedOutputStream(socket.getOutputStream())
+        var streamingStarted = false
         try {
             val parts = line(input).split(' ')
             if (parts.size != 3 || !parts[2].startsWith("HTTP/1.")) throw IllegalArgumentException("Bad HTTP request")
@@ -157,20 +161,72 @@ class PersonalJarvisBridgeService : Service() {
                 done += read
             }
             val prompt = PersonalJarvisBridgeProtocol.parse(String(bytes, StandardCharsets.UTF_8))
+            if (prompt.stream) {
+                // Return HTTP headers immediately: external Jarvis gives up if it
+                // waits 45 seconds for a slow model before any headers arrive.
+                streamingStarted = true
+                streamAnswer(output, prompt)
+                return
+            }
             val routed = route(prompt)
             if (routed == null || routed.answer.providerFailed || routed.answer.reply.isBlank()) {
                 respond(output, 503, PersonalJarvisBridgeProtocol.error(
                     "Personal Jarvis provider is unavailable. Check AI settings and disable unwanted fallback.", "provider_unavailable"))
                 return
             }
-            if (prompt.stream) {
-                respond(output, 200, PersonalJarvisBridgeProtocol.stream(routed.answer.reply), "text/event-stream; charset=utf-8")
-            } else {
-                respond(output, 200, PersonalJarvisBridgeProtocol.completion(routed.answer.reply))
-            }
+            respond(output, 200, PersonalJarvisBridgeProtocol.completion(routed.answer.reply))
         } catch (_: Exception) {
-            runCatching { respond(output, 400, PersonalJarvisBridgeProtocol.error("Invalid or interrupted request", "invalid_request")) }
+            // After streaming headers are sent, another HTTP status line would
+            // corrupt the event stream. A disconnected client also needs no reply.
+            if (!streamingStarted) runCatching {
+                respond(output, 400, PersonalJarvisBridgeProtocol.error("Invalid or interrupted request", "invalid_request"))
+            }
         }
+    }
+
+    private fun streamAnswer(
+        output: BufferedOutputStream,
+        prompt: PersonalJarvisBridgeProtocol.Prompt
+    ) {
+        output.write(PersonalJarvisBridgeStreaming.headers)
+        output.flush()
+        val future = inference.submit<IntelligenceRouting.Routed> { route(prompt) }
+        try {
+            writeSseChunk(output, PersonalJarvisBridgeStreaming.CONNECTED)
+            var elapsed = 0L
+            while (true) {
+                val reply: String = try {
+                    val routed = future.get(PersonalJarvisBridgeStreaming.WAIT_SECONDS, TimeUnit.SECONDS)
+                    if (routed.answer.providerFailed || routed.answer.reply.isBlank()) {
+                        PersonalJarvisBridgeStreaming.failureMessage()
+                    } else routed.answer.reply
+                } catch (_: TimeoutException) {
+                    elapsed += PersonalJarvisBridgeStreaming.WAIT_SECONDS
+                    if (elapsed >= PersonalJarvisBridgeStreaming.MAX_WAIT_SECONDS) {
+                        future.cancel(true)
+                        PersonalJarvisBridgeStreaming.timeoutMessage()
+                    } else {
+                        // SSE comments are intentionally ignored by Flutter, but
+                        // keep the connection live while the provider is busy.
+                        writeSseChunk(output, PersonalJarvisBridgeStreaming.KEEPALIVE)
+                        continue
+                    }
+                } catch (_: Exception) {
+                    PersonalJarvisBridgeStreaming.failureMessage()
+                }
+                writeSseChunk(output, PersonalJarvisBridgeProtocol.stream(reply))
+                break
+            }
+            output.write(PersonalJarvisBridgeStreaming.end)
+            output.flush()
+        } finally {
+            future.cancel(true)
+        }
+    }
+
+    private fun writeSseChunk(output: BufferedOutputStream, text: String) {
+        output.write(PersonalJarvisBridgeStreaming.chunk(text))
+        output.flush()
     }
 
     private fun route(prompt: PersonalJarvisBridgeProtocol.Prompt): IntelligenceRouting.Routed {
@@ -217,6 +273,7 @@ class PersonalJarvisBridgeService : Service() {
         runCatching { server?.close() }
         acceptor.shutdownNow()
         workers.shutdownNow()
+        inference.shutdownNow()
         super.onDestroy()
     }
 }
