@@ -224,16 +224,31 @@ class PersonalJarvisBridgeService : Service() {
 /** Stored under noBackupFilesDir, not in an exported preference, APK, or GitHub source. */
 object PersonalJarvisBridgeToken {
     private const val FILE = "personal-bridge-key-v1"
+
     @Synchronized fun getOrCreate(context: Context): String {
-        val path = File(context.noBackupFilesDir, FILE)
-        val existing = runCatching { path.readText().trim() }.getOrNull()
+        val existing = runCatching { File(context.noBackupFilesDir, FILE).readText().trim() }.getOrNull()
         if (existing != null && Regex("[0-9a-f]{64}").matches(existing)) return existing
-        val bytes = ByteArray(32)
-        SecureRandom().nextBytes(bytes)
-        val token = bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        return writeNew(context)
+    }
+
+    /** Revokes the old bearer secret for every *new* request. Existing replies may finish. */
+    @Synchronized fun rotate(context: Context): String = writeNew(context)
+
+    private fun writeNew(context: Context): String {
+        val secret = ByteArray(32)
+        SecureRandom().nextBytes(secret)
+        val token = secret.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        val path = File(context.noBackupFilesDir, FILE)
         val tmp = File(context.noBackupFilesDir, "$FILE.tmp")
-        tmp.writeText(token)
-        check(tmp.renameTo(path)) { "Cannot securely persist bridge token" }
+        try {
+            tmp.writeText(token)
+            // Same-directory atomic replacement: failed rotation keeps the old key.
+            java.nio.file.Files.move(tmp.toPath(), path.toPath(),
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            tmp.delete()
+        }
         return token
     }
 }
