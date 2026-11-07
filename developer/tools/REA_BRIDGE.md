@@ -19,6 +19,14 @@ on the Android device, or run APK bytecode. It invokes REA through its documente
 - This is a **hosted** REA capability, not a promise that REA's full desktop
   JADX analysis engine runs natively inside the Developer APK. Users without
   a compatible REA/JADX host cannot invoke the analysis.
+- **Windows compatibility:** the REA bridge is Python's standard HTTP/TLS
+  service and uses a separate Node runtime on Windows, avoiding fragile
+  `.cmd` and shell execution. A future native Windows Developer client can use
+  exactly the same HTTPS endpoint, JSON evidence schema, APK SHA-256 binding
+  and source-proposal review gates without depending on Android APIs.
+- Windows CI runs `rea_bridge_test.py` separately from Android compilation.
+  This verifies the wire/launcher contract, not a full Windows GUI or the
+  availability of REA/JADX on a specific computer.
 
 ## Start an authenticated TLS bridge
 
@@ -43,6 +51,29 @@ certificate before doing so. Copy the **generated bridge token** privately
 into Developer Settings, never into GitHub or an AI prompt. REA CLI path can
 be configured via `JARVIS_REA_COMMAND` on the host. The API never accepts
 a caller-selected executable or analysis path.
+
+### Windows host (PowerShell)
+
+Install Python 3, a compatible official Node.js release, the official
+`rea-agents` npm package, and the JDK/JADX prerequisites described by REA.
+Find the installed **scripts/rea.mjs** path. Use an explicit Node executable
+and JS entry, never a `.cmd` shim:
+
+```powershell
+$env:JARVIS_REA_COMMAND = 'C:\Program Files\nodejs\node.exe'
+$env:JARVIS_REA_ENTRY = 'C:\REA\node_modules\rea-agents\scripts\rea.mjs'
+$env:JARVIS_REA_TLS_CERT = 'C:\certificates\rea-fullchain.pem'
+$env:JARVIS_REA_TLS_KEY = 'C:\certificates\rea-key.pem'
+$env:JARVIS_REA_TOKEN = 'REPLACE_WITH_A_LONG_RANDOM_SECRET_24_PLUS_CHARACTERS'
+$env:JARVIS_REA_HOST = '127.0.0.1'
+python developer/tools/rea_bridge.py
+```
+
+The paths are examples: set these variables to real, verified installations
+and certificates on the Windows host. Never commit a real token or TLS private
+key. To reach the service from the Android phone, bind a trusted LAN/VPN
+interface with firewall restrictions and use a hostname whose TLS certificate
+is accepted by the device.
 
 In Developer, open **Settings → REA APK analysis bridge**, save the HTTPS
 origin and bearer token (Android Keystore encrypted). Return Home, tap
