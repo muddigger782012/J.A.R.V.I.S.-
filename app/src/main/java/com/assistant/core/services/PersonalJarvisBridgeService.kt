@@ -46,16 +46,25 @@ class PersonalJarvisBridgeService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onCreate() {
+        super.onCreate()
+        // Android 14 can cancel very short-lived startForegroundService requests
+        // before onStartCommand is processed. Promote on service creation, before
+        // starting or stopping the HTTP worker; never start in commercial Beta.
+        if (packageName == "com.assistant.core") promoteForeground()
+        else stopSelf()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
+        if (packageName != "com.assistant.core" || intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
         }
-        // Even if Beta inherits the manifest declaration, it cannot expose a server.
-        if (packageName != "com.assistant.core") {
-            stopSelf()
-            return START_NOT_STICKY
-        }
+        if (started.compareAndSet(false, true)) acceptor.execute { serve() }
+        return START_NOT_STICKY // Explicit user action is required after process death.
+    }
+
+    private fun promoteForeground() {
         val channel = NotificationChannel(CHANNEL, "Personal AI bridge", NotificationManager.IMPORTANCE_LOW)
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
         val open = PendingIntent.getActivity(this, 0,
@@ -72,8 +81,7 @@ class PersonalJarvisBridgeService : Service() {
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop bridge", stop).build()
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification,
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
-        if (started.compareAndSet(false, true)) acceptor.execute { serve() }
-        return START_NOT_STICKY // Explicit user action is required after process death.
+        android.util.Log.i("PersonalJarvisBridge", "Foreground service registered; loopback worker may start")
     }
 
     private fun serve() {
@@ -88,8 +96,10 @@ class PersonalJarvisBridgeService : Service() {
                     }
                 }
             }
-        } catch (_: Exception) {
-            // Port already occupied or service stopped. Never bind to an alternate interface.
+        } catch (failure: Exception) {
+            // No request bytes or tokens are logged, only the failure class.
+            if (!Thread.currentThread().isInterrupted && server == null)
+                android.util.Log.w("PersonalJarvisBridge", "Loopback listener failed: ${failure.javaClass.simpleName}")
         } finally {
             listening = false
             server = null
