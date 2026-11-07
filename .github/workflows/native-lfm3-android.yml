@@ -52,8 +52,10 @@ jobs:
           unzip -Z1 "$APK" | grep -Fx 'lib/arm64-v8a/libjarvis_lfm3.so'
           unzip -p "$APK" lib/arm64-v8a/libjarvis_lfm3.so > /tmp/jarvis_lfm3.so
           readelf -h /tmp/jarvis_lfm3.so | grep -E 'AArch64|ELF64'
-          nm -D /tmp/jarvis_lfm3.so | grep -q 'Java_com_assistant_core_services_EmbeddedLfm3Native_nativeGenerate'
-          nm -D /tmp/jarvis_lfm3.so | grep -q 'Java_com_assistant_core_services_EmbeddedLfm3Native_nativeCancel'
+          NM="$ANDROID_HOME/ndk/29.0.13113456/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          "$NM" -D /tmp/jarvis_lfm3.so > /tmp/jarvis_lfm3_exports.txt
+          grep -Fq 'Java_com_assistant_core_services_EmbeddedLfm3Native_nativeGenerate' /tmp/jarvis_lfm3_exports.txt
+          grep -Fq 'Java_com_assistant_core_services_EmbeddedLfm3Native_nativeCancel' /tmp/jarvis_lfm3_exports.txt
           echo 'ARM64 JNI library packaged with required generation/cancellation exports'
       - name: Upload isolated experimental ARM64 APK
         if: success()
