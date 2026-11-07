@@ -76,6 +76,7 @@ import com.assistant.core.services.RunningShizukuCommand
 import com.assistant.core.services.ShizukuShellService
 import com.assistant.core.services.SystemService
 import com.assistant.core.services.PersonalUpdatePackagePolicy
+import com.assistant.core.services.PersonalReleaseCatalog
 import com.assistant.core.services.VoiceAssistantService
 import com.assistant.core.services.VoiceInteractionState
 import com.assistant.core.services.VoiceSessionController
@@ -1988,51 +1989,65 @@ class MainActivity : ThemedActivity() {
 
     private fun downloadLatestApk(targetFile: File): String {
         val failures = mutableListOf<String>()
-        // The public updater must not send an outdated stored GitHub token.
+
+        // A branch's artifacts/app-debug.apk URL is mutable and GitHub's CDN may continue
+        // serving an old byte-for-byte valid APK. Prefer the immutable, versioned,
+        // production-signed release when updating the Personal package.
+        if (packageName == "com.assistant.core") {
+            val lookup = runCatching { latestPublicPersonalReleaseApk() }
+            val published = lookup.getOrNull()
+            if (published != null) {
+                val result = runCatching {
+                    downloadLatestApkFromUrl(published, targetFile, "")
+                    // Do not accept a downloaded ZIP merely because it has an APK header.
+                    // Validate app identity, signing compatibility and newer version
+                    // BEFORE returning, rather than silently falling back to stale raw.
+                    verifyDownloadedUpdate(targetFile)
+                }
+                if (result.isSuccess) return published
+                throw IllegalStateException(
+                    "Published Personal release download failed or is not newer: " +
+                        "${result.exceptionOrNull()?.message ?: "invalid release APK"}. " +
+                        "Refusing to substitute an outdated GitHub raw build."
+                )
+            }
+            failures += "Published Personal release lookup -> ${lookup.exceptionOrNull()?.message ?: "compatible release not listed"}"
+        }
+
+        // Last-resort compatibility route for old/private repositories and Beta.
+        // Every candidate must independently pass APK package/version/signing checks.
         val token = if (BuildConfig.GITHUB_UPDATE_TOKEN_REQUIRED) getGithubUpdateToken() else ""
         for (url in buildUpdateUrlCandidates()) {
-            val result = runCatching { downloadLatestApkFromUrl(url, targetFile, token) }
+            val result = runCatching {
+                downloadLatestApkFromUrl(url, targetFile, token)
+                verifyDownloadedUpdate(targetFile)
+            }
             if (result.isSuccess) return url
-            failures += "${url.substringAfter("//")} -> ${result.exceptionOrNull()?.message ?: "unknown error"}"
+            targetFile.delete()
+            failures += "${url.substringAfter("//")} -> ${result.exceptionOrNull()?.message ?: "invalid candidate"}"
         }
-        // If GitHub raw is blocked, use the versioned Personal release asset.
-        if (packageName == "com.assistant.core") {
-            val fallback = runCatching { latestPublicPersonalReleaseApk() }
-            val url = fallback.getOrNull()
-            if (url != null) {
-                val result = runCatching { downloadLatestApkFromUrl(url, targetFile, "") }
-                if (result.isSuccess) return url
-                failures += "Release APK -> ${result.exceptionOrNull()?.message ?: "download failed"}"
-            } else failures += "Release lookup -> ${fallback.exceptionOrNull()?.message ?: "no compatible APK"}"
-        }
-        throw IllegalStateException(if (failures.isEmpty()) "No updater URL candidates available." else "Download sources failed: " + failures.joinToString(" | ").take(650))
+        throw IllegalStateException(if (failures.isEmpty()) "No updater URL candidates available."
+            else "Update lookup failed: " + failures.joinToString(" | ").take(700))
     }
 
     private fun latestPublicPersonalReleaseApk(): String? {
         val owner = BuildConfig.GITHUB_REPO_OWNER.trim()
         val repo = BuildConfig.GITHUB_REPO_NAME.trim()
-        val connection = (URL("https://api.github.com/repos/$owner/$repo/releases/latest").openConnection() as HttpURLConnection).apply {
+        val connection = (URL("https://api.github.com/repos/$owner/$repo/releases?per_page=100&nocache=${System.currentTimeMillis()}").openConnection() as HttpURLConnection).apply {
             connectTimeout = 12_000
             readTimeout = 12_000
+            useCaches = false
+            setRequestProperty("Cache-Control", "no-cache")
+            setRequestProperty("Pragma", "no-cache")
             setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "JARVIS-Updater/2.4")
+            setRequestProperty("User-Agent", "JARVIS-Updater/2.5")
         }
         try {
             check(connection.responseCode in 200..299) { "Release API returned HTTP ${connection.responseCode}" }
             val payload = connection.inputStream.bufferedReader().use { it.readText() }
-            val release = JSONObject(payload)
-            val tag = release.optString("tag_name")
-            if (!Regex("""jarvis-3\.6\.[1-9][0-9]*""").matches(tag)) return null
             val abi = Build.SUPPORTED_ABIS.firstOrNull { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64") }
                 ?: return null
-            val name = "Jarvis-${tag.removePrefix("jarvis-")}-$abi.apk"
-            val expected = "https://github.com/$owner/$repo/releases/download/$tag/$name"
-            val assets = release.optJSONArray("assets") ?: return null
-            for (i in 0 until assets.length()) {
-                val asset = assets.optJSONObject(i) ?: continue
-                if (asset.optString("name") == name && asset.optString("browser_download_url") == expected) return expected
-            }
-            return null
+            return PersonalReleaseCatalog.highestVerifiedAsset(payload, owner, repo, abi)
         } finally {
             connection.disconnect()
         }
