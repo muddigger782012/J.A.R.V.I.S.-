@@ -49,6 +49,8 @@ object LocalLfm3DownloadRules {
 
     fun progress(done: Long, total: Long) =
         if (total <= 0) 0 else ((done * 100) / total).toInt().coerceIn(0, 100)
+    fun transferComplete(downloaded: Long, expected: Long) =
+        expected in MIN_SIZE..MAX_SIZE && downloaded == expected
 }
 
 /**
@@ -142,7 +144,7 @@ class LocalLfm3ModelStore(private val context: Context) {
         val info = metadata(variant)
         val existing = status(variant)
         if (existing.exists && existing.bytes == info.bytes && existing.sha256 == info.sha256) {
-            if (verify(variant, progress)) return Downloaded(modelFile(variant), info.bytes, info.sha256)
+            if (verify(variant, progress, cancelled)) return Downloaded(modelFile(variant), info.bytes, info.sha256)
         }
         val temp = partial(variant)
         val marker = partialStamp(variant)
@@ -152,6 +154,10 @@ class LocalLfm3ModelStore(private val context: Context) {
             marker.writeText(signature)
         }
         val start = temp.length()
+        // A fully transferred .part can remain after interruption during SHA verification.
+        // Do not request "Range: bytes=<total>-" (HTTP 416); rehash and promote offline.
+        if (LocalLfm3DownloadRules.transferComplete(start, info.bytes))
+            return promoteVerified(variant, temp, marker, info, signature, cancelled, progress)
         if (root.usableSpace < (info.bytes - start + 200_000_000L))
             throw IOException("Not enough internal storage for model and 200 MB reserve")
         if (cancelled()) throw DownloadCancelled()
@@ -189,23 +195,33 @@ class LocalLfm3ModelStore(private val context: Context) {
             }
             if (received != info.bytes || temp.length() != info.bytes)
                 throw IOException("Incomplete GGUF transfer; download can be resumed")
-            if (cancelled()) throw DownloadCancelled()
-            if (digest(temp, info.bytes, progress, cancelled) != info.sha256) {
-                temp.delete(); marker.delete()
-                throw IOException("GGUF SHA-256 check failed. Partial file discarded.")
-            }
-            val final = modelFile(variant)
-            try {
-                Files.move(temp.toPath(), final.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(temp.toPath(), final.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            }
-            stamp(variant).writeText(signature)
-            marker.delete()
-            progress(100)
-            return Downloaded(final, info.bytes, info.sha256)
+            return promoteVerified(variant, temp, marker, info, signature, cancelled, progress)
         } finally { conn.disconnect() }
+    }
+
+    private fun promoteVerified(
+        variant: LocalLfm3Models.Variant, temp: File, marker: File,
+        metadata: LocalLfm3DownloadRules.Metadata, signature: String,
+        cancelled: () -> Boolean, progress: (Int) -> Unit
+    ): Downloaded {
+        if (cancelled()) throw DownloadCancelled()
+        if (digest(temp, metadata.bytes, progress, cancelled) != metadata.sha256) {
+            temp.delete()
+            marker.delete()
+            throw IOException("GGUF SHA-256 check failed. Partial file discarded.")
+        }
+        if (cancelled()) throw DownloadCancelled()
+        val destination = modelFile(variant)
+        try {
+            Files.move(temp.toPath(), destination.toPath(),
+                StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(temp.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+        stamp(variant).writeText(signature)
+        marker.delete()
+        progress(100)
+        return Downloaded(destination, metadata.bytes, metadata.sha256)
     }
 
     private fun digest(file: File, total: Long, progress: (Int) -> Unit = {},
