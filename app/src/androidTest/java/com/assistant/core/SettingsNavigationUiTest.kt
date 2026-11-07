@@ -167,6 +167,7 @@ class SettingsNavigationUiTest {
             SelfDiagnosticsActivity::class.java to R.id.menuPageBack,
             PersonalJarvisBridgeActivity::class.java to R.id.menuPageBack,
             AssistantConnectionsActivity::class.java to R.id.menuPageBack,
+            PersonalJarvisBridgeActivity::class.java to R.id.menuPageBack,
             LiveChatHistoryActivity::class.java to R.id.btnCloseLiveHistory
         )
         for ((page, backId) in pages) {
