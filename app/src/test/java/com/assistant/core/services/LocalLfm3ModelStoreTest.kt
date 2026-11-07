@@ -33,6 +33,11 @@ class LocalLfm3ModelStoreTest {
         assertFalse(LocalLfm3DownloadRules.rangeAccepted(206, "bytes 100-999/1001", 100, 1000))
         assertFalse(LocalLfm3DownloadRules.rangeAccepted(206, "bytes 0-999/1000", 0, 1000))
         assertFalse(LocalLfm3DownloadRules.rangeAccepted(206, "bytes 100-999/1000", 1000, 1000))
+        assertFalse(LocalLfm3DownloadRules.rangeAccepted(206, "bytes 100-nope/1000", 100, 1000))
+        assertFalse(LocalLfm3DownloadRules.rangeAccepted(206, "bytes 100-1000/1000", 100, 1000))
+        assertFalse(LocalLfm3DownloadRules.rangeAccepted(206, "bytes 100-99/1000", 100, 1000))
+        assertFalse(LocalLfm3DownloadRules.rangeAccepted(206, "bytes 100-999/1000garbage", 100, 1000))
+        assertFalse(LocalLfm3DownloadRules.rangeAccepted(206, null, 100, 1000))
     }
 
     @Test fun progressIsSafeForInvalidAndCompleteSizes() {
