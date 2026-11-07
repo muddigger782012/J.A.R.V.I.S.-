@@ -69,11 +69,14 @@ class PersonalJarvisBridgeWireTest {
                             .setAction(PersonalJarvisBridgeService.ACTION_START))
                 }
                 try {
+                    // Android's service start is asynchronous. A socket-ready flag
+                    // alone is not proof the FGS startup has been acknowledged.
+                    await("Foreground notification must be registered before HTTP testing") {
+                        PersonalJarvisBridgeService.foregroundReady
+                    }
                     await("Bridge should open local listener") { PersonalJarvisBridgeService.listening }
-                    // Android must finish acknowledging startForeground() before this short
-                    // test can shut down the service; immediate stop races FGS promotion.
-                    Thread.sleep(1500)
-                    assertTrue("The listener must stay up after foreground promotion", PersonalJarvisBridgeService.listening)
+                    assertTrue("Bridge must remain foreground while serving",
+                        PersonalJarvisBridgeService.foregroundReady)
                     val body = JSONObject().put("model", PersonalJarvisBridgeProtocol.MODEL)
                         .put("stream", true).put("messages", org.json.JSONArray()
                             .put(JSONObject().put("role", "user")
@@ -84,8 +87,14 @@ class PersonalJarvisBridgeWireTest {
                     assertTrue(result.second.contains("Personal Jarvis could not reach its selected AI provider"))
                     assertTrue(result.second.contains("data: [DONE]"))
                 } finally {
-                    context.stopService(Intent(context, PersonalJarvisBridgeService::class.java))
-                    await("Bridge must stop after streaming test") { !PersonalJarvisBridgeService.listening }
+                    // Do not cancel a still-pending startForegroundService().
+                    // Android 14 treats that as ForegroundServiceDidNotStartInTime.
+                    if (PersonalJarvisBridgeService.foregroundReady) {
+                        context.stopService(Intent(context, PersonalJarvisBridgeService::class.java))
+                        await("Bridge must stop after streaming test") {
+                            !PersonalJarvisBridgeService.listening && !PersonalJarvisBridgeService.foregroundReady
+                        }
+                    }
                 }
             }
         } finally {
@@ -111,9 +120,9 @@ class PersonalJarvisBridgeWireTest {
                         .setAction(PersonalJarvisBridgeService.ACTION_START))
             }
             try {
+                await("Foreground service must acknowledge startup") { PersonalJarvisBridgeService.foregroundReady }
                 await("Personal bridge must accept loopback connections") { PersonalJarvisBridgeService.listening }
-                Thread.sleep(1500)
-                assertTrue("The listener must remain up after foreground promotion", PersonalJarvisBridgeService.listening)
+                assertTrue("Listener must stay foregrounded", PersonalJarvisBridgeService.foregroundReady)
                 val missing = request("/v1/models")
                 assertEquals(401, missing.first)
                 assertEquals("unauthorized", JSONObject(missing.second).getJSONObject("error").getString("code"))
@@ -129,8 +138,12 @@ class PersonalJarvisBridgeWireTest {
                 assertEquals("invalid_request",
                     JSONObject(wrong.second).getJSONObject("error").getString("code"))
             } finally {
-                target.stopService(Intent(target, PersonalJarvisBridgeService::class.java))
-                await("Stopping bridge must close loopback listener") { !PersonalJarvisBridgeService.listening }
+                if (PersonalJarvisBridgeService.foregroundReady) {
+                    target.stopService(Intent(target, PersonalJarvisBridgeService::class.java))
+                    await("Stopping bridge must close loopback listener") {
+                        !PersonalJarvisBridgeService.listening && !PersonalJarvisBridgeService.foregroundReady
+                    }
+                }
             }
         }
     }
