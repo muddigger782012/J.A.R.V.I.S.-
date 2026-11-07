@@ -33,6 +33,42 @@ class ReaBridgeTests(unittest.TestCase):
         tool.chmod(0o700)
         return str(tool)
 
+    def test_rea_health_doctor_checks_real_executable_without_analyzing_an_apk(self):
+        with tempfile.TemporaryDirectory() as root:
+            healthy = Path(root, "doctor-ok.py")
+            healthy.write_text("#! /usr/bin/env python3\\nimport sys\\n"
+                               "assert sys.argv[1:] == ['doctor', '--provider', 'jadx', '--json']\\n"
+                               "sys.exit(0)\\n")
+            failed = Path(root, "doctor-fail.py")
+            failed.write_text("#! /usr/bin/env python3\\nimport sys\\nsys.exit(2)\\n")
+            self.assertEqual(bridge.health_status(sys.executable, str(healthy)), "DOCTOR_PASSED")
+            self.assertEqual(bridge.health_status(sys.executable, str(failed)), "DOCTOR_FAILED")
+            self.assertEqual(bridge.health_status(sys.executable, "/no/such/script.mjs"), "DOCTOR_FAILED")
+
+    def test_authenticated_health_reports_doctor_status_without_apk_upload(self):
+        token = "test-rea-bridge-doctor-token-012345"
+        server = bridge.http.server.ThreadingHTTPServer(("127.0.0.1", 0), bridge.Handler)
+        worker = threading.Thread(target=server.handle_request, daemon=True)
+        worker.start()
+        try:
+            with patch.dict(os.environ, {"JARVIS_REA_TOKEN": token}):
+                with patch.object(bridge, "health_status", return_value="DOCTOR_PASSED") as probe:
+                    conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                    conn.request("GET", "/v1/health", headers={"Authorization": "Bearer " + token})
+                    response = conn.getresponse()
+                    self.assertEqual(response.status, 200)
+                    result = json.loads(response.read())
+                    self.assertEqual(result["schema"], "jarvis.rea.health.v1")
+                    self.assertEqual(result["state"], "BRIDGE_REACHABLE")
+                    self.assertEqual(result["engine"], "DOCTOR_PASSED")
+                    self.assertIn("no APK analysis", result["limitations"])
+                    self.assertNotIn(token, json.dumps(result))
+                    self.assertEqual(probe.call_count, 1)
+                    conn.close()
+        finally:
+            server.server_close()
+            worker.join(timeout=3)
+
     def test_artifact_hash_is_bound_to_real_cli_json_without_executing_apk(self):
         with tempfile.TemporaryDirectory() as root:
             report = bridge.analyze_apk(self.APK, self.DIGEST,
