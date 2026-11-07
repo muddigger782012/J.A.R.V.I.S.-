@@ -127,7 +127,7 @@
 # The separately compiled Android instrumentation APK calls the Personal AI bridge
 # token and HTTP protocol classes directly. Keep only these voiceCheck-host symbols;
 # do not change production/Beta R8 rules or local loopback exposure.
--keep,allowoptimization class com.assistant.core.services.PersonalJarvisBridgeToken { public *; }
--keep,allowoptimization class com.assistant.core.services.PersonalJarvisBridgeProtocol { public *; }
--keep,allowoptimization class com.assistant.core.services.PersonalJarvisBridgeStreaming { public *; }
--keep,allowoptimization class com.assistant.core.services.PersonalJarvisBridgeService { public *; }
+-keep class com.assistant.core.services.PersonalJarvisBridgeToken { *; }
+-keep class com.assistant.core.services.PersonalJarvisBridgeProtocol { *; }
+-keep class com.assistant.core.services.PersonalJarvisBridgeStreaming { *; }
+-keep class com.assistant.core.services.PersonalJarvisBridgeService { *; }
