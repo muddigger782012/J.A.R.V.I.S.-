@@ -36,11 +36,11 @@ class ReaBridgeTests(unittest.TestCase):
     def test_rea_health_doctor_checks_real_executable_without_analyzing_an_apk(self):
         with tempfile.TemporaryDirectory() as root:
             healthy = Path(root, "doctor-ok.py")
-            healthy.write_text("#! /usr/bin/env python3\\nimport sys\\n"
-                               "assert sys.argv[1:] == ['doctor', '--provider', 'jadx', '--json']\\n"
-                               "sys.exit(0)\\n")
+            healthy.write_text("#! /usr/bin/env python3\nimport sys\n"
+                               "assert sys.argv[1:] == ['doctor', '--provider', 'jadx', '--json']\n"
+                               "sys.exit(0)\n")
             failed = Path(root, "doctor-fail.py")
-            failed.write_text("#! /usr/bin/env python3\\nimport sys\\nsys.exit(2)\\n")
+            failed.write_text("#! /usr/bin/env python3\nimport sys\nsys.exit(2)\n")
             self.assertEqual(bridge.health_status(sys.executable, str(healthy)), "DOCTOR_PASSED")
             self.assertEqual(bridge.health_status(sys.executable, str(failed)), "DOCTOR_FAILED")
             self.assertEqual(bridge.health_status(sys.executable, "/no/such/script.mjs"), "DOCTOR_FAILED")
