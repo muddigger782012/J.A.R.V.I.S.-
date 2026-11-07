@@ -28,6 +28,9 @@ class EmbeddedLfm3Client(private val context: Context) {
     companion object {
         const val MIN_AVAILABLE_MEMORY = 2_000_000_000L
         const val MAX_RESPONSE_TOKENS = 256
+        // A downloaded 1.1 GB model must not be rehashed on every spoken turn.
+        // Recheck when the file, size, SHA-256 receipt, or timestamp changes.
+        private var verifiedIdentity: String? = null
     }
     private val models by lazy { LocalLfm3ModelStore(context.applicationContext) }
     private val personal get() = context.packageName == "com.assistant.core"
@@ -60,8 +63,15 @@ class EmbeddedLfm3Client(private val context: Context) {
             "Embedded LFM3 needs more available memory. Close other apps, or switch to a configured fallback.", null, true)
         return try {
             synchronized(EmbeddedLfm3Native) {
-                if (!models.verify(variant))
-                    return FallbackAiResult("Saved LFM3 GGUF failed its SHA-256 integrity check. Re-download the model.", null, true)
+                val identity = path.absolutePath + ":" + snapshot.bytes + ":" +
+                    snapshot.sha256 + ":" + path.lastModified()
+                if (verifiedIdentity != identity) {
+                    if (!models.verify(variant)) {
+                        verifiedIdentity = null
+                        return FallbackAiResult("Saved LFM3 GGUF failed its SHA-256 integrity check. Re-download the model.", null, true)
+                    }
+                    verifiedIdentity = identity
+                }
                 if (!EmbeddedLfm3Native.nativeInit(context.applicationInfo.nativeLibraryDir) ||
                     !EmbeddedLfm3Native.nativeLoad(path.absolutePath))
                     return FallbackAiResult("Embedded LFM3 could not initialize its model/context. Check storage and available memory.", null, true)
@@ -84,6 +94,9 @@ class EmbeddedLfm3Client(private val context: Context) {
         if (binaryIncluded()) runCatching { EmbeddedLfm3Native.nativeCancel() }
     }
     fun unload() {
-        if (binaryIncluded()) runCatching { EmbeddedLfm3Native.nativeUnload() }
+        if (binaryIncluded()) synchronized(EmbeddedLfm3Native) {
+            runCatching { EmbeddedLfm3Native.nativeUnload() }
+            verifiedIdentity = null
+        }
     }
 }
