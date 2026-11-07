@@ -153,8 +153,9 @@ object AiConnectionSettings {
             isChecked = gatewayPrefs.getBoolean("provider_fallback", true)
         }
         var localVariant = com.assistant.core.services.LocalLfm3Models.selected(gatewayPrefs.getString("lfm3_variant", "atomic"))
+        var refreshLocalSelection: (() -> Unit)? = null
         val localEnabled = SwitchMaterial(activity).apply {
-            text = "Enable on-phone LFM3 runtime (Personal only)"
+            text = "Enable local LFM3 conversation (requires native runtime or on-phone server)"
             isChecked = gatewayPrefs.getBoolean("lfm3_enabled", false)
         }
         val localModelChoice = com.google.android.material.button.MaterialButton(activity).apply {
@@ -166,6 +167,7 @@ object AiConnectionSettings {
                         localVariant = variants[index]
                         text = "Local GGUF: " + localVariant.label
                         picker.dismiss()
+                        refreshLocalSelection?.invoke()
                     }.setNegativeButton("Cancel", null).show()
             }
         }
@@ -180,9 +182,7 @@ object AiConnectionSettings {
             fields.addView(localEnabled)
             fields.addView(localModelChoice)
             fields.addView(TextView(activity).apply {
-                text = "The selected GGUF must be loaded by llama-server running ON THIS PHONE, with model alias '" +
-                    localVariant.alias + "' (see docs/PERSONAL_LFM3.md). Choosing a variant does not download or start it. " +
-                    "LFM3 can answer freely, but phone actions still require host approval."
+                text = "This milestone downloads model weights into J.A.R.V.I.S. private storage. The separate on-phone llama-server still needs its own matching GGUF and model alias until native loading is integrated. See docs/PERSONAL_LFM3.md. Model text cannot authorize phone actions."
                 textSize = 12f
             })
             fields.addView(TextView(activity).apply { text = "On-phone llama-server port (127.0.0.1 only)" })
@@ -283,6 +283,7 @@ object AiConnectionSettings {
             fields.addView(cancelDownloadButton)
             fields.addView(verifyButton)
             fields.addView(deleteButton)
+            refreshLocalSelection = { refreshModelStatus() }
             refreshModelStatus()
             fields.addView(TextView(activity).apply {
                 text = "Privacy: turn OFF provider fallback above for strictly offline chat. If fallback is on and local LFM3 fails, the question may be sent to your configured Gemini or gateway service."
