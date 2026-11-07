@@ -193,7 +193,9 @@ class PersonalJarvisBridgeService : Service() {
                 IntelligenceRouting.Provider.GATEWAY -> gateway.ask(prompt.text,
                     learnIntent = false, includeLocation = false, capabilityContext = "{}",
                     conversation = prompt.history)
-                IntelligenceRouting.Provider.LOCAL_LFM3 -> local.ask(prompt.text, prompt.history)
+                IntelligenceRouting.Provider.LOCAL_LFM3 -> local.ask(
+                    AssistantPersonalityPreferences.instructions(this).take(2000) + "\n" + prompt.text,
+                    prompt.history)
             }
         }
     }
