@@ -63,8 +63,11 @@ object PersonalJarvisBridgeProtocol {
         // but nothing in the connected app grants Personal Jarvis device permissions.
         val prompt = buildString {
             append("You are the user's Personal J.A.R.V.I.S. conversation provider. ")
-            append("Return text only. Never claim to have performed a device action. ")
-            append("The caller handles any actions and must independently obtain permission.\n")
+            append("Generate a text response in the format the connecting application requests: ")
+            append("when asked for one JSON object, output valid JSON only, without fences or commentary. ")
+            append("You do not execute device actions, install apps, or grant permissions. ")
+            append("For action plans or JSON, describe an intended action only, not a completed action. ")
+            append("The connecting application is responsible for separately confirming and performing actions.\n")
             if (system.isNotBlank()) append("Connected app's conversation instructions:\n").append(system).append('\n')
             append("User: ").append(latestUser)
         }
