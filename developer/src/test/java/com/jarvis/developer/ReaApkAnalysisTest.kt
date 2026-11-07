@@ -89,6 +89,50 @@ class ReaApkAnalysisTest {
         assertThrows(Exception::class.java) { report.sourceProposalTask("x".repeat(1201)) }
     }
 
+
+    @Test fun structuredSummaryIsShownBeforeRawEvidenceAndIncludedInProposal() {
+        val summary = JSONObject()
+            .put("package_name", "com.example.ownedtool").put("version_name", "2.1")
+            .put("min_sdk", "26").put("target_sdk", "34")
+            .put("class_count", 437).put("resource_count", 83)
+            .put("permissions", org.json.JSONArray().put("android.permission.INTERNET"))
+            .put("permission_count", 1)
+            .put("manifest_status", "partial")
+            .put("component_status", "complete").put("component_count", 2)
+        val report = ReaApkAnalysis.validateResponse(
+            JSONObject(response()).put("summary", summary).toString(), digest)
+        assertEquals(437, report.overview?.classCount)
+        assertTrue(report.display().contains("REA APK findings"))
+        assertTrue(report.display().indexOf("Package: com.example.ownedtool") <
+            report.display().indexOf("REA evidence excerpt"))
+        val task = report.sourceProposalTask("Implement an APK review screen")
+        assertTrue(task.contains("Manifest coverage: partial"))
+        assertTrue(task.contains("BEGIN_UNTRUSTED_REA_EVIDENCE"))
+    }
+
+    @Test fun malformedSummaryIsRejectedAndOldBridgeRemainsCompatible() {
+        assertNull(ReaApkAnalysis.validateResponse(response(), digest).overview)
+        val valid = JSONObject()
+            .put("package_name", JSONObject.NULL).put("version_name", JSONObject.NULL)
+            .put("min_sdk", JSONObject.NULL).put("target_sdk", JSONObject.NULL)
+            .put("class_count", JSONObject.NULL).put("resource_count", JSONObject.NULL)
+            .put("permissions", org.json.JSONArray()).put("permission_count", 0)
+            .put("manifest_status", "not_reported")
+            .put("component_status", "not_reported").put("component_count", JSONObject.NULL)
+        for (bad in listOf(
+            JSONObject(valid.toString()).put("class_count", -1),
+            JSONObject(valid.toString()).put("package_name", "bad\nname"),
+            JSONObject(valid.toString()).put("permission_count", -1),
+            JSONObject(valid.toString()).put("manifest_status", "verified-safe"))) {
+            assertThrows(Exception::class.java) {
+                ReaApkAnalysis.validateResponse(
+                    JSONObject(response()).put("summary", bad).toString(), digest)
+            }
+        }
+        assertNotNull(ReaApkAnalysis.validateResponse(
+            JSONObject(response()).put("summary", valid).toString(), digest).overview)
+    }
+
     @Test fun archivePreflightClaimsMustBeBoundedAndPaired() {
         val missing = JSONObject(response()).apply { remove("archive_uncompressed_bytes") }
         val excessive = JSONObject(response()).put("archive_entries", 20001)
