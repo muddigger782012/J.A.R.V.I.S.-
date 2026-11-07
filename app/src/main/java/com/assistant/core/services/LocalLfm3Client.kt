@@ -57,6 +57,8 @@ class LocalLfm3Client(private val context: Context) {
     private val port get() = LocalLfm3Models.port(prefs.getString("lfm3_port", "8080"))
     fun isConfigured(): Boolean = personal && prefs.getBoolean("lfm3_enabled", false) && port != null
     fun selectedVariant(): LocalLfm3Models.Variant = variant
+    fun embeddedRuntimeIncluded(): Boolean = EmbeddedLfm3Client(context).binaryIncluded()
+    fun cancelEmbedded() = EmbeddedLfm3Client(context).cancel()
 
     private fun connect(path: String): HttpURLConnection = URL("http://127.0.0.1:" + requireNotNull(port) + path)
         .openConnection() as HttpURLConnection
@@ -91,6 +93,9 @@ class LocalLfm3Client(private val context: Context) {
     /** Returns a text-only answer; no lesson or auto-executable action is accepted. */
     fun ask(input: String, history: List<Pair<String, String>> = emptyList()): FallbackAiResult {
         if (!isConfigured()) return FallbackAiResult("Local LFM3 is not enabled or its port is invalid. Review AI settings.", null, true)
+        // A packaged ARM64 native runtime runs from verified app-private GGUF weights without Termux.
+        EmbeddedLfm3Client(context).ask(input, history)?.let { return it }
+        // The legacy loopback server remains a fallback for non-native development builds.
         return try {
             if (!loaded()) return FallbackAiResult(
                 "Local LFM3 runtime is unavailable or has a different model loaded. Start llama-server on this phone with alias '" +
@@ -107,6 +112,15 @@ class LocalLfm3Client(private val context: Context) {
     fun connectionTest(): AiConnectionDiagnostics.Result {
         val start = System.nanoTime()
         if (!isConfigured()) return AiConnectionDiagnostics.Result(false, problem = AiConnectionDiagnostics.Problem.NOT_CONFIGURED)
+        val embedded = EmbeddedLfm3Client(context)
+        if (embedded.binaryIncluded() &&
+            LocalLfm3ModelStore(context).status(variant).exists) {
+            val reply = embedded.ask(IntelligenceConnectionCheck.PROMPT)
+            val accepted = IntelligenceConnectionCheck.accepted(reply?.reply)
+            return AiConnectionDiagnostics.Result(accepted, modelListed = true,
+                problem = if (accepted) null else AiConnectionDiagnostics.Problem.UNEXPECTED_REPLY,
+                elapsedMillis = (System.nanoTime() - start).coerceAtLeast(0) / 1_000_000)
+        }
         return try {
             if (!loaded()) AiConnectionDiagnostics.Result(false, problem = AiConnectionDiagnostics.Problem.MODEL,
                 elapsedMillis = (System.nanoTime() - start).coerceAtLeast(0) / 1_000_000)
