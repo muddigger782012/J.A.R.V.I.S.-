@@ -135,6 +135,74 @@ class ReaBridgeTests(unittest.TestCase):
                          ["android.permission.INTERNET", "com.example.READ"])
         self.assertEqual(summary["manifest_status"], "not_reported")
 
+
+    def fake_class_rea(self, directory, report=None):
+        report = report or ('{"normalized_result":{"query":"MainActivity",'
+                            '"total_classes":25,"matches":["a.MainActivity",'
+                            '"a.MainActivity$Inner"],"coverage":"complete"}}')
+        script = Path(directory, "mock-class-search.py")
+        script.write_text("#!/usr/bin/env python3\nimport sys\nfrom pathlib import Path\n"
+                          "assert sys.argv[1] == 'search-android-classes'\n"
+                          "assert Path(sys.argv[2]).is_file()\n"
+                          "assert sys.argv[3:] == ['MainActivity', '--json']\n"
+                          f"print({report!r})\n", encoding="utf8")
+        return str(script)
+
+    def test_class_search_is_apk_bound_with_fixed_command_and_evidence(self):
+        with tempfile.TemporaryDirectory() as root:
+            response = bridge.search_apk_classes(self.APK, self.DIGEST,
+                "MainActivity", sys.executable, self.fake_class_rea(root))
+        self.assertEqual(response["schema"], bridge.CLASS_SCHEMA)
+        self.assertEqual(response["apk_sha256"], self.DIGEST)
+        self.assertEqual(response["query"], "MainActivity")
+        self.assertEqual(response["total_classes"], 25)
+        self.assertEqual(response["matches"], ["a.MainActivity", "a.MainActivity$Inner"])
+        self.assertEqual(response["match_count"], 2)
+        self.assertEqual(len(response["evidence_sha256"]), 64)
+
+    def test_class_search_rejects_unsafe_selector_hash_or_fabricated_result(self):
+        for query in ("", "x", "../Main", "a b", "--help", "Main\nx",
+                      "a;id", "x" * 81, "/tmp/repo.apk"):
+            with self.subTest(query=query):
+                with self.assertRaises(bridge.BridgeError) as failure:
+                    bridge.search_apk_classes(self.APK, self.DIGEST, query, "/missing")
+                self.assertEqual(failure.exception.code, "CLASS_QUERY")
+        with self.assertRaises(bridge.BridgeError) as failure:
+            bridge.search_apk_classes(self.APK, "0" * 64, "MainActivity", "/missing")
+        self.assertEqual(failure.exception.code, "HASH_MISMATCH")
+        with tempfile.TemporaryDirectory() as root:
+            wrong = '{"normalized_result":{"query":"Other","total_classes":1,"matches":["a.C"],"coverage":"complete"}}'
+            with self.assertRaises(bridge.BridgeError) as failure:
+                bridge.search_apk_classes(self.APK, self.DIGEST, "MainActivity",
+                    sys.executable, self.fake_class_rea(root, wrong))
+        self.assertEqual(failure.exception.code, "REA_REPORT")
+
+    def test_class_search_route_is_authorized_without_dynamic_commands(self):
+        token = "test-class-search-auth-token-012345"
+        for authorized in (False, True):
+            server = bridge.http.server.ThreadingHTTPServer(("127.0.0.1", 0), bridge.Handler)
+            worker = threading.Thread(target=server.handle_request, daemon=True)
+            worker.start()
+            try:
+                with patch.dict(os.environ, {"JARVIS_REA_TOKEN": token}):
+                    with patch.object(bridge, "search_apk_classes",
+                        return_value={"schema": bridge.CLASS_SCHEMA}) as search:
+                        headers = {"Content-Type": "application/vnd.android.package-archive",
+                                   "X-APK-SHA256": self.DIGEST,
+                                   "X-REA-CLASS-QUERY": "MainActivity"}
+                        if authorized:
+                            headers["Authorization"] = "Bearer " + token
+                        conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                        conn.request("POST", "/v1/apk/classes/search", body=self.APK, headers=headers)
+                        response = conn.getresponse()
+                        self.assertEqual(response.status, 200 if authorized else 401)
+                        response.read()
+                        conn.close()
+                        self.assertEqual(search.call_count, int(authorized))
+            finally:
+                server.server_close()
+                worker.join(timeout=3)
+
     def test_archive_preflight_refuses_missing_manifest_traversal_duplicates_and_broken_zip(self):
         candidates = [
             make_apk([("classes.dex", b"no manifest")]),
