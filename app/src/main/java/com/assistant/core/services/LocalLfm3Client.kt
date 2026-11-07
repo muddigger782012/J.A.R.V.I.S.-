@@ -91,16 +91,22 @@ class LocalLfm3Client(private val context: Context) {
     }
 
     /** Returns a text-only answer; no lesson or auto-executable action is accepted. */
-    fun ask(input: String, history: List<Pair<String, String>> = emptyList()): FallbackAiResult {
+    fun ask(input: String, history: List<Pair<String, String>> = emptyList(),
+            current: () -> Boolean = { true }): FallbackAiResult {
+        if (!current()) return FallbackAiResult("Earlier LFM3 response cancelled.", null, true)
         if (!isConfigured()) return FallbackAiResult("Local LFM3 is not enabled or its port is invalid. Review AI settings.", null, true)
         // A packaged ARM64 native runtime runs from verified app-private GGUF weights without Termux.
-        EmbeddedLfm3Client(context).ask(input, history)?.let { return it }
+        EmbeddedLfm3Client(context).ask(input, history, current)?.let { return it }
+        if (!current()) return FallbackAiResult("Earlier LFM3 response cancelled.", null, true)
         // The legacy loopback server remains a fallback for non-native development builds.
         return try {
+            if (!current()) return FallbackAiResult("Earlier LFM3 response cancelled.", null, true)
             if (!loaded()) return FallbackAiResult(
                 "Local LFM3 runtime is unavailable or has a different model loaded. Start llama-server on this phone with alias '" +
                     variant.alias + "' and the selected GGUF.", null, true)
+            if (!current()) return FallbackAiResult("Earlier LFM3 response cancelled.", null, true)
             val reply = completion(LocalLfm3Models.request(variant, input, history))
+            if (!current()) return FallbackAiResult("Earlier LFM3 response cancelled.", null, true)
             if (reply == null) FallbackAiResult("Local LFM3 returned no usable answer. Check its runtime logs.", null, true)
             else FallbackAiResult(reply, null)
         } catch (_: Exception) {
