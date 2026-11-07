@@ -61,6 +61,20 @@ class PersonalJarvisBridgeProtocolTest {
         assertTrue(events.endsWith("data: [DONE]\n\n"))
     }
 
+    @Test fun connectedJarvisCanRequestJsonActionWithoutGrantingPersonalDeviceExecution() {
+        val request = JSONObject()
+            .put("model", PersonalJarvisBridgeProtocol.MODEL)
+            .put("messages", JSONArray()
+                .put(JSONObject().put("role", "system")
+                    .put("content", "Respond with ONLY a single JSON object with action and params."))
+                .put(JSONObject().put("role", "user")
+                    .put("content", "Plan to open the browser.")))
+        val parsed = PersonalJarvisBridgeProtocol.parse(request.toString())
+        assertTrue(parsed.text.contains("output valid JSON only"))
+        assertTrue(parsed.text.contains("Respond with ONLY a single JSON object"))
+        assertTrue(parsed.text.contains("do not execute", ignoreCase = true))
+    }
+
     @Test fun modelsListsOnlyPersonalJarvis() {
         val model = JSONObject(PersonalJarvisBridgeProtocol.models()).getJSONArray("data").getJSONObject(0)
         assertEquals("personal-jarvis", model.getString("id"))

@@ -35,6 +35,18 @@ Inside Personal → AI and weather choose Gemini, your configured HTTPS gateway,
 - If a local provider fails and fallback is enabled, the request can be forwarded to an alternate configured cloud provider.
 - The bridge **does not install Ollama**, grant Android permissions to the other app, or perform screen/device actions on Personal's behalf.
 
+## Live connection diagnostics (next milestone)
+
+The bridge Settings screen now shows the selected Personal AI provider, whether it is configured, and whether fallback is enabled. These labels are configuration observations, not proof of network or inference health.
+
+- **Check connection** sends an authenticated GET to the local /v1/models endpoint, testing the listener and stored bearer token without invoking an AI model.
+- **Streaming connection reliability**: when the downloaded Jarvis sends `stream=true`, the bridge sends authenticated HTTP streaming headers and an SSE connection comment immediately, then harmless SSE keepalives every four seconds until inference finishes (at most 90 seconds). This prevents the downloaded app's 45-second header timeout from mistakenly reporting that Personal Jarvis cannot be reached. It returns a normal final OpenAI-style completion delta followed by `data: [DONE]`. A provider outage produces a clear diagnostic text delta; it does not claim device actions or impersonate a successful provider reply.
+- **Test AI response** sends one short authenticated OpenAI-compatible chat request to /v1/chat/completions, consumes an actual Personal AI reply, and reports whether the model path worked. Cloud AI usage may be billed. HTTP 503 points to the selected provider or runtime; HTTP 401 indicates a token mismatch; connection refusal means the bridge is not listening.
+- **Regenerate access token** requires an explicit confirmation. Personal replaces the stored token atomically; newly issued HTTP requests using the old token are immediately rejected, but in-flight responses may finish. Copy the new token into downloaded Jarvis under API key. Regenerating the token does **not** erase conversations or change model choice.
+- The bridge remains **manual start**, loopback-only, and text-only. In-app AI testing does not grant actions to another application.
+
+This increment has Android token-revocation and bridge-screen navigation acceptance tests. A successful emulator test does not replace a physical Samsung cross-app session test.
+
 ## Acceptance checks
 
 Before declaring this production-ready, verify on a real Android device:
