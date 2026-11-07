@@ -68,6 +68,13 @@ class ReaBridgeTests(unittest.TestCase):
                                    str(Path(root, "not-installed.mjs")))
             self.assertEqual(missing_entry.exception.code, "REA_CONFIGURATION")
 
+    def test_generic_success_json_is_not_mistaken_for_rea_evidence(self):
+        with tempfile.TemporaryDirectory() as root:
+            tool = self.fake_rea(root, '{"success": true, "data": {"fake": true}}')
+            with self.assertRaises(bridge.BridgeError) as raised:
+                bridge.analyze_apk(self.APK, self.DIGEST, sys.executable, tool)
+            self.assertEqual(raised.exception.code, "REA_REPORT")
+
     def test_token_validation_and_unauthorized_post_do_not_launch_engine(self):
         token = "a-secure-local-test-token-123456"
         self.assertTrue(bridge.verify_token("Bearer " + token, token))
