@@ -13,6 +13,11 @@ import androidx.core.content.ContextCompat
 import com.assistant.core.services.PersonalJarvisBridgeProtocol
 import com.assistant.core.services.PersonalJarvisBridgeService
 import com.assistant.core.services.PersonalJarvisBridgeToken
+import com.assistant.core.services.IntelligenceRouting
+import com.assistant.core.services.RuntimeSettings
+import com.assistant.core.services.DirectOnlineClient
+import com.assistant.core.services.FallbackAiClient
+import com.assistant.core.services.LocalLfm3Client
 import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONArray
@@ -23,6 +28,7 @@ import org.json.JSONObject
  */
 class PersonalJarvisBridgeActivity : MenuActivity("Personal AI Bridge") {
     private lateinit var status: TextView
+    private lateinit var providerSummary: TextView
     private val url = "http://127.0.0.1:${PersonalJarvisBridgeProtocol.PORT}/v1"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,6 +53,7 @@ class PersonalJarvisBridgeActivity : MenuActivity("Personal AI Bridge") {
         text("Connect other Android apps to Personal J.A.R.V.I.S.", 20f)
         text("This connection runs only on your phone, uses your existing Personal AI provider selection, and never grants the connecting app permission to run Personal Jarvis actions.")
         status = text("")
+        providerSummary = text("")
         button("Start local AI bridge") {
             try {
                 ContextCompat.startForegroundService(this,
@@ -104,6 +111,18 @@ class PersonalJarvisBridgeActivity : MenuActivity("Personal AI Bridge") {
     private fun refreshStatus() {
         status.text = if (PersonalJarvisBridgeService.listening) "Status: Listening on 127.0.0.1:8765"
             else "Status: Not listening. Start the bridge and check its connection."
+        val settings = RuntimeSettings.read(this, "jarvis_cloud_ai")
+        val provider = IntelligenceRouting.selected(settings.getString("primary_provider", "gemini"))
+        val configured = when (provider) {
+            IntelligenceRouting.Provider.GEMINI -> DirectOnlineClient(this).hasGeminiKey()
+            IntelligenceRouting.Provider.GATEWAY -> FallbackAiClient(this).isConfigured()
+            IntelligenceRouting.Provider.LOCAL_LFM3 -> LocalLfm3Client(this).isConfigured()
+        }
+        val fallback = settings.getBoolean("provider_fallback", true)
+        providerSummary.text = "Selected Personal provider: ${provider.label} " +
+            "(${if (configured) "configured" else "not configured"}). " +
+            "Automatic fallback: ${if (fallback) "on" else "off"}. " +
+            "Configuration alone does not prove the model is running."
     }
 
     private fun copy(label: String, value: String) {
