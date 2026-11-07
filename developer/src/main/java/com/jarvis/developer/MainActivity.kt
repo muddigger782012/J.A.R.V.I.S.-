@@ -39,6 +39,7 @@ class MainActivity : Activity() {
     private var activeProject: String? = null
     private var projectGeneration: ProjectGenerationWorkbench.Handle? = null
     private var homeWorkspace: DeveloperHomeWorkspace.Session? = null
+    private var reaWorkbench: ReaApkWorkbench.Handle? = null
     internal val connectionVerification = ConnectionVerification()
     private var selectPage: ((Int) -> Unit)? = null
     private var artifactReviewIntent: ((Intent) -> Unit)? = null
@@ -655,9 +656,10 @@ class MainActivity : Activity() {
             }, currentDeveloperCommit = { patchWorkbench.currentDeveloperCommit() },
             mayReadSavedCompletion = { patchWorkbench.mayReadSavedCompletion() },
             onUserMessage = { request ->
-                // Invalidate a late one-tap Next result when a new user
-                // message takes ownership of the visible conversation.
+                // A new message may replace an old REA proposal offer but can
+                // never turn APK evidence into implicit source-write authority.
                 taskTriageGeneration++
+                reaWorkbench?.invalidateOffer()
                 homeWorkspace?.sent(request)
             },
             screenshot = { selectedScreenshot },
@@ -1381,6 +1383,8 @@ class MainActivity : Activity() {
             reviewFromChat, homeCodeReviewToggle, homeCodeReview,
             guidedTarget?.selectedItemPosition ?: 0,
             { selected ->
+                if (selected != (guidedTarget?.selectedItemPosition ?: 0))
+                    reaWorkbench?.reset()
                 if (guidedTarget?.isEnabled != false) guidedTarget?.setSelection(selected)
                 else homeWorkspace?.syncTarget(guidedTarget?.selectedItemPosition ?: 0)
             },
@@ -1394,6 +1398,7 @@ class MainActivity : Activity() {
                 } else {
                     projectGeneration?.cancel()
                     taskTriageGeneration++
+                    reaWorkbench?.reset()
                     // A new task must not inherit an attached screenshot or a
                     // still-decoding image from the previous conversation.
                     screenshotReadGeneration++
@@ -1512,6 +1517,21 @@ class MainActivity : Activity() {
             val taskInputIndex = indexOfChild(prompt)
             addView(screenshotLabel, taskInputIndex + 1)
             addView(screenshotPreview, taskInputIndex + 2)
+        }
+        // REA is an isolated, opt-in feature. Android handles only a selected
+        // APK's bytes and bounded static evidence; the REA/JADX process is remote
+        // behind the owner's authenticated HTTPS bridge.
+        homeWorkspace?.composer?.let { composer ->
+            reaWorkbench = ReaApkWorkbench.install(this, composer, settings,
+                prompt, output, status,
+                product = { guidedTarget?.selectedItemPosition ?: 0 },
+                project = { activeProject },
+                ready = { send.isEnabled && !screenshotLoading && selectedScreenshot == null },
+                message = { request -> homeWorkspace?.sent(request) },
+                prepare = { id, description, paths, base ->
+                    patchWorkbench.continueDeveloperPlan(id, description, paths, base)
+                },
+                onReview = { revealImportedReview?.invoke() })
         }
         val pages = listOf(root, projects, activityPage, settings, advanced).mapIndexed { index, page ->
             ScrollView(this).apply {
@@ -1734,6 +1754,7 @@ class MainActivity : Activity() {
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (reaWorkbench?.onPickerResult(requestCode, resultCode, data) == true) return
         if (requestCode == screenshotPickerRequest) {
             val uri = if (resultCode == Activity.RESULT_OK) data?.data else null
             if (uri != null) {
@@ -1774,12 +1795,15 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        reaWorkbench?.onPaused()
         DeveloperUpdater.onBackground(this)
         super.onPause()
     }
 
     override fun onDestroy() {
         taskTriageGeneration++
+        reaWorkbench?.close()
+        reaWorkbench = null
         DeveloperUpdater.cancel(this)
         projectGeneration?.dispose()
         projectGeneration = null
