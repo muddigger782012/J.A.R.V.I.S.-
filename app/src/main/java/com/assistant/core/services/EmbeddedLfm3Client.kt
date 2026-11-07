@@ -23,6 +23,25 @@ internal object EmbeddedLfm3Native {
     external fun nativeUnload()
 }
 
+/** Trim history first, preserving the newest user question in every on-device prompt. */
+internal object EmbeddedLfm3Prompt {
+    const val MAX_PROMPT_CHARS = 11_000
+    const val MAX_QUESTION_CHARS = 6_000
+    fun compose(question: String, conversation: List<Pair<String, String>>): String {
+        val latest = "\nUser: " + question.take(MAX_QUESTION_CHARS)
+        val historyBudget = (MAX_PROMPT_CHARS - latest.length).coerceAtLeast(0)
+        var remaining = historyBudget
+        val selected = mutableListOf<String>()
+        for ((user, response) in conversation.asReversed().take(5)) {
+            val turn = "\nUser: " + user.take(800) + "\nJ.A.R.V.I.S.: " + response.take(800)
+            if (turn.length > remaining) break
+            selected.add(turn)
+            remaining -= turn.length
+        }
+        return selected.asReversed().joinToString("") + latest
+    }
+}
+
 /** Device-local direct model execution. There is no HTTP client or model-controlled tool access here. */
 class EmbeddedLfm3Client(private val context: Context) {
     companion object {
@@ -45,16 +64,19 @@ class EmbeddedLfm3Client(private val context: Context) {
         return !info.lowMemory && info.availMem >= maxOf(MIN_AVAILABLE_MEMORY, file.length() + 700_000_000L)
     }
     private fun historyPrompt(userText: String, conversation: List<Pair<String, String>>): String =
-        (conversation.takeLast(5).joinToString("\n") { (user, reply) ->
-            "User: ${user.take(2000)}\nJ.A.R.V.I.S.: ${reply.take(2000)}"
-        } + "\nUser: " + userText.take(10000)).take(13500)
+        EmbeddedLfm3Prompt.compose(userText, conversation)
 
     /**
      * null means no bundled library or no downloaded weights (try the existing loopback bridge).
      * An actual native failure is returned as a provider failure so routing can use cloud fallback.
      */
-    fun ask(userText: String, conversation: List<Pair<String, String>> = emptyList()): FallbackAiResult? {
+    fun ask(
+        userText: String,
+        conversation: List<Pair<String, String>> = emptyList(),
+        current: () -> Boolean = { true }
+    ): FallbackAiResult? {
         if (!enabled || !binaryIncluded()) return null
+        if (!current()) return FallbackAiResult("Earlier LFM3 response cancelled.", null, true)
         val variant = LocalLfm3Models.selected(prefs.getString("lfm3_variant", "atomic"))
         val snapshot = models.status(variant)
         if (!snapshot.exists) return null
@@ -65,21 +87,28 @@ class EmbeddedLfm3Client(private val context: Context) {
             synchronized(EmbeddedLfm3Native) {
                 val identity = path.absolutePath + ":" + snapshot.bytes + ":" +
                     snapshot.sha256 + ":" + path.lastModified()
+                if (!current()) return FallbackAiResult("Earlier LFM3 response cancelled.", null, true)
                 if (verifiedIdentity != identity) {
+                    // The path may have been replaced by a new download; never reuse stale
+                    // mmap/model state for a changed file at the same pathname.
+                    EmbeddedLfm3Native.nativeUnload()
+                    verifiedIdentity = null
                     if (!models.verify(variant)) {
-                        verifiedIdentity = null
                         return FallbackAiResult("Saved LFM3 GGUF failed its SHA-256 integrity check. Re-download the model.", null, true)
                     }
                     verifiedIdentity = identity
                 }
+                if (!current()) return FallbackAiResult("Earlier LFM3 response cancelled.", null, true)
                 if (!EmbeddedLfm3Native.nativeInit(context.applicationInfo.nativeLibraryDir) ||
                     !EmbeddedLfm3Native.nativeLoad(path.absolutePath))
                     return FallbackAiResult("Embedded LFM3 could not initialize its model/context. Check storage and available memory.", null, true)
                 val system = "You are J.A.R.V.I.S., a personal offline companion. Be direct and technically useful. " +
                     "Do not falsely claim certainty or phone actions. You have no ability to execute commands; " +
                     "the host app separately handles approved device operations."
+                if (!current()) return FallbackAiResult("Earlier LFM3 response cancelled.", null, true)
                 val result = EmbeddedLfm3Native.nativeGenerate(system, historyPrompt(userText, conversation), MAX_RESPONSE_TOKENS)
                     ?.trim()?.takeIf(String::isNotBlank)
+                if (!current()) return FallbackAiResult("Earlier LFM3 response cancelled.", null, true)
                 if (result == null) FallbackAiResult("The embedded LFM3 model returned no usable text or was cancelled.", null, true)
                 else FallbackAiResult(result, null)
             }
