@@ -30,10 +30,29 @@ constexpr int kBatch = 256;
 
 std::string utf(JNIEnv *env, jstring source) {
     if (!source) return "";
-    const char *chars = env->GetStringUTFChars(source, nullptr);
-    if (!chars) return "";
-    std::string value(chars);
-    env->ReleaseStringUTFChars(source, chars);
+    // GetStringUTFChars returns modified UTF-8: non-BMP glyphs and nulls would
+    // otherwise be encoded incorrectly for the model tokenizer.
+    jclass strClass = env->FindClass("java/lang/String");
+    if (!strClass) return "";
+    jmethodID method = env->GetMethodID(strClass, "getBytes", "(Ljava/lang/String;)[B");
+    if (!method) { env->DeleteLocalRef(strClass); return ""; }
+    jstring encoding = env->NewStringUTF("UTF-8");
+    if (!encoding) { env->DeleteLocalRef(strClass); return ""; }
+    auto bytes = static_cast<jbyteArray>(env->CallObjectMethod(source, method, encoding));
+    env->DeleteLocalRef(encoding);
+    env->DeleteLocalRef(strClass);
+    if (!bytes || env->ExceptionCheck()) {
+        if (bytes) env->DeleteLocalRef(bytes);
+        return "";
+    }
+    const jsize length = env->GetArrayLength(bytes);
+    if (length < 0 || length > 18000) {
+        env->DeleteLocalRef(bytes);
+        return "";
+    }
+    std::string value(static_cast<size_t>(length), '\\0');
+    if (length) env->GetByteArrayRegion(bytes, 0, length, reinterpret_cast<jbyte *>(value.data()));
+    env->DeleteLocalRef(bytes);
     return value;
 }
 
