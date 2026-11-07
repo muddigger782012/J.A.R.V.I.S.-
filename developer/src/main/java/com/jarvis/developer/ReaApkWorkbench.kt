@@ -218,7 +218,7 @@ internal object ReaApkWorkbench {
                         report = it
                         selected = apk
                         classResult = null
-            classDetail = null
+                        classDetail = null
                         output.text = it.display().take(8500)
                         status.text = "REA evidence received for exact APK hash; no source changed."
                         attachmentNote.text = "Find classes by typing a class-name substring and " +
@@ -228,7 +228,7 @@ internal object ReaApkWorkbench {
                         report = null
                         selected = null
                         classResult = null
-            classDetail = null
+                        classDetail = null
                         apk.bytes.fill(0)
                         output.text = ReaApkAnalysis.describeFailure(error) +
                             "\nNo evidence, source change, or code approval was accepted."
@@ -275,6 +275,7 @@ internal object ReaApkWorkbench {
                     busy = false
                     result.onSuccess {
                         classResult = it
+                        classDetail = null
                         output.text = (evidence.overview?.display().orEmpty() + "\n" +
                             it.display()).take(10000)
                         status.text = "REA class evidence received; source remains unchanged."
@@ -282,7 +283,7 @@ internal object ReaApkWorkbench {
                             "to implement, then tap Prepare REA proposal to review a source diff."
                     }.onFailure { error ->
                         classResult = null
-            classDetail = null
+                        classDetail = null
                         output.text = ReaApkAnalysis.describeFailure(error)
                         status.text = "REA class search failed; no source change or approval."
                     }
@@ -359,7 +360,8 @@ internal object ReaApkWorkbench {
             val task = evidence.sourceProposalTask(instruction) +
                 classResult?.takeIf { it.apkSha256 == evidence.apkSha256 }
                     ?.proposalEvidence().orEmpty() +
-                classDetail?.takeIf { it.apkSha256 == evidence.apkSha256 }
+                classDetail?.takeIf { it.apkSha256 == evidence.apkSha256 &&
+                    classResult?.matches?.contains(it.className) == true }
                     ?.proposalEvidence().orEmpty()
             worker {
                 val plan = runCatching {
