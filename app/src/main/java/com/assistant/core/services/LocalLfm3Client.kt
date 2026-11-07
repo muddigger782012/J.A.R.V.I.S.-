@@ -8,12 +8,12 @@ import java.net.URL
 
 /** A model choice is not a downloaded model. llama-server loads exactly one GGUF at a time. */
 object LocalLfm3Models {
-    data class Variant(val key: String, val label: String, val alias: String, val repository: String)
+    data class Variant(val key: String, val label: String, val alias: String, val repository: String, val ggufFile: String)
     val variants = listOf(
         Variant("atomic", "AtomicChat LFM3-1.7B Uncensored (Q4)", "jarvis-lfm3-atomic",
-            "AtomicChat/LFM3-1.7B-Uncensored-GGUF"),
+            "AtomicChat/LFM3-1.7B-Uncensored-GGUF", "LFM3-1.7B-Uncensored-AD-Q4_K_M.gguf"),
         Variant("extreme", "OpenIntelligenceNet LFM3-1.7B Uncensored Extreme (Q4)", "jarvis-lfm3-extreme",
-            "OpenIntelligenceNet/LFM3-1.7B-Uncensored-Extreme-GGUF")
+            "OpenIntelligenceNet/LFM3-1.7B-Uncensored-Extreme-GGUF", "LFM3-1.7B-Uncensored-Q4_K_M-imatrix.gguf")
     )
     fun selected(key: String?): Variant = variants.firstOrNull { it.key == key } ?: variants.first()
     fun port(value: String?): Int? = value?.toIntOrNull()?.takeIf { it in 1024..65535 }
