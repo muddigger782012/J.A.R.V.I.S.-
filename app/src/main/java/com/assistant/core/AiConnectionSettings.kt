@@ -136,6 +136,7 @@ object AiConnectionSettings {
             textSize = 12f
         })
         val personal = activity.packageName == "com.assistant.core"
+        var downloadCancelledForExit: (() -> Unit)? = null
         val providers = com.assistant.core.services.IntelligenceRouting.Provider.values()
         var primaryProvider = com.assistant.core.services.IntelligenceRouting.selected(gatewayPrefs.getString("primary_provider", "gemini"))
         val providerChoice = com.google.android.material.button.MaterialButton(activity).apply {
@@ -186,6 +187,103 @@ object AiConnectionSettings {
             })
             fields.addView(TextView(activity).apply { text = "On-phone llama-server port (127.0.0.1 only)" })
             fields.addView(localPort)
+            val modelStore = com.assistant.core.services.LocalLfm3ModelStore(activity)
+            val downloadCancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+            downloadCancelledForExit = { downloadCancelled.set(true) }
+            val modelStatus = TextView(activity).apply {
+                textSize = 12f
+                setTextIsSelectable(true)
+            }
+            fun refreshModelStatus() {
+                val snapshot = modelStore.status(localVariant)
+                modelStatus.text = if (snapshot.exists)
+                    "GGUF saved in app-private storage: ${snapshot.bytes / 1_000_000} MB. SHA-256 verified at download; use Verify for a fresh integrity check. In-app native model loading is the next milestone."
+                else if (snapshot.partialBytes > 0)
+                    "Partial GGUF: ${snapshot.partialBytes / 1_000_000} MB. Tap Download to resume."
+                else "This model is not downloaded. Download is around 1.1 GB and requires enough free internal storage."
+            }
+            val downloadButton = com.google.android.material.button.MaterialButton(activity).apply {
+                text = "Download selected uncensored GGUF"
+            }
+            val cancelDownloadButton = com.google.android.material.button.MaterialButton(activity).apply {
+                text = "Pause model download"
+                isEnabled = false
+            }
+            val verifyButton = com.google.android.material.button.MaterialButton(activity).apply {
+                text = "Verify saved GGUF"
+            }
+            val deleteButton = com.google.android.material.button.MaterialButton(activity).apply {
+                text = "Delete downloaded GGUF"
+            }
+            var modelOperation = false
+            fun operationControls(busy: Boolean) {
+                modelOperation = busy
+                downloadButton.isEnabled = !busy
+                cancelDownloadButton.isEnabled = busy
+                verifyButton.isEnabled = !busy
+                deleteButton.isEnabled = !busy
+                localModelChoice.isEnabled = !busy
+            }
+            downloadButton.setOnClickListener {
+                if (modelOperation) return@setOnClickListener
+                val chosen = localVariant
+                downloadCancelled.set(false)
+                operationControls(true)
+                modelStatus.text = "Preparing secure GGUF download for ${chosen.label}… Keep this settings page open; closing pauses the transfer."
+                kotlin.concurrent.thread(name = "jarvis-lfm3-model-download") {
+                    val result = runCatching {
+                        modelStore.download(chosen, cancelled = { downloadCancelled.get() }) { pct ->
+                            activity.runOnUiThread {
+                                if (open && !activity.isFinishing) modelStatus.text = "Downloading / verifying ${chosen.label}: $pct%"
+                            }
+                        }
+                    }
+                    activity.runOnUiThread {
+                        if (!open || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                        operationControls(false)
+                        modelStatus.text = result.fold(
+                            onSuccess = { "Downloaded and verified ${it.bytes / 1_000_000} MB. GGUF is ready for native loader integration." },
+                            onFailure = { "GGUF transfer: ${it.message ?: "failed"}. Any valid partial transfer remains resumable." }
+                        )
+                    }
+                }
+            }
+            cancelDownloadButton.setOnClickListener {
+                downloadCancelled.set(true)
+                modelStatus.text = "Pausing after the current network read; reopen and resume when ready."
+            }
+            verifyButton.setOnClickListener {
+                if (modelOperation) return@setOnClickListener
+                val chosen = localVariant
+                operationControls(true)
+                modelStatus.text = "Checking GGUF SHA-256 against saved download receipt…"
+                kotlin.concurrent.thread(name = "jarvis-lfm3-model-verify") {
+                    val verified = runCatching { modelStore.verify(chosen) }.getOrDefault(false)
+                    activity.runOnUiThread {
+                        if (!open || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                        operationControls(false)
+                        modelStatus.text = if (verified) "Verified: saved GGUF matches its SHA-256 receipt."
+                            else "Verification failed or no downloaded GGUF is present. Download again before using it."
+                    }
+                }
+            }
+            deleteButton.setOnClickListener {
+                if (modelOperation) return@setOnClickListener
+                val chosen = localVariant
+                ThemedDialogBuilder(activity).setTitle("Delete local GGUF?")
+                    .setMessage("Delete the downloaded ${chosen.label} model from private storage? This does not affect J.A.R.V.I.S. cloud AI or saved chats.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Delete") { _, _ ->
+                        modelStatus.text = if (modelStore.delete(chosen)) "Model deleted." else "Could not delete model."
+                        refreshModelStatus()
+                    }.show()
+            }
+            fields.addView(modelStatus)
+            fields.addView(downloadButton)
+            fields.addView(cancelDownloadButton)
+            fields.addView(verifyButton)
+            fields.addView(deleteButton)
+            refreshModelStatus()
             fields.addView(TextView(activity).apply {
                 text = "Privacy: turn OFF provider fallback above for strictly offline chat. If fallback is on and local LFM3 fails, the question may be sent to your configured Gemini or gateway service."
                 textSize = 12f
@@ -256,7 +354,11 @@ object AiConnectionSettings {
                 }
             }
         }
-        dialog.setOnDismissListener { open = false }
+        dialog.setOnDismissListener {
+            open = false
+            // Model transfers are explicitly page-scoped and retain resumable partial bytes.
+            if (personal) downloadCancelledForExit?.invoke()
+        }
         dialog.show()
     }
 }
