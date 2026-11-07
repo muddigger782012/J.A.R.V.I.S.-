@@ -49,7 +49,7 @@ internal object ReaApkAnalysis {
         MessageDigest.getInstance("SHA-256").digest(data)
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
-    fun import(resolver: ContentResolver, uri: Uri): Selected {
+    fun fromUri(resolver: ContentResolver, uri: Uri): Selected {
         require(uri.scheme == ContentResolver.SCHEME_CONTENT) {
             "Select an APK using Android's document picker."
         }
