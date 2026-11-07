@@ -52,6 +52,11 @@ jobs:
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Permanent signing secrets are not configured; publishing is disabled for this run."
           fi
+      - name: Require original production signing for Personal LFM3 candidate
+        if: github.ref == 'refs/heads/feature/personal-lfm3-uncensored-loopback-20261107' && steps.signing.outputs.configured != 'true'
+        run: |
+          echo '::error::Cannot deliver an in-app update without original permanent Personal signing secrets.'
+          exit 1
       - name: Require permanent signing for Companion release candidates
         if: github.ref == 'refs/heads/feature/companion-integrated' && steps.signing.outputs.configured != 'true'
         shell: bash
