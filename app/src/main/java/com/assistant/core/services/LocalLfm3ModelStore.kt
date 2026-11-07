@@ -37,9 +37,15 @@ object LocalLfm3DownloadRules {
         val checksum = sha256(linkedEtag, etag) ?: return null
         return Metadata(expected, checksum)
     }
-    fun rangeAccepted(code: Int, header: String?, start: Long, size: Long): Boolean =
-        code == 206 && start in 1 until size &&
-            header?.startsWith("bytes $start-") == true && header.endsWith("/$size")
+    private val CONTENT_RANGE = Regex("""bytes ([0-9]+)-([0-9]+)/([0-9]+)""")
+    fun rangeAccepted(code: Int, header: String?, start: Long, size: Long): Boolean {
+        if (code != 206 || start !in 1 until size) return false
+        val match = CONTENT_RANGE.matchEntire(header?.trim() ?: return false) ?: return false
+        val begin = match.groupValues[1].toLongOrNull() ?: return false
+        val end = match.groupValues[2].toLongOrNull() ?: return false
+        val total = match.groupValues[3].toLongOrNull() ?: return false
+        return begin == start && end >= begin && end < size && total == size
+    }
 
     fun progress(done: Long, total: Long) =
         if (total <= 0) 0 else ((done * 100) / total).toInt().coerceIn(0, 100)
