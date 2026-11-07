@@ -3,6 +3,8 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+def embeddedLfm3Enabled = providers.gradleProperty('jarvisEmbeddedLfm3').orElse('false').get() == 'true'
+
 android {
     namespace 'com.assistant.core'
     compileSdk 34
@@ -25,6 +27,7 @@ android {
         buildConfigField "String", "GITHUB_UPDATE_APK_PATH", "\"artifacts/app-debug.apk\""
         buildConfigField "String", "BETA_GEMINI_API_KEY", "\"\""
         buildConfigField "boolean", "BUNDLED_NEURAL_VOICES", "false"
+        buildConfigField "boolean", "EMBEDDED_LFM3", embeddedLfm3Enabled.toString()
         buildConfigField "String", "GITHUB_UPDATE_DOWNLOAD_URL", "\"\""
         resValue "string", "install_package", "com.assistant.core"
     }
@@ -73,6 +76,8 @@ android {
             resValue "string", "install_package", "com.assistant.core.beta"
             buildConfigField "String", "GITHUB_UPDATE_APK_PATH", "\"artifacts/beta.apk\""
             buildConfigField "boolean", "BUNDLED_NEURAL_VOICES", "true"
+            // Never allow an experimental native Personal engine into commercial Beta.
+            buildConfigField "boolean", "EMBEDDED_LFM3", "false"
             buildConfigField "String", "GITHUB_UPDATE_DOWNLOAD_URL", "\"https://github.com/muddigger782012/J.A.R.V.I.S.-/releases/download/beta-latest/Beta.apk\""
             // Build-time embedding keeps the key out of the public source tree.
             buildConfigField "String", "BETA_GEMINI_API_KEY", groovy.json.JsonOutput.toJson(System.getenv("JARVIS_BETA_GEMINI_API_KEY") ?: "")
@@ -111,11 +116,31 @@ android {
         jvmTarget = '17'
     }
 
+    if (embeddedLfm3Enabled) {
+        // Opt-in until the native model can be profiled on a physical Samsung device.
+        ndkVersion "29.0.13113456"
+        defaultConfig {
+            ndk { abiFilters 'arm64-v8a' }
+            externalNativeBuild {
+                cmake {
+                    arguments '-DGGML_NATIVE=OFF', '-DGGML_OPENMP=OFF', '-DLLAMA_OPENSSL=OFF'
+                }
+            }
+        }
+        externalNativeBuild {
+            cmake {
+                path file("src/main/cpp/CMakeLists.txt")
+                version "3.31.6"
+            }
+        }
+    }
+
     splits {
         abi {
             enable true
             reset()
-            include 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+            if (embeddedLfm3Enabled) include 'arm64-v8a'
+            else include 'arm64-v8a', 'armeabi-v7a', 'x86_64'
             universalApk false
         }
     }
