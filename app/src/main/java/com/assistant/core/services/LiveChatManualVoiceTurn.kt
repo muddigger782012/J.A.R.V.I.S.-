@@ -43,11 +43,17 @@ internal class LiveChatManualVoiceTurn {
      * transcript only. Preserve the host's established direct-address behavior,
      * and never grant command-routing authority to an unaddressed utterance.
      */
-    fun decide(token: Long, ambient: AmbientParticipationPolicy.Decision): AmbientParticipationPolicy.Decision {
+    fun decide(
+        token: Long,
+        ambient: AmbientParticipationPolicy.Decision,
+        onManualConversation: () -> Unit = {}
+    ): AmbientParticipationPolicy.Decision {
         val manuallyRequested = consume(token)
-        return if (manuallyRequested && ambient == AmbientParticipationPolicy.Decision.OBSERVE)
-            AmbientParticipationPolicy.Decision.OFFER_HELP
-        else ambient
+        if (manuallyRequested && ambient == AmbientParticipationPolicy.Decision.OBSERVE) {
+            onManualConversation()
+            return AmbientParticipationPolicy.Decision.OFFER_HELP
+        }
+        return ambient
     }
 
     fun cancelled(token: Long) {
