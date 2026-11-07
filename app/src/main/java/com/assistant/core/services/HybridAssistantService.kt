@@ -73,6 +73,7 @@ class HybridAssistantService(
     private val directOnlineClient = DirectOnlineClient(systemService.context())
     private val assistantConnections = AssistantConnections(systemService.context())
     private val fallbackAiClient = FallbackAiClient(systemService.context())
+    private val localLfm3Client = LocalLfm3Client(systemService.context())
     private val responseTurns = AssistantResponseTurns()
     private val developmentInstallConsent = DevelopmentInstallConsent()
     private val intelligencePrefs get() = RuntimeSettings.read(systemService.context(), "jarvis_cloud_ai")
@@ -202,7 +203,8 @@ class HybridAssistantService(
                 return HybridAssistantReply(IntelligenceRouting.status(
                     IntelligenceRouting.selected(intelligencePrefs.getString("primary_provider", "gemini")),
                     intelligencePrefs.getBoolean("provider_fallback", true), directOnlineClient.hasGeminiKey(),
-                    fallbackAiClient.isConfigured(), intelligencePrefs.getString("gemini_model", GeminiModelDiscovery.DEFAULT_MODEL).orEmpty()))
+                    fallbackAiClient.isConfigured(), intelligencePrefs.getString("gemini_model", GeminiModelDiscovery.DEFAULT_MODEL).orEmpty(),
+                    localLfm3Client.isConfigured(), localLfm3Client.selectedVariant().label))
             }
             ConnectionAssistance.parse(userInput)?.let { command ->
                 clearPendingActionPrompts()
@@ -1369,6 +1371,7 @@ class HybridAssistantService(
             val configured = buildSet {
                 if (directOnlineClient.hasGeminiKey()) add(IntelligenceRouting.Provider.GEMINI)
                 if (fallbackAiClient.isConfigured()) add(IntelligenceRouting.Provider.GATEWAY)
+                if (localLfm3Client.isConfigured()) add(IntelligenceRouting.Provider.LOCAL_LFM3)
             }
             val routed = IntelligenceRouting.ask(
                 IntelligenceRouting.selected(intelligencePrefs.getString("primary_provider", "gemini")),
@@ -1378,6 +1381,8 @@ class HybridAssistantService(
                 when (provider) {
                     IntelligenceRouting.Provider.GEMINI ->
                         directOnlineClient.geminiTextReply(safeQuestion, context)
+                    IntelligenceRouting.Provider.LOCAL_LFM3 ->
+                        localLfm3Client.ask(safeQuestion + if (context.isEmpty()) "" else "\\nConversation context:\\n$context")
                     IntelligenceRouting.Provider.GATEWAY ->
                         fallbackAiClient.ask(
                             safeQuestion + if (context.isEmpty()) "" else "\nConversation context:\n$context",
@@ -1786,6 +1791,7 @@ class HybridAssistantService(
             val configured = buildSet {
                 if (directOnlineClient.hasGeminiKey()) add(IntelligenceRouting.Provider.GEMINI)
                 if (fallbackAiClient.isConfigured()) add(IntelligenceRouting.Provider.GATEWAY)
+                if (localLfm3Client.isConfigured()) add(IntelligenceRouting.Provider.LOCAL_LFM3)
             }
             IntelligenceRouting.ask(IntelligenceRouting.selected(intelligencePrefs.getString("primary_provider", "gemini")),
                 intelligencePrefs.getBoolean("provider_fallback", true), configured, responseTurns::current) { provider ->
@@ -1793,6 +1799,7 @@ class HybridAssistantService(
                     IntelligenceRouting.Provider.GEMINI -> directOnlineClient.assistant(userText, getConversationSnapshot(), ContextualAction.aiContext(assistantMemory))
                     IntelligenceRouting.Provider.GATEWAY -> fallbackAiClient.ask(userText,
                         capabilityContext = ContextualAction.aiContext(assistantMemory), conversation = conversationTurns())
+                    IntelligenceRouting.Provider.LOCAL_LFM3 -> localLfm3Client.ask(userText, conversationTurns())
                 }
             }.answer
         } else InterpretationFallback.ask({ directOnlineClient.assistant(userText, getConversationSnapshot(), ContextualAction.aiContext(assistantMemory)) })
