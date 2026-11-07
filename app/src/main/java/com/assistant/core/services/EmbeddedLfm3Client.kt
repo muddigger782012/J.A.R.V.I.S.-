@@ -34,18 +34,41 @@ internal object EmbeddedLfm3Native {
 
 /** Trim history first, preserving the newest user question in every on-device prompt. */
 internal object EmbeddedLfm3Prompt {
-    const val MAX_PROMPT_CHARS = 11_000
-    const val MAX_QUESTION_CHARS = 6_000
+    const val MAX_PROMPT_BYTES = 11_000
+    const val MAX_QUESTION_BYTES = 6_000
+
+    /** Keep Unicode code points intact while respecting native UTF-8 byte limits. */
+    private fun boundedUtf8(input: String, bytesLimit: Int): String {
+        val out = StringBuilder()
+        var bytesUsed = 0
+        var index = 0
+        while (index < input.length) {
+            val cp = Character.codePointAt(input, index)
+            val bytes = when {
+                cp <= 0x7F -> 1
+                cp <= 0x7FF -> 2
+                cp <= 0xFFFF -> 3
+                else -> 4
+            }
+            if (bytesUsed + bytes > bytesLimit) break
+            out.appendCodePoint(cp)
+            bytesUsed += bytes
+            index += Character.charCount(cp)
+        }
+        return out.toString()
+    }
+
     fun compose(question: String, conversation: List<Pair<String, String>>): String {
-        val latest = "\nUser: " + question.take(MAX_QUESTION_CHARS)
-        val historyBudget = (MAX_PROMPT_CHARS - latest.length).coerceAtLeast(0)
-        var remaining = historyBudget
+        val latest = "\nUser: " + boundedUtf8(question, MAX_QUESTION_BYTES)
+        var remaining = (MAX_PROMPT_BYTES - latest.toByteArray(Charsets.UTF_8).size).coerceAtLeast(0)
         val selected = mutableListOf<String>()
         for ((user, response) in conversation.asReversed().take(5)) {
-            val turn = "\nUser: " + user.take(800) + "\nJ.A.R.V.I.S.: " + response.take(800)
-            if (turn.length > remaining) break
+            val turn = "\nUser: " + boundedUtf8(user, 800) +
+                "\nJ.A.R.V.I.S.: " + boundedUtf8(response, 800)
+            val size = turn.toByteArray(Charsets.UTF_8).size
+            if (size > remaining) break
             selected.add(turn)
-            remaining -= turn.length
+            remaining -= size
         }
         return selected.asReversed().joinToString("") + latest
     }
