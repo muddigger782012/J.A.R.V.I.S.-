@@ -55,6 +55,50 @@ class LiveChatManualVoiceTurnTest {
         assertEquals(help, manual.decide(60L, observed))
     }
 
+    @Test fun aManualQuestionStartsAContextualTextOnlyFollowUpThread() {
+        var clock = 1_000L
+        val ambient = AmbientParticipationPolicy { clock }
+        val settings = LiveChatCompanionSettings(style = "companion", initiative = 55)
+        val manual = LiveChatManualVoiceTurn()
+        manual.requestNext()
+        manual.started(41L)
+        val initial = ambient.decide("My microphone is acting strange", settings)
+        assertEquals(observed, initial)
+        var explicitThreadStarted = 0
+        val override = manual.decide(41L, initial) {
+            explicitThreadStarted++
+            ambient.markManualConversation()
+        }
+        assertEquals(help, override)
+        assertEquals(1, explicitThreadStarted)
+
+        // Ordinary follow-up does not require "Hey Jarvis" again after a
+        // deliberate mic conversation, but still follows the text-only path.
+        clock += 1_800L
+        assertEquals(help, ambient.decide("And what should I try next?", settings))
+        clock += 1_800L
+        assertEquals(observed, ambient.decide("Open settings", settings))
+        assertEquals(observed, ambient.decide("Hand me that wrench", settings))
+        clock += 46_000L
+        assertEquals(observed, ambient.decide("What about that other one", settings))
+    }
+
+    @Test fun automaticObservationNeverCreatesManualConversationContext() {
+        var clock = 1_000L
+        val ambient = AmbientParticipationPolicy { clock }
+        val settings = LiveChatCompanionSettings(style = "companion", initiative = 55)
+        val manual = LiveChatManualVoiceTurn()
+        manual.started(20L)
+        var invoked = false
+        assertEquals(observed, manual.decide(20L, observed) {
+            invoked = true
+            ambient.markManualConversation()
+        })
+        assertFalse(invoked)
+        clock += 2_000L
+        assertEquals(observed, ambient.decide("What about that other one", settings))
+    }
+
     @Test fun abandonedTapNeverCarriesIntoNextLiveSession() {
         val manual = LiveChatManualVoiceTurn()
         manual.requestNext()
