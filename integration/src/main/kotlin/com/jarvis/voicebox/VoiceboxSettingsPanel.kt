@@ -19,11 +19,11 @@ class VoiceboxSettingsPanel(context: Context, textColor: Int) : LinearLayout(con
         label("Voicebox")
         label("Speech is sent to your Voicebox host. Use HTTPS for another computer. Localhost means this device. Create voices and install models in Voicebox first.")
         enabled.text = "Use Voicebox for spoken replies"; enabled.isChecked = config.enabled
-        enabled.setTextColor(textColor); enabled.minHeight = 48
+        enabled.setTextColor(textColor); enabled.minHeight = (48 * resources.displayMetrics.density).toInt()
         addView(enabled)
         host.hint = "Voicebox host URL"; host.setText(config.endpoint)
         profile.hint = "Voice profile name or ID"; profile.setText(config.profile)
-        listOf(host, profile).forEach { it.setTextColor(textColor); it.setHintTextColor(textColor); it.minHeight = 48; it.setSingleLine(); addView(it) }
+        listOf(host, profile).forEach { it.setTextColor(textColor); it.setHintTextColor(textColor); it.minHeight = (48 * resources.displayMetrics.density).toInt(); it.setSingleLine(); addView(it) }
         host.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
         status.setTextColor(textColor); status.accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE
         fun save(): Boolean = runCatching {
@@ -50,6 +50,18 @@ class VoiceboxSettingsPanel(context: Context, textColor: Int) : LinearLayout(con
         } })
         addView(Button(context).apply { text = "Stop Voicebox playback"; setOnClickListener { speech.stop(); status.text = "Playback stopped" } })
         addView(status)
+        val form = LinearLayout(context).apply { orientation = VERTICAL; visibility = GONE }
+        while (childCount > 0) {
+            val child = getChildAt(0)
+            removeViewAt(0)
+            form.addView(child)
+        }
+        addView(Button(context).apply {
+            text = "Voicebox settings"
+            contentDescription = "Expand or collapse Voicebox settings"
+            setOnClickListener { form.visibility = if (form.visibility == GONE) VISIBLE else GONE }
+        })
+        addView(form)
     }
     fun stop() { revision++; speech.stop() }
     fun close() { closed = true; revision++; speech.shutdown() }
