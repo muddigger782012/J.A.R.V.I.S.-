@@ -23,6 +23,17 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         lastAmbientAnswerAt = null
     }
 
+    /**
+     * An explicit microphone press that resulted in a conversational (text-only)
+     * reply can start a short natural follow-up thread. No speaker identity or
+     * permission to execute phone commands is inferred from this interaction.
+     */
+    fun markManualConversation() {
+        val now = elapsedMillis()
+        addressedAt = now
+        lastAmbientAnswerAt = now
+    }
+
     fun decide(
         transcript: String,
         settings: LiveChatCompanionSettings,
