@@ -151,8 +151,41 @@ object AiConnectionSettings {
             text = "Try the other configured provider if the primary fails"
             isChecked = gatewayPrefs.getBoolean("provider_fallback", true)
         }
+        var localVariant = com.assistant.core.services.LocalLfm3Models.selected(gatewayPrefs.getString("lfm3_variant", "atomic"))
+        val localEnabled = SwitchMaterial(activity).apply {
+            text = "Enable on-phone LFM3 runtime (Personal only)"
+            isChecked = gatewayPrefs.getBoolean("lfm3_enabled", false)
+        }
+        val localModelChoice = com.google.android.material.button.MaterialButton(activity).apply {
+            text = "Local GGUF: " + localVariant.label
+            setOnClickListener {
+                val variants = com.assistant.core.services.LocalLfm3Models.variants
+                ThemedDialogBuilder(activity).setTitle("Choose uncensored LFM3 variant")
+                    .setSingleChoiceItems(variants.map { it.label }.toTypedArray(), variants.indexOf(localVariant)) { picker, index ->
+                        localVariant = variants[index]
+                        text = "Local GGUF: " + localVariant.label
+                        picker.dismiss()
+                    }.setNegativeButton("Cancel", null).show()
+            }
+        }
+        val localPort = EditText(activity).apply {
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(gatewayPrefs.getString("lfm3_port", "8080"))
+            hint = "8080"
+        }
         if (personal) {
             fields.addView(providerChoice); fields.addView(providerFallback)
+            fields.addView(localEnabled)
+            fields.addView(localModelChoice)
+            fields.addView(TextView(activity).apply {
+                text = "The selected GGUF must be loaded by llama-server running ON THIS PHONE, with model alias '" +
+                    localVariant.alias + "' (see docs/PERSONAL_LFM3.md). Choosing a variant does not download or start it. " +
+                    "LFM3 can answer freely, but phone actions still require host approval."
+                textSize = 12f
+            })
+            fields.addView(TextView(activity).apply { text = "On-phone llama-server port (127.0.0.1 only)" })
+            fields.addView(localPort)
             fields.addView(TextView(activity).apply {
                 text = "Supported local commands run first. Provider selection applies to complex conversation; attachments and Google Search grounding use Gemini. Your gateway uses its server-selected model. No subscription or cost-based routing limits apply to Personal Jarvis."
                 textSize = 12f
@@ -197,6 +230,9 @@ object AiConnectionSettings {
                     (lat.toDoubleOrNull()?.let { it.isFinite() && it in -90.0..90.0 } != true ||
                      lon.toDoubleOrNull()?.let { it.isFinite() && it in -180.0..180.0 } != true)) {
                     latitude.error = "Enter valid latitude and longitude together"
+                } else if (personal && localEnabled.isChecked &&
+                    com.assistant.core.services.LocalLfm3Models.port(localPort.text.toString().trim()) == null) {
+                    localPort.error = "Enter a port from 1024 to 65535"
                 } else if (!Regex("[a-zA-Z0-9._-]+").matches(geminiModel.text.toString().trim())) {
                     geminiModel.error = "Enter a valid Gemini model name"
                 } else {
@@ -205,7 +241,10 @@ object AiConnectionSettings {
                         return@setOnClickListener
                     }
                     if (personal) gatewayPrefs.edit().putString("primary_provider", primaryProvider.key)
-                        .putBoolean("provider_fallback", providerFallback.isChecked).apply()
+                        .putBoolean("provider_fallback", providerFallback.isChecked)
+                        .putString("lfm3_variant", localVariant.key)
+                        .putString("lfm3_port", localPort.text.toString().trim())
+                        .putBoolean("lfm3_enabled", localEnabled.isChecked).apply()
                     gatewayPrefs.edit().putBoolean("weather_device_location", deviceLocation.isChecked).putString("gemini_model", geminiModel.text.toString().trim()).putString("endpoint", url)
                         .putString("gateway_token", token.text.toString().trim())
                         .putString("weather_latitude", lat).putString("weather_longitude", lon).apply()
