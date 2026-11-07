@@ -112,6 +112,27 @@ The health route is available to both the Android client and a future
 native Windows Developer client. It never returns local host paths,
 API credentials, subprocess output or analysis evidence.
 
+## Offline APK inspection (no REA host needed)
+
+On Developer Home chat, use **+ APK** to select a local archive, then
+select **Inspect locally**. Android parses the archive manifest with
+`PackageManager.getPackageArchiveInfo` to display the package ID, version,
+SDK compatibility, requested permissions and declared components.
+
+- Runs **entirely on Android**: no upload, REA server, AI provider,
+  source write, APK installation, or runtime execution.
+- Binds the result to the selected APK SHA-256 and refuses changed bytes.
+  The Android parser requires a private temporary cache file; it is deleted
+  immediately after parsing. No APK archive is retained by the inventory.
+- Requires an explicit user-selected APK. **Analyze APK** remains a separate
+  opt-in network upload to the authenticated REA/JADX host.
+- Describes manifest declarations only. It cannot prove authenticity,
+  signatures, app safety, decompilation completeness or runtime behavior.
+
+The offline Android parser is a platform adapter. The future Windows client
+should implement an equivalent ZIP/binary-manifest parser for the same
+inventory contract, not call Android PackageManager from Windows.
+
 ## AI-assisted implementation handoff
 
 After REA evidence appears in chat, type a **specific Developer feature

@@ -104,8 +104,14 @@ class DeveloperHomeActivityIntegrationTest {
         val proposal = all(activity).filterIsInstance<Button>().single {
             it.tag == "developer-rea-proposal"
         }
+        val offline = all(activity).filterIsInstance<Button>().single {
+            it.tag == "developer-apk-inspect-offline"
+        }
         assertEquals("+ APK", picker.text.toString())
         assertTrue(picker.isShown)
+        assertEquals("Inspect locally", offline.text.toString())
+        assertFalse("No APK selected: offline inspect must be disabled", offline.isEnabled)
+        assertEquals(View.GONE, offline.visibility)
         assertEquals(View.GONE, analyze.visibility)
         assertEquals(View.GONE, proposal.visibility)
         assertFalse(analyze.isEnabled)

@@ -28,6 +28,7 @@ internal object ReaApkWorkbench {
         private val output: TextView,
         private val status: TextView,
         private val analyzeButton: Button,
+        private val localButton: Button,
         private val proposalButton: Button,
         private val attachmentNote: TextView,
         private val product: () -> Int,
@@ -53,6 +54,8 @@ internal object ReaApkWorkbench {
         private fun showControls() {
             analyzeButton.visibility = if (selected != null && !busy) View.VISIBLE else View.GONE
             analyzeButton.isEnabled = selected != null && !busy
+            localButton.visibility = if (selected != null && !busy) View.VISIBLE else View.GONE
+            localButton.isEnabled = selected != null && !busy
             proposalButton.visibility = if (report != null && !busy) View.VISIBLE else View.GONE
             proposalButton.isEnabled = report != null && !busy
         }
@@ -130,6 +133,38 @@ internal object ReaApkWorkbench {
                 }
             }
             return true
+        }
+
+        /** No REA connection, network, model or code-edit capability is used. */
+        fun inspectOffline() {
+            val apk = selected ?: return
+            if (product() != 0 || busy || !ready()) return
+            val ticket = ++generation
+            val projectAtStart = project()
+            busy = true
+            showControls()
+            message("Inspect selected APK manifest locally")
+            status.text = "Reading local APK manifest; no upload or app execution."
+            worker {
+                val result = runCatching {
+                    OfflineApkInventory.inspect(activity, apk)
+                }
+                activity.runOnUiThread {
+                    if (!current(ticket) || project() != projectAtStart) return@runOnUiThread
+                    busy = false
+                    result.onSuccess {
+                        output.text = it.display().take(12_000)
+                        status.text = "Offline APK manifest inventory complete; no APK uploaded."
+                        attachmentNote.text = "Local inventory completed. You can still tap " +
+                            "Analyze APK for deeper REA/JADX analysis using the configured host."
+                    }.onFailure {
+                        output.text = "The selected archive's Android manifest could not be parsed. " +
+                            "No package details were invented and no APK was uploaded."
+                        status.text = "Offline APK inspection failed safely."
+                    }
+                    showControls()
+                }
+            }
         }
 
         fun analyze() {
@@ -254,6 +289,15 @@ internal object ReaApkWorkbench {
             visibility = View.GONE
             isEnabled = false
         }
+        val inspectLocal = Button(activity).apply {
+            text = "Inspect locally"
+            isAllCaps = false
+            tag = "developer-apk-inspect-offline"
+            contentDescription = "Read selected APK manifest, permissions and components offline with no upload"
+            visibility = View.GONE
+            isEnabled = false
+        }
+        composer.addView(inspectLocal, composer.indexOfChild(actions))
         val propose = Button(activity).apply {
             text = "Prepare REA proposal"
             isAllCaps = false
@@ -263,8 +307,9 @@ internal object ReaApkWorkbench {
         }
         composer.addView(propose, composer.indexOfChild(actions))
         actions.addView(analyze, 0)
-        val handle = Handle(activity, prompt, output, status, analyze, propose, note,
+        val handle = Handle(activity, prompt, output, status, analyze, inspectLocal, propose, note,
             product, project, ready, message, prepare, onReview)
+        inspectLocal.setOnClickListener { handle.inspectOffline() }
         analyze.setOnClickListener { handle.analyze() }
         propose.setOnClickListener { handle.propose() }
         actions.addView(Button(activity).apply {
