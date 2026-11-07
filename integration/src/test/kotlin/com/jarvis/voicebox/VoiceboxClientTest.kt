@@ -1,24 +1,58 @@
 package com.jarvis.voicebox
 
-import com.sun.net.httpserver.HttpServer
-import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.InetAddress
+import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
 class VoiceboxClientTest {
     private fun serve(path: String, code: Int = 200, bytes: ByteArray, block: (VoiceboxClient, () -> String) -> Unit) {
-        var request = ""
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        server.createContext(path) { exchange ->
-            request = exchange.requestBody.bufferedReader().readText()
-            exchange.sendResponseHeaders(code, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
-        }
-        server.start()
-        try { block(VoiceboxClient("http://127.0.0.1:${server.address.port}")) { request } }
-        finally { server.stop(0) }
+        val request = AtomicReference("")
+        val fault = AtomicReference<Throwable?>()
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val worker = Thread {
+            try {
+                server.accept().use { socket ->
+                    socket.soTimeout = 5000
+                    val input = socket.getInputStream().buffered()
+                    fun line(): String {
+                        val out = java.io.ByteArrayOutputStream()
+                        while (true) {
+                            val next = input.read()
+                            if (next < 0 || next == 10) break
+                            if (next != 13) out.write(next)
+                        }
+                        return out.toString("UTF-8")
+                    }
+                    assertTrue(line().contains(" $path "))
+                    var size = 0
+                    while (true) {
+                        val header = line()
+                        if (header.isEmpty()) break
+                        if (header.startsWith("Content-Length:", ignoreCase = true))
+                            size = header.substringAfter(":").trim().toInt()
+                    }
+                    val body = ByteArray(size)
+                    var read = 0
+                    while (read < size) {
+                        val count = input.read(body, read, size - read)
+                        check(count > 0); read += count
+                    }
+                    request.set(String(body, Charsets.UTF_8))
+                    socket.getOutputStream().use { output ->
+                        output.write("HTTP/1.1 $code Result\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                        output.write(bytes)
+                    }
+                }
+            } catch (failure: Throwable) { fault.set(failure) }
+        }.apply { isDaemon = true; start() }
+        try { block(VoiceboxClient("http://127.0.0.1:${server.localPort}")) { request.get() } }
+        finally { server.close(); worker.join(1000) }
+        fault.get()?.let { throw AssertionError("Loopback HTTP fixture failed", it) }
     }
+
     @Test fun profilesUseActualHostAndPreserveNames() {
         serve("/profiles", bytes = """[{"id":"abc","name":"Brandon"}]""".toByteArray()) { client, _ ->
             assertEquals(listOf("abc" to "Brandon"), client.profiles())
