@@ -148,6 +148,56 @@ class ReaBridgeTests(unittest.TestCase):
                           f"print({report!r})\n", encoding="utf8")
         return str(script)
 
+
+    def fake_class_detail_rea(self, root, payload=None):
+        payload = payload or (
+            '{"normalized_result":{"class_name":"a.MainActivity",'
+            '"methods":[{"name":"onCreate","reported_signature":"onCreate(Bundle): void",'
+            '"overload_index":0}],"fields":[{"name":"count","reported_type":"int"}],'
+            '"inner_classes":["a.MainActivity$Inner"]}}'
+        )
+        script = Path(root, "mock-inspect-class.py")
+        script.write_text("#!/usr/bin/env python3\nimport sys\nfrom pathlib import Path\n"
+            "assert sys.argv[1] == 'inspect-android-class'\n"
+            "assert Path(sys.argv[2]).is_file()\n"
+            "assert sys.argv[3:] == ['a.MainActivity','--json']\n"
+            f"print({payload!r})\n", encoding="utf8")
+        return str(script)
+
+    def test_class_inspection_returns_exact_class_methods_and_fields(self):
+        with tempfile.TemporaryDirectory() as root:
+            report = bridge.inspect_apk_class(self.APK, self.DIGEST,
+                "a.MainActivity", sys.executable, self.fake_class_detail_rea(root))
+        self.assertEqual(report["schema"], bridge.CLASS_DETAIL_SCHEMA)
+        self.assertEqual(report["apk_sha256"], self.DIGEST)
+        self.assertEqual(report["class_name"], "a.MainActivity")
+        self.assertEqual(report["method_count"], 1)
+        self.assertEqual(report["methods"][0]["name"], "onCreate")
+        self.assertEqual(report["field_count"], 1)
+        self.assertEqual(report["fields"][0]["type"], "int")
+        self.assertEqual(report["inner_class_count"], 1)
+        self.assertEqual(len(report["evidence_sha256"]), 64)
+
+    def test_class_inspection_refuses_untrusted_selectors_and_fabricated_method_details(self):
+        for selector in ("", "a", "../bin", "a;id", "--help", "a.Class\nx", "a b"):
+            with self.subTest(selector=selector):
+                with self.assertRaises(bridge.BridgeError) as caught:
+                    bridge.inspect_apk_class(self.APK, self.DIGEST, selector, "/missing")
+                self.assertEqual(caught.exception.code, "CLASS_QUERY")
+        with tempfile.TemporaryDirectory() as root:
+            wrong = '{"normalized_result":{"class_name":"a.Other","methods":[],"fields":[],"inner_classes":[]}}'
+            with self.assertRaises(bridge.BridgeError) as caught:
+                bridge.inspect_apk_class(self.APK, self.DIGEST, "a.MainActivity",
+                    sys.executable, self.fake_class_detail_rea(root, wrong))
+        self.assertEqual(caught.exception.code, "REA_REPORT")
+        with tempfile.TemporaryDirectory() as root:
+            invalid = ('{"normalized_result":{"class_name":"a.MainActivity",'
+                       '"methods":[{"name":"run\nscript","reported_signature":"x",'
+                       '"overload_index":0}],"fields":[],"inner_classes":[]}}')
+            with self.assertRaises(bridge.BridgeError):
+                bridge.inspect_apk_class(self.APK, self.DIGEST, "a.MainActivity",
+                    sys.executable, self.fake_class_detail_rea(root, invalid))
+
     def test_class_search_is_apk_bound_with_fixed_command_and_evidence(self):
         with tempfile.TemporaryDirectory() as root:
             response = bridge.search_apk_classes(self.APK, self.DIGEST,

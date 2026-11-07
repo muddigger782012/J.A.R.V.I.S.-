@@ -317,6 +317,101 @@ def search_apk_classes(data, claimed_sha, query, rea_command="rea", rea_entry=No
         }
 
 
+CLASS_NAME = re.compile(r"^[A-Za-z0-9_.$]{2,240}$")
+CLASS_DETAIL_SCHEMA = "jarvis.rea.class-detail.v1"
+
+
+def inspect_apk_class(data, claimed_sha, name, rea_command="rea", rea_entry=None):
+    """Inspect one explicitly selected APK class. No arbitrary runtime commands."""
+    if not isinstance(name, str) or not CLASS_NAME.fullmatch(name):
+        raise BridgeError("CLASS_QUERY", "Invalid exact APK class name")
+    if len(data) < 4 or len(data) > MAX_APK or data[:4] not in (
+        b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"
+    ):
+        raise BridgeError("NOT_APK", "Expected a bounded APK archive")
+    digest = hashlib.sha256(data).hexdigest()
+    if not HEX.fullmatch(claimed_sha) or not hmac.compare_digest(digest, claimed_sha):
+        raise BridgeError("HASH_MISMATCH", "Selected APK hash did not match the upload")
+    validate_apk_archive(data)
+    with tempfile.TemporaryDirectory(prefix="jarvis-rea-class-detail-") as root:
+        apk = Path(root, "selected.apk")
+        apk.write_bytes(data)
+        os.chmod(apk, 0o600)
+        stdout_file = Path(root, "stdout.json")
+        command = rea_launcher(rea_command, rea_entry) + [
+            "inspect-android-class", str(apk), name, "--json"
+        ]
+        try:
+            with stdout_file.open("wb") as stdout:
+                process = subprocess.run(command, stdout=stdout,
+                    stderr=subprocess.DEVNULL, cwd=root, timeout=150, check=False)
+        except subprocess.TimeoutExpired:
+            raise BridgeError("REA_TIMEOUT", "Class inspection exceeded deadline", 504)
+        except OSError:
+            raise BridgeError("REA_UNAVAILABLE", "REA/JADX unavailable", 503)
+        if process.returncode != 0:
+            raise BridgeError("REA_FAILED", "REA/JADX class inspection failed", 502)
+        if not 1 <= stdout_file.stat().st_size <= MAX_REPORT:
+            raise BridgeError("REA_REPORT", "Invalid class detail report size", 502)
+        raw = stdout_file.read_bytes()
+        try:
+            envelope = json.loads(raw)
+        except (UnicodeDecodeError, ValueError):
+            raise BridgeError("REA_REPORT", "Invalid class detail JSON", 502)
+        if (not isinstance(envelope, dict) or envelope.get("isError") or
+                envelope.get("error") or envelope.get("ok") is False or
+                envelope.get("success") is False):
+            raise BridgeError("REA_REPORT", "Class inspection did not succeed", 502)
+        report = envelope.get("normalized_result")
+        if not isinstance(report, dict) or report.get("class_name") != name:
+            raise BridgeError("REA_REPORT", "Class detail identity mismatch", 502)
+        methods = report.get("methods")
+        fields = report.get("fields")
+        inner = report.get("inner_classes")
+        if (not isinstance(methods, list) or not isinstance(fields, list) or
+                not isinstance(inner, list) or
+                len(methods) > 10000 or len(fields) > 10000 or len(inner) > 10000):
+            raise BridgeError("REA_REPORT", "Class members missing or unbounded", 502)
+        def safe(value, limit=240):
+            return (isinstance(value, str) and 1 <= len(value) <= limit and
+                    not any(ord(ch) < 32 or ord(ch) == 127 for ch in value))
+        projected_methods = []
+        for method in methods:
+            if (not isinstance(method, dict) or
+                    not safe(method.get("name"), 180) or
+                    not safe(method.get("reported_signature"), 360) or
+                    type(method.get("overload_index")) is not int or
+                    method["overload_index"] < 0 or method["overload_index"] > 100000):
+                raise BridgeError("REA_REPORT", "Invalid reported method")
+            projected_methods.append({
+                "name": method["name"],
+                "signature": method["reported_signature"],
+                "overload_index": method["overload_index"]
+            })
+        projected_fields = []
+        for field in fields:
+            if (not isinstance(field, dict) or
+                    not safe(field.get("name"), 180) or
+                    not safe(field.get("reported_type"), 240)):
+                raise BridgeError("REA_REPORT", "Invalid reported class field")
+            projected_fields.append({
+                "name": field["name"], "type": field["reported_type"]
+            })
+        if any(not safe(item) for item in inner):
+            raise BridgeError("REA_REPORT", "Invalid inner class name")
+        return {
+            "schema": CLASS_DETAIL_SCHEMA, "state": "ANALYZED",
+            "apk_sha256": digest,
+            "evidence_sha256": hashlib.sha256(raw).hexdigest(),
+            "class_name": name, "method_count": len(methods),
+            "methods": projected_methods[:40], "field_count": len(fields),
+            "fields": projected_fields[:30], "inner_class_count": len(inner),
+            "truncated": len(methods) > 40 or len(fields) > 30,
+            "scope": "static-class-structure-only",
+            "limitations": "Static JADX members only; runtime behavior and complete source are not established."
+        }
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "JarvisREA/1"
     def _respond(self, status, result):
@@ -351,7 +446,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             LOCK.release()
 
     def do_POST(self):
-        if self.path not in ("/v1/apk/analyze", "/v1/apk/classes/search"):
+        if self.path not in ("/v1/apk/analyze", "/v1/apk/classes/search",
+                             "/v1/apk/classes/inspect"):
             return self._respond(404, {"error": "NOT_FOUND"})
         token = os.environ.get("JARVIS_REA_TOKEN", "")
         if not verify_token(self.headers.get("Authorization", ""), token):
@@ -370,7 +466,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             payload = self.rfile.read(length)
             if len(payload) != length:
                 raise BridgeError("TRUNCATED_UPLOAD", "Incomplete APK upload")
-            if self.path == "/v1/apk/classes/search":
+            if self.path == "/v1/apk/classes/inspect":
+                result = inspect_apk_class(payload,
+                    self.headers.get("X-APK-SHA256", "").strip(),
+                    self.headers.get("X-REA-CLASS-NAME", "").strip(),
+                    os.environ.get("JARVIS_REA_COMMAND", "rea"),
+                    os.environ.get("JARVIS_REA_ENTRY") or None)
+            elif self.path == "/v1/apk/classes/search":
                 result = search_apk_classes(payload,
                     self.headers.get("X-APK-SHA256", "").strip(),
                     self.headers.get("X-REA-CLASS-QUERY", "").strip(),
