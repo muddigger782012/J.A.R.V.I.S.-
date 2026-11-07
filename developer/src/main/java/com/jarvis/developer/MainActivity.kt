@@ -131,12 +131,12 @@ class MainActivity : Activity() {
         }
         val provider = android.widget.Spinner(this).apply {
             adapter = android.widget.ArrayAdapter(this@MainActivity,
-                android.R.layout.simple_spinner_dropdown_item, listOf("Gemini", "OpenAI"))
+                android.R.layout.simple_spinner_dropdown_item, listOf("Gemini", "OpenAI", "Strata"))
         }
         root.addView(provider)
         val model = field("Model ID (blank = provider default)")
         ProviderCredentialStore.load(this)?.let { (savedProvider, savedKey, savedModel) ->
-            provider.setSelection(if (savedProvider == "OpenAI") 1 else 0)
+            provider.setSelection(when (savedProvider) { "OpenAI" -> 1; "Strata" -> 2; else -> 0 })
             key.setText(savedKey)
             model.setText(savedModel)
         }
@@ -639,6 +639,12 @@ class MainActivity : Activity() {
             "GPT-4.1 nano — lightweight requests",
             "Custom model ID"
         )
+        val strataChoices = listOf("Automatic — use Strata server alias", "strata — standard model alias", "Custom model ID")
+        settings.addView(TextView(this).apply {
+            text = "Strata (Windows/Linux/Mac): enter https://HOST/v1#SHARING_KEY or http://192.168.x.x:8080/v1#SHARING_KEY in the credential field. The #SHARING_KEY is optional only for a server that does not require authentication. This value is encrypted on device."
+            textSize = 13f
+            setTextColor(getColor(R.color.developer_secondary))
+        })
         val modelPickerTitle = TextView(this).apply {
             text = "Choose an AI model"
             textSize = 16f
@@ -656,16 +662,17 @@ class MainActivity : Activity() {
         var updatingModelPicker = false
         fun refreshModelPicker() {
             val gemini = provider.selectedItem.toString() == "Gemini"
-            val choices = if (gemini) modelChoices else openAiChoices
+            val strata = provider.selectedItem.toString() == "Strata"
+            val choices = if (strata) strataChoices else if (gemini) modelChoices else openAiChoices
             val selectedId = model.text.toString().trim()
-            val ids = if (gemini)
+            val ids = if (strata) listOf("", "strata") else if (gemini)
                 listOf("", CodingAssistantProvider.DEFAULT_GEMINI_MODEL, "gemini-2.5-pro", "gemini-2.5-flash-lite")
             else listOf("", "gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano")
             updatingModelPicker = true
             modelPicker.adapter = android.widget.ArrayAdapter(this,
                 android.R.layout.simple_spinner_dropdown_item, choices)
             val match = ids.indexOf(selectedId)
-            modelPicker.setSelection(if (match >= 0) match else 4)
+            modelPicker.setSelection(if (match >= 0) match else choices.size - 1)
             modelDescription.text = if (match == 0) "Jarvis selects the provider's default model." else
                 if (match == -1) "Custom model: enter the exact model ID below." else
                     "Suggested use: ${choices[match].substringAfter(" — ", "automatic selection")}."
@@ -679,11 +686,16 @@ class MainActivity : Activity() {
                 if (updatingModelPicker) return
                 if (firstModelSelection) { firstModelSelection = false; refreshModelPicker(); return }
                 val gemini = provider.selectedItem.toString() == "Gemini"
-                val ids = if (gemini)
+            val strata = provider.selectedItem.toString() == "Strata"
+                val ids = if (strata) listOf("", "strata") else if (gemini)
                     listOf("", CodingAssistantProvider.DEFAULT_GEMINI_MODEL, "gemini-2.5-pro", "gemini-2.5-flash-lite")
                 else listOf("", "gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano")
                 if (position < ids.size) model.setText(ids[position])
-                modelDescription.text = when (position) {
+                modelDescription.text = if (strata) when (position) {
+                    0 -> "Uses the Strata server default model."
+                    1 -> "Selects the standard Strata model alias."
+                    else -> "Enter the model ID offered by the running Strata server."
+                } else when (position) {
                     0 -> "Recommended: automatically use the provider default."
                     1 -> if (gemini) "Fast everyday coding, chat, and project planning."
                          else "Fast coding assistance and beginner-friendly explanations."
@@ -699,8 +711,10 @@ class MainActivity : Activity() {
                 position: Int, id: Long) {
                 // Do not carry a Gemini model ID into an OpenAI request or vice versa.
                 val current = model.text.toString().trim()
-                if ((position == 0 && current.startsWith("gpt-")) ||
-                    (position == 1 && current.startsWith("gemini-"))) model.text.clear()
+                if ((position == 0 && (current.startsWith("gpt-") || current == "strata")) ||
+                    (position == 1 && (current.startsWith("gemini-") || current == "strata")) ||
+                    (position == 2 && (current.startsWith("gemini-") || current.startsWith("gpt-")))) model.text.clear()
+                key.hint = if (position == 2) "Strata server URL#sharing-key" else "Paste provider API key here"
                 refreshModelPicker()
                 updateConnectionSetup()
                 credentialStatus.text = connectionVerification.detail
@@ -725,7 +739,7 @@ class MainActivity : Activity() {
         sectionIntro(advanced, "Assistant and development tools",
             "Describe a change on Home to ask Jarvis for help. Here you can review code, check builds, and use advanced development tools.")
         sectionIntro(settings, "Connect your AI",
-            "Choose Gemini or OpenAI, enter your API key, then tap Save connection. The key is encrypted on this device.")
+            "Choose Gemini, OpenAI or Strata. Strata uses a local/remote server URL and optional sharing key; encrypted credentials stay on your device.")
         val developmentInbox = DevelopmentInboxWorkbench.attach(this, activityPage, settings, patchWorkbench,
             { githubToken.text.toString().trim() }, savedInstanceState?.getBundle("developer_job_history"),
             { artifactReviewJob = null }) { review ->
