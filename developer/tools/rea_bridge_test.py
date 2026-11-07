@@ -1,5 +1,7 @@
 """Executable, dependency-free contract tests for the REA sidecar."""
 import hashlib
+import io
+import zipfile
 import http.client
 import importlib.util
 import json
@@ -17,8 +19,17 @@ bridge = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge)
 
 
+
+def make_apk(entries):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, contents in entries:
+            archive.writestr(name, contents)
+    return buffer.getvalue()
+
+
 class ReaBridgeTests(unittest.TestCase):
-    APK = b"PK\x03\x04" + b"test-fixture-not-an-executable-app"
+    APK = make_apk([("AndroidManifest.xml", b"test-xml-stub"), ("classes.dex", b"test-dex-stub")])
     DIGEST = hashlib.sha256(APK).hexdigest()
 
     def fake_rea(self, directory, result='{"normalized_result":{"package":"example.test"}}'):
@@ -78,8 +89,35 @@ class ReaBridgeTests(unittest.TestCase):
         self.assertEqual(report["apk_sha256"], self.DIGEST)
         self.assertIn("normalized_result", report["excerpt"])
         self.assertFalse(report["truncated"])
+        self.assertEqual(report["archive_entries"], 2)
+        self.assertGreater(report["archive_uncompressed_bytes"], 0)
         self.assertEqual(len(report["evidence_sha256"]), 64)
         self.assertIn("not proven", report["limitations"])
+
+
+    def test_archive_preflight_refuses_missing_manifest_traversal_duplicates_and_broken_zip(self):
+        candidates = [
+            make_apk([("classes.dex", b"no manifest")]),
+            make_apk([("../AndroidManifest.xml", b"unsafe path")]),
+            make_apk([("AndroidManifest.xml", b"ok"), ("../payload", b"unsafe path")]),
+            make_apk([("AndroidManifest.xml", b"ok"), ("AndroidManifest.xml", b"duplicate")]),
+            b"PK\x03\x04not-an-actual-zip",
+        ]
+        for payload in candidates:
+            with self.subTest(sha256=hashlib.sha256(payload).hexdigest()):
+                with self.assertRaises(bridge.BridgeError) as raised:
+                    bridge.analyze_apk(payload, hashlib.sha256(payload).hexdigest(), "/missing")
+                self.assertEqual(raised.exception.code, "APK_ARCHIVE")
+
+    def test_archive_preflight_enforces_counts_and_declared_size_bounds(self):
+        with patch.object(bridge, "MAX_ARCHIVE_ENTRIES", 1):
+            with self.assertRaises(bridge.BridgeError) as raised:
+                bridge.analyze_apk(self.APK, self.DIGEST, "/missing")
+            self.assertEqual(raised.exception.code, "APK_ARCHIVE")
+        with patch.object(bridge, "MAX_UNCOMPRESSED", 4):
+            with self.assertRaises(bridge.BridgeError) as raised:
+                bridge.analyze_apk(self.APK, self.DIGEST, "/missing")
+            self.assertEqual(raised.exception.code, "APK_ARCHIVE")
 
     def test_invalid_apk_size_and_wrong_sha_refused_before_launch(self):
         with self.assertRaisesRegex(bridge.BridgeError, "ZIP-format"):

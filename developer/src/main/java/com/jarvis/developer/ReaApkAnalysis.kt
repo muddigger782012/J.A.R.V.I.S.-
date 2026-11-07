@@ -24,12 +24,16 @@ internal object ReaApkAnalysis {
         val size: Int get() = bytes.size
     }
     data class Report(val apkSha256: String, val evidenceSha256: String,
-        val excerpt: String, val truncated: Boolean) {
+        val excerpt: String, val truncated: Boolean,
+        val archiveEntries: Int? = null, val archiveDeclaredBytes: Long? = null) {
         fun display(): String = buildString {
             append("REA static APK evidence (not executable verification)\n")
             append("APK SHA-256: $apkSha256\nREA output SHA-256: $evidenceSha256\n")
             append(if (truncated) "Partial REA evidence excerpt; full temporary host evidence is deleted after the job.\n"
                 else "REA summary excerpt returned in full.\n")
+            if (archiveEntries != null && archiveDeclaredBytes != null) {
+                append("APK ZIP directory: $archiveEntries entries; $archiveDeclaredBytes declared uncompressed bytes (not extracted).\n")
+            }
             append("No runtime behavior, APK authenticity, or source edit is established.\n\n")
             append(excerpt)
         }
@@ -99,7 +103,16 @@ internal object ReaApkAnalysis {
             "REA evidence is missing or exceeds the allowed display limit."
         }
         require(json.getString("scope") == "static-reverse-engineering-only")
-        return Report(sha, evidence, excerpt, json.getBoolean("truncated"))
+        val archiveEntries = if (json.has("archive_entries")) json.getInt("archive_entries") else null
+        val archiveDeclaredBytes = if (json.has("archive_uncompressed_bytes"))
+            json.getLong("archive_uncompressed_bytes") else null
+        require((archiveEntries == null) == (archiveDeclaredBytes == null) &&
+            (archiveEntries == null || archiveEntries in 1..20000) &&
+            (archiveDeclaredBytes == null || archiveDeclaredBytes in 0L..(768L * 1024L * 1024L))) {
+            "REA archive preflight metadata is inconsistent or unbounded."
+        }
+        return Report(sha, evidence, excerpt, json.getBoolean("truncated"),
+            archiveEntries, archiveDeclaredBytes)
     }
 
     /** A cross-platform authenticated preflight. Sends NO APK bytes. */

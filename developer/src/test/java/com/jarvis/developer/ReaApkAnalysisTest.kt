@@ -15,7 +15,9 @@ class ReaApkAnalysisTest {
             .put("evidence_sha256", "b".repeat(64))
             .put("scope", scope)
             .put("excerpt", "{\"normalized_result\":{\"package\":\"com.example.apk\"}}")
-            .put("truncated", false).toString()
+            .put("truncated", false)
+            .put("archive_entries", 2)
+            .put("archive_uncompressed_bytes", 16384).toString()
 
     @Test fun onlyTrustedHttpsOriginsCanBeConfigured() {
         assertEquals("https://trusted.example.com/v1/apk/analyze",
@@ -58,6 +60,9 @@ class ReaApkAnalysisTest {
         assertTrue(report.display().contains("APK SHA-256: $digest"))
         assertTrue(report.display().contains("not executable verification"))
         assertFalse(report.truncated)
+        assertEquals(2, report.archiveEntries)
+        assertEquals(16384L, report.archiveDeclaredBytes)
+        assertTrue(report.display().contains("declared uncompressed bytes"))
     }
 
     @Test fun wrongHashOrFakeScopeCannotBePromotedToCodeContext() {
@@ -82,6 +87,22 @@ class ReaApkAnalysisTest {
         assertTrue(task.contains("complete diff needs separate explicit owner approval"))
         assertThrows(Exception::class.java) { report.sourceProposalTask("") }
         assertThrows(Exception::class.java) { report.sourceProposalTask("x".repeat(1201)) }
+    }
+
+    @Test fun archivePreflightClaimsMustBeBoundedAndPaired() {
+        val missing = JSONObject(response()).apply { remove("archive_uncompressed_bytes") }
+        val excessive = JSONObject(response()).put("archive_entries", 20001)
+        val negative = JSONObject(response()).put("archive_uncompressed_bytes", -1)
+        for (bad in listOf(missing, excessive, negative)) {
+            assertThrows(Exception::class.java) {
+                ReaApkAnalysis.validateResponse(bad.toString(), digest)
+            }
+        }
+        val backwardsCompatible = JSONObject(response()).apply {
+            remove("archive_entries")
+            remove("archive_uncompressed_bytes")
+        }
+        assertNull(ReaApkAnalysis.validateResponse(backwardsCompatible.toString(), digest).archiveEntries)
     }
 
     @Test fun invalidOrOversizedEvidenceCannotClaimAnAnalysis() {
