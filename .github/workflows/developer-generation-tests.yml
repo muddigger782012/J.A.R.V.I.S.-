@@ -14,6 +14,19 @@ on:
 permissions:
   contents: read
 jobs:
+  # Windows desktop compatibility is a protected contract. The sidecar is
+  # platform-neutral; Android remains only a client. This verifies the real
+  # Python HTTPS/CLI adapter through a Node-style interpreter entry on Windows.
+  rea-bridge-windows:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify Windows-compatible REA bridge protocol
+        run: python -m unittest discover -s developer/tools -p 'rea_bridge_test.py' -v
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 25
