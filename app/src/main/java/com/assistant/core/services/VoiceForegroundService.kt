@@ -558,12 +558,7 @@ class VoiceForegroundService : Service() {
                             hybridAssistantService.clearAmbientConversation()
                         }
                         val automaticDecision = ambientParticipation.decide(text, companionSettings)
-                        val participation = if (manualVoiceTurn.consume(turn) &&
-                            automaticDecision == AmbientParticipationPolicy.Decision.OBSERVE)
-                            // Manually requested conversation is always heard, but
-                            // unaddressed speech stays on the text-only route.
-                            AmbientParticipationPolicy.Decision.OFFER_HELP
-                        else automaticDecision
+                        val participation = manualVoiceTurn.decide(turn, automaticDecision)
                         // Ambient observations must never reach command execution or the AI router.
                         // STOP remains a reliable explicit exit even in Quiet mode.
                         if (participation == AmbientParticipationPolicy.Decision.OBSERVE &&
