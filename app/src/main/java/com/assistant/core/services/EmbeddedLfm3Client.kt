@@ -10,11 +10,20 @@ import java.io.File
  * claim this capability merely because a model was downloaded.
  */
 internal object EmbeddedLfm3Native {
+    @Volatile private var libraryLoaded = false
     val available: Boolean by lazy {
         BuildConfig.EMBEDDED_LFM3 && runCatching {
             System.loadLibrary("jarvis_lfm3")
+            libraryLoaded = true
             true
         }.getOrDefault(false)
+    }
+    // Speech interruption must never load a large native library on the mic/UI thread.
+    fun cancelIfLoaded() {
+        if (libraryLoaded) runCatching { nativeCancel() }
+    }
+    fun unloadIfLoaded() {
+        if (libraryLoaded) runCatching { nativeUnload() }
     }
     external fun nativeInit(nativeLibraryDir: String): Boolean
     external fun nativeLoad(modelPath: String): Boolean
@@ -120,11 +129,11 @@ class EmbeddedLfm3Client(private val context: Context) {
     }
 
     fun cancel() {
-        if (binaryIncluded()) runCatching { EmbeddedLfm3Native.nativeCancel() }
+        if (personal && BuildConfig.EMBEDDED_LFM3) EmbeddedLfm3Native.cancelIfLoaded()
     }
     fun unload() {
-        if (binaryIncluded()) synchronized(EmbeddedLfm3Native) {
-            runCatching { EmbeddedLfm3Native.nativeUnload() }
+        if (personal && BuildConfig.EMBEDDED_LFM3) synchronized(EmbeddedLfm3Native) {
+            EmbeddedLfm3Native.unloadIfLoaded()
             verifiedIdentity = null
         }
     }
