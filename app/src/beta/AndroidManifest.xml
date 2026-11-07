@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" tools:node="remove" />
+    <!-- Personal bridge is never bundled into the commercial Beta variant. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" tools:node="remove" />
+    <application>
+        <service android:name="com.assistant.core.services.PersonalJarvisBridgeService" tools:node="remove" />
+        <activity android:name="com.assistant.core.PersonalJarvisBridgeActivity" tools:node="remove" />
+    </application>
 </manifest>

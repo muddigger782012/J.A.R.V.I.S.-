@@ -45,6 +45,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- User-approved Settings.ACTION_MANAGE_WRITE_SETTINGS access, checked with Settings.System.canWrite.
@@ -111,6 +112,16 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_provider_paths" />
         </provider>
+        <!-- Personal-only opt-in localhost inference gateway; never exported. -->
+        <service
+            android:name=".services.PersonalJarvisBridgeService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-controlled on-device AI provider connection to another Android app" />
+        </service>
         <service
             android:name=".services.VoiceForegroundService"
             android:enabled="true"
@@ -144,6 +155,7 @@
                 android:name="android.voice_interaction"
                 android:resource="@xml/jarvis_voice_interaction_service" />
         </service>
+        <activity android:name=".PersonalJarvisBridgeActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".AmbientCompanionSettingsActivity" android:exported="false" />
         <activity android:name=".BetaIntroductionActivity" android:exported="false" />
