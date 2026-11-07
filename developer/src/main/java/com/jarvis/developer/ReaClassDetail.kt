@@ -27,7 +27,10 @@ internal object ReaClassDetail {
             append("\nREA evidence SHA-256: ").append(evidenceSha256)
             append("\nClass: ").append(className)
             append("\nMethods: ").append(methodCount)
-            methods.forEach { append("\n• ").append(it.signature) }
+            methods.forEach {
+                append("\n• ").append(it.name).append("#")
+                    .append(it.overloadIndex).append(" — ").append(it.signature)
+            }
             append("\nFields: ").append(fieldCount)
             fields.forEach { append("\n• ").append(it.name).append(": ").append(it.type) }
             append("\nInner classes: ").append(innerClassCount)
