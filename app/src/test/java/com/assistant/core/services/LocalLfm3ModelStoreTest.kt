@@ -40,6 +40,17 @@ class LocalLfm3ModelStoreTest {
         assertFalse(LocalLfm3DownloadRules.rangeAccepted(206, null, 100, 1000))
     }
 
+    @Test fun aCompletedPartialSkipsInvalidResumeRangeAndCanBeVerifiedLocally() {
+        val expected = 1_100_000_000L
+        assertTrue(LocalLfm3DownloadRules.transferComplete(expected, expected))
+        assertFalse(LocalLfm3DownloadRules.transferComplete(expected - 1, expected))
+        assertFalse(LocalLfm3DownloadRules.transferComplete(0, 0))
+        assertFalse(LocalLfm3DownloadRules.transferComplete(100, 100))
+        // A network resume at the full size must never be attempted (HTTP 416).
+        assertFalse(LocalLfm3DownloadRules.rangeAccepted(206,
+            "bytes 1100000000-1100000000/1100000000", expected, expected))
+    }
+
     @Test fun progressIsSafeForInvalidAndCompleteSizes() {
         assertEquals(0, LocalLfm3DownloadRules.progress(1, 0))
         assertEquals(0, LocalLfm3DownloadRules.progress(0, 1_000))
