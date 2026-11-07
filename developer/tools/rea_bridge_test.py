@@ -182,6 +182,94 @@ class ReaBridgeTests(unittest.TestCase):
             f"print({payload!r})\n", encoding="utf8")
         return str(script)
 
+
+    def fake_reference_rea(self, root, payload=None):
+        payload = payload or json.dumps({"normalized_result": {
+            "class_name": "a.MainActivity", "method_name": "onCreate",
+            "overload_index": 0, "total": 2,
+            "references": [{
+                "kind": "method", "name": "launch",
+                "reported_full_name": "a.Caller.launch()",
+                "containing_class": "a.Caller",
+                "direct_invokes_exhaustive": False
+            }, {
+                "kind": "method", "name": "run",
+                "reported_full_name": "a.Other.run()",
+                "containing_class": "a.Other",
+                "direct_invokes_exhaustive": None
+            }],
+            "coverage": "complete", "reference_unit": "using_node",
+            "direct_invokes_coverage": {
+                "complete_using_nodes": 0, "partial_using_nodes": 1,
+                "unknown_using_nodes": 1, "recorded_sites": 0
+            }
+        }})
+        script = Path(root, "mock-method-references.py")
+        script.write_text("#!/usr/bin/env python3\nimport sys\nfrom pathlib import Path\n"
+            "assert sys.argv[1] == 'trace-android-references'\n"
+            "assert Path(sys.argv[2]).is_file()\n"
+            "assert sys.argv[3:] == ['a.MainActivity','--method-name','onCreate',"
+            "'--overload-index','0','--json']\n"
+            f"print({payload!r})\n", encoding="utf8")
+        return str(script)
+
+    def test_method_references_are_bound_and_coverage_is_explicit(self):
+        with tempfile.TemporaryDirectory() as root:
+            result = bridge.trace_apk_method_references(self.APK, self.DIGEST,
+                "a.MainActivity", "onCreate", 0,
+                sys.executable, self.fake_reference_rea(root))
+        self.assertEqual(result["schema"], bridge.REFERENCE_SCHEMA)
+        self.assertEqual(result["apk_sha256"], self.DIGEST)
+        self.assertEqual(result["method_name"], "onCreate")
+        self.assertEqual(result["reference_count"], 2)
+        self.assertEqual(result["position_coverage"], "partial_or_unknown")
+        self.assertEqual(result["references"][0]["containing_class"], "a.Caller")
+
+    def test_method_references_reject_other_selector_or_false_coverage(self):
+        with tempfile.TemporaryDirectory() as root:
+            invalid = json.dumps({"normalized_result": {
+                "class_name":"a.MainActivity","method_name":"other","overload_index":0,
+                "total":0,"references":[],"coverage":"complete","reference_unit":"using_node"
+            }})
+            with self.assertRaises(bridge.BridgeError) as mismatch:
+                bridge.trace_apk_method_references(self.APK, self.DIGEST, "a.MainActivity",
+                    "onCreate", 0, sys.executable, self.fake_reference_rea(root, invalid))
+            self.assertEqual(mismatch.exception.code, "REA_REPORT")
+        with tempfile.TemporaryDirectory() as root:
+            bad = json.dumps({"normalized_result": {
+                "class_name":"a.MainActivity","method_name":"onCreate","overload_index":0,
+                "total":1,"references":[{"kind":"method","name":"bad\npath",
+                    "reported_full_name":"a.Caller.run","containing_class":"a.Caller"}],
+                "coverage":"complete","reference_unit":"using_node"
+            }})
+            with self.assertRaises(bridge.BridgeError):
+                bridge.trace_apk_method_references(self.APK, self.DIGEST, "a.MainActivity",
+                    "onCreate", 0, sys.executable, self.fake_reference_rea(root, bad))
+
+    def test_reference_trace_route_rejects_unsafe_overload_before_running_rea(self):
+        server = bridge.http.server.ThreadingHTTPServer(("127.0.0.1", 0), bridge.Handler)
+        worker = threading.Thread(target=server.handle_request, daemon=True)
+        worker.start()
+        try:
+            with patch.dict(os.environ, {"JARVIS_REA_TOKEN": "reference-tests-token-0123456789"}):
+                with patch.object(bridge, "trace_apk_method_references") as inspect:
+                    headers = {
+                        "Content-Type": "application/vnd.android.package-archive",
+                        "Authorization": "Bearer reference-tests-token-0123456789",
+                        "X-APK-SHA256": self.DIGEST, "X-REA-CLASS-NAME":"a.MainActivity",
+                        "X-REA-METHOD-NAME":"onCreate", "X-REA-OVERLOAD-INDEX":"--bad"
+                    }
+                    conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                    conn.request("POST", "/v1/apk/method/references", body=self.APK, headers=headers)
+                    response = conn.getresponse()
+                    self.assertEqual(response.status, 400)
+                    response.read()
+                    self.assertEqual(inspect.call_count, 0)
+                    conn.close()
+        finally:
+            server.server_close()
+            worker.join(timeout=3)
+
     def test_method_inspection_binds_apk_method_index_and_static_source(self):
         with tempfile.TemporaryDirectory() as root:
             result = bridge.inspect_apk_method(self.APK, self.DIGEST, "a.MainActivity",
