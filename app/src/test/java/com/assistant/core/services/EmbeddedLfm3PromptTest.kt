@@ -8,7 +8,7 @@ class EmbeddedLfm3PromptTest {
         val history = (0..20).map { i -> ("old user $i " + "x".repeat(3_000)) to ("old reply $i " + "z".repeat(3_000)) }
         val newest = "Please diagnose the new fuel-pressure issue. UNIQUE_LATEST_QUESTION"
         val prompt = EmbeddedLfm3Prompt.compose(newest, history)
-        assertTrue(prompt.length <= EmbeddedLfm3Prompt.MAX_PROMPT_CHARS)
+        assertTrue(prompt.length <= EmbeddedLfm3Prompt.MAX_PROMPT_BYTES)
         assertTrue(prompt.endsWith("\nUser: $newest"))
         assertFalse(prompt.contains("old user 0 "))
         assertTrue(prompt.contains("old user 20"))
@@ -26,9 +26,21 @@ class EmbeddedLfm3PromptTest {
     @Test fun aLongNewUserTurnHasPriorityOverPastConversation() {
         val question = "q".repeat(20_000)
         val prompt = EmbeddedLfm3Prompt.compose(question, listOf("past" to "answer"))
-        assertEquals(EmbeddedLfm3Prompt.MAX_QUESTION_CHARS, prompt.substringAfterLast("\nUser: ").length)
-        assertTrue(prompt.endsWith("q".repeat(EmbeddedLfm3Prompt.MAX_QUESTION_CHARS)))
-        assertTrue(prompt.length <= EmbeddedLfm3Prompt.MAX_PROMPT_CHARS)
+        assertEquals(EmbeddedLfm3Prompt.MAX_QUESTION_BYTES, prompt.substringAfterLast("\nUser: ").length)
+        assertTrue(prompt.endsWith("q".repeat(EmbeddedLfm3Prompt.MAX_QUESTION_BYTES)))
+        assertTrue(prompt.length <= EmbeddedLfm3Prompt.MAX_PROMPT_BYTES)
+    }
+
+    @Test fun emojiAndNonLatinSpeechRespectUtf8BudgetsWithoutBreakingCodePoints() {
+        val longUnicode = "🔧".repeat(4_000) + "🔍"
+        val question = "工具" + longUnicode
+        val history = (0..5).map { "older-日本語-$it" to "🛠️".repeat(600) }
+        val prompt = EmbeddedLfm3Prompt.compose(question, history)
+        assertTrue(prompt.toByteArray(Charsets.UTF_8).size <= EmbeddedLfm3Prompt.MAX_PROMPT_BYTES)
+        val latest = prompt.substringAfterLast("\nUser: ")
+        assertTrue(latest.startsWith("工具🔧"))
+        assertFalse(latest.contains("�"))
+        assertTrue(latest.toByteArray(Charsets.UTF_8).size <= EmbeddedLfm3Prompt.MAX_QUESTION_BYTES)
     }
 
     @Test fun supersededTurnCannotReturnAsCurrentConversationReply() {
