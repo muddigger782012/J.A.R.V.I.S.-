@@ -60,6 +60,10 @@ internal object ReaApkWorkbench {
         /** A changed task draft invalidates the proposal offer, not saved evidence. */
         fun invalidateOffer() {
             generation++
+            // A stale worker reply must never strand the composer in BUSY
+            // after a newer chat turn takes ownership of the conversation.
+            if (busy) selected = null
+            busy = false
             report = null
             showControls()
         }
@@ -78,6 +82,7 @@ internal object ReaApkWorkbench {
             // A dismissed Activity cannot accept a late analysis or source
             // selection. No network operation or approval is resumed later.
             generation++
+            if (busy) selected = null
             busy = false
             report = null
             showControls()
@@ -146,6 +151,9 @@ internal object ReaApkWorkbench {
                 val result = runCatching {
                     ReaApkAnalysis.analyze(configuration.first, configuration.second, apk)
                 }
+                // APK bytes are no longer needed once the HTTPS exchange
+                // terminates, even if the Activity has switched tasks.
+                apk.bytes.fill(0)
                 activity.runOnUiThread {
                     if (!current(ticket) || project() != projectAtStart) return@runOnUiThread
                     busy = false
