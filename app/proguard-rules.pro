@@ -14,3 +14,7 @@
 # NativeTtsCallback.Consumer is implemented in the separately compiled test APK.
 # R8 must not merge or rename this interface (ClassCastException at runtime).
 -keep interface com.assistant.core.services.NativeTtsCallback$Consumer { *; }
+
+# JNI exports use the exact EmbeddedLfm3Native JVM class/method names.
+# Do not let R8 rename the native entrypoints in production-signed releases.
+-keep class com.assistant.core.services.EmbeddedLfm3Native { *; }
