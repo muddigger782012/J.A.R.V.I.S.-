@@ -252,12 +252,14 @@ internal object ReaApkWorkbench {
             isAllCaps = false
             tag = "developer-rea-analyze"
             visibility = View.GONE
+            isEnabled = false
         }
         val propose = Button(activity).apply {
             text = "Prepare REA proposal"
             isAllCaps = false
             tag = "developer-rea-proposal"
             visibility = View.GONE
+            isEnabled = false
         }
         composer.addView(propose, composer.indexOfChild(actions))
         actions.addView(analyze, 0)
