@@ -2,12 +2,17 @@ package com.assistant.core.services
 
 /** Local handlers run before this router. Providers interpret; their text never executes a tool. */
 object IntelligenceRouting {
-    enum class Provider(val key: String, val label: String) { GEMINI("gemini", "Gemini"), GATEWAY("gateway", "your conversation gateway") }
+    enum class Provider(val key: String, val label: String) { GEMINI("gemini", "Gemini"), GATEWAY("gateway", "your conversation gateway"), LOCAL_LFM3("lfm3", "Local LFM3") }
     data class Routed(val answer: FallbackAiResult, val provider: Provider?, val attempted: List<Provider>)
     fun selected(value: String?) = Provider.values().firstOrNull { it.key == value } ?: Provider.GEMINI
     fun ask(primary: Provider, fallback: Boolean, configured: Set<Provider>, current: () -> Boolean = { true },
             request: (Provider) -> FallbackAiResult?): Routed {
-        val order = if (fallback) listOf(primary) + Provider.values().filter { it != primary } else listOf(primary)
+        // Cloud provider preference remains unchanged unless the owner selects local LFM3.
+        val order = if (!fallback) listOf(primary) else when (primary) {
+            Provider.GEMINI -> listOf(Provider.GEMINI, Provider.GATEWAY)
+            Provider.GATEWAY -> listOf(Provider.GATEWAY, Provider.GEMINI)
+            Provider.LOCAL_LFM3 -> listOf(Provider.LOCAL_LFM3, Provider.GEMINI, Provider.GATEWAY)
+        }
         val attempted = mutableListOf<Provider>()
         val failures = mutableListOf<Pair<Provider, String>>()
         for (provider in order) {
@@ -33,10 +38,11 @@ object IntelligenceRouting {
     fun modelLabel(model: String): String = model.takeIf {
         AiConnectionDiagnostics.validModel(it) && it.any(Char::isLowerCase) && !it.startsWith("ya29.")
     } ?: "unverified model ID"
-    fun status(primary: Provider, fallback: Boolean, gemini: Boolean, gateway: Boolean, model: String): String =
+    fun status(primary: Provider, fallback: Boolean, gemini: Boolean, gateway: Boolean, model: String, local: Boolean = false, localVariant: String = "not selected"): String =
         "Supported device commands, approved routines, memory and screen tasks are processed locally and do not require an AI key. Android permissions and an offline-capable speech recognizer are still needed for their respective functions. " +
         "Complex conversation uses ${primary.label} first. Gemini ${if (gemini) "is configured" else "needs an API key"}; its selected model is ${modelLabel(model)}. " +
         "The conversation gateway ${if (gateway) "is configured" else "needs an HTTPS endpoint and token"}; its model follows your server configuration. " +
+        "Local LFM3 ${if (local) "is enabled" else "needs an on-phone GGUF runtime and enabling in settings"}; selected variant: $localVariant. Model choice is not proof of a loaded GGUF. " +
         "Automatic provider fallback is ${if (fallback) "enabled" else "disabled"}. Configuration is not proof of current provider reachability."
 }
 
