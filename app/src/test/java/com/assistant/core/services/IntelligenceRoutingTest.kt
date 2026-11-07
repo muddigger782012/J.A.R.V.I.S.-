@@ -4,6 +4,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class IntelligenceRoutingTest {
+    @Test fun strataIsOptInAndDoesNotDisplaceExistingCloudPreference() {
+        val visited = mutableListOf<IntelligenceRouting.Provider>()
+        val strata = IntelligenceRouting.ask(IntelligenceRouting.Provider.STRATA, true,
+            setOf(IntelligenceRouting.Provider.STRATA, IntelligenceRouting.Provider.GEMINI)) {
+            visited += it
+            if (it == IntelligenceRouting.Provider.STRATA) FallbackAiResult("Local host answer", null)
+            else FallbackAiResult("Cloud fallback", null)
+        }
+        assertEquals(listOf(IntelligenceRouting.Provider.STRATA), visited)
+        assertEquals(IntelligenceRouting.Provider.STRATA, strata.provider)
+        val cloudOrder = mutableListOf<IntelligenceRouting.Provider>()
+        IntelligenceRouting.ask(IntelligenceRouting.Provider.GEMINI, true,
+            setOf(IntelligenceRouting.Provider.GEMINI, IntelligenceRouting.Provider.STRATA,
+                IntelligenceRouting.Provider.GATEWAY)) {
+            cloudOrder += it
+            FallbackAiResult("unavailable", null, providerFailed = true)
+        }
+        assertEquals(listOf(IntelligenceRouting.Provider.GEMINI, IntelligenceRouting.Provider.GATEWAY), cloudOrder)
+    }
     @Test fun routingStatusNeverEchoesCredentialsAccidentallyEnteredAsAModelId() {
         for (value in listOf("AIza-private-owner-key", "sk-private-owner-key", "github_pat_private", "PRIVATE_OWNER_TOKEN", "ya29.private-owner-token")) {
             val status = IntelligenceRouting.status(IntelligenceRouting.Provider.GEMINI, true, true, false, value)
