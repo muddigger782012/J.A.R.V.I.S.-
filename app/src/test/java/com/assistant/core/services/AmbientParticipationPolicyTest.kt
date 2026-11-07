@@ -297,6 +297,37 @@ class AmbientParticipationPolicyTest {
         assertEquals(0, invalid.initiative)
     }
 
+    @Test fun approved55CompanionRecognizesSpecificHelpRequestsWithoutRespondingToChatter() {
+        val settings = LiveChatCompanionSettings(style = "companion", initiative = 55)
+        for (spoken in listOf(
+            "I need help with the hydraulic pressure",
+            "I'm having trouble with this microphone",
+            "Any suggestions for the fuel-pressure test",
+            "I cannot get the engine to start",
+            "I'm struggling to understand these fault codes"
+        )) {
+            assertEquals(spoken, AmbientParticipationPolicy.Decision.OFFER_HELP,
+                AmbientParticipationPolicy { 1_000L }.decide(spoken, settings))
+        }
+        for (spoken in listOf(
+            "I need to grab a wrench",
+            "I like the way that engine sounds",
+            "Hand him a wrench",
+            "Open settings",
+            "Please delete the file"
+        )) {
+            assertEquals(spoken, AmbientParticipationPolicy.Decision.OBSERVE,
+                AmbientParticipationPolicy { 1_000L }.decide(spoken, settings))
+        }
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            AmbientParticipationPolicy { 1_000L }.decide(
+                "I need help with the hydraulic pressure", settings.copy(style = "quiet")))
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            AmbientParticipationPolicy { 1_000L }.decide(
+                "I need help with the hydraulic pressure", settings,
+                AmbientParticipationPolicy.Speaker.OTHER))
+    }
+
     @Test fun resetPreventsPreviousLiveSessionFromAnsweringFollowUps() {
         val policy = AmbientParticipationPolicy { 1000L }
         val settings = LiveChatCompanionSettings()
