@@ -326,6 +326,15 @@ class AmbientParticipationPolicyTest {
             AmbientParticipationPolicy { 1_000L }.decide(
                 "I need help with the hydraulic pressure", settings,
                 AmbientParticipationPolicy.Speaker.OTHER))
+        // Beta deliberately keeps its prior ambient participation behavior.
+        assertEquals(AmbientParticipationPolicy.Decision.OBSERVE,
+            AmbientParticipationPolicy { 1_000L }.decide(
+                "I need help with the hydraulic pressure", settings,
+                allowNaturalHelp = false))
+        assertEquals(AmbientParticipationPolicy.Decision.OFFER_HELP,
+            AmbientParticipationPolicy { 1_000L }.decide(
+                "I wonder why it's surging", settings,
+                allowNaturalHelp = false))
     }
 
     @Test fun resetPreventsPreviousLiveSessionFromAnsweringFollowUps() {
