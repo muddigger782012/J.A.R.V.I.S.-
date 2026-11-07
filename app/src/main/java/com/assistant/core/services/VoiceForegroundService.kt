@@ -558,7 +558,9 @@ class VoiceForegroundService : Service() {
                             hybridAssistantService.clearAmbientConversation()
                         }
                         val automaticDecision = ambientParticipation.decide(text, companionSettings)
-                        val participation = manualVoiceTurn.decide(turn, automaticDecision)
+                        val participation = manualVoiceTurn.decide(turn, automaticDecision) {
+                            ambientParticipation.markManualConversation()
+                        }
                         // Ambient observations must never reach command execution or the AI router.
                         // STOP remains a reliable explicit exit even in Quiet mode.
                         if (participation == AmbientParticipationPolicy.Decision.OBSERVE &&
