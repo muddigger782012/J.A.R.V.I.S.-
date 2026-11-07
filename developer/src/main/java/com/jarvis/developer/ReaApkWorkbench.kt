@@ -200,11 +200,11 @@ internal object ReaApkWorkbench {
                         status.text = "REA evidence received for exact APK hash; no source changed."
                         attachmentNote.text = "Static REA evidence is ready. Describe the specific " +
                             "Developer feature to implement, then tap Prepare proposal."
-                    }.onFailure {
+                    }.onFailure { error ->
                         report = null
-                        output.text = "REA analysis did not complete. Check HTTPS certificate, " +
-                            "bridge token, Node/JADX setup and connection. No evidence or code approval accepted."
-                        status.text = "REA unavailable or returned unverified evidence."
+                        output.text = ReaApkAnalysis.describeFailure(error) +
+                            "\nNo evidence, source change, or code approval was accepted."
+                        status.text = "REA analysis did not complete."
                         attachmentNote.text = "Choose the APK again to retry a failed analysis."
                     }
                     showControls()
@@ -398,9 +398,9 @@ internal object ReaApkWorkbench {
                         button.isEnabled = true
                         if (ProviderCredentialStore.loadRea(activity) != config) {
                             feedback.text = "REA settings changed. Previous health response discarded."
-                        } else feedback.text = result.getOrElse {
-                            "REA host unreachable or unauthorized. Verify TLS, token, Node and JADX. " +
-                                "No APK or code was uploaded."
+                        } else feedback.text = result.getOrElse { error ->
+                            ReaApkAnalysis.describeFailure(error) +
+                                " No APK or code was uploaded."
                         }
                     }
                 }

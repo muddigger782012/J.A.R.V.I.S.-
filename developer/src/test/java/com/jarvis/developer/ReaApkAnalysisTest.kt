@@ -90,6 +90,46 @@ class ReaApkAnalysisTest {
     }
 
 
+
+    @Test fun actionableReaBridgeErrorsAreSafeAndDoNotExposeHostText() {
+        val cases = mapOf(
+            "UNAUTHORIZED" to "token rejected",
+            "REA_BUSY" to "another job",
+            "APK_ARCHIVE" to "archive was rejected",
+            "REA_CONFIGURATION" to "cannot launch",
+            "REA_TIMEOUT" to "timed out",
+            "REA_REPORT" to "invalid or unsupported evidence"
+        )
+        for ((code, phrase) in cases) {
+            val body = JSONObject().put("error", code)
+                .put("message", "SECRET_HOST_PATH=/private/credentials").toString()
+            val error = ReaApkAnalysis.decodeHttpFailure(503, body)
+            assertEquals(code, error.code)
+            assertTrue(error.message.contains(phrase))
+            assertFalse(error.message.contains("SECRET_HOST_PATH"))
+        }
+        assertEquals("UNAUTHORIZED",
+            ReaApkAnalysis.decodeHttpFailure(401, "malformed").code)
+        assertEquals("REA_BUSY",
+            ReaApkAnalysis.decodeHttpFailure(429, null).code)
+        assertEquals("HTTP_ERROR",
+            ReaApkAnalysis.decodeHttpFailure(418, "x".repeat(5000)).code)
+    }
+
+    @Test fun transportFailuresGiveFocusedGuidanceWithoutLeakingExceptions() {
+        val tls = ReaApkAnalysis.describeFailure(
+            javax.net.ssl.SSLHandshakeException("SECRET_CERT_HOST_DETAILS"))
+        assertTrue(tls.contains("TLS failed"))
+        assertFalse(tls.contains("SECRET_CERT_HOST_DETAILS"))
+        val timeout = ReaApkAnalysis.describeFailure(
+            java.net.SocketTimeoutException("hidden host path"))
+        assertTrue(timeout.contains("timed out"))
+        assertFalse(timeout.contains("hidden host path"))
+        val generic = ReaApkAnalysis.describeFailure(
+            IllegalArgumentException("secret bearer token"))
+        assertFalse(generic.contains("secret bearer token"))
+    }
+
     @Test fun structuredSummaryIsShownBeforeRawEvidenceAndIncludedInProposal() {
         val summary = JSONObject()
             .put("package_name", "com.example.ownedtool").put("version_name", "2.1")
