@@ -37,7 +37,8 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
     fun decide(
         transcript: String,
         settings: LiveChatCompanionSettings,
-        speaker: Speaker = Speaker.UNKNOWN
+        speaker: Speaker = Speaker.UNKNOWN,
+        allowNaturalHelp: Boolean = true
     ): Decision {
         val words = transcript.trim()
         if (words.isEmpty()) return Decision.OBSERVE
@@ -77,7 +78,8 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
         // proof of the owner's identity: OFFER_HELP must NEVER use the device
         // action router, confirmations, or privilege-bearing commands.
         val permitted = speaker != Speaker.OTHER || preferences.replyToOtherSpeakers
-        val advisory = ADVISORY_PROMPT.containsMatchIn(words)
+        val advisory = ADVISORY_PROMPT.containsMatchIn(words) ||
+            (allowNaturalHelp && NATURAL_HELP_REQUEST.containsMatchIn(words))
         val question = CONVERSATIONAL_QUESTION.containsMatchIn(words)
         // During an explicitly opened Personal Live Chat, clear questions are
         // conversational requests even at the owner's 55% initiative setting.
@@ -131,7 +133,13 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
             RegexOption.IGNORE_CASE
         )
         private val ADVISORY_PROMPT = Regex(
-            """\b(?:i wonder (?:what|why|how)|i can'?t figure out (?:why|how|what)|what do you think|can someone help me understand|any ideas(?: why| how)?|any suggestions|any thoughts|what should (?:we|i) do|how (?:can|do) (?:i|we)|do you think (?:it|that)|could use (?:a hand|some help)|i (?:need|would like) (?:some )?help (?:with|understanding|figuring out)|i'?m (?:having trouble|struggling) (?:with|trying to|to)|i (?:can'?t|cannot) get (?:this|it|the [a-z]+|my [a-z]+) to (?:work|start|run))\b""",
+            """\b(?:i wonder (?:what|why|how)|i can'?t figure out (?:why|how|what)|what do you think|can someone help me understand|any ideas(?: why| how)?|what should (?:we|i) do|how (?:can|do) (?:i|we)|do you think (?:it|that)|could use (?:a hand|some help))\b""",
+            RegexOption.IGNORE_CASE
+        )
+        // Opt-in Personal companion extension; commercial Beta retains the
+        // pre-existing participation classifier and is unaffected by this list.
+        private val NATURAL_HELP_REQUEST = Regex(
+            """\b(?:any suggestions|any thoughts|i (?:need|would like) (?:some )?help (?:with|understanding|figuring out)|i'?m (?:having trouble|struggling) (?:with|trying to|to)|i (?:can'?t|cannot) get (?:this|it|the [a-z]+|my [a-z]+) to (?:work|start|run))\b""",
             RegexOption.IGNORE_CASE
         )
         private val CONVERSATIONAL_QUESTION = Regex(
