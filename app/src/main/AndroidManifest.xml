@@ -155,6 +155,7 @@
                 android:name="android.voice_interaction"
                 android:resource="@xml/jarvis_voice_interaction_service" />
         </service>
+        <activity android:name=".PersonalJarvisBridgeActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".AmbientCompanionSettingsActivity" android:exported="false" />
         <activity android:name=".BetaIntroductionActivity" android:exported="false" />
