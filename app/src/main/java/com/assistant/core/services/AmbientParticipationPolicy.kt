@@ -131,7 +131,7 @@ class AmbientParticipationPolicy(private val elapsedMillis: () -> Long = { Syste
             RegexOption.IGNORE_CASE
         )
         private val ADVISORY_PROMPT = Regex(
-            """\b(?:i wonder (?:what|why|how)|i can'?t figure out (?:why|how|what)|what do you think|can someone help me understand|any ideas(?: why| how)?|what should (?:we|i) do|how (?:can|do) (?:i|we)|do you think (?:it|that)|could use (?:a hand|some help))\b""",
+            """\b(?:i wonder (?:what|why|how)|i can'?t figure out (?:why|how|what)|what do you think|can someone help me understand|any ideas(?: why| how)?|any suggestions|any thoughts|what should (?:we|i) do|how (?:can|do) (?:i|we)|do you think (?:it|that)|could use (?:a hand|some help)|i (?:need|would like) (?:some )?help (?:with|understanding|figuring out)|i'?m (?:having trouble|struggling) (?:with|trying to|to)|i (?:can'?t|cannot) get (?:this|it|the [a-z]+|my [a-z]+) to (?:work|start|run))\b""",
             RegexOption.IGNORE_CASE
         )
         private val CONVERSATIONAL_QUESTION = Regex(
