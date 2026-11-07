@@ -95,6 +95,46 @@ class ReaBridgeTests(unittest.TestCase):
         self.assertIn("not proven", report["limitations"])
 
 
+
+    def test_summary_projector_handles_rea_summary_view_without_inventing_claims(self):
+        report = {"kind": "android-package-summary", "summary": {
+            "package_name": "com.example.ownedtool", "version_name": "2.1",
+            "min_sdk": "26", "target_sdk": "34",
+            "permissions": ["android.permission.CAMERA", "android.permission.INTERNET"],
+            "class_count": 437, "resource_count": 83,
+            "manifest": {"status": "partial"},
+            "components": {"status": "complete", "items": [
+                {"kind": "activity", "name": "com.example.ownedtool.Home"},
+                {"kind": "service", "name": "com.example.ownedtool.Sync"},
+            ]},
+        }}
+        summary = bridge.summarize_apk_evidence(report)
+        self.assertEqual(summary["package_name"], "com.example.ownedtool")
+        self.assertEqual(summary["class_count"], 437)
+        self.assertEqual(summary["permission_count"], 2)
+        self.assertEqual(summary["component_count"], 2)
+        self.assertEqual(summary["manifest_status"], "partial")
+        self.assertNotIn("Home", json.dumps(summary))
+        self.assertIsNone(bridge.summarize_apk_evidence({"unknown": "no facts"}))
+
+    def test_summary_projector_bounds_untrusted_values(self):
+        report = {"package_name": "unsafe\npackage", "version_name": "test",
+                  "min_sdk": -1, "target_sdk": "not-a-sdk", "class_count": -3,
+                  "resource_count": True, "permissions": [
+                      "android.permission.INTERNET", "android.permission.INTERNET",
+                      "bad\npermission", "com.example.READ"
+                  ], "manifest": {"status": "unverified"}}
+        summary = bridge.summarize_apk_evidence(report)
+        self.assertIsNone(summary["package_name"])
+        self.assertIsNone(summary["min_sdk"])
+        self.assertIsNone(summary["target_sdk"])
+        self.assertIsNone(summary["class_count"])
+        self.assertIsNone(summary["resource_count"])
+        self.assertEqual(summary["permission_count"], 2)
+        self.assertEqual(summary["permissions"],
+                         ["android.permission.INTERNET", "com.example.READ"])
+        self.assertEqual(summary["manifest_status"], "not_reported")
+
     def test_archive_preflight_refuses_missing_manifest_traversal_duplicates_and_broken_zip(self):
         candidates = [
             make_apk([("classes.dex", b"no manifest")]),

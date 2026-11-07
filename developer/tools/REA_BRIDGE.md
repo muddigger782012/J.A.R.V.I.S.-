@@ -91,6 +91,13 @@ Invalid ZIPs, missing Android manifests, unsafe or duplicate entry names, symlin
 encrypted members, and oversized declared expansion are rejected. This is not a
 malware scan or proof of extraction completeness.
 
+REA findings are projected into a bounded, readable summary in Developer chat:
+package/version, SDK levels, class/resource counts, permission declarations,
+and manifest/component coverage. Unknown data remains unknown and no
+runtime-behavior or safety claim is inferred. Source proposals include this
+summary inside the untrusted evidence boundary with the original evidence hashes.
+Old bridge responses without a summary remain accepted.
+
 Successful analysis returns `jarvis.rea.apk.v1` with the APK SHA-256,
 REA output SHA-256, bounded evidence excerpt, truncation status, and
 static-only limitations, and bounded ZIP entry count and declared uncompressed

@@ -113,6 +113,73 @@ def validate_apk_archive(data):
         raise BridgeError("APK_ARCHIVE", "APK is not a valid bounded ZIP archive") from None
 
 
+
+def summarize_apk_evidence(normalized):
+    """Project declared REA findings to bounded portable chat fields.
+
+    The upstream CLI summary may wrap the APK report in a summary view.
+    Unknown/malformed facts are omitted, not inferred or marked verified.
+    """
+    if not isinstance(normalized, dict):
+        return None
+    source = normalized.get("summary", normalized)
+    if not isinstance(source, dict) or not any(key in source for key in (
+            "package_name", "version_name", "permissions",
+            "class_count", "resource_count", "manifest", "components")):
+        return None
+
+    def clean(value, size=240):
+        if (not isinstance(value, str) or not 1 <= len(value) <= size or
+                any(ord(char) < 32 or ord(char) == 127 for char in value)):
+            return None
+        return value
+
+    def sdk(value):
+        if type(value) is int and 0 <= value <= 999:
+            return str(value)
+        if isinstance(value, str) and re.fullmatch(r"[0-9]{1,3}", value):
+            return value
+        return None
+
+    def count(value):
+        if type(value) is int and 0 <= value <= 10000000:
+            return value
+        return None
+
+    raw_permissions = source.get("permissions")
+    names = []
+    seen = set()
+    if isinstance(raw_permissions, list):
+        for candidate in raw_permissions[:20000]:
+            item = clean(candidate, 180)
+            if item and item not in seen:
+                names.append(item)
+                seen.add(item)
+    manifest = source.get("manifest")
+    manifest_status = manifest.get("status") if isinstance(manifest, dict) else None
+    if manifest_status not in ("complete", "partial", "unavailable", "unknown"):
+        manifest_status = "not_reported"
+    components = source.get("components")
+    component_status = components.get("status") if isinstance(components, dict) else None
+    if component_status not in ("complete", "partial", "unavailable", "unknown"):
+        component_status = "not_reported"
+    component_items = components.get("items") if isinstance(components, dict) else None
+    component_count = count(len(component_items)) if isinstance(component_items, list) else None
+    return {
+        "package_name": clean(source.get("package_name")),
+        "version_name": clean(source.get("version_name"), 120),
+        "min_sdk": sdk(source.get("min_sdk")),
+        "target_sdk": sdk(source.get("target_sdk")),
+        "class_count": count(source.get("class_count")),
+        "resource_count": count(source.get("resource_count")),
+        "permissions": names[:32],
+        "permission_count": len(names),
+        "manifest_status": manifest_status,
+        "component_status": component_status,
+        "component_count": component_count,
+    }
+
+
 def analyze_apk(data, claimed_sha, rea_command="rea", rea_entry=None):
     if len(data) < 4 or len(data) > MAX_APK or data[:4] not in (
         b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"
@@ -167,6 +234,7 @@ def analyze_apk(data, claimed_sha, rea_command="rea", rea_entry=None):
             "excerpt": excerpt[:MAX_EXCERPT],
             "archive_entries": archive_info[0],
             "archive_uncompressed_bytes": archive_info[1],
+            "summary": summarize_apk_evidence(parsed["normalized_result"]),
             "truncated": truncated,
             "scope": "static-reverse-engineering-only",
             "engine": "REA inspect-android-package (JADX)",
