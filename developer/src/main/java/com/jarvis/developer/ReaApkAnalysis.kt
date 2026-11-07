@@ -20,6 +20,80 @@ internal object ReaApkAnalysis {
     const val SCHEMA = "jarvis.rea.apk.v1"
     private val hex64 = Regex("[0-9a-f]{64}")
 
+
+    /** Only fixed public error codes are surfaced; host error text is untrusted. */
+    internal class BridgeFailure(val code: String, override val message: String) :
+        IllegalStateException(message)
+
+    internal fun decodeHttpFailure(status: Int, body: String?): BridgeFailure {
+        val reported = if (body != null && body.length <= 2048)
+            runCatching { JSONObject(body).optString("error", "") }.getOrDefault("")
+        else ""
+        val code = when (reported) {
+            "UNAUTHORIZED", "REA_BUSY", "APK_SIZE", "APK_ARCHIVE", "NOT_APK",
+            "HASH_MISMATCH", "REA_CONFIGURATION", "REA_UNAVAILABLE",
+            "REA_TIMEOUT", "REA_FAILED", "REA_REPORT", "CONTENT_TYPE",
+            "TRUNCATED_UPLOAD", "INTERNAL", "NOT_FOUND" -> reported
+            else -> when (status) {
+                401, 403 -> "UNAUTHORIZED"
+                429 -> "REA_BUSY"
+                413 -> "APK_SIZE"
+                504 -> "REA_TIMEOUT"
+                503 -> "REA_UNAVAILABLE"
+                else -> "HTTP_ERROR"
+            }
+        }
+        val explanation = when (code) {
+            "UNAUTHORIZED" -> "REA token rejected. Recheck the saved bridge token in Settings."
+            "REA_BUSY" -> "REA host is analyzing another job. Retry after it finishes."
+            "APK_SIZE" -> "Selected APK exceeds the bridge's 24 MB upload limit."
+            "APK_ARCHIVE", "NOT_APK" -> "APK archive was rejected. Check that the selected file is a valid Android APK."
+            "HASH_MISMATCH" -> "APK SHA-256 did not match uploaded bytes. Reselect the file."
+            "REA_CONFIGURATION", "REA_UNAVAILABLE" ->
+                "REA host cannot launch its analysis engine. Check Node.js, REA and JADX on the host."
+            "REA_TIMEOUT" -> "REA/JADX analysis timed out. Try a smaller APK or inspect host performance."
+            "REA_FAILED" -> "REA/JADX reported an analysis failure. Check its host diagnostics."
+            "REA_REPORT" -> "REA returned invalid or unsupported evidence. No findings were accepted."
+            "CONTENT_TYPE" -> "REA bridge rejected the APK media type."
+            "TRUNCATED_UPLOAD" -> "The APK upload was incomplete. Check the connection and retry."
+            "NOT_FOUND" -> "REA bridge endpoint was not found. Check host version and HTTPS origin."
+            "INTERNAL" -> "REA bridge had an internal failure. Check logs on the host."
+            else -> "REA bridge returned HTTP " + status + ". Check bridge status and configuration."
+        }
+        return BridgeFailure(code, explanation)
+    }
+
+    private fun responseFailure(connection: HttpsURLConnection): BridgeFailure {
+        val body = runCatching {
+            connection.errorStream?.use { input ->
+                val bytes = ByteArrayOutputStream()
+                val chunk = ByteArray(512)
+                while (bytes.size() <= 2048) {
+                    val amount = input.read(chunk)
+                    if (amount < 0) break
+                    if (amount == 0) break
+                    if (bytes.size() + amount > 2048) break
+                    bytes.write(chunk, 0, amount)
+                }
+                bytes.toString(Charsets.UTF_8.name())
+            }
+        }.getOrNull()
+        return decodeHttpFailure(connection.responseCode, body)
+    }
+
+    internal fun describeFailure(error: Throwable): String = when (error) {
+        is BridgeFailure -> error.message
+        is javax.net.ssl.SSLException ->
+            "REA TLS failed. Check the host certificate, trusted CA and HTTPS hostname."
+        is java.net.SocketTimeoutException ->
+            "REA connection timed out. Check the host, firewall and REA/JADX workload."
+        is java.net.UnknownHostException ->
+            "REA hostname could not be resolved. Check the host address and network."
+        is java.net.ConnectException ->
+            "REA host refused the connection. Start the bridge and check its firewall."
+        else -> "REA returned no valid result. Check bridge configuration and selected APK."
+    }
+
     class Selected(val bytes: ByteArray, val sha256: String) {
         val size: Int get() = bytes.size
     }
@@ -218,8 +292,8 @@ internal object ReaApkAnalysis {
             connection.readTimeout = 40000
             connection.setRequestProperty("Authorization", "Bearer $bearer")
             connection.setRequestProperty("Accept", "application/json")
-            require(connection.responseCode == HttpURLConnection.HTTP_OK) {
-                "REA connection check rejected (HTTP ${connection.responseCode})."
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                throw responseFailure(connection)
             }
             val bytes = ByteArrayOutputStream()
             connection.inputStream.use { input ->
@@ -257,8 +331,8 @@ internal object ReaApkAnalysis {
             connection.setRequestProperty("Content-Type", "application/vnd.android.package-archive")
             connection.setRequestProperty("Accept", "application/json")
             connection.outputStream.use { it.write(apk.bytes) }
-            require(connection.responseCode == HttpURLConnection.HTTP_OK) {
-                "REA bridge rejected the request (HTTP ${connection.responseCode}). Check the host and credentials."
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                throw responseFailure(connection)
             }
             val buffer = ByteArrayOutputStream()
             connection.inputStream.use { input ->

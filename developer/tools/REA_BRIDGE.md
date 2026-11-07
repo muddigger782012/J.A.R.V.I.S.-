@@ -105,6 +105,15 @@ size when available (not independently extracted). The host keeps a full evidenc
 the per-job temporary directory is removed; therefore the mobile excerpt
 must not be mistaken for complete decompilation or a durable full report.
 
+## Actionable REA failure feedback
+
+Developer now maps the bridge\u0027s fixed error codes into focused, safe chat guidance
+instead of a generic connection failure. The health check and APK analysis
+identify token failures, busy hosts, invalid APKs, SHA mismatch, absent
+REA/JADX configuration, timeouts and invalid evidence. The Android client
+never displays untrusted server `message` values, exception details or secrets.
+Failures never authorize code edits or APK installation.
+
 ## Test the connection before uploading an APK
 
 Developer Settings now offers **Test REA connection**. It sends one
