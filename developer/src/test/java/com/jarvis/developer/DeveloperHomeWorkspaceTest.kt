@@ -45,9 +45,11 @@ class DeveloperHomeWorkspaceTest {
             home.addView(legacy)
             var product = -1
             var advancedCalls = 0
+            var prepareInvocations = 0
             val session = DeveloperHomeWorkspace.install(activity, home, advanced,
                 prompt, send, output, status, coding, review, toggle, panel, 0,
-                { product = it }, { advancedCalls++ }, null)
+                { product = it }, { advancedCalls++ }, null,
+                onPrepareNext = { prepareInvocations++ })
             activity.setContentView(LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(home)
@@ -65,7 +67,20 @@ class DeveloperHomeWorkspaceTest {
             assertFalse(review.isEnabled)
             assertFalse(legacy.isShown)
             assertTrue(advanced.findViewWithTag<View>("developer-legacy-home-tools") != null)
+            val prepare = home.findViewWithTag<Button>("developer-prepare-next-diff")
+            assertNotNull(prepare)
+            assertFalse(prepare.isEnabled)
+            assertEquals(View.GONE, prepare.visibility)
             session.sent("Implement an offline list in Personal Jarvis")
+            session.setPrepareNextAvailable(true)
+            assertTrue(prepare.isShown)
+            assertTrue(prepare.isEnabled)
+            prepare.performClick()
+            assertEquals(1, prepareInvocations)
+            assertFalse(review.isEnabled)
+            session.sent("Check the next Developer task")
+            assertFalse(prepare.isEnabled)
+            assertEquals(View.GONE, prepare.visibility)
             val conversation = home.findViewWithTag<LinearLayout>("developer-home-conversation")
             val userTurn = conversation.findViewWithTag<LinearLayout>("developer-chat-user-turn")
             assertNotNull(userTurn)
@@ -81,16 +96,20 @@ class DeveloperHomeWorkspaceTest {
                 (home.findViewWithTag<View>("developer-home-task-stage") as TextView).text)
             assertFalse(review.isEnabled)
             val picker = session.composer.findViewWithTag<Spinner>("developer-home-target")
+            session.setPrepareNextAvailable(true)
             picker.setSelection(1)
             shadowOf(Looper.getMainLooper()).idle()
             assertEquals(1, product)
+            assertFalse(prepare.isEnabled)
+            assertEquals(View.GONE, prepare.visibility)
             session.syncTarget(0)
             shadowOf(Looper.getMainLooper()).idle()
             assertEquals(0, picker.selectedItemPosition)
             val state = Bundle()
             session.save(state)
             assertTrue(state.getStringArrayList("developer_home_turns_v1").orEmpty().any { it.contains("Implement") })
-            assertFalse(state.keySet().any { it.contains("approval", true) })
+            assertFalse(state.keySet().any { it.contains("approval", true) ||
+                it.contains("prepare", true) || it.contains("packet", true) })
             val sendButton = DeveloperUiState.descendants(session.composer)
                 .filterIsInstance<Button>().single { it.text.toString() == "Send" }
             assertTrue(sendButton.isShown)
