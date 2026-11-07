@@ -180,6 +180,20 @@ changing tasks discards the evidence and zeroes selected bytes. A new chat
 session requires selecting the APK again. The companion Windows client can
 use the same portable HTTPS contract.
 
+## Inspect a specific REA class
+
+Following Search classes, copy one exact displayed class name into the composer
+and select Inspect class. Developer submits the same selected APK and SHA-256
+through authenticated POST /v1/apk/classes/inspect with X-REA-CLASS-NAME.
+The host runs only the fixed REA inspect-android-class command, then returns a
+bounded listing of reported method signatures, overload indices, fields and
+inner-class counts. No application bytecode or native code is executed.
+
+Class inspection is allowed from an exact class name in the preceding search
+results for that APK. Chat evidence and source-proposal context preserve both
+APK and inspection-output hashes. Class members are untrusted static facts;
+they cannot grant approval, commit files or install software.
+
 ## AI-assisted implementation handoff
 
 After REA evidence appears in chat, type a **specific Developer feature
