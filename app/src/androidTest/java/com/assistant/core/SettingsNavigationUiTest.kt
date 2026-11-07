@@ -112,8 +112,14 @@ class SettingsNavigationUiTest {
                         val root = activity.findViewById<android.view.ViewGroup>(R.id.menuPageContent).getChildAt(0) as ScrollView
                         val panel = root.getChildAt(0) as LinearLayout
                         val rows = (0 until panel.childCount).map { panel.getChildAt(it) }.filter { it.isClickable }
-                        assertEquals(10, rows.size)
-                        assertEquals(10, rows.map { it.contentDescription }.distinct().size)
+                        val expectedRows = if (activity.packageName == "com.assistant.core") 11 else 10
+                        assertEquals(expectedRows, rows.size)
+                        assertEquals(expectedRows, rows.map { it.contentDescription }.distinct().size)
+                        if (activity.packageName == "com.assistant.core") {
+                            assertTrue("Personal AI bridge must be reachable in Settings", rows.any {
+                                it.contentDescription?.toString()?.contains("Personal AI bridge") == true
+                            })
+                        }
                         assertTrue("Ambient Companion must be reachable in Settings", rows.any {
                             it.contentDescription?.toString()?.contains("Ambient companion") == true
                         })
@@ -159,6 +165,7 @@ class SettingsNavigationUiTest {
             VoiceProfileActivity::class.java to R.id.voiceProfileBack,
             IntelligenceActivity::class.java to R.id.btnCloseIntelligence,
             SelfDiagnosticsActivity::class.java to R.id.menuPageBack,
+            PersonalJarvisBridgeActivity::class.java to R.id.menuPageBack,
             AssistantConnectionsActivity::class.java to R.id.menuPageBack,
             LiveChatHistoryActivity::class.java to R.id.btnCloseLiveHistory
         )
