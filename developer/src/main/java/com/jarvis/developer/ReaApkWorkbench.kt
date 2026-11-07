@@ -228,7 +228,7 @@ internal object ReaApkWorkbench {
                         selected = apk
                         classResult = null
                         classDetail = null
-            methodResult = null
+                        methodResult = null
                         output.text = it.display().take(8500)
                         status.text = "REA evidence received for exact APK hash; no source changed."
                         attachmentNote.text = "Find classes by typing a class-name substring and " +
@@ -239,7 +239,7 @@ internal object ReaApkWorkbench {
                         selected = null
                         classResult = null
                         classDetail = null
-            methodResult = null
+                        methodResult = null
                         apk.bytes.fill(0)
                         output.text = ReaApkAnalysis.describeFailure(error) +
                             "\nNo evidence, source change, or code approval was accepted."
@@ -292,7 +292,7 @@ internal object ReaApkWorkbench {
                     result.onSuccess {
                         classResult = it
                         classDetail = null
-            methodResult = null
+                        methodResult = null
                         output.text = (evidence.overview?.display().orEmpty() + "\n" +
                             it.display()).take(10000)
                         status.text = "REA class evidence received; source remains unchanged."
@@ -301,7 +301,7 @@ internal object ReaApkWorkbench {
                     }.onFailure { error ->
                         classResult = null
                         classDetail = null
-            methodResult = null
+                        methodResult = null
                         output.text = ReaApkAnalysis.describeFailure(error)
                         status.text = "REA class search failed; no source change or approval."
                     }
@@ -360,7 +360,7 @@ internal object ReaApkWorkbench {
                             "tap Prepare REA proposal for an explicit source diff review."
                     }.onFailure { error ->
                         classDetail = null
-            methodResult = null
+                        methodResult = null
                         output.text = ReaApkAnalysis.describeFailure(error)
                         status.text = "REA class inspection failed; no code approval or write."
                     }
