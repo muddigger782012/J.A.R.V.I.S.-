@@ -376,6 +376,37 @@ internal object ReaApkWorkbench {
             }
         })
         settings.addView(Button(activity).apply {
+            text = "Test REA connection"
+            isAllCaps = false
+            tag = "developer-rea-test-connection"
+            contentDescription = "Check authenticated REA/JADX host readiness without uploading an APK"
+            setOnClickListener {
+                val config = ProviderCredentialStore.loadRea(activity)
+                if (config == null) {
+                    feedback.text = "Save a valid REA HTTPS origin and token first."
+                    return@setOnClickListener
+                }
+                isEnabled = false
+                feedback.text = "Checking REA bridge and JADX provider on your host; no APK uploaded."
+                val button = this
+                thread(name = "developer-rea-health", isDaemon = true) {
+                    val result = runCatching {
+                        ReaApkAnalysis.checkHealth(config.first, config.second)
+                    }
+                    activity.runOnUiThread {
+                        if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                        button.isEnabled = true
+                        if (ProviderCredentialStore.loadRea(activity) != config) {
+                            feedback.text = "REA settings changed. Previous health response discarded."
+                        } else feedback.text = result.getOrElse {
+                            "REA host unreachable or unauthorized. Verify TLS, token, Node and JADX. " +
+                                "No APK or code was uploaded."
+                        }
+                    }
+                }
+            }
+        })
+        settings.addView(Button(activity).apply {
             text = "Disconnect REA bridge"
             isAllCaps = false
             setOnClickListener {

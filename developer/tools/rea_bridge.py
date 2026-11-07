@@ -37,6 +37,31 @@ def verify_token(received, expected):
     return hmac.compare_digest(received, "Bearer " + expected)
 
 
+def rea_launcher(rea_command="rea", rea_entry=None):
+    """Fixed executable and optional absolute Node.js entry, never a shell."""
+    if rea_entry:
+        entry = Path(rea_entry)
+        if not entry.is_absolute() or not entry.is_file():
+            raise BridgeError("REA_CONFIGURATION", "REA entry must be an existing absolute JS path", 503)
+        return [rea_command, str(entry)]
+    if os.name == "nt":
+        raise BridgeError("REA_CONFIGURATION", "Windows requires a Node executable and JARVIS_REA_ENTRY", 503)
+    return [rea_command]
+
+
+def health_status(rea_command="rea", rea_entry=None):
+    """Preflight only. Doctor success does not prove a specific APK can be decompiled."""
+    try:
+        launcher = rea_launcher(rea_command, rea_entry)
+        with tempfile.TemporaryDirectory(prefix="jarvis-rea-doctor-") as root:
+            result = subprocess.run(launcher + ["doctor", "--provider", "jadx", "--json"],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    cwd=root, timeout=30, check=False)
+        return "DOCTOR_PASSED" if result.returncode == 0 else "DOCTOR_FAILED"
+    except (OSError, BridgeError, subprocess.TimeoutExpired):
+        return "DOCTOR_FAILED"
+
+
 def analyze_apk(data, claimed_sha, rea_command="rea", rea_entry=None):
     if len(data) < 4 or len(data) > MAX_APK or data[:4] not in (
         b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"
@@ -54,18 +79,7 @@ def analyze_apk(data, claimed_sha, rea_command="rea", rea_entry=None):
         err = Path(root, "stderr.log")
         # Argument vector only; no shell or source-code execution. In a
         # private per-job directory, nothing is shared with other analyses.
-        # Windows npm often exposes rea.cmd. To avoid passing untrusted
-        # arguments to a Windows shell, use a real Node executable with an
-        # absolute, preconfigured JS entry instead: ["node.exe", "rea.mjs", ...].
-        if rea_entry:
-            entry = Path(rea_entry)
-            if not entry.is_absolute() or not entry.is_file():
-                raise BridgeError("REA_CONFIGURATION", "REA entry must be an existing absolute JS path", 503)
-            launcher = [rea_command, str(entry)]
-        elif os.name == "nt":
-            raise BridgeError("REA_CONFIGURATION", "Windows host requires JARVIS_REA_ENTRY and a Node executable", 503)
-        else:
-            launcher = [rea_command]
+        launcher = rea_launcher(rea_command, rea_entry)
         cmd = launcher + ["inspect-android-package", str(apk),
                "--detail", "summary", "--evidence_output", str(full), "--json"]
         try:
@@ -116,6 +130,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(blob)))
         self.end_headers()
         self.wfile.write(blob)
+
+    def do_GET(self):
+        if self.path != "/v1/health":
+            return self._respond(404, {"error": "NOT_FOUND"})
+        if not verify_token(self.headers.get("Authorization", ""),
+                            os.environ.get("JARVIS_REA_TOKEN", "")):
+            return self._respond(401, {"error": "UNAUTHORIZED"})
+        if not LOCK.acquire(blocking=False):
+            return self._respond(429, {"error": "REA_BUSY"})
+        try:
+            provider = health_status(os.environ.get("JARVIS_REA_COMMAND", "rea"),
+                                     os.environ.get("JARVIS_REA_ENTRY") or None)
+            self._respond(200, {
+                "schema": "jarvis.rea.health.v1",
+                "state": "BRIDGE_REACHABLE",
+                "engine": provider,
+                "limitations": "REA doctor only; no APK analysis or runtime execution was performed."
+            })
+        except Exception:
+            self._respond(500, {"error": "INTERNAL"})
+        finally:
+            LOCK.release()
 
     def do_POST(self):
         if self.path != "/v1/apk/analyze":

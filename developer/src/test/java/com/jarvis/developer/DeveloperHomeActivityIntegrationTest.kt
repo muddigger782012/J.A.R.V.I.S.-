@@ -132,6 +132,16 @@ class DeveloperHomeActivityIntegrationTest {
         assertTrue(origin.isShown)
         assertTrue(bearer.isShown)
         assertTrue(button(activity, "Save REA bridge connection").isShown)
+        val health = all(activity).filterIsInstance<Button>().single {
+            it.tag == "developer-rea-test-connection"
+        }
+        assertTrue(health.isShown)
+        health.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(all(activity).filterIsInstance<TextView>().any {
+            it.text.toString().contains("Save a valid REA HTTPS origin")
+        })
+        assertTrue(health.isEnabled)
         assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
     }
 
