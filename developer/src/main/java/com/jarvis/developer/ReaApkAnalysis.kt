@@ -28,7 +28,7 @@ internal object ReaApkAnalysis {
         fun display(): String = buildString {
             append("REA static APK evidence (not executable verification)\n")
             append("APK SHA-256: $apkSha256\nREA output SHA-256: $evidenceSha256\n")
-            append(if (truncated) "Partial evidence excerpt; complete REA report retained on analysis host.\n"
+            append(if (truncated) "Partial REA evidence excerpt; full temporary host evidence is deleted after the job.\n"
                 else "REA summary excerpt returned in full.\n")
             append("No runtime behavior, APK authenticity, or source edit is established.\n\n")
             append(excerpt)
