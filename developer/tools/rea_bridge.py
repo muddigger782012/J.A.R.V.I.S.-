@@ -412,6 +412,116 @@ def inspect_apk_class(data, claimed_sha, name, rea_command="rea", rea_entry=None
         }
 
 
+METHOD_SCHEMA = "jarvis.rea.method.v1"
+METHOD_NAME = re.compile(r"^(?:[A-Za-z_$][A-Za-z0-9_$]{0,179}|<init>|<clinit>)$")
+MAX_METHOD_SNIPPET = 6000
+
+
+def validate_method_selector(name, index):
+    if not isinstance(name, str) or not METHOD_NAME.fullmatch(name):
+        raise BridgeError("METHOD_SELECTOR", "Invalid exact method name")
+    if type(index) is not int or not 0 <= index <= 100000:
+        raise BridgeError("METHOD_SELECTOR", "Invalid overload index")
+    return name, index
+
+
+def inspect_apk_method(data, claimed_sha, class_name, method_name, overload,
+                       rea_command="rea", rea_entry=None):
+    """Inspect one explicit REA method; returns bounded, untrusted static source."""
+    if not isinstance(class_name, str) or not CLASS_NAME.fullmatch(class_name):
+        raise BridgeError("CLASS_QUERY", "Invalid exact APK class name")
+    method_name, overload = validate_method_selector(method_name, overload)
+    if len(data) < 4 or len(data) > MAX_APK or data[:4] not in (
+        b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"
+    ):
+        raise BridgeError("NOT_APK", "Expected a bounded Android APK")
+    digest = hashlib.sha256(data).hexdigest()
+    if not HEX.fullmatch(claimed_sha) or not hmac.compare_digest(digest, claimed_sha):
+        raise BridgeError("HASH_MISMATCH", "APK hash does not match uploaded bytes")
+    validate_apk_archive(data)
+    with tempfile.TemporaryDirectory(prefix="jarvis-rea-method-") as root:
+        apk = Path(root, "selected.apk")
+        apk.write_bytes(data)
+        os.chmod(apk, 0o600)
+        stdout_path = Path(root, "stdout.json")
+        # Fixed argv, explicit class/method/index; never shell or APK execution.
+        cmd = rea_launcher(rea_command, rea_entry) + [
+            "inspect-android-method", str(apk), class_name, method_name,
+            "--overload-index", str(overload), "--json"
+        ]
+        try:
+            with stdout_path.open("wb") as stdout:
+                proc = subprocess.run(cmd, stdout=stdout, stderr=subprocess.DEVNULL,
+                                      cwd=root, timeout=150, check=False)
+        except subprocess.TimeoutExpired:
+            raise BridgeError("REA_TIMEOUT", "REA method inspection timed out", 504)
+        except OSError:
+            raise BridgeError("REA_UNAVAILABLE", "REA/JADX not configured", 503)
+        if proc.returncode != 0:
+            raise BridgeError("REA_FAILED", "REA method inspection failed", 502)
+        if not 1 <= stdout_path.stat().st_size <= MAX_REPORT:
+            raise BridgeError("REA_REPORT", "REA method result exceeds report limit", 502)
+        raw = stdout_path.read_bytes()
+        try:
+            report = json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            raise BridgeError("REA_REPORT", "REA returned malformed method JSON", 502)
+        if (not isinstance(report, dict) or report.get("isError") or
+                report.get("error") or report.get("ok") is False or
+                report.get("success") is False):
+            raise BridgeError("REA_REPORT", "REA returned a failed method result", 502)
+        normalized = report.get("normalized_result")
+        if not isinstance(normalized, dict) or normalized.get("class_name") != class_name:
+            raise BridgeError("REA_REPORT", "REA method result belongs to another class", 502)
+        method = normalized.get("method")
+        if (not isinstance(method, dict) or method.get("name") != method_name or
+                type(method.get("overload_index")) is not int or
+                method["overload_index"] != overload):
+            raise BridgeError("REA_REPORT", "REA method result selector mismatch", 502)
+        signature = method.get("reported_signature")
+        if (not isinstance(signature, str) or not 1 <= len(signature) <= 360 or
+                any(ord(c) < 32 or ord(c) == 127 for c in signature)):
+            raise BridgeError("REA_REPORT", "REA returned invalid method signature", 502)
+        representation = normalized.get("representation")
+        body_status = normalized.get("body_status")
+        fell_back = normalized.get("fell_back")
+        source = normalized.get("source")
+        if (representation not in ("java", "smali") or
+                body_status not in ("available", "not_available") or
+                type(fell_back) is not bool or not isinstance(source, dict)):
+            raise BridgeError("REA_REPORT", "REA method status is invalid", 502)
+        source_status = source.get("status")
+        source_text = source.get("text")
+        if (source_status not in ("complete", "partial") or not isinstance(source_text, str) or
+                len(source_text) > 800000):
+            raise BridgeError("REA_REPORT", "REA source coverage is invalid", 502)
+        markers = normalized.get("markers")
+        if not isinstance(markers, list) or len(markers) > 128:
+            raise BridgeError("REA_REPORT", "Invalid method fallback markers", 502)
+        safe_markers = []
+        for marker in markers:
+            if (not isinstance(marker, str) or len(marker) > 180 or
+                    any(ord(c) < 32 or ord(c) == 127 for c in marker)):
+                raise BridgeError("REA_REPORT", "Invalid method source marker", 502)
+            safe_markers.append(marker)
+        snippet = source_text[:MAX_METHOD_SNIPPET]
+        return {
+            "schema": METHOD_SCHEMA, "state": "ANALYZED",
+            "apk_sha256": digest,
+            "evidence_sha256": hashlib.sha256(raw).hexdigest(),
+            "source_sha256": hashlib.sha256(source_text.encode("utf8")).hexdigest(),
+            "class_name": class_name, "method_name": method_name,
+            "overload_index": overload, "signature": signature,
+            "representation": representation, "body_status": body_status,
+            "source_status": source_status, "fell_back": fell_back,
+            "markers": safe_markers[:8], "source_excerpt": snippet,
+            "source_characters": len(source_text),
+            "truncated": len(source_text) > MAX_METHOD_SNIPPET,
+            "scope": "static-method-inspection-only",
+            "limitations": "Static REA/JADX evidence; source may be partial, inferred or decompiler-generated; no runtime execution."
+        }
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "JarvisREA/1"
     def _respond(self, status, result):
@@ -447,7 +557,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path not in ("/v1/apk/analyze", "/v1/apk/classes/search",
-                             "/v1/apk/classes/inspect"):
+                             "/v1/apk/classes/inspect", "/v1/apk/method/inspect"):
             return self._respond(404, {"error": "NOT_FOUND"})
         token = os.environ.get("JARVIS_REA_TOKEN", "")
         if not verify_token(self.headers.get("Authorization", ""), token):
@@ -466,7 +576,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             payload = self.rfile.read(length)
             if len(payload) != length:
                 raise BridgeError("TRUNCATED_UPLOAD", "Incomplete APK upload")
-            if self.path == "/v1/apk/classes/inspect":
+            if self.path == "/v1/apk/method/inspect":
+                overload_raw = self.headers.get("X-REA-OVERLOAD-INDEX", "")
+                if not re.fullmatch(r"[0-9]{1,6}", overload_raw):
+                    raise BridgeError("METHOD_SELECTOR", "Invalid overload index")
+                result = inspect_apk_method(payload,
+                    self.headers.get("X-APK-SHA256", "").strip(),
+                    self.headers.get("X-REA-CLASS-NAME", "").strip(),
+                    self.headers.get("X-REA-METHOD-NAME", "").strip(),
+                    int(overload_raw),
+                    os.environ.get("JARVIS_REA_COMMAND", "rea"),
+                    os.environ.get("JARVIS_REA_ENTRY") or None)
+            elif self.path == "/v1/apk/classes/inspect":
                 result = inspect_apk_class(payload,
                     self.headers.get("X-APK-SHA256", "").strip(),
                     self.headers.get("X-REA-CLASS-NAME", "").strip(),
