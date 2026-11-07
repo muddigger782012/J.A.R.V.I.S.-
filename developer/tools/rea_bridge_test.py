@@ -164,6 +164,127 @@ class ReaBridgeTests(unittest.TestCase):
             f"print({payload!r})\n", encoding="utf8")
         return str(script)
 
+
+    def fake_method_rea(self, directory, payload=None):
+        payload = payload or (
+            '{"normalized_result":{"class_name":"a.MainActivity",'
+            '"method":{"name":"onCreate","reported_signature":"onCreate(Bundle): void",'
+            '"overload_index":0},"representation":"java","body_status":"available",'
+            '"fell_back":false,"markers":[],"source":{"status":"partial",'
+            '"text":"void onCreate() {\\n return;\\n}","reported_total_bytes":null}}}'
+        )
+        script = Path(directory, "mock-method.py")
+        script.write_text("#!/usr/bin/env python3\nimport sys\nfrom pathlib import Path\n"
+            "assert sys.argv[1] == 'inspect-android-method'\n"
+            "assert Path(sys.argv[2]).is_file()\n"
+            "assert sys.argv[3:] == ['a.MainActivity','onCreate',"
+            "'--overload-index','0','--json']\n"
+            f"print({payload!r})\n", encoding="utf8")
+        return str(script)
+
+    def test_method_inspection_binds_apk_method_index_and_static_source(self):
+        with tempfile.TemporaryDirectory() as root:
+            result = bridge.inspect_apk_method(self.APK, self.DIGEST, "a.MainActivity",
+                "onCreate", 0, sys.executable, self.fake_method_rea(root))
+        self.assertEqual(result["schema"], bridge.METHOD_SCHEMA)
+        self.assertEqual(result["apk_sha256"], self.DIGEST)
+        self.assertEqual(result["class_name"], "a.MainActivity")
+        self.assertEqual(result["method_name"], "onCreate")
+        self.assertEqual(result["overload_index"], 0)
+        self.assertEqual(result["source_status"], "partial")
+        self.assertIn("void onCreate", result["source_excerpt"])
+        self.assertEqual(len(result["source_sha256"]), 64)
+        self.assertEqual(len(result["evidence_sha256"]), 64)
+
+    def test_method_inspection_rejects_bad_selectors_and_unbound_output(self):
+        for name in ("", "a;b", "--help", "start\nme", "foo bar", "../init"):
+            with self.subTest(method=name):
+                with self.assertRaises(bridge.BridgeError) as e:
+                    bridge.inspect_apk_method(self.APK, self.DIGEST,
+                        "a.MainActivity", name, 0, "/missing")
+                self.assertEqual(e.exception.code, "METHOD_SELECTOR")
+        for index in (-1, 100001, True, "0"):
+            with self.assertRaises(bridge.BridgeError):
+                bridge.inspect_apk_method(self.APK, self.DIGEST,
+                    "a.MainActivity", "onCreate", index, "/missing")
+        with tempfile.TemporaryDirectory() as root:
+            wrong = ('{"normalized_result":{"class_name":"a.Other",'
+                     '"method":{"name":"onCreate","overload_index":0},'
+                     '"representation":"java","body_status":"available",'
+                     '"fell_back":false,"markers":[],"source":'
+                     '{"status":"complete","text":"x"}}}')
+            with self.assertRaises(bridge.BridgeError) as e:
+                bridge.inspect_apk_method(self.APK, self.DIGEST, "a.MainActivity",
+                    "onCreate", 0, sys.executable, self.fake_method_rea(root, wrong))
+            self.assertEqual(e.exception.code, "REA_REPORT")
+
+    def test_method_inspection_explicitly_flags_bounded_partial_source(self):
+        large = "public void test() {" + "x" * 8000 + "}"
+        payload = json.dumps({"normalized_result":{
+            "class_name":"a.MainActivity",
+            "method":{"name":"onCreate","overload_index":0,
+                      "reported_signature":"onCreate(): void"},
+            "representation":"smali","body_status":"available",
+            "fell_back":True,"markers":["java-fallback"],
+            "source":{"status":"complete","text":large,"reported_total_bytes":None}}})
+        with tempfile.TemporaryDirectory() as root:
+            result = bridge.inspect_apk_method(self.APK, self.DIGEST, "a.MainActivity",
+                "onCreate", 0, sys.executable, self.fake_method_rea(root, payload))
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["source_characters"], len(large))
+        self.assertEqual(len(result["source_excerpt"]), bridge.MAX_METHOD_SNIPPET)
+        self.assertEqual(result["representation"], "smali")
+        self.assertTrue(result["fell_back"])
+
+
+    def test_method_source_uses_android_utf16_units_for_unicode_boundaries(self):
+        source = "😀" * 4100
+        payload = json.dumps({"normalized_result":{
+            "class_name":"a.MainActivity",
+            "method":{"name":"onCreate","overload_index":0,
+                      "reported_signature":"onCreate(): void"},
+            "representation":"java","body_status":"available",
+            "fell_back":False,"markers":[],
+            "source":{"status":"partial","text":source,
+                      "reported_total_bytes":None}
+        }})
+        with tempfile.TemporaryDirectory() as root:
+            result = bridge.inspect_apk_method(self.APK, self.DIGEST, "a.MainActivity",
+                "onCreate", 0, sys.executable, self.fake_method_rea(root, payload))
+        self.assertEqual(result["source_characters"], 8200)
+        self.assertEqual(len(result["source_excerpt"]), 3000)
+        self.assertEqual(len(result["source_excerpt"].encode("utf-16-le")) // 2, 6000)
+        self.assertTrue(result["truncated"])
+        transport = json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf8")
+        self.assertLess(len(transport), 20000)
+
+    def test_method_inspection_endpoint_checks_token_and_index(self):
+        token = "test-method-inspection-token-012345678"
+        for headers_ok in (False, True):
+            server = bridge.http.server.ThreadingHTTPServer(("127.0.0.1", 0), bridge.Handler)
+            worker = threading.Thread(target=server.handle_request, daemon=True)
+            worker.start()
+            try:
+                with patch.dict(os.environ, {"JARVIS_REA_TOKEN": token}):
+                    with patch.object(bridge, "inspect_apk_method",
+                        return_value={"schema":bridge.METHOD_SCHEMA}) as inspect:
+                        headers = {"Content-Type":"application/vnd.android.package-archive",
+                                   "Authorization":"Bearer "+token,
+                                   "X-APK-SHA256":self.DIGEST,
+                                   "X-REA-CLASS-NAME":"a.MainActivity",
+                                   "X-REA-METHOD-NAME":"onCreate",
+                                   "X-REA-OVERLOAD-INDEX":"0" if headers_ok else "-1"}
+                        conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                        conn.request("POST", "/v1/apk/method/inspect", body=self.APK, headers=headers)
+                        response = conn.getresponse()
+                        self.assertEqual(response.status, 200 if headers_ok else 400)
+                        response.read()
+                        self.assertEqual(inspect.call_count, int(headers_ok))
+                        conn.close()
+            finally:
+                server.server_close()
+                worker.join(timeout=3)
+
     def test_class_inspection_returns_exact_class_methods_and_fields(self):
         with tempfile.TemporaryDirectory() as root:
             report = bridge.inspect_apk_class(self.APK, self.DIGEST,

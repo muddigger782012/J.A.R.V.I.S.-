@@ -32,7 +32,8 @@ internal object ReaApkAnalysis {
         val code = when (reported) {
             "UNAUTHORIZED", "REA_BUSY", "APK_SIZE", "APK_ARCHIVE", "NOT_APK",
             "HASH_MISMATCH", "REA_CONFIGURATION", "REA_UNAVAILABLE",
-            "REA_TIMEOUT", "REA_FAILED", "REA_REPORT", "CLASS_QUERY", "CONTENT_TYPE",
+            "REA_TIMEOUT", "REA_FAILED", "REA_REPORT", "CLASS_QUERY",
+            "METHOD_SELECTOR", "CONTENT_TYPE",
             "TRUNCATED_UPLOAD", "INTERNAL", "NOT_FOUND" -> reported
             else -> when (status) {
                 401, 403 -> "UNAUTHORIZED"
@@ -54,6 +55,7 @@ internal object ReaApkAnalysis {
             "REA_TIMEOUT" -> "REA/JADX analysis timed out. Try a smaller APK or inspect host performance."
             "REA_FAILED" -> "REA/JADX reported an analysis failure. Check its host diagnostics."
             "REA_REPORT" -> "REA returned invalid or unsupported evidence. No findings were accepted."
+            "METHOD_SELECTOR" -> "Select an exact method and overload index from the inspected class."
             "CLASS_QUERY" -> "Enter a class-name substring of 2–80 letters, numbers, dots, dollars or underscores."
             "CONTENT_TYPE" -> "REA bridge rejected the APK media type."
             "TRUNCATED_UPLOAD" -> "The APK upload was incomplete. Check the connection and retry."

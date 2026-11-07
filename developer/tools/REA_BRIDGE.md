@@ -194,6 +194,29 @@ results for that APK. Chat evidence and source-proposal context preserve both
 APK and inspection-output hashes. Class members are untrusted static facts;
 they cannot grant approval, commit files or install software.
 
+## Method-level REA inspection
+
+After Inspect class, enter a reported method name and overload index in the
+chat composer, such as onCreate#0 (constructor notation is supported as
+<init>#0), then tap Inspect method. The selected APK is still held only in
+the active Android chat memory. An authenticated request to
+POST /v1/apk/method/inspect sends the SHA-256 bound APK, X-REA-CLASS-NAME,
+X-REA-METHOD-NAME and X-REA-OVERLOAD-INDEX. The isolated host executes only
+REA's fixed inspect-android-method CLI against the selected APK; the APK itself
+is never executed.
+
+The bridge measures source excerpt and total source length in UTF-16 code
+units for Android/Windows compatibility. It serializes JSON as UTF-8 without
+unnecessary ASCII escaping, preserving bounded Unicode source text.
+
+The reply includes the method signature, selected overload index, Java or
+smali representation, decompiler fallback markers, complete/partial source
+coverage, a bounded 6,000-character source excerpt and SHA-256 fingerprints
+of the full original REA report and reported method source. If the source
+was partial or truncated it is explicitly labeled. A reviewed Developer
+source proposal may reuse at most 1,200 characters of this method excerpt
+as untrusted data. The output never grants source write or install authority.
+
 ## AI-assisted implementation handoff
 
 After REA evidence appears in chat, type a **specific Developer feature

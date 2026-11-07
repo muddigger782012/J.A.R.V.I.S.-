@@ -33,6 +33,7 @@ class ReaClassDetailTest {
         assertEquals("onCreate", result.methods[0].name)
         assertEquals("int", result.fields[0].type)
         assertTrue(result.display().contains("onCreate(Bundle): void"))
+        assertTrue(result.display().contains("onCreate#0"))
         assertTrue(result.proposalEvidence().contains("BEGIN_UNTRUSTED_REA_CLASS_DETAIL"))
     }
 
