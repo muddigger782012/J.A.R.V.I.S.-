@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <chrono>
 #include "llama.h"
 #include "ggml-backend.h"
 #include "common.h"
@@ -141,6 +142,8 @@ Java_com_assistant_core_services_EmbeddedLfm3Native_nativeGenerate(
     std::lock_guard<std::mutex> guard(g_lock);
     if (!g_model || !g_context || !g_batch || !g_sampler) return nullptr;
     g_cancel.store(false);
+    // Limit CPU-only inference so a stalled/slow device cannot spin forever.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(55);
     const int maxTokens = std::clamp(static_cast<int>(requestedTokens), 1, 256);
     auto system = utf(env, systemText);
     auto user = utf(env, userText);
@@ -154,7 +157,7 @@ Java_com_assistant_core_services_EmbeddedLfm3Native_nativeGenerate(
     common_sampler_reset(g_sampler);
     int32_t position = 0;
     for (size_t i = 0; i < tokens.size(); i += kBatch) {
-        if (g_cancel.load()) return nullptr;
+        if (g_cancel.load() || std::chrono::steady_clock::now() >= deadline) return nullptr;
         g_batch->clear();
         const auto end = std::min(tokens.size(), i + kBatch);
         for (size_t j = i; j < end; ++j)
@@ -165,7 +168,8 @@ Java_com_assistant_core_services_EmbeddedLfm3Native_nativeGenerate(
 
     std::string output;
     auto *vocab = llama_model_get_vocab(g_model);
-    for (int i = 0; i < maxTokens && !g_cancel.load(); ++i) {
+    for (int i = 0; i < maxTokens; ++i) {
+        if (g_cancel.load() || std::chrono::steady_clock::now() >= deadline) return nullptr;
         auto token = common_sampler_sample(g_sampler, g_context, -1);
         if (llama_vocab_is_eog(vocab, token)) break;
         common_sampler_accept(g_sampler, token, true);
@@ -174,7 +178,7 @@ Java_com_assistant_core_services_EmbeddedLfm3Native_nativeGenerate(
         g_batch->add(token, position++, 0, true);
         if (llama_process(g_context, LLAMA_PROCESS_TYPE_DECODE, g_batch->get()) != 0) return nullptr;
     }
-    if (g_cancel.load() || output.empty()) return nullptr;
+    if (g_cancel.load() || std::chrono::steady_clock::now() >= deadline || output.empty()) return nullptr;
     return java_utf8(env, output);
 }
 
