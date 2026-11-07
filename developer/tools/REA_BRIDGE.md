@@ -161,6 +161,25 @@ The offline Android parser is a platform adapter. The future Windows client
 should implement an equivalent ZIP/binary-manifest parser for the same
 inventory contract, not call Android PackageManager from Windows.
 
+## Read-only REA class search (active chat)
+
+After Analyze APK succeeds, the selected APK remains in volatile memory only
+while Developer chat is active. Type a 2–80 character class-name substring in
+the existing composer (for example, MainActivity), then tap Search classes.
+Developer sends the same selected bytes and SHA-256 with an explicit
+authenticated POST /v1/apk/classes/search and X-REA-CLASS-QUERY header.
+The bridge validates the query and archive and executes only its fixed
+search-android-classes REA command. It returns class names, a bounded count,
+the REA evidence SHA-256, and static-only limitations; it does not execute
+or persist the inspected APK.
+
+Search results are available to a subsequent Prepare REA proposal as explicitly
+marked untrusted evidence. They never grant write approval or bypass the
+existing source fingerprint review. Closing/backgrounding the Activity or
+changing tasks discards the evidence and zeroes selected bytes. A new chat
+session requires selecting the APK again. The companion Windows client can
+use the same portable HTTPS contract.
+
 ## AI-assisted implementation handoff
 
 After REA evidence appears in chat, type a **specific Developer feature

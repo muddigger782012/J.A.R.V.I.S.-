@@ -32,7 +32,7 @@ internal object ReaApkAnalysis {
         val code = when (reported) {
             "UNAUTHORIZED", "REA_BUSY", "APK_SIZE", "APK_ARCHIVE", "NOT_APK",
             "HASH_MISMATCH", "REA_CONFIGURATION", "REA_UNAVAILABLE",
-            "REA_TIMEOUT", "REA_FAILED", "REA_REPORT", "CONTENT_TYPE",
+            "REA_TIMEOUT", "REA_FAILED", "REA_REPORT", "CLASS_QUERY", "CONTENT_TYPE",
             "TRUNCATED_UPLOAD", "INTERNAL", "NOT_FOUND" -> reported
             else -> when (status) {
                 401, 403 -> "UNAUTHORIZED"
@@ -54,6 +54,7 @@ internal object ReaApkAnalysis {
             "REA_TIMEOUT" -> "REA/JADX analysis timed out. Try a smaller APK or inspect host performance."
             "REA_FAILED" -> "REA/JADX reported an analysis failure. Check its host diagnostics."
             "REA_REPORT" -> "REA returned invalid or unsupported evidence. No findings were accepted."
+            "CLASS_QUERY" -> "Enter a class-name substring of 2–80 letters, numbers, dots, dollars or underscores."
             "CONTENT_TYPE" -> "REA bridge rejected the APK media type."
             "TRUNCATED_UPLOAD" -> "The APK upload was incomplete. Check the connection and retry."
             "NOT_FOUND" -> "REA bridge endpoint was not found. Check host version and HTTPS origin."
@@ -63,7 +64,7 @@ internal object ReaApkAnalysis {
         return BridgeFailure(code, explanation)
     }
 
-    private fun responseFailure(connection: HttpsURLConnection): BridgeFailure {
+    internal fun responseFailure(connection: HttpsURLConnection): BridgeFailure {
         val body = runCatching {
             connection.errorStream?.use { input ->
                 val bytes = ByteArrayOutputStream()
