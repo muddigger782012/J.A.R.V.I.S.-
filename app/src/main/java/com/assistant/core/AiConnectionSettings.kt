@@ -187,6 +187,10 @@ object AiConnectionSettings {
             fields.addView(TextView(activity).apply { text = "On-phone llama-server port (127.0.0.1 only)" })
             fields.addView(localPort)
             fields.addView(TextView(activity).apply {
+                text = "Privacy: turn OFF provider fallback above for strictly offline chat. If fallback is on and local LFM3 fails, the question may be sent to your configured Gemini or gateway service."
+                textSize = 12f
+            })
+            fields.addView(TextView(activity).apply {
                 text = "Supported local commands run first. Provider selection applies to complex conversation; attachments and Google Search grounding use Gemini. Your gateway uses its server-selected model. No subscription or cost-based routing limits apply to Personal Jarvis."
                 textSize = 12f
             })
