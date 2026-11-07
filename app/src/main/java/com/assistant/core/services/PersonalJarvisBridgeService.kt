@@ -36,6 +36,10 @@ class PersonalJarvisBridgeService : Service() {
         private const val NOTIFICATION_ID = 8726
         @Volatile var listening = false
             private set
+        // True only after Android has accepted the foreground notification.
+        // Tests and UI must not confuse an open socket with completed FGS promotion.
+        @Volatile var foregroundReady = false
+            private set
     }
 
     private val started = AtomicBoolean(false)
@@ -81,6 +85,7 @@ class PersonalJarvisBridgeService : Service() {
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop bridge", stop).build()
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification,
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
+        foregroundReady = true
         android.util.Log.i("PersonalJarvisBridge", "Foreground service registered; loopback worker may start")
     }
 
@@ -280,6 +285,7 @@ class PersonalJarvisBridgeService : Service() {
 
     override fun onDestroy() {
         listening = false
+        foregroundReady = false
         runCatching { server?.close() }
         acceptor.shutdownNow()
         workers.shutdownNow()
