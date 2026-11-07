@@ -1,0 +1,54 @@
+name: Personal J.A.R.V.I.S. opt-in embedded LFM3 ARM64
+on:
+  push:
+    branches:
+      - feature/personal-lfm3-uncensored-loopback-20261107
+    paths:
+      - app/src/main/cpp/**
+      - app/src/main/java/com/assistant/core/services/EmbeddedLfm3Client.kt
+      - app/src/main/java/com/assistant/core/services/LocalLfm3Client.kt
+      - app/build.gradle
+      - .github/workflows/native-lfm3-android.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out exact LFM3-capable upstream llama.cpp snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/llama.cpp
+          ref: e95426f16982054c379ca7bdc8186996dd22f0fe
+          path: app/third_party/llama.cpp
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v4
+      - name: Install ARM64 NDK and CMake
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;29.0.13113456" "cmake;3.31.6"
+      - name: Prepare existing sherpa-onnx runtime
+        run: |
+          mkdir -p app/libs
+          curl -fL --retry 3 -o app/libs/sherpa-onnx-1.13.8.aar https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
+      - name: Verify theme contract
+        run: python3 scripts/check_ui_theme.py
+      - name: Compile JNI inference and Personal Android tests
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon -PjarvisEmbeddedLfm3=true :app:testDebugUnitTest :app:assembleDebug
+      - name: Upload isolated experimental ARM64 APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Personal-LFM3-embedded-ARM64-debug
+          path: app/build/outputs/apk/debug/*arm64*.apk
+          if-no-files-found: error
+          retention-days: 3
