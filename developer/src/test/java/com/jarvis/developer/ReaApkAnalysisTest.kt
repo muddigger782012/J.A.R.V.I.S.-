@@ -31,6 +31,26 @@ class ReaApkAnalysisTest {
         }
     }
 
+    @Test fun healthProbeContractDistinguishesAuthenticatedBridgeFromInstalledEngine() {
+        assertEquals("https://trusted.example.com:8765/v1/health",
+            ReaApkAnalysis.healthEndpoint("https://trusted.example.com:8765"))
+        val healthy = JSONObject().put("schema", "jarvis.rea.health.v1")
+            .put("state", "BRIDGE_REACHABLE").put("engine", "DOCTOR_PASSED").toString()
+        assertTrue(ReaApkAnalysis.validateHealth(healthy).contains("doctor passed"))
+        assertTrue(ReaApkAnalysis.validateHealth(healthy).contains("not been tested"))
+        val failed = JSONObject(healthy).put("engine", "DOCTOR_FAILED").toString()
+        assertTrue(ReaApkAnalysis.validateHealth(failed).contains("doctor failed"))
+        assertThrows(Exception::class.java) {
+            ReaApkAnalysis.validateHealth(JSONObject(healthy)
+                .put("engine", "APK_ANALYSIS_PROVEN").toString())
+        }
+        assertThrows(Exception::class.java) {
+            ReaApkAnalysis.validateHealth(JSONObject(healthy)
+                .put("schema", "unexpected").toString())
+        }
+        assertThrows(Exception::class.java) { ReaApkAnalysis.validateHealth("x".repeat(2049)) }
+    }
+
     @Test fun acceptedEvidenceIsBoundToSelectedApkAndExplicitlyStatic() {
         val report = ReaApkAnalysis.validateResponse(response(), digest)
         assertEquals(digest, report.apkSha256)
