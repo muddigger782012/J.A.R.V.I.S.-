@@ -67,6 +67,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:networkSecurityConfig="@xml/lfm3_network_security"
         android:theme="@style/Theme.AssistantPlatform">
         <receiver android:name=".services.ScreenTaskCancelReceiver" android:exported="false" android:process=":wake" />
         <provider android:name=".services.ScreenAccessProvider"

@@ -44,7 +44,7 @@ class IntelligenceRoutingTest {
         assertTrue(result.answer.reply, result.answer.reply.contains("Authentication failed"))
         assertTrue(result.answer.reply.contains("Gemini"))
         assertFalse(result.answer.reply.contains("private endpoint and token"))
-        assertEquals(IntelligenceRouting.Provider.values().toList(), result.attempted)
+        assertEquals(listOf(IntelligenceRouting.Provider.GEMINI, IntelligenceRouting.Provider.GATEWAY), result.attempted)
         assertNull(result.answer.lessonJson); assertNull(result.provider)
     }
     @Test fun aNullFallbackCannotEraseAnActionablePrimaryFailure() = keepsPrimaryFailure { null }

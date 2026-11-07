@@ -136,6 +136,7 @@ object AiConnectionSettings {
             textSize = 12f
         })
         val personal = activity.packageName == "com.assistant.core"
+        var downloadCancelledForExit: (() -> Unit)? = null
         val providers = com.assistant.core.services.IntelligenceRouting.Provider.values()
         var primaryProvider = com.assistant.core.services.IntelligenceRouting.selected(gatewayPrefs.getString("primary_provider", "gemini"))
         val providerChoice = com.google.android.material.button.MaterialButton(activity).apply {
@@ -151,8 +152,188 @@ object AiConnectionSettings {
             text = "Try the other configured provider if the primary fails"
             isChecked = gatewayPrefs.getBoolean("provider_fallback", true)
         }
+        var localVariant = com.assistant.core.services.LocalLfm3Models.selected(gatewayPrefs.getString("lfm3_variant", "atomic"))
+        var refreshLocalSelection: (() -> Unit)? = null
+        val localEnabled = SwitchMaterial(activity).apply {
+            text = "Enable local LFM3 conversation (requires native runtime or on-phone server)"
+            isChecked = gatewayPrefs.getBoolean("lfm3_enabled", false)
+        }
+        val localModelChoice = com.google.android.material.button.MaterialButton(activity).apply {
+            text = "Local GGUF: " + localVariant.label
+            setOnClickListener {
+                val variants = com.assistant.core.services.LocalLfm3Models.variants
+                ThemedDialogBuilder(activity).setTitle("Choose uncensored LFM3 variant")
+                    .setSingleChoiceItems(variants.map { it.label }.toTypedArray(), variants.indexOf(localVariant)) { picker, index ->
+                        localVariant = variants[index]
+                        text = "Local GGUF: " + localVariant.label
+                        picker.dismiss()
+                        refreshLocalSelection?.invoke()
+                    }.setNegativeButton("Cancel", null).show()
+            }
+        }
+        val localPort = EditText(activity).apply {
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(gatewayPrefs.getString("lfm3_port", "8080"))
+            hint = "8080"
+        }
         if (personal) {
             fields.addView(providerChoice); fields.addView(providerFallback)
+            fields.addView(localEnabled)
+            fields.addView(localModelChoice)
+            val nativeAvailable = com.assistant.core.services.EmbeddedLfm3Client(activity).binaryIncluded()
+            fields.addView(TextView(activity).apply {
+                text = if (nativeAvailable)
+                    "Embedded ARM64 LFM3 is included in this experimental build. When you ask a question, J.A.R.V.I.S. checks and loads the verified app-private GGUF directly. It falls back to the on-phone server only if no downloaded GGUF exists."
+                else
+                    "This build does not include the native LFM3 engine. You can download and verify weights here, but conversation still needs a separate on-phone llama-server with matching alias (see docs/PERSONAL_LFM3.md)."
+                textSize = 12f
+            })
+            fields.addView(TextView(activity).apply { text = "On-phone llama-server port (127.0.0.1 only)" })
+            fields.addView(localPort)
+            val modelStore = com.assistant.core.services.LocalLfm3ModelStore(activity)
+            val downloadCancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+            downloadCancelledForExit = { downloadCancelled.set(true) }
+            val modelStatus = TextView(activity).apply {
+                textSize = 12f
+                setTextIsSelectable(true)
+            }
+            fun refreshModelStatus() {
+                val snapshot = modelStore.status(localVariant)
+                modelStatus.text = if (snapshot.exists)
+                    "GGUF saved in app-private storage: ${snapshot.bytes / 1_000_000} MB. SHA-256 checked during download. Use Verify for a fresh integrity check. " +
+                        if (nativeAvailable) "Embedded LFM3 can load this file for local conversation." else "A native-enabled APK is needed for direct inference."
+                else if (snapshot.partialBytes > 0)
+                    "Partial GGUF: ${snapshot.partialBytes / 1_000_000} MB. Tap Download to resume."
+                else "This model is not downloaded. Download is around 1.1 GB and requires enough free internal storage."
+            }
+            val downloadButton = com.google.android.material.button.MaterialButton(activity).apply {
+                text = "Download selected uncensored GGUF"
+            }
+            val cancelDownloadButton = com.google.android.material.button.MaterialButton(activity).apply {
+                text = "Pause model download"
+                isEnabled = false
+            }
+            val verifyButton = com.google.android.material.button.MaterialButton(activity).apply {
+                text = "Verify saved GGUF"
+            }
+            val unloadButton = com.google.android.material.button.MaterialButton(activity).apply {
+                text = "Unload LFM3 from memory"
+                isEnabled = nativeAvailable
+            }
+            val deleteButton = com.google.android.material.button.MaterialButton(activity).apply {
+                text = "Delete downloaded GGUF"
+            }
+            var modelOperation = false
+            fun operationControls(busy: Boolean, download: Boolean = false) {
+                modelOperation = busy
+                downloadButton.isEnabled = !busy
+                cancelDownloadButton.isEnabled = busy && download
+                verifyButton.isEnabled = !busy
+                unloadButton.isEnabled = !busy && nativeAvailable
+                deleteButton.isEnabled = !busy
+                localModelChoice.isEnabled = !busy
+            }
+            downloadButton.setOnClickListener {
+                if (modelOperation) return@setOnClickListener
+                val chosen = localVariant
+                downloadCancelled.set(false)
+                operationControls(true, download = true)
+                modelStatus.text = "Preparing secure GGUF download for ${chosen.label}… Keep this settings page open; closing pauses the transfer."
+                kotlin.concurrent.thread(name = "jarvis-lfm3-model-download") {
+                    val result = runCatching {
+                        modelStore.download(chosen, cancelled = { downloadCancelled.get() }) { pct ->
+                            activity.runOnUiThread {
+                                if (open && !activity.isFinishing) modelStatus.text = "Downloading / verifying ${chosen.label}: $pct%"
+                            }
+                        }
+                    }
+                    activity.runOnUiThread {
+                        if (!open || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                        operationControls(false)
+                        modelStatus.text = result.fold(
+                            onSuccess = { "Downloaded and verified ${it.bytes / 1_000_000} MB. " +
+                                if (nativeAvailable) "Ready for offline LFM3 text generation." else "A native-enabled APK is needed for direct inference." },
+                            onFailure = { "GGUF transfer: ${it.message ?: "failed"}. Any valid partial transfer remains resumable." }
+                        )
+                    }
+                }
+            }
+            cancelDownloadButton.setOnClickListener {
+                downloadCancelled.set(true)
+                modelStatus.text = "Pausing after the current network read; reopen and resume when ready."
+            }
+            verifyButton.setOnClickListener {
+                if (modelOperation) return@setOnClickListener
+                val chosen = localVariant
+                operationControls(true)
+                modelStatus.text = "Checking GGUF SHA-256 against saved download receipt…"
+                kotlin.concurrent.thread(name = "jarvis-lfm3-model-verify") {
+                    val verified = runCatching { modelStore.verify(chosen) }.getOrDefault(false)
+                    activity.runOnUiThread {
+                        if (!open || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                        operationControls(false)
+                        modelStatus.text = if (verified) "Verified: saved GGUF matches its SHA-256 receipt."
+                            else "Verification failed or no downloaded GGUF is present. Download again before using it."
+                    }
+                }
+            }
+            unloadButton.setOnClickListener {
+                if (modelOperation) return@setOnClickListener
+                operationControls(true)
+                modelStatus.text = "Stopping local inference and releasing model memory…"
+                kotlin.concurrent.thread(name = "jarvis-lfm3-unload") {
+                    val result = runCatching {
+                        val runner = com.assistant.core.services.EmbeddedLfm3Client(activity.applicationContext)
+                        runner.cancel()
+                        runner.unload()
+                    }
+                    activity.runOnUiThread {
+                        if (!open || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                        operationControls(false)
+                        modelStatus.text = if (result.isSuccess) "Local model unloaded from memory. Saved GGUF retained."
+                            else "Could not unload the local model. See Android diagnostics."
+                    }
+                }
+            }
+            deleteButton.setOnClickListener {
+                if (modelOperation) return@setOnClickListener
+                val chosen = localVariant
+                ThemedDialogBuilder(activity).setTitle("Delete local GGUF?")
+                    .setMessage("Delete the downloaded ${chosen.label} model from private storage? This does not affect J.A.R.V.I.S. cloud AI or saved chats.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Delete") { _, _ ->
+                        operationControls(true)
+                        modelStatus.text = "Unloading and deleting ${chosen.label} from device storage…"
+                        kotlin.concurrent.thread(name = "jarvis-lfm3-delete") {
+                            val deleted = runCatching {
+                                // Never remove a GGUF still mapped by a native model.
+                                val runner = com.assistant.core.services.EmbeddedLfm3Client(activity.applicationContext)
+                                runner.cancel()
+                                runner.unload()
+                                modelStore.delete(chosen)
+                            }.getOrDefault(false)
+                            activity.runOnUiThread {
+                                if (!open || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                                operationControls(false)
+                                if (deleted) refreshModelStatus()
+                                else modelStatus.text = "Model deletion failed. Storage permissions or an active file may be blocking it."
+                            }
+                        }
+                    }.show()
+            }
+            fields.addView(modelStatus)
+            fields.addView(downloadButton)
+            fields.addView(cancelDownloadButton)
+            fields.addView(verifyButton)
+            fields.addView(unloadButton)
+            fields.addView(deleteButton)
+            refreshLocalSelection = { refreshModelStatus() }
+            refreshModelStatus()
+            fields.addView(TextView(activity).apply {
+                text = "Privacy: turn OFF provider fallback above for strictly offline chat. If fallback is on and local LFM3 fails, the question may be sent to your configured Gemini or gateway service."
+                textSize = 12f
+            })
             fields.addView(TextView(activity).apply {
                 text = "Supported local commands run first. Provider selection applies to complex conversation; attachments and Google Search grounding use Gemini. Your gateway uses its server-selected model. No subscription or cost-based routing limits apply to Personal Jarvis."
                 textSize = 12f
@@ -197,6 +378,9 @@ object AiConnectionSettings {
                     (lat.toDoubleOrNull()?.let { it.isFinite() && it in -90.0..90.0 } != true ||
                      lon.toDoubleOrNull()?.let { it.isFinite() && it in -180.0..180.0 } != true)) {
                     latitude.error = "Enter valid latitude and longitude together"
+                } else if (personal && localEnabled.isChecked &&
+                    com.assistant.core.services.LocalLfm3Models.port(localPort.text.toString().trim()) == null) {
+                    localPort.error = "Enter a port from 1024 to 65535"
                 } else if (!Regex("[a-zA-Z0-9._-]+").matches(geminiModel.text.toString().trim())) {
                     geminiModel.error = "Enter a valid Gemini model name"
                 } else {
@@ -205,7 +389,10 @@ object AiConnectionSettings {
                         return@setOnClickListener
                     }
                     if (personal) gatewayPrefs.edit().putString("primary_provider", primaryProvider.key)
-                        .putBoolean("provider_fallback", providerFallback.isChecked).apply()
+                        .putBoolean("provider_fallback", providerFallback.isChecked)
+                        .putString("lfm3_variant", localVariant.key)
+                        .putString("lfm3_port", localPort.text.toString().trim())
+                        .putBoolean("lfm3_enabled", localEnabled.isChecked).apply()
                     gatewayPrefs.edit().putBoolean("weather_device_location", deviceLocation.isChecked).putString("gemini_model", geminiModel.text.toString().trim()).putString("endpoint", url)
                         .putString("gateway_token", token.text.toString().trim())
                         .putString("weather_latitude", lat).putString("weather_longitude", lon).apply()
@@ -213,7 +400,11 @@ object AiConnectionSettings {
                 }
             }
         }
-        dialog.setOnDismissListener { open = false }
+        dialog.setOnDismissListener {
+            open = false
+            // Model transfers are explicitly page-scoped and retain resumable partial bytes.
+            if (personal) downloadCancelledForExit?.invoke()
+        }
         dialog.show()
     }
 }

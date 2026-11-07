@@ -5,6 +5,7 @@ on:
       - main
       - feature/companion-integrated
       - improve/grounded-technical-search
+      - feature/personal-lfm3-uncensored-loopback-20261107
       - fix/voice-default-tts-fallback-20261102
   workflow_dispatch:
 permissions:
@@ -27,6 +28,8 @@ jobs:
         run: |
           mkdir -p app/libs
           curl -fL --retry 3 -o app/libs/sherpa-onnx-1.13.8.aar https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
+      - name: Verify J.A.R.V.I.S. theme contract
+        run: python3 scripts/check_ui_theme.py
       # Keep validation on each repair commit before distributing a test APK.
       - name: Compile debug and run JVM unit tests
         run: |

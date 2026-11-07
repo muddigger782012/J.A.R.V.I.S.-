@@ -23,3 +23,6 @@ __pycache__/
 
 # CI-generated bundled Beta voice archive
 app/src/beta/assets/voice-packs/*.bz2
+
+# Opt-in pinned upstream llama.cpp checkout for embedded ARM64 CI
+app/third_party/llama.cpp/

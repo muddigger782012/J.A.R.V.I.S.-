@@ -25,7 +25,9 @@ object LiveCapabilityRegistry {
         val geminiObservation: AiConnectionDiagnostics.Result? = null,
         val gatewayObservation: AiConnectionDiagnostics.Result? = null,
         val briefFeatureNotes: Boolean = true,
-        val lastOfflineSpeechTiming: String? = null)
+        val lastOfflineSpeechTiming: String? = null,
+        val lfm3Enabled: Boolean = false,
+        val lfm3Variant: String = "not selected")
 
     fun topic(input: String, previous: String? = null): Topic? {
         if (input.length > 500) return null
@@ -76,7 +78,8 @@ object LiveCapabilityRegistry {
                 parseBuildNotes(text)
             }.getOrDefault(emptyList()), DirectOnlineClient(context).connectionObservation(), FallbackAiClient(context).connectionObservation(),
             context.getSharedPreferences("jarvis_companion_response", Context.MODE_PRIVATE).getBoolean("brief_feature_notes", true),
-            NeuralVoiceDiagnostics.lastAssistantSpeechTiming(context))
+            NeuralVoiceDiagnostics.lastAssistantSpeechTiming(context),
+            LocalLfm3Client(context).isConfigured(), LocalLfm3Client(context).selectedVariant().label)
     }
     fun render(topic: Topic, value: Snapshot): String {
         fun permission(granted: Boolean?) = when (granted) { true -> "granted"; false -> "permission/access needed"; null -> "not verified" }
@@ -92,7 +95,7 @@ object LiveCapabilityRegistry {
         fun observed(label: String, result: AiConnectionDiagnostics.Result?) = if (result == null)
             "$label: no fresh connection observation for the current settings. Use Intelligence → Test connection."
             else AiConnectionDiagnostics.render(result, label)
-        val providers = IntelligenceRouting.status(value.provider, value.fallback, value.geminiConfigured, value.gatewayConfigured, value.selectedModel) +
+        val providers = IntelligenceRouting.status(value.provider, value.fallback, value.geminiConfigured, value.gatewayConfigured, value.selectedModel, value.lfm3Enabled, value.lfm3Variant) +
             "\n" + observed("Gemini", value.geminiObservation) + "\n" + observed("Gateway", value.gatewayObservation)
         val voice = "Microphone permission: ${permission(value.microphone)}. " +
             listOf("local" to value.localVoice, "foreground" to value.foregroundVoice).joinToString(" ") { (owner, state) ->

@@ -1,7 +1,7 @@
 name: Build Jarvis APK
 on:
   push:
-    branches: [main, feature/companion-integrated]
+    branches: [main, feature/companion-integrated, feature/personal-lfm3-uncensored-loopback-20261107]
     paths-ignore:
       - 'artifacts/**'
   workflow_dispatch:
@@ -52,6 +52,11 @@ jobs:
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Permanent signing secrets are not configured; publishing is disabled for this run."
           fi
+      - name: Require original production signing for Personal LFM3 candidate
+        if: github.ref == 'refs/heads/feature/personal-lfm3-uncensored-loopback-20261107' && steps.signing.outputs.configured != 'true'
+        run: |
+          echo '::error::Cannot deliver an in-app update without original permanent Personal signing secrets.'
+          exit 1
       - name: Require permanent signing for Companion release candidates
         if: github.ref == 'refs/heads/feature/companion-integrated' && steps.signing.outputs.configured != 'true'
         shell: bash
@@ -118,6 +123,17 @@ jobs:
           timeout 60s python3 scripts/wake_decoder_smoke.py app/src/main/assets/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
           chmod +x ./gradlew
           ./gradlew --no-daemon testDebugUnitTest
+      - name: Pin upstream llama.cpp for Personal ARM64 LFM3 release
+        if: steps.signing.outputs.configured == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/personal-lfm3-uncensored-loopback-20261107')
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/llama.cpp
+          ref: e95426f16982054c379ca7bdc8186996dd22f0fe
+          path: app/third_party/llama.cpp
+          persist-credentials: false
+      - name: Install ARM64 native LFM3 release toolchain
+        if: steps.signing.outputs.configured == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/personal-lfm3-uncensored-loopback-20261107')
+        run: sdkmanager 'ndk;29.0.13113456' 'cmake;3.31.6'
       - name: Compile versioned release APK
         if: steps.signing.outputs.configured == 'true'
         env:
@@ -129,7 +145,11 @@ jobs:
           JARVIS_SIGNING_KEY_PASSWORD: ${{ secrets.JARVIS_SIGNING_KEY_PASSWORD }}
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon assembleRelease
+          if [ "$GITHUB_REF" = 'refs/heads/main' ] || [ "$GITHUB_REF" = 'refs/heads/feature/personal-lfm3-uncensored-loopback-20261107' ]; then
+            bash scripts/build_personal_lfm3_release.sh
+          else
+            ./gradlew --no-daemon assembleRelease
+          fi
       - name: Compile Beta from the same source revision
         if: steps.signing.outputs.configured == 'true' && github.ref == 'refs/heads/main'
         env:
