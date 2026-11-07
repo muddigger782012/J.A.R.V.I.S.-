@@ -50,7 +50,7 @@ std::string utf(JNIEnv *env, jstring source) {
         env->DeleteLocalRef(bytes);
         return "";
     }
-    std::string value(static_cast<size_t>(length), '\\0');
+    std::string value(static_cast<size_t>(length), char(0));
     if (length) env->GetByteArrayRegion(bytes, 0, length, reinterpret_cast<jbyte *>(value.data()));
     env->DeleteLocalRef(bytes);
     return value;
