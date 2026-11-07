@@ -11,6 +11,7 @@ This is an **opt-in, local-only** conversational provider for Personal `com.assi
 - Gemini and an already configured gateway are optional fallback providers. If `Local LFM3` is not selected, cloud routing stays as before.
 - AI diagnostics include a local model/probe check.
 - The only allowed HTTP address is `127.0.0.1` on this Android phone. No local model prompt is sent to a remote HTTP host by this client.
+- **Privacy:** if provider fallback is enabled, a failed local request may cause the same question to be sent to configured Gemini/gateway. Disable fallback to guarantee conversation stays on-phone even when the local server is down.
 
 ## What is **not** implemented
 
