@@ -126,8 +126,14 @@ SDK compatibility, requested permissions and declared components.
   immediately after parsing. No APK archive is retained by the inventory.
 - Requires an explicit user-selected APK. **Analyze APK** remains a separate
   opt-in network upload to the authenticated REA/JADX host.
-- Describes manifest declarations only. It cannot prove authenticity,
-  signatures, app safety, decompilation completeness or runtime behavior.
+- Adds an on-device cryptographic APK signing check using the existing
+  `apksig` verification engine for the device's Android SDK. A passing
+  result displays SHA-256 fingerprints of the verified signing certificates.
+  A failed signature check is explicitly labeled **FAILED**, never silently
+  upgraded to trusted.
+- Cryptographic validity does not prove who owns a certificate or whether
+  its app is safe. This is not complete decompilation or dynamic behavior
+  testing. No imported APK is installed or executed.
 
 The offline Android parser is a platform adapter. The future Windows client
 should implement an equivalent ZIP/binary-manifest parser for the same

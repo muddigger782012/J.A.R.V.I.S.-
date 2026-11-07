@@ -19,6 +19,21 @@ internal object OfflineApkInventory {
             PackageManager.GET_SERVICES or PackageManager.GET_RECEIVERS or
             PackageManager.GET_PROVIDERS
 
+    enum class SignatureStatus { VERIFIED, FAILED, NOT_CHECKED }
+
+    /** Only the APK cryptographic verifier can confer VERIFIED in production. */
+    data class SignatureCheck(
+        val status: SignatureStatus,
+        val signerSha256: List<String> = emptyList(),
+        val checkedPlatformSdk: Int? = null
+    ) {
+        init {
+            require(status != SignatureStatus.VERIFIED ||
+                (signerSha256.isNotEmpty() && checkedPlatformSdk != null))
+            require(signerSha256.size <= 8 && signerSha256.all { Regex("[a-f0-9]{64}").matches(it) })
+        }
+    }
+
     data class Inventory(
         val apkSha256: String,
         val packageName: String,
@@ -35,12 +50,26 @@ internal object OfflineApkInventory {
         val receivers: List<String>,
         val receiverCount: Int,
         val providers: List<String>,
-        val providerCount: Int
+        val providerCount: Int,
+        val signature: SignatureCheck = SignatureCheck(SignatureStatus.NOT_CHECKED)
     ) {
         fun display(): String = buildString {
             append("Offline APK inventory — manifest declarations only\n")
-            append("No upload, APK installation, code execution or signature verification occurred.\n")
+            append("No upload, APK installation or code execution occurred.\n")
             append("APK SHA-256: $apkSha256\n")
+            when (signature.status) {
+                SignatureStatus.VERIFIED -> {
+                    append("Cryptographic APK signature: VERIFIED for Android SDK ")
+                    append("${signature.checkedPlatformSdk}\n")
+                    append("Signing certificate SHA-256 fingerprints:\n")
+                    signature.signerSha256.forEach { append("• $it\n") }
+                    append("Certificate identity is not independently trusted. Verification does NOT mean this APK is safe.\n")
+                }
+                SignatureStatus.FAILED ->
+                    append("Cryptographic APK signature: FAILED or unsupported for this Android SDK. Do not treat the APK as authentic.\n")
+                SignatureStatus.NOT_CHECKED ->
+                    append("Cryptographic APK signature: NOT CHECKED in this metadata-only report.\n")
+            }
             append("Package: $packageName\nVersion: $versionName ($versionCode)\n")
             append("Android minimum SDK: ${minSdk ?: "unknown"}; target SDK: ${targetSdk ?: "unknown"}\n")
             append("\nRequested permissions ($permissionCount):\n")
@@ -69,7 +98,8 @@ internal object OfflineApkInventory {
         return names.take(max) to names.size
     }
 
-    fun fromPackageInfo(apkSha256: String, info: PackageInfo): Inventory {
+    fun fromPackageInfo(apkSha256: String, info: PackageInfo,
+        signature: SignatureCheck = SignatureCheck(SignatureStatus.NOT_CHECKED)): Inventory {
         require(Regex("[a-f0-9]{64}").matches(apkSha256))
         val pkg = info.packageName
         require(valid(pkg)) { "APK package name is unavailable." }
@@ -87,7 +117,8 @@ internal object OfflineApkInventory {
             activities.first, activities.second,
             services.first, services.second,
             receivers.first, receivers.second,
-            providers.first, providers.second
+            providers.first, providers.second,
+            signature
         )
     }
 
@@ -103,7 +134,17 @@ internal object OfflineApkInventory {
             val parsed = context.packageManager.getPackageArchiveInfo(
                 archive.absolutePath, FLAGS
             ) ?: error("Android could not parse a package manifest from this archive.")
-            fromPackageInfo(selected.sha256, parsed)
+            val signature = runCatching {
+                val signers = DevelopmentArtifactInspection.verifiedSigners(archive, Build.VERSION.SDK_INT)
+                    .sorted().take(8)
+                require(signers.isNotEmpty()) { "No verified signing certificates." }
+                SignatureCheck(SignatureStatus.VERIFIED, signers, Build.VERSION.SDK_INT)
+            }.getOrElse {
+                // Manifest declarations are still useful when signing fails,
+                // but they are explicitly not proof of authenticity or safety.
+                SignatureCheck(SignatureStatus.FAILED, checkedPlatformSdk = Build.VERSION.SDK_INT)
+            }
+            fromPackageInfo(selected.sha256, parsed, signature)
         } finally {
             // The Android archive parser needs a file path; do not retain
             // the APK or its extracted contents after this local inspection.
