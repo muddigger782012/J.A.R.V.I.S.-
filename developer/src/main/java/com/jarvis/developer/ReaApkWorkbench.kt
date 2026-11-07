@@ -106,7 +106,7 @@ internal object ReaApkWorkbench {
             attachmentNote.text = "Reading selected APK on-device. Nothing has been uploaded."
             attachmentNote.visibility = View.VISIBLE
             worker {
-                val attempt = runCatching { ReaApkAnalysis.import(activity.contentResolver, uri) }
+                val attempt = runCatching { ReaApkAnalysis.fromUri(activity.contentResolver, uri) }
                 activity.runOnUiThread {
                     if (!current(ticket)) {
                         attempt.getOrNull()?.bytes?.fill(0)
