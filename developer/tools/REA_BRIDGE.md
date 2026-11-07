@@ -175,9 +175,12 @@ or persist the inspected APK.
 
 Search results are available to a subsequent Prepare REA proposal as explicitly
 marked untrusted evidence. They never grant write approval or bypass the
-existing source fingerprint review. Closing/backgrounding the Activity or
-changing tasks discards the evidence and zeroes selected bytes. A new chat
-session requires selecting the APK again. The companion Windows client can
+existing source fingerprint review. Ordinary chat follow-ups preserve the
+completed, APK-bound evidence in this active conversation. Interrupting an
+in-flight analysis discards the pending evidence. Starting a new chat, switching
+projects or backgrounding/closing the Activity clears the evidence and zeroes
+selected bytes. A new session requires selecting the APK again.
+The companion Windows client can
 use the same portable HTTPS contract.
 
 ## Inspect a specific REA class

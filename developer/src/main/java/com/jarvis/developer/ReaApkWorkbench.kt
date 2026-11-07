@@ -83,16 +83,23 @@ internal object ReaApkWorkbench {
         /** A changed task draft invalidates the proposal offer, not saved evidence. */
         fun invalidateOffer() {
             generation++
-            // A stale worker reply must never strand the composer in BUSY
-            // after a newer chat turn takes ownership of the conversation.
-            selected?.bytes?.fill(0)
-            selected = null
+            // An ordinary chat turn must NOT delete completed, APK-bound
+            // evidence. Otherwise a follow-up in the single conversation
+            // unexpectedly forces a second APK selection and REA upload.
+            //
+            // An interrupted, in-flight operation is different: discard its
+            // bytes and pending observations so a delayed worker cannot
+            // revive an incomplete analysis or source-review offer.
+            if (busy) {
+                selected?.bytes?.fill(0)
+                selected = null
+                report = null
+                classResult = null
+                classDetail = null
+                methodResult = null
+                referencesResult = null
+            }
             busy = false
-            report = null
-            classResult = null
-            classDetail = null
-            methodResult = null
-            referencesResult = null
             showControls()
         }
 
