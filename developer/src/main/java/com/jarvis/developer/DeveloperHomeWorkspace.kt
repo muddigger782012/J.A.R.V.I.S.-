@@ -527,6 +527,12 @@ internal object DeveloperHomeWorkspace {
                 ) {
                     branchLabel.text = if (position == 0) "feature/jarvis-developer · Developer"
                         else "main · Personal J.A.R.V.I.S."
+                    // The Developer-only source offer must disappear on the
+                    // same UI event, not wait for an Activity callback.
+                    if (position != 0) {
+                        prepareNextButton?.isEnabled = false
+                        prepareNextButton?.visibility = View.GONE
+                    }
                     onTargetChanged(position)
                 }
             }
