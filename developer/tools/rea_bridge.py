@@ -6,6 +6,7 @@ JDK and REA's pinned JADX engine. No Android app code executes in this process.
 The APK is never executed; only static REA inspection is requested.
 """
 import hashlib
+import io
 import hmac
 import http.server
 import json
@@ -16,10 +17,14 @@ import ssl
 import subprocess
 import tempfile
 import threading
+import zipfile
 
 MAX_APK = 24 * 1024 * 1024
 MAX_REPORT = 1024 * 1024
 MAX_EXCERPT = 30000
+MAX_ARCHIVE_ENTRIES = 20000
+MAX_UNCOMPRESSED = 768 * 1024 * 1024
+MAX_MEMBER = 384 * 1024 * 1024
 HEX = re.compile(r"^[0-9a-f]{64}$")
 SCHEMA = "jarvis.rea.apk.v1"
 LOCK = threading.BoundedSemaphore(1)
@@ -62,6 +67,52 @@ def health_status(rea_command="rea", rea_entry=None):
         return "DOCTOR_FAILED"
 
 
+
+def validate_apk_archive(data):
+    """Inspect untrusted ZIP metadata before the fixed JADX analysis command.
+
+    These are archive declarations, not verified extraction or a safety verdict.
+    No archive member is extracted or executed by the preflight.
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(data), "r") as archive:
+            entries = archive.infolist()
+            if not entries or len(entries) > MAX_ARCHIVE_ENTRIES:
+                raise BridgeError("APK_ARCHIVE", "APK ZIP entry count exceeds the preflight limit")
+            seen = set()
+            total = 0
+            manifest = False
+            for member in entries:
+                name = member.filename
+                if (not name or "\\" in name or "\x00" in name or
+                        name.startswith("/") or re.match(r"^[A-Za-z]:", name) or
+                        any(p in (".", "..") for p in name.split("/"))):
+                    raise BridgeError("APK_ARCHIVE", "APK has an unsafe ZIP entry name")
+                if name in seen:
+                    raise BridgeError("APK_ARCHIVE", "APK contains duplicate ZIP entry names")
+                seen.add(name)
+                if member.flag_bits & 1:
+                    raise BridgeError("APK_ARCHIVE", "Encrypted ZIP members are not supported")
+                if (member.create_system == 3 and
+                        ((member.external_attr >> 16) & 0o170000) == 0o120000):
+                    raise BridgeError("APK_ARCHIVE", "APK contains a symbolic link")
+                if member.is_dir():
+                    continue
+                if member.file_size > MAX_MEMBER or total + member.file_size > MAX_UNCOMPRESSED:
+                    raise BridgeError("APK_ARCHIVE", "APK declares excessive uncompressed data")
+                if member.file_size > 1024 * 1024 and (
+                        member.file_size > 500 * max(1, member.compress_size)):
+                    raise BridgeError("APK_ARCHIVE", "APK declares an excessive expansion ratio")
+                total += member.file_size
+                if name == "AndroidManifest.xml":
+                    manifest = True
+            if not manifest:
+                raise BridgeError("APK_ARCHIVE", "APK has no AndroidManifest.xml entry")
+            return len(entries), total
+    except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, OSError, ValueError):
+        raise BridgeError("APK_ARCHIVE", "APK is not a valid bounded ZIP archive") from None
+
+
 def analyze_apk(data, claimed_sha, rea_command="rea", rea_entry=None):
     if len(data) < 4 or len(data) > MAX_APK or data[:4] not in (
         b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"
@@ -70,6 +121,7 @@ def analyze_apk(data, claimed_sha, rea_command="rea", rea_entry=None):
     sha = hashlib.sha256(data).hexdigest()
     if not HEX.fullmatch(claimed_sha) or not hmac.compare_digest(sha, claimed_sha):
         raise BridgeError("HASH_MISMATCH", "APK SHA-256 did not match the submitted bytes")
+    archive_info = validate_apk_archive(data)
     with tempfile.TemporaryDirectory(prefix="jarvis-rea-") as root:
         apk = Path(root, "selected.apk")
         apk.write_bytes(data)
@@ -113,6 +165,8 @@ def analyze_apk(data, claimed_sha, rea_command="rea", rea_entry=None):
             "schema": SCHEMA, "state": "ANALYZED",
             "apk_sha256": sha, "evidence_sha256": hashlib.sha256(raw).hexdigest(),
             "excerpt": excerpt[:MAX_EXCERPT],
+            "archive_entries": archive_info[0],
+            "archive_uncompressed_bytes": archive_info[1],
             "truncated": truncated,
             "scope": "static-reverse-engineering-only",
             "engine": "REA inspect-android-package (JADX)",

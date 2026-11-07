@@ -86,9 +86,15 @@ the explicit upload authorization. The bridge accepts only:
 - `X-APK-SHA256: <64 lowercase hex characters>`
 - raw selected APK bytes
 
+The bridge preflights the APK's actual ZIP directory before invoking REA/JADX.
+Invalid ZIPs, missing Android manifests, unsafe or duplicate entry names, symlinks,
+encrypted members, and oversized declared expansion are rejected. This is not a
+malware scan or proof of extraction completeness.
+
 Successful analysis returns `jarvis.rea.apk.v1` with the APK SHA-256,
 REA output SHA-256, bounded evidence excerpt, truncation status, and
-static-only limitations. The host keeps a full evidence bundle only until
+static-only limitations, and bounded ZIP entry count and declared uncompressed
+size when available (not independently extracted). The host keeps a full evidence bundle only until
 the per-job temporary directory is removed; therefore the mobile excerpt
 must not be mistaken for complete decompilation or a durable full report.
 
