@@ -71,6 +71,11 @@ class DeveloperHomeActivityIntegrationTest {
             it.tag == "developer-task-next"
         }
         assertEquals("Next", next.text.toString())
+        val prepare = all(activity).filterIsInstance<Button>().single {
+            it.tag == "developer-prepare-next-diff"
+        }
+        assertFalse("No source offer may survive Activity creation", prepare.isEnabled)
+        assertEquals(View.GONE, prepare.visibility)
         assertNotNull(all(activity).filterIsInstance<LinearLayout>().single {
             it.tag == "developer-home-task-summary"
         })
@@ -87,6 +92,8 @@ class DeveloperHomeActivityIntegrationTest {
         val target = composer(activity).findViewWithTag<Spinner>("developer-home-target")
         target.setSelection(1)
         shadowOf(Looper.getMainLooper()).idle()
+        assertFalse("Personal mode cannot display a Developer preview offer", prepare.isEnabled)
+        assertEquals(View.GONE, prepare.visibility)
         next.performClick()
         assertTrue(all(activity).filterIsInstance<TextView>()
             .any { it.text.toString().contains("available for Developer, not Personal Jarvis") })

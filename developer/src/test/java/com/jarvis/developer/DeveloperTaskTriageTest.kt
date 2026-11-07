@@ -95,6 +95,39 @@ class DeveloperTaskTriageTest {
         assertFalse(text.contains("Build: PASSED"))
     }
 
+    @Test fun oneTapSourceOfferRejectsUnresolvedCommitsPendingReviewsAndBuilds() {
+        val ready = TaskPlanner.transition(plan(), "analyze", TaskPlanner.Status.DONE,
+            "Owner reviewed scoped analysis", 2L)
+        assertNotNull(DeveloperTaskAdvance.evaluate(listOf(ready), emptyList()).packet)
+        for (state in listOf("QUEUED", "RUNNING", "REVIEW_READY",
+            "AWAITING_APPROVAL", "COMMITTING", "OUTCOME_UNKNOWN",
+            "VERIFYING", "READY_FOR_REVIEW", "REVIEW_REQUIRED")) {
+            val offer = DeveloperTaskAdvance.evaluate(listOf(ready), listOf(job(state)))
+            assertNull("No new preview during $state", offer.packet)
+            assertTrue(offer.diagnosis.contains("reconcile it in Track"))
+            assertTrue(offer.diagnosis.contains(state))
+        }
+        // A cancelled unrelated job grants no approval, but does not claim an
+        // in-flight source write is currently holding the coding slot.
+        val cleared = DeveloperTaskAdvance.evaluate(listOf(ready), listOf(job("CANCELLED")))
+        assertNotNull(cleared.packet)
+        // Older uncertain work cannot be obscured by a newer cancelled job.
+        val unresolvedOlder = DeveloperTaskAdvance.evaluate(listOf(ready),
+            listOf(job("OUTCOME_UNKNOWN"), job("CANCELLED")))
+        assertNull(unresolvedOlder.packet)
+        assertTrue(unresolvedOlder.diagnosis.contains("Unresolved Developer job: OUTCOME_UNKNOWN"))
+    }
+
+    @Test fun oneTapSourceOfferNeverSkipsAnalysisOrRestoresPausedPlan() {
+        assertNull(DeveloperTaskAdvance.evaluate(listOf(plan()), emptyList()).packet)
+        val reviewed = TaskPlanner.transition(plan(), "analyze", TaskPlanner.Status.DONE,
+            "Owner reviewed analysis", 2L)
+        val paused = TaskPlanner.pause(reviewed, true, 3L)
+        assertNull(DeveloperTaskAdvance.evaluate(listOf(paused), emptyList()).packet)
+        assertTrue(DeveloperTaskAdvance.evaluate(emptyList(), emptyList()).diagnosis
+            .contains("No saved Developer plan"))
+    }
+
     @Test fun uncertainCommitAlwaysWarnsAgainstBlindRetries() {
         val text = DeveloperTaskTriage.summarize(listOf(plan()), listOf(job("OUTCOME_UNKNOWN")))
         assertTrue(text.contains("outcome is uncertain"))
