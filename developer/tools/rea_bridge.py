@@ -33,11 +33,11 @@ class BridgeError(Exception):
 
 def verify_token(received, expected):
     if not expected or len(expected) < 24:
-        raise BridgeError("CONFIGURATION", "Bridge token must contain at least 24 characters", 503)
+        return False
     return hmac.compare_digest(received, "Bearer " + expected)
 
 
-def analyze_apk(data, claimed_sha, rea_command="rea"):
+def analyze_apk(data, claimed_sha, rea_command="rea", rea_entry=None):
     if len(data) < 4 or len(data) > MAX_APK or data[:4] not in (
         b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"
     ):
@@ -54,7 +54,19 @@ def analyze_apk(data, claimed_sha, rea_command="rea"):
         err = Path(root, "stderr.log")
         # Argument vector only; no shell or source-code execution. In a
         # private per-job directory, nothing is shared with other analyses.
-        cmd = [rea_command, "inspect-android-package", str(apk),
+        # Windows npm often exposes rea.cmd. To avoid passing untrusted
+        # arguments to a Windows shell, use a real Node executable with an
+        # absolute, preconfigured JS entry instead: ["node.exe", "rea.mjs", ...].
+        if rea_entry:
+            entry = Path(rea_entry)
+            if not entry.is_absolute() or not entry.is_file():
+                raise BridgeError("REA_CONFIGURATION", "REA entry must be an existing absolute JS path", 503)
+            launcher = [rea_command, str(entry)]
+        elif os.name == "nt":
+            raise BridgeError("REA_CONFIGURATION", "Windows host requires JARVIS_REA_ENTRY and a Node executable", 503)
+        else:
+            launcher = [rea_command]
+        cmd = launcher + ["inspect-android-package", str(apk),
                "--detail", "summary", "--evidence_output", str(full), "--json"]
         try:
             with out.open("wb") as stdout, err.open("wb") as stderr:
@@ -125,7 +137,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if len(payload) != length:
                 raise BridgeError("TRUNCATED_UPLOAD", "Incomplete APK upload")
             result = analyze_apk(payload, self.headers.get("X-APK-SHA256", "").strip(),
-                                 os.environ.get("JARVIS_REA_COMMAND", "rea"))
+                                 os.environ.get("JARVIS_REA_COMMAND", "rea"),
+                                 os.environ.get("JARVIS_REA_ENTRY") or None)
             self._respond(200, result)
         except BridgeError as error:
             self._respond(error.status, {"error": error.code, "message": str(error)})
