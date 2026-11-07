@@ -242,6 +242,81 @@ def analyze_apk(data, claimed_sha, rea_command="rea", rea_entry=None):
         }
 
 
+CLASS_QUERY = re.compile(r"^[A-Za-z0-9_.$]{2,80}$")
+CLASS_SCHEMA = "jarvis.rea.classes.v1"
+MAX_CLASS_MATCHES = 40
+
+
+def validate_class_query(query):
+    if not isinstance(query, str) or not CLASS_QUERY.fullmatch(query):
+        raise BridgeError("CLASS_QUERY", "Use a class substring of 2 to 80 ASCII characters")
+    return query
+
+
+def search_apk_classes(data, claimed_sha, query, rea_command="rea", rea_entry=None):
+    """Read-only, hash-bound class search with a fixed REA/JADX command."""
+    query = validate_class_query(query)
+    if len(data) < 4 or len(data) > MAX_APK or data[:4] not in (
+        b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"
+    ):
+        raise BridgeError("NOT_APK", "Expected a bounded ZIP-format Android APK")
+    digest = hashlib.sha256(data).hexdigest()
+    if not HEX.fullmatch(claimed_sha) or not hmac.compare_digest(digest, claimed_sha):
+        raise BridgeError("HASH_MISMATCH", "Selected APK hash is different from upload")
+    validate_apk_archive(data)
+    with tempfile.TemporaryDirectory(prefix="jarvis-rea-class-search-") as root:
+        apk = Path(root, "selected.apk")
+        apk.write_bytes(data)
+        os.chmod(apk, 0o600)
+        out = Path(root, "stdout.json")
+        command = rea_launcher(rea_command, rea_entry) + [
+            "search-android-classes", str(apk), query, "--json"
+        ]
+        try:
+            with out.open("wb") as stdout:
+                result = subprocess.run(command, stdout=stdout,
+                    stderr=subprocess.DEVNULL, cwd=root, timeout=150, check=False)
+        except subprocess.TimeoutExpired:
+            raise BridgeError("REA_TIMEOUT", "Class search exceeded deadline", 504)
+        except OSError:
+            raise BridgeError("REA_UNAVAILABLE", "REA/JADX is unavailable", 503)
+        if result.returncode != 0:
+            raise BridgeError("REA_FAILED", "REA/JADX class search failed", 502)
+        if not 1 <= out.stat().st_size <= MAX_REPORT:
+            raise BridgeError("REA_REPORT", "Class search returned an invalid report size", 502)
+        raw = out.read_bytes()
+        try:
+            report = json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            raise BridgeError("REA_REPORT", "REA returned malformed class evidence", 502)
+        if (not isinstance(report, dict) or report.get("isError") or
+                report.get("error") or report.get("ok") is False or
+                report.get("success") is False):
+            raise BridgeError("REA_REPORT", "REA reported a failed class search", 502)
+        result = report.get("normalized_result")
+        if not isinstance(result, dict) or result.get("query") != query:
+            raise BridgeError("REA_REPORT", "REA class result is not bound to requested query", 502)
+        matches = result.get("matches")
+        total = result.get("total_classes")
+        if (not isinstance(matches, list) or len(matches) > 10000 or
+                type(total) is not int or total < 0 or total > 10000000 or
+                len(matches) > total or result.get("coverage") != "complete" or
+                any(not isinstance(v, str) or not 1 <= len(v) <= 240 or
+                    any(ord(ch) < 32 or ord(ch) == 127 for ch in v) for v in matches)):
+            raise BridgeError("REA_REPORT", "REA returned an invalid class inventory", 502)
+        return {
+            "schema": CLASS_SCHEMA, "state": "ANALYZED",
+            "apk_sha256": digest,
+            "evidence_sha256": hashlib.sha256(raw).hexdigest(),
+            "query": query, "total_classes": total,
+            "match_count": len(matches),
+            "matches": matches[:MAX_CLASS_MATCHES],
+            "truncated": len(matches) > MAX_CLASS_MATCHES,
+            "scope": "static-class-name-search-only",
+            "limitations": "Static JADX class names; runtime behavior is not established."
+        }
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "JarvisREA/1"
     def _respond(self, status, result):
@@ -276,7 +351,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             LOCK.release()
 
     def do_POST(self):
-        if self.path != "/v1/apk/analyze":
+        if self.path not in ("/v1/apk/analyze", "/v1/apk/classes/search"):
             return self._respond(404, {"error": "NOT_FOUND"})
         token = os.environ.get("JARVIS_REA_TOKEN", "")
         if not verify_token(self.headers.get("Authorization", ""), token):
@@ -295,9 +370,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             payload = self.rfile.read(length)
             if len(payload) != length:
                 raise BridgeError("TRUNCATED_UPLOAD", "Incomplete APK upload")
-            result = analyze_apk(payload, self.headers.get("X-APK-SHA256", "").strip(),
-                                 os.environ.get("JARVIS_REA_COMMAND", "rea"),
-                                 os.environ.get("JARVIS_REA_ENTRY") or None)
+            if self.path == "/v1/apk/classes/search":
+                result = search_apk_classes(payload,
+                    self.headers.get("X-APK-SHA256", "").strip(),
+                    self.headers.get("X-REA-CLASS-QUERY", "").strip(),
+                    os.environ.get("JARVIS_REA_COMMAND", "rea"),
+                    os.environ.get("JARVIS_REA_ENTRY") or None)
+            else:
+                result = analyze_apk(payload, self.headers.get("X-APK-SHA256", "").strip(),
+                                     os.environ.get("JARVIS_REA_COMMAND", "rea"),
+                                     os.environ.get("JARVIS_REA_ENTRY") or None)
             self._respond(200, result)
         except BridgeError as error:
             self._respond(error.status, {"error": error.code, "message": str(error)})

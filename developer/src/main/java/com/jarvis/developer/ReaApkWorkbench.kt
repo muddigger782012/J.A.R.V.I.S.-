@@ -30,6 +30,7 @@ internal object ReaApkWorkbench {
         private val analyzeButton: Button,
         private val localButton: Button,
         private val proposalButton: Button,
+        private val classButton: Button,
         private val attachmentNote: TextView,
         private val product: () -> Int,
         private val project: () -> String?,
@@ -46,6 +47,7 @@ internal object ReaApkWorkbench {
         private var busy = false
         private var selected: ReaApkAnalysis.Selected? = null
         private var report: ReaApkAnalysis.Report? = null
+        private var classResult: ReaClassSearch.Result? = null
 
         private fun current(ticket: Long): Boolean =
             !disposed && !activity.isFinishing && !activity.isDestroyed &&
@@ -58,6 +60,9 @@ internal object ReaApkWorkbench {
             localButton.isEnabled = selected != null && !busy
             proposalButton.visibility = if (report != null && !busy) View.VISIBLE else View.GONE
             proposalButton.isEnabled = report != null && !busy
+            classButton.visibility = if (report != null && selected != null && !busy)
+                View.VISIBLE else View.GONE
+            classButton.isEnabled = report != null && selected != null && !busy
         }
 
         /** A changed task draft invalidates the proposal offer, not saved evidence. */
@@ -65,9 +70,11 @@ internal object ReaApkWorkbench {
             generation++
             // A stale worker reply must never strand the composer in BUSY
             // after a newer chat turn takes ownership of the conversation.
-            if (busy) selected = null
+            selected?.bytes?.fill(0)
+            selected = null
             busy = false
             report = null
+            classResult = null
             showControls()
         }
 
@@ -76,6 +83,7 @@ internal object ReaApkWorkbench {
             selected?.bytes?.fill(0)
             selected = null
             report = null
+            classResult = null
             busy = false
             attachmentNote.visibility = View.GONE
             showControls()
@@ -85,9 +93,11 @@ internal object ReaApkWorkbench {
             // A dismissed Activity cannot accept a late analysis or source
             // selection. No network operation or approval is resumed later.
             generation++
-            if (busy) selected = null
+            selected?.bytes?.fill(0)
+            selected = null
             busy = false
             report = null
+            classResult = null
             showControls()
         }
 
@@ -107,6 +117,7 @@ internal object ReaApkWorkbench {
             val uri: Uri = data.data ?: return true
             val ticket = ++generation
             report = null
+            classResult = null
             selected?.bytes?.fill(0)
             selected = null
             busy = true
@@ -186,26 +197,82 @@ internal object ReaApkWorkbench {
                 val result = runCatching {
                     ReaApkAnalysis.analyze(configuration.first, configuration.second, apk)
                 }
-                // APK bytes are no longer needed once the HTTPS exchange
-                // terminates, even if the Activity has switched tasks.
-                apk.bytes.fill(0)
+                // Keep the selected APK only in transient in-memory chat state
+                // for explicit follow-up class searches. Leaving/pausing wipes it.
                 activity.runOnUiThread {
-                    if (!current(ticket) || project() != projectAtStart) return@runOnUiThread
+                    if (!current(ticket) || project() != projectAtStart) {
+                        apk.bytes.fill(0)
+                        return@runOnUiThread
+                    }
                     busy = false
-                    selected = null
-                    apk.bytes.fill(0)
                     result.onSuccess {
                         report = it
+                        selected = apk
+                        classResult = null
                         output.text = it.display().take(8500)
                         status.text = "REA evidence received for exact APK hash; no source changed."
-                        attachmentNote.text = "Static REA evidence is ready. Describe the specific " +
-                            "Developer feature to implement, then tap Prepare proposal."
+                        attachmentNote.text = "Find classes by typing a class-name substring and " +
+                            "tapping Search classes. The APK stays only in this active chat's " +
+                            "memory and is cleared on background/exit."
                     }.onFailure { error ->
                         report = null
+                        selected = null
+                        classResult = null
+                        apk.bytes.fill(0)
                         output.text = ReaApkAnalysis.describeFailure(error) +
                             "\nNo evidence, source change, or code approval was accepted."
                         status.text = "REA analysis did not complete."
                         attachmentNote.text = "Choose the APK again to retry a failed analysis."
+                    }
+                    showControls()
+                }
+            }
+        }
+
+
+        /** Explicitly upload the SAME selected APK for one fixed REA class-name search. */
+        fun searchClasses() {
+            val apk = selected ?: return
+            val evidence = report ?: return
+            val query = prompt.text.toString().trim()
+            if (product() != 0 || busy || !ready() ||
+                evidence.apkSha256 != apk.sha256 || !ReaClassSearch.validQuery(query)) {
+                status.text = "Enter a class substring (2–80 letters, digits, dots, " +
+                    "dollars or underscores), then tap Search classes."
+                return
+            }
+            val configuration = ProviderCredentialStore.loadRea(activity)
+            if (configuration == null) {
+                status.text = "Save REA HTTPS origin and token in Settings first."
+                return
+            }
+            val ticket = ++generation
+            val projectAtStart = project()
+            busy = true
+            showControls()
+            message("Search REA class names in the selected APK: $query")
+            status.text = "Searching JADX classes in the selected APK; no source changes."
+            worker {
+                val result = runCatching {
+                    ReaClassSearch.search(configuration.first, configuration.second, apk, query)
+                }
+                activity.runOnUiThread {
+                    if (!current(ticket) || project() != projectAtStart ||
+                        report !== evidence || prompt.text.toString().trim() != query) {
+                        return@runOnUiThread
+                    }
+                    busy = false
+                    result.onSuccess {
+                        classResult = it
+                        output.text = (evidence.overview?.display().orEmpty() + "\n" +
+                            it.display()).take(10000)
+                        status.text = "REA class evidence received; source remains unchanged."
+                        attachmentNote.text = "Class search ready. Describe the feature " +
+                            "to implement, then tap Prepare REA proposal to review a source diff."
+                    }.onFailure { error ->
+                        classResult = null
+                        output.text = ReaApkAnalysis.describeFailure(error)
+                        status.text = "REA class search failed; no source change or approval."
                     }
                     showControls()
                 }
@@ -226,7 +293,9 @@ internal object ReaApkWorkbench {
             showControls()
             message("Prepare source-scoped Developer proposal using REA APK evidence")
             status.text = "Reading Developer source at an immutable commit; no code write."
-            val task = evidence.sourceProposalTask(instruction)
+            val task = evidence.sourceProposalTask(instruction) +
+                classResult?.takeIf { it.apkSha256 == evidence.apkSha256 }
+                    ?.proposalEvidence().orEmpty()
             worker {
                 val plan = runCatching {
                     val token = ProviderCredentialStore.loadGithub(activity).orEmpty()
@@ -306,11 +375,22 @@ internal object ReaApkWorkbench {
             isEnabled = false
         }
         composer.addView(propose, composer.indexOfChild(actions))
+        val searchClasses = Button(activity).apply {
+            text = "Search classes"
+            isAllCaps = false
+            tag = "developer-rea-class-search"
+            contentDescription = "Search class names in the current APK using REA, without code edits"
+            visibility = View.GONE
+            isEnabled = false
+        }
         actions.addView(analyze, 0)
-        val handle = Handle(activity, prompt, output, status, analyze, inspectLocal, propose, note,
+        val handle = Handle(activity, prompt, output, status, analyze, inspectLocal,
+            propose, searchClasses, note,
             product, project, ready, message, prepare, onReview)
         inspectLocal.setOnClickListener { handle.inspectOffline() }
         analyze.setOnClickListener { handle.analyze() }
+        searchClasses.setOnClickListener { handle.searchClasses() }
+        actions.addView(searchClasses, 1)
         propose.setOnClickListener { handle.propose() }
         actions.addView(Button(activity).apply {
             text = "+ APK"
