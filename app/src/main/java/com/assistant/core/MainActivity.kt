@@ -76,6 +76,7 @@ import com.assistant.core.services.RunningShizukuCommand
 import com.assistant.core.services.ShizukuShellService
 import com.assistant.core.services.SystemService
 import com.assistant.core.services.PersonalUpdatePackagePolicy
+import com.assistant.core.services.PersonalReleaseCatalog
 import com.assistant.core.services.VoiceAssistantService
 import com.assistant.core.services.VoiceInteractionState
 import com.assistant.core.services.VoiceSessionController
@@ -2032,7 +2033,7 @@ class MainActivity : ThemedActivity() {
     private fun latestPublicPersonalReleaseApk(): String? {
         val owner = BuildConfig.GITHUB_REPO_OWNER.trim()
         val repo = BuildConfig.GITHUB_REPO_NAME.trim()
-        val connection = (URL("https://api.github.com/repos/$owner/$repo/releases/latest?nocache=${System.currentTimeMillis()}").openConnection() as HttpURLConnection).apply {
+        val connection = (URL("https://api.github.com/repos/$owner/$repo/releases?per_page=100&nocache=${System.currentTimeMillis()}").openConnection() as HttpURLConnection).apply {
             connectTimeout = 12_000
             readTimeout = 12_000
             useCaches = false
@@ -2044,19 +2045,9 @@ class MainActivity : ThemedActivity() {
         try {
             check(connection.responseCode in 200..299) { "Release API returned HTTP ${connection.responseCode}" }
             val payload = connection.inputStream.bufferedReader().use { it.readText() }
-            val release = JSONObject(payload)
-            val tag = release.optString("tag_name")
-            if (!Regex("""jarvis-3\.6\.[1-9][0-9]*""").matches(tag)) return null
             val abi = Build.SUPPORTED_ABIS.firstOrNull { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64") }
                 ?: return null
-            val name = "Jarvis-${tag.removePrefix("jarvis-")}-$abi.apk"
-            val expected = "https://github.com/$owner/$repo/releases/download/$tag/$name"
-            val assets = release.optJSONArray("assets") ?: return null
-            for (i in 0 until assets.length()) {
-                val asset = assets.optJSONObject(i) ?: continue
-                if (asset.optString("name") == name && asset.optString("browser_download_url") == expected) return expected
-            }
-            return null
+            return PersonalReleaseCatalog.highestVerifiedAsset(payload, owner, repo, abi)
         } finally {
             connection.disconnect()
         }
