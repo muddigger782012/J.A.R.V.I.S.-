@@ -204,7 +204,7 @@ object PatchWorkbench {
             val providerName = provider.selectedItem?.toString().orEmpty()
             val rawModel = model.text.toString()
             val selectedModel = rawModel.trim().ifBlank {
-                if (providerName == "Gemini") CodingAssistantProvider.DEFAULT_GEMINI_MODEL else "gpt-4.1-mini"
+                when (providerName) { "Gemini" -> CodingAssistantProvider.DEFAULT_GEMINI_MODEL; "Strata" -> "strata"; else -> "gpt-4.1-mini" }
             }
             val rawId = taskId.text.toString()
             val rawTask = task.text.toString()
@@ -389,7 +389,7 @@ object PatchWorkbench {
                     "Use a task ID of 1–48 letters, digits, hyphens or underscores."
                 frozen.task.isBlank() || frozen.task.length > 12_000 ->
                     "Enter a task of 1–12,000 characters."
-                frozen.provider !in setOf("Gemini", "OpenAI") -> "Select Gemini or OpenAI."
+                frozen.provider !in setOf("Gemini", "OpenAI", "Strata") -> "Select Gemini, OpenAI or Strata."
                 key.isBlank() -> "Enter the selected provider's API key. It is used only in memory."
                 frozen.allowedPaths.size !in 1..PatchEngine.MAX_FILES ->
                     "Enter 1–8 exact source paths, one per line."
