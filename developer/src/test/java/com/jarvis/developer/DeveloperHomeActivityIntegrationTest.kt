@@ -93,6 +93,42 @@ class DeveloperHomeActivityIntegrationTest {
         assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
     }
 
+    @Test fun reaApkWorkflowIsAvailableInlineWithoutAutomaticUploadOrCodeApproval() {
+        val activity = activity()
+        val picker = all(activity).filterIsInstance<Button>().single {
+            it.tag == "developer-rea-picker"
+        }
+        val analyze = all(activity).filterIsInstance<Button>().single {
+            it.tag == "developer-rea-analyze"
+        }
+        val proposal = all(activity).filterIsInstance<Button>().single {
+            it.tag == "developer-rea-proposal"
+        }
+        assertEquals("+ APK", picker.text.toString())
+        assertTrue(picker.isShown)
+        assertEquals(View.GONE, analyze.visibility)
+        assertEquals(View.GONE, proposal.visibility)
+        assertFalse(analyze.isEnabled)
+        assertFalse(proposal.isEnabled)
+        val origin = all(activity).filterIsInstance<EditText>().single {
+            it.tag == "developer-rea-origin"
+        }
+        val bearer = all(activity).filterIsInstance<EditText>().single {
+            it.tag == "developer-rea-bearer"
+        }
+        assertFalse(origin.isShown)
+        assertFalse(bearer.isShown)
+        assertFalse(origin.isSaveEnabled)
+        assertFalse(bearer.isSaveEnabled)
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+        button(activity, "Settings").performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(origin.isShown)
+        assertTrue(bearer.isShown)
+        assertTrue(button(activity, "Save REA bridge connection").isShown)
+        assertFalse(button(activity, "Create task branch and commit approved files (writes)").isEnabled)
+    }
+
     @Test fun compactWorkspacePresentsBranchRunsAndOneActionStripWithoutSkippingApproval() {
         val activity = activity()
         val toolbar = all(activity).filterIsInstance<LinearLayout>().single {

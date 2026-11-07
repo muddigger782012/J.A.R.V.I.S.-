@@ -88,6 +88,42 @@ internal object ProviderCredentialStore {
             .remove("github_token").commit())
     }
 
+    /** Store the REA HTTPS origin and bearer encrypted with the device Keystore. */
+    fun saveRea(context: Context, origin: String, bearer: String) {
+        ReaApkAnalysis.endpoint(origin)
+        require(bearer.length in 24..4096 && bearer.none { it.isISOControl() })
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+        val protected = cipher.iv + cipher.doFinal(bearer.toByteArray(Charsets.UTF_8))
+        check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString("rea_origin", origin.trim().trimEnd('/'))
+            .putString("rea_bearer", Base64.encodeToString(protected, Base64.NO_WRAP))
+            .commit())
+    }
+
+    fun loadRea(context: Context): Pair<String, String>? {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val origin = prefs.getString("rea_origin", null) ?: return null
+        val encoded = prefs.getString("rea_bearer", null) ?: return null
+        return runCatching {
+            ReaApkAnalysis.endpoint(origin)
+            val bytes = Base64.decode(encoded, Base64.NO_WRAP)
+            require(bytes.size > IV_SIZE + 16)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, secretKey(),
+                GCMParameterSpec(128, bytes.copyOfRange(0, IV_SIZE)))
+            val bearer = String(cipher.doFinal(bytes.copyOfRange(IV_SIZE, bytes.size)),
+                Charsets.UTF_8)
+            require(bearer.length in 24..4096)
+            origin to bearer
+        }.getOrNull()
+    }
+
+    fun clearRea(context: Context) {
+        check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove("rea_origin").remove("rea_bearer").commit())
+    }
+
     fun clear(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit()
     }
