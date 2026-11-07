@@ -70,6 +70,10 @@ class PersonalJarvisBridgeWireTest {
                 }
                 try {
                     await("Bridge should open local listener") { PersonalJarvisBridgeService.listening }
+                    // Android must finish acknowledging startForeground() before this short
+                    // test can shut down the service; immediate stop races FGS promotion.
+                    Thread.sleep(1500)
+                    assertTrue("The listener must stay up after foreground promotion", PersonalJarvisBridgeService.listening)
                     val body = JSONObject().put("model", PersonalJarvisBridgeProtocol.MODEL)
                         .put("stream", true).put("messages", org.json.JSONArray()
                             .put(JSONObject().put("role", "user")
@@ -108,6 +112,8 @@ class PersonalJarvisBridgeWireTest {
             }
             try {
                 await("Personal bridge must accept loopback connections") { PersonalJarvisBridgeService.listening }
+                Thread.sleep(1500)
+                assertTrue("The listener must remain up after foreground promotion", PersonalJarvisBridgeService.listening)
                 val missing = request("/v1/models")
                 assertEquals(401, missing.first)
                 assertEquals("unauthorized", JSONObject(missing.second).getJSONObject("error").getString("code"))
