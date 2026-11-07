@@ -504,19 +504,34 @@ def inspect_apk_method(data, claimed_sha, class_name, method_name, overload,
                     any(ord(c) < 32 or ord(c) == 127 for c in marker)):
                 raise BridgeError("REA_REPORT", "Invalid method source marker", 502)
             safe_markers.append(marker)
-        snippet = source_text[:MAX_METHOD_SNIPPET]
+        # Android/Kotlin strings measure UTF-16 code units, not Python code points.
+        # Bound the excerpt by UTF-16 units and preserve a hash of complete text.
+        try:
+            raw_source = source_text.encode("utf-8")
+        except UnicodeEncodeError:
+            raise BridgeError("REA_REPORT", "REA source contains invalid Unicode", 502) from None
+        source_units = sum(2 if ord(ch) > 0xffff else 1 for ch in source_text)
+        excerpt_chars = []
+        excerpt_units = 0
+        for char in source_text:
+            width = 2 if ord(char) > 0xffff else 1
+            if excerpt_units + width > MAX_METHOD_SNIPPET:
+                break
+            excerpt_chars.append(char)
+            excerpt_units += width
+        snippet = "".join(excerpt_chars)
         return {
             "schema": METHOD_SCHEMA, "state": "ANALYZED",
             "apk_sha256": digest,
             "evidence_sha256": hashlib.sha256(raw).hexdigest(),
-            "source_sha256": hashlib.sha256(source_text.encode("utf8")).hexdigest(),
+            "source_sha256": hashlib.sha256(raw_source).hexdigest(),
             "class_name": class_name, "method_name": method_name,
             "overload_index": overload, "signature": signature,
             "representation": representation, "body_status": body_status,
             "source_status": source_status, "fell_back": fell_back,
             "markers": safe_markers[:8], "source_excerpt": snippet,
-            "source_characters": len(source_text),
-            "truncated": len(source_text) > MAX_METHOD_SNIPPET,
+            "source_characters": source_units,
+            "truncated": source_units > excerpt_units,
             "scope": "static-method-inspection-only",
             "limitations": "Static REA/JADX evidence; source may be partial, inferred or decompiler-generated; no runtime execution."
         }
@@ -525,7 +540,7 @@ def inspect_apk_method(data, claimed_sha, class_name, method_name, overload,
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "JarvisREA/1"
     def _respond(self, status, result):
-        blob = json.dumps(result, separators=(",", ":")).encode()
+        blob = json.dumps(result, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")

@@ -236,6 +236,28 @@ class ReaBridgeTests(unittest.TestCase):
         self.assertEqual(result["representation"], "smali")
         self.assertTrue(result["fell_back"])
 
+
+    def test_method_source_uses_android_utf16_units_for_unicode_boundaries(self):
+        source = "😀" * 4100
+        payload = json.dumps({"normalized_result":{
+            "class_name":"a.MainActivity",
+            "method":{"name":"onCreate","overload_index":0,
+                      "reported_signature":"onCreate(): void"},
+            "representation":"java","body_status":"available",
+            "fell_back":False,"markers":[],
+            "source":{"status":"partial","text":source,
+                      "reported_total_bytes":None}
+        }})
+        with tempfile.TemporaryDirectory() as root:
+            result = bridge.inspect_apk_method(self.APK, self.DIGEST, "a.MainActivity",
+                "onCreate", 0, sys.executable, self.fake_method_rea(root, payload))
+        self.assertEqual(result["source_characters"], 8200)
+        self.assertEqual(len(result["source_excerpt"]), 3000)
+        self.assertEqual(len(result["source_excerpt"].encode("utf-16-le")) // 2, 6000)
+        self.assertTrue(result["truncated"])
+        transport = json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf8")
+        self.assertLess(len(transport), 20000)
+
     def test_method_inspection_endpoint_checks_token_and_index(self):
         token = "test-method-inspection-token-012345678"
         for headers_ok in (False, True):

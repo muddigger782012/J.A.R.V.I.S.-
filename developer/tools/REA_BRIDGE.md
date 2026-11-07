@@ -205,6 +205,10 @@ X-REA-METHOD-NAME and X-REA-OVERLOAD-INDEX. The isolated host executes only
 REA's fixed inspect-android-method CLI against the selected APK; the APK itself
 is never executed.
 
+The bridge measures source excerpt and total source length in UTF-16 code
+units for Android/Windows compatibility. It serializes JSON as UTF-8 without
+unnecessary ASCII escaping, preserving bounded Unicode source text.
+
 The reply includes the method signature, selected overload index, Java or
 smali representation, decompiler fallback markers, complete/partial source
 coverage, a bounded 6,000-character source excerpt and SHA-256 fingerprints
