@@ -217,15 +217,20 @@ object AiConnectionSettings {
             val verifyButton = com.google.android.material.button.MaterialButton(activity).apply {
                 text = "Verify saved GGUF"
             }
+            val unloadButton = com.google.android.material.button.MaterialButton(activity).apply {
+                text = "Unload LFM3 from memory"
+                isEnabled = nativeAvailable
+            }
             val deleteButton = com.google.android.material.button.MaterialButton(activity).apply {
                 text = "Delete downloaded GGUF"
             }
             var modelOperation = false
-            fun operationControls(busy: Boolean) {
+            fun operationControls(busy: Boolean, download: Boolean = false) {
                 modelOperation = busy
                 downloadButton.isEnabled = !busy
-                cancelDownloadButton.isEnabled = busy
+                cancelDownloadButton.isEnabled = busy && download
                 verifyButton.isEnabled = !busy
+                unloadButton.isEnabled = !busy && nativeAvailable
                 deleteButton.isEnabled = !busy
                 localModelChoice.isEnabled = !busy
             }
@@ -233,7 +238,7 @@ object AiConnectionSettings {
                 if (modelOperation) return@setOnClickListener
                 val chosen = localVariant
                 downloadCancelled.set(false)
-                operationControls(true)
+                operationControls(true, download = true)
                 modelStatus.text = "Preparing secure GGUF download for ${chosen.label}… Keep this settings page open; closing pauses the transfer."
                 kotlin.concurrent.thread(name = "jarvis-lfm3-model-download") {
                     val result = runCatching {
@@ -247,7 +252,8 @@ object AiConnectionSettings {
                         if (!open || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                         operationControls(false)
                         modelStatus.text = result.fold(
-                            onSuccess = { "Downloaded and verified ${it.bytes / 1_000_000} MB. GGUF is ready for native loader integration." },
+                            onSuccess = { "Downloaded and verified ${it.bytes / 1_000_000} MB. " +
+                                if (nativeAvailable) "Ready for offline LFM3 text generation." else "A native-enabled APK is needed for direct inference." },
                             onFailure = { "GGUF transfer: ${it.message ?: "failed"}. Any valid partial transfer remains resumable." }
                         )
                     }
@@ -272,6 +278,24 @@ object AiConnectionSettings {
                     }
                 }
             }
+            unloadButton.setOnClickListener {
+                if (modelOperation) return@setOnClickListener
+                operationControls(true)
+                modelStatus.text = "Stopping local inference and releasing model memory…"
+                kotlin.concurrent.thread(name = "jarvis-lfm3-unload") {
+                    val result = runCatching {
+                        val runner = com.assistant.core.services.EmbeddedLfm3Client(activity.applicationContext)
+                        runner.cancel()
+                        runner.unload()
+                    }
+                    activity.runOnUiThread {
+                        if (!open || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                        operationControls(false)
+                        modelStatus.text = if (result.isSuccess) "Local model unloaded from memory. Saved GGUF retained."
+                            else "Could not unload the local model. See Android diagnostics."
+                    }
+                }
+            }
             deleteButton.setOnClickListener {
                 if (modelOperation) return@setOnClickListener
                 val chosen = localVariant
@@ -279,14 +303,30 @@ object AiConnectionSettings {
                     .setMessage("Delete the downloaded ${chosen.label} model from private storage? This does not affect J.A.R.V.I.S. cloud AI or saved chats.")
                     .setNegativeButton("Cancel", null)
                     .setPositiveButton("Delete") { _, _ ->
-                        modelStatus.text = if (modelStore.delete(chosen)) "Model deleted." else "Could not delete model."
-                        refreshModelStatus()
+                        operationControls(true)
+                        modelStatus.text = "Unloading and deleting ${chosen.label} from device storage…"
+                        kotlin.concurrent.thread(name = "jarvis-lfm3-delete") {
+                            val deleted = runCatching {
+                                // Never remove a GGUF still mapped by a native model.
+                                val runner = com.assistant.core.services.EmbeddedLfm3Client(activity.applicationContext)
+                                runner.cancel()
+                                runner.unload()
+                                modelStore.delete(chosen)
+                            }.getOrDefault(false)
+                            activity.runOnUiThread {
+                                if (!open || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                                operationControls(false)
+                                if (deleted) refreshModelStatus()
+                                else modelStatus.text = "Model deletion failed. Storage permissions or an active file may be blocking it."
+                            }
+                        }
                     }.show()
             }
             fields.addView(modelStatus)
             fields.addView(downloadButton)
             fields.addView(cancelDownloadButton)
             fields.addView(verifyButton)
+            fields.addView(unloadButton)
             fields.addView(deleteButton)
             refreshLocalSelection = { refreshModelStatus() }
             refreshModelStatus()
