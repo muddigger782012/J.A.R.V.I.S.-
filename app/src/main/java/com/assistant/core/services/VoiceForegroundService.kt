@@ -557,7 +557,10 @@ class VoiceForegroundService : Service() {
                             ambientContext.clear()
                             hybridAssistantService.clearAmbientConversation()
                         }
-                        val automaticDecision = ambientParticipation.decide(text, companionSettings)
+                        val automaticDecision = ambientParticipation.decide(
+                            text, companionSettings,
+                            allowNaturalHelp = packageName == "com.assistant.core"
+                        )
                         // Keep commercial Beta behavior independent from the
                         // experimental Personal companion participation changes.
                         val participation = if (packageName == "com.assistant.core")
