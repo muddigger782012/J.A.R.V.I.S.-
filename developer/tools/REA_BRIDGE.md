@@ -236,6 +236,16 @@ dispatch, runtime call sites or execution; it does not install or run
 an APK. These read-only findings can be included as clearly untrusted
 evidence in the existing Developer source review flow.
 
+## Cancel a slow REA task without leaving the chat
+
+While a REA inspection or APK picker operation is running, **Cancel REA task**
+appears in the current composer. It immediately invalidates the pending
+Android callback, clears the selected APK bytes and untrusted findings,
+restores the chat controls, and allows a new selection. The remote REA/JADX
+process may still finish its own request; this action **does not guarantee**
+remote cancellation or claim to stop work already dispatched. No source
+approval, write, or app installation is performed.
+
 ## AI-assisted implementation handoff
 
 After REA evidence appears in chat, type a **specific Developer feature

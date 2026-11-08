@@ -25,6 +25,7 @@ class ReaApkChatContextTest {
         val inspectClass = Button(activity)
         val inspectMethod = Button(activity)
         val references = Button(activity)
+        val cancel = Button(activity)
         val note = TextView(activity)
         val apkBytes = byteArrayOf(80, 75, 3, 4, 1, 2, 3, 4)
         val sha = ReaApkAnalysis.sha256(apkBytes)
@@ -42,6 +43,7 @@ class ReaApkChatContextTest {
             detailButton = inspectClass,
             methodButton = inspectMethod,
             referencesButton = references,
+            cancelButton = cancel,
             attachmentNote = note,
             product = { 0 },
             project = { "developer" },
@@ -101,6 +103,30 @@ class ReaApkChatContextTest {
             assertArrayEquals(ByteArray(8), x.apkBytes)
             assertFalse(x.search.isEnabled)
             assertEquals(View.GONE, x.proposal.visibility)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+
+    @Test fun cancelTaskDiscardsPendingResultAndRestoresChatWithoutClaimingHostCancellation() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val x = Fixture(controller.get())
+            x.setCompleteEvidence()
+            x.assign("busy", true)
+            val refresh = x.handle.javaClass.getDeclaredMethod("showControls")
+            refresh.isAccessible = true
+            refresh.invoke(x.handle)
+            assertEquals(View.VISIBLE, x.cancel.visibility)
+            assertTrue(x.cancel.isEnabled)
+            x.handle.cancelPending()
+            assertNull(x.value<ReaApkAnalysis.Selected>("selected"))
+            assertNull(x.value<ReaApkAnalysis.Report>("report"))
+            assertArrayEquals(ByteArray(8), x.apkBytes)
+            assertEquals(View.GONE, x.cancel.visibility)
+            assertEquals(View.GONE, x.search.visibility)
+            assertTrue(x.note.text.toString().contains("Select an APK again"))
         } finally {
             controller.pause().stop().destroy()
         }

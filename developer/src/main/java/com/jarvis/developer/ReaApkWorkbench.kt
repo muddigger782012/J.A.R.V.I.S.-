@@ -34,6 +34,7 @@ internal object ReaApkWorkbench {
         private val detailButton: Button,
         private val methodButton: Button,
         private val referencesButton: Button,
+        private val cancelButton: Button,
         private val attachmentNote: TextView,
         private val product: () -> Int,
         private val project: () -> String?,
@@ -78,6 +79,8 @@ internal object ReaApkWorkbench {
             referencesButton.visibility = if (methodResult != null && selected != null && !busy)
                 View.VISIBLE else View.GONE
             referencesButton.isEnabled = methodResult != null && selected != null && !busy
+            cancelButton.visibility = if (busy) View.VISIBLE else View.GONE
+            cancelButton.isEnabled = busy
         }
 
         /** A changed task draft invalidates the proposal offer, not saved evidence. */
@@ -101,6 +104,21 @@ internal object ReaApkWorkbench {
             }
             busy = false
             showControls()
+        }
+
+        /**
+         * Stops accepting the current asynchronous result and returns control
+         * immediately. The host process may continue until its own timeout;
+         * this action is not a remote job cancellation or an approval.
+         */
+        fun cancelPending() {
+            if (!busy) return
+            reset()
+            output.text = "Pending REA result discarded. No source edits, approvals " +
+                "or installs were accepted."
+            status.text = "Local REA task canceled; the remote host may finish its current job."
+            attachmentNote.text = "Select an APK again to start a new analysis."
+            attachmentNote.visibility = View.VISIBLE
         }
 
         fun reset() {
@@ -651,6 +669,14 @@ internal object ReaApkWorkbench {
             visibility = View.GONE
             isEnabled = false
         }
+        val cancelTask = Button(activity).apply {
+            text = "Cancel REA task"
+            isAllCaps = false
+            tag = "developer-rea-cancel"
+            contentDescription = "Discard pending REA result locally; a remote host job may finish"
+            visibility = View.GONE
+            isEnabled = false
+        }
         val traceReferences = Button(activity).apply {
             text = "Trace references"
             isAllCaps = false
@@ -661,7 +687,8 @@ internal object ReaApkWorkbench {
         }
         actions.addView(analyze, 0)
         val handle = Handle(activity, prompt, output, status, analyze, inspectLocal,
-            propose, searchClasses, inspectClass, inspectMethod, traceReferences, note,
+            propose, searchClasses, inspectClass, inspectMethod, traceReferences,
+            cancelTask, note,
             product, project, ready, message, prepare, onReview)
         inspectLocal.setOnClickListener { handle.inspectOffline() }
         analyze.setOnClickListener { handle.analyze() }
@@ -673,6 +700,8 @@ internal object ReaApkWorkbench {
         actions.addView(inspectMethod, 3)
         traceReferences.setOnClickListener { handle.traceReferences() }
         actions.addView(traceReferences, 4)
+        cancelTask.setOnClickListener { handle.cancelPending() }
+        actions.addView(cancelTask, 5)
         propose.setOnClickListener { handle.propose() }
         actions.addView(Button(activity).apply {
             text = "+ APK"
