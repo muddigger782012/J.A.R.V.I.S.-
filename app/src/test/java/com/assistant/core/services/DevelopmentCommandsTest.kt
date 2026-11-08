@@ -4,6 +4,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DevelopmentCommandsTest {
+    @Test fun explicitLinkRequestsVerifyDeveloperWithoutSubmittingOrApprovingTasks() {
+        for (spoken in listOf("Connect to Jarvis Developer", "Connect Jarvis to Developer",
+            "Connect to Developer", "Link Jarvis to Developer", "Verify Developer link",
+            "Check Developer link")) {
+            assertEquals(spoken, DevelopmentCommands.Kind.CAPABILITIES, DevelopmentCommands.parse(spoken))
+            assertNull("No review body from a link check: $spoken", DevelopmentCommands.submission(spoken))
+        }
+        for (spoken in listOf("Don't connect to Developer", "Connect me to a random app",
+            "Please install Developer", "Automatically approve Developer")) {
+            assertNull(spoken, DevelopmentCommands.parse(spoken))
+        }
+    }
     @Test fun installedApkChecksRouteLocallyWithoutAuthorizingAnInstallation() {
         for (text in listOf("Can you check the APK Developer installed?", "Please recheck my APK that Developer just installed", "Run the installed APK checks"))
             assertEquals(DevelopmentCommands.Kind.CHECK_INSTALLED_APK, DevelopmentCommands.parse(text))
