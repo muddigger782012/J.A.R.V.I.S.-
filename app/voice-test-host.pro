@@ -131,3 +131,10 @@
 -keep class com.assistant.core.services.PersonalJarvisBridgeProtocol { *; }
 -keep class com.assistant.core.services.PersonalJarvisBridgeStreaming { *; }
 -keep class com.assistant.core.services.PersonalJarvisBridgeService { *; }
+
+# Kotlin companion lives in a separate generated class. R8 renaming/optimizing
+# that class breaks getForegroundReady() called from the independently compiled
+# androidTest APK, even if the outer Service is already kept above.
+# Keep the companion's generated getters and identity only for voiceCheck;
+# release/Beta app shrinker and signing remain unchanged.
+-keep class com.assistant.core.services.PersonalJarvisBridgeService$Companion { *; }
