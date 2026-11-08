@@ -23,7 +23,9 @@ object DevelopmentCommands {
         return when (text) {
             "approve this apk installation", "confirm this apk installation" -> Kind.APPROVE_INSTALL_APK
             "cancel apk installation", "cancel this apk installation" -> Kind.CANCEL_INSTALL_APK
-            "developer connection status", "check developer connection", "developer capabilities" -> Kind.CAPABILITIES
+            "developer connection status", "check developer connection", "developer capabilities",
+            "connect to jarvis developer", "connect jarvis to developer", "connect to developer",
+            "link jarvis to developer", "verify developer link", "check developer link" -> Kind.CAPABILITIES
             "development job status", "developer job status", "developer status", "track development", "how is the development task going",
             "where did we leave off with development", "what happened with my developer task",
             "what is the developer working on", "how is jarvis development going" -> Kind.STATUS
