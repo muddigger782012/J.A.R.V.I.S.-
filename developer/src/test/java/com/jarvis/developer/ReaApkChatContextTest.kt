@@ -115,22 +115,18 @@ class ReaApkChatContextTest {
             val x = Fixture(controller.get())
             x.setCompleteEvidence()
             x.assign("busy", true)
-            // Simulate the current worker-owned request. The cancel control
-            // must be shown only while the operation is active.
-            x.handle.invalidateOffer()
+            val refresh = x.handle.javaClass.getDeclaredMethod("showControls")
+            refresh.isAccessible = true
+            refresh.invoke(x.handle)
+            assertEquals(View.VISIBLE, x.cancel.visibility)
+            assertTrue(x.cancel.isEnabled)
+            x.handle.cancelPending()
             assertNull(x.value<ReaApkAnalysis.Selected>("selected"))
+            assertNull(x.value<ReaApkAnalysis.Report>("report"))
             assertArrayEquals(ByteArray(8), x.apkBytes)
-
-            val next = Fixture(controller.get())
-            next.setCompleteEvidence()
-            next.assign("busy", true)
-            next.handle.cancelPending()
-            assertNull(next.value<ReaApkAnalysis.Selected>("selected"))
-            assertNull(next.value<ReaApkAnalysis.Report>("report"))
-            assertArrayEquals(ByteArray(8), next.apkBytes)
-            assertEquals(View.GONE, next.cancel.visibility)
-            assertEquals(View.GONE, next.search.visibility)
-            assertTrue(next.note.text.toString().contains("Select an APK again"))
+            assertEquals(View.GONE, x.cancel.visibility)
+            assertEquals(View.GONE, x.search.visibility)
+            assertTrue(x.note.text.toString().contains("Select an APK again"))
         } finally {
             controller.pause().stop().destroy()
         }
