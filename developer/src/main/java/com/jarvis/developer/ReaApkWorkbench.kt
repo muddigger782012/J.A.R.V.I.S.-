@@ -33,6 +33,7 @@ internal object ReaApkWorkbench {
         private val classButton: Button,
         private val detailButton: Button,
         private val methodButton: Button,
+        private val referencesButton: Button,
         private val attachmentNote: TextView,
         private val product: () -> Int,
         private val project: () -> String?,
@@ -52,6 +53,7 @@ internal object ReaApkWorkbench {
         private var classResult: ReaClassSearch.Result? = null
         private var classDetail: ReaClassDetail.Result? = null
         private var methodResult: ReaMethodInspection.Result? = null
+        private var referencesResult: ReaMethodReferences.Result? = null
 
         private fun current(ticket: Long): Boolean =
             !disposed && !activity.isFinishing && !activity.isDestroyed &&
@@ -73,6 +75,9 @@ internal object ReaApkWorkbench {
             methodButton.visibility = if (classDetail != null && selected != null && !busy)
                 View.VISIBLE else View.GONE
             methodButton.isEnabled = classDetail != null && selected != null && !busy
+            referencesButton.visibility = if (methodResult != null && selected != null && !busy)
+                View.VISIBLE else View.GONE
+            referencesButton.isEnabled = methodResult != null && selected != null && !busy
         }
 
         /** A changed task draft invalidates the proposal offer, not saved evidence. */
@@ -87,6 +92,7 @@ internal object ReaApkWorkbench {
             classResult = null
             classDetail = null
             methodResult = null
+            referencesResult = null
             showControls()
         }
 
@@ -98,6 +104,7 @@ internal object ReaApkWorkbench {
             classResult = null
             classDetail = null
             methodResult = null
+            referencesResult = null
             busy = false
             attachmentNote.visibility = View.GONE
             showControls()
@@ -114,6 +121,7 @@ internal object ReaApkWorkbench {
             classResult = null
             classDetail = null
             methodResult = null
+            referencesResult = null
             showControls()
         }
 
@@ -136,6 +144,7 @@ internal object ReaApkWorkbench {
             classResult = null
             classDetail = null
             methodResult = null
+            referencesResult = null
             selected?.bytes?.fill(0)
             selected = null
             busy = true
@@ -229,6 +238,7 @@ internal object ReaApkWorkbench {
                         classResult = null
                         classDetail = null
                         methodResult = null
+                        referencesResult = null
                         output.text = it.display().take(8500)
                         status.text = "REA evidence received for exact APK hash; no source changed."
                         attachmentNote.text = "Find classes by typing a class-name substring and " +
@@ -240,6 +250,7 @@ internal object ReaApkWorkbench {
                         classResult = null
                         classDetail = null
                         methodResult = null
+                        referencesResult = null
                         apk.bytes.fill(0)
                         output.text = ReaApkAnalysis.describeFailure(error) +
                             "\nNo evidence, source change, or code approval was accepted."
@@ -273,6 +284,7 @@ internal object ReaApkWorkbench {
             classResult = null
             classDetail = null
             methodResult = null
+            referencesResult = null
             busy = true
             showControls()
             message("Search REA class names in the selected APK: $query")
@@ -293,6 +305,7 @@ internal object ReaApkWorkbench {
                         classResult = it
                         classDetail = null
                         methodResult = null
+                        referencesResult = null
                         output.text = (evidence.overview?.display().orEmpty() + "\n" +
                             it.display()).take(10000)
                         status.text = "REA class evidence received; source remains unchanged."
@@ -302,6 +315,7 @@ internal object ReaApkWorkbench {
                         classResult = null
                         classDetail = null
                         methodResult = null
+                        referencesResult = null
                         output.text = ReaApkAnalysis.describeFailure(error)
                         status.text = "REA class search failed; no source change or approval."
                     }
@@ -333,6 +347,7 @@ internal object ReaApkWorkbench {
             val projectAtStart = project()
             classDetail = null
             methodResult = null
+            referencesResult = null
             busy = true
             showControls()
             message("Inspect REA class structure: $exact")
@@ -353,6 +368,7 @@ internal object ReaApkWorkbench {
                     result.onSuccess {
                         classDetail = it
                         methodResult = null
+                        referencesResult = null
                         output.text = (evidence.overview?.display().orEmpty() +
                             "\n" + it.display()).take(10000)
                         status.text = "REA class structure inspected; no code was changed."
@@ -361,6 +377,7 @@ internal object ReaApkWorkbench {
                     }.onFailure { error ->
                         classDetail = null
                         methodResult = null
+                        referencesResult = null
                         output.text = ReaApkAnalysis.describeFailure(error)
                         status.text = "REA class inspection failed; no code approval or write."
                     }
@@ -395,6 +412,7 @@ internal object ReaApkWorkbench {
             val ticket = ++generation
             val projectAtStart = project()
             methodResult = null
+            referencesResult = null
             busy = true
             showControls()
             message("Inspect REA method: " + classEvidence.className + "." + chosen)
@@ -415,14 +433,72 @@ internal object ReaApkWorkbench {
                     }
                     result.onSuccess {
                         methodResult = it
+                        referencesResult = null
                         output.text = it.display().take(10500)
                         status.text = "REA method inspection complete. No code was executed or changed."
                         attachmentNote.text = "Method evidence is available for a reviewed " +
                             "source proposal. Enter the feature to build and tap Prepare REA proposal."
                     }.onFailure { error ->
                         methodResult = null
+                        referencesResult = null
                         output.text = ReaApkAnalysis.describeFailure(error)
                         status.text = "REA method inspection failed; source unchanged."
+                    }
+                    showControls()
+                }
+            }
+        }
+
+
+        /** Trace static DEX using nodes of the previously inspected exact method. */
+        fun traceReferences() {
+            val apk = selected ?: return
+            val selectedMethod = methodResult ?: return
+            val packageEvidence = report ?: return
+            if (product() != 0 || busy || !ready() ||
+                selectedMethod.apkSha256 != apk.sha256 ||
+                packageEvidence.apkSha256 != apk.sha256 ||
+                classDetail?.className != selectedMethod.className ||
+                classDetail?.methods?.any {
+                    it.name == selectedMethod.methodName &&
+                        it.overloadIndex == selectedMethod.overloadIndex
+                } != true) return
+            val connection = ProviderCredentialStore.loadRea(activity)
+            if (connection == null) {
+                status.text = "Configure the REA HTTPS host and token in Settings."
+                return
+            }
+            val ticket = ++generation
+            val projectAtStart = project()
+            referencesResult = null
+            busy = true
+            showControls()
+            message("Trace static references to " + selectedMethod.className + "." +
+                selectedMethod.methodName + "#" + selectedMethod.overloadIndex)
+            status.text = "Tracing static DEX using nodes; no APK execution."
+            worker {
+                val result = runCatching {
+                    ReaMethodReferences.trace(connection.first, connection.second, apk,
+                        selectedMethod)
+                }
+                activity.runOnUiThread {
+                    if (!current(ticket) || project() != projectAtStart) return@runOnUiThread
+                    busy = false
+                    if (methodResult !== selectedMethod) {
+                        status.text = "Method changed; stale reference report discarded."
+                        showControls()
+                        return@runOnUiThread
+                    }
+                    result.onSuccess {
+                        referencesResult = it
+                        output.text = it.display().take(12000)
+                        status.text = "REA static reference trace ready. No source changed."
+                        attachmentNote.text = "Reference evidence may be included in the next " +
+                            "review-only Developer source proposal."
+                    }.onFailure { error ->
+                        referencesResult = null
+                        output.text = ReaApkAnalysis.describeFailure(error)
+                        status.text = "Reference tracing failed without code changes."
                     }
                     showControls()
                 }
@@ -454,6 +530,12 @@ internal object ReaApkWorkbench {
                         classDetail?.className == method.className &&
                         classDetail?.methods?.any { it.name == method.methodName &&
                             it.overloadIndex == method.overloadIndex } == true
+                }?.proposalEvidence().orEmpty() +
+                referencesResult?.takeIf { refs ->
+                    refs.apkSha256 == evidence.apkSha256 &&
+                        refs.className == methodResult?.className &&
+                        refs.methodName == methodResult?.methodName &&
+                        refs.overloadIndex == methodResult?.overloadIndex
                 }?.proposalEvidence().orEmpty()
             worker {
                 val plan = runCatching {
@@ -562,9 +644,17 @@ internal object ReaApkWorkbench {
             visibility = View.GONE
             isEnabled = false
         }
+        val traceReferences = Button(activity).apply {
+            text = "Trace references"
+            isAllCaps = false
+            tag = "developer-rea-method-references"
+            contentDescription = "Trace static DEX references to the selected method"
+            visibility = View.GONE
+            isEnabled = false
+        }
         actions.addView(analyze, 0)
         val handle = Handle(activity, prompt, output, status, analyze, inspectLocal,
-            propose, searchClasses, inspectClass, inspectMethod, note,
+            propose, searchClasses, inspectClass, inspectMethod, traceReferences, note,
             product, project, ready, message, prepare, onReview)
         inspectLocal.setOnClickListener { handle.inspectOffline() }
         analyze.setOnClickListener { handle.analyze() }
@@ -574,6 +664,8 @@ internal object ReaApkWorkbench {
         actions.addView(inspectClass, 2)
         inspectMethod.setOnClickListener { handle.inspectMethod() }
         actions.addView(inspectMethod, 3)
+        traceReferences.setOnClickListener { handle.traceReferences() }
+        actions.addView(traceReferences, 4)
         propose.setOnClickListener { handle.propose() }
         actions.addView(Button(activity).apply {
             text = "+ APK"

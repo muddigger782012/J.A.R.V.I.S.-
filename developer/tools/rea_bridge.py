@@ -537,6 +537,108 @@ def inspect_apk_method(data, claimed_sha, class_name, method_name, overload,
         }
 
 
+REFERENCE_SCHEMA = "jarvis.rea.references.v1"
+MAX_REF_ENTRIES = 30
+
+
+def trace_apk_method_references(data, claimed_sha, class_name, method_name, overload,
+                                rea_command="rea", rea_entry=None):
+    """Read-only REA direct method references, bound to the exact user-selected APK."""
+    if not isinstance(class_name, str) or not CLASS_NAME.fullmatch(class_name):
+        raise BridgeError("CLASS_QUERY", "Invalid APK class name")
+    validate_method_selector(method_name, overload)
+    if len(data) < 4 or len(data) > MAX_APK or data[:4] not in (
+        b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"
+    ):
+        raise BridgeError("NOT_APK", "Expected bounded ZIP-format Android APK")
+    sha = hashlib.sha256(data).hexdigest()
+    if not HEX.fullmatch(claimed_sha) or not hmac.compare_digest(sha, claimed_sha):
+        raise BridgeError("HASH_MISMATCH", "APK SHA-256 does not match upload")
+    validate_apk_archive(data)
+    with tempfile.TemporaryDirectory(prefix="jarvis-rea-xrefs-") as root:
+        apk = Path(root, "selected.apk")
+        apk.write_bytes(data)
+        os.chmod(apk, 0o600)
+        out = Path(root, "stdout.json")
+        args = rea_launcher(rea_command, rea_entry) + [
+            "trace-android-references", str(apk), class_name,
+            "--method-name", method_name, "--overload-index", str(overload), "--json"
+        ]
+        try:
+            with out.open("wb") as stdout:
+                process = subprocess.run(args, stdout=stdout,
+                    stderr=subprocess.DEVNULL, cwd=root, timeout=150, check=False)
+        except subprocess.TimeoutExpired:
+            raise BridgeError("REA_TIMEOUT", "REA method reference search timed out", 504)
+        except OSError:
+            raise BridgeError("REA_UNAVAILABLE", "REA/JADX not configured", 503)
+        if process.returncode != 0:
+            raise BridgeError("REA_FAILED", "REA method reference search failed", 502)
+        if not 1 <= out.stat().st_size <= MAX_REPORT:
+            raise BridgeError("REA_REPORT", "REA method reference report is not bounded", 502)
+        raw = out.read_bytes()
+        try:
+            envelope = json.loads(raw)
+        except (UnicodeDecodeError, ValueError):
+            raise BridgeError("REA_REPORT", "Malformed REA reference evidence", 502)
+        if (not isinstance(envelope, dict) or envelope.get("isError") or
+                envelope.get("error") or envelope.get("ok") is False or
+                envelope.get("success") is False):
+            raise BridgeError("REA_REPORT", "REA reference inspection failed", 502)
+        report = envelope.get("normalized_result")
+        if (not isinstance(report, dict) or report.get("class_name") != class_name or
+                report.get("method_name") != method_name or
+                report.get("overload_index") != overload):
+            raise BridgeError("REA_REPORT", "Reference report selector mismatch", 502)
+        rows = report.get("references")
+        total = report.get("total")
+        if (type(total) is not int or not 0 <= total <= 10000000 or
+                not isinstance(rows, list) or len(rows) > 10000 or len(rows) > total or
+                report.get("reference_unit") != "using_node" or
+                report.get("coverage") != "complete"):
+            raise BridgeError("REA_REPORT", "Invalid REA reference inventory", 502)
+
+        def safe(value, limit=240):
+            return isinstance(value, str) and 1 <= len(value) <= limit and not any(
+                ord(ch) < 32 or ord(ch) == 127 for ch in value
+            )
+
+        projected = []
+        for row in rows[:MAX_REF_ENTRIES]:
+            if (not isinstance(row, dict) or
+                    any(not safe(row.get(field)) for field in
+                        ("kind", "name", "reported_full_name", "containing_class"))):
+                raise BridgeError("REA_REPORT", "Unsafe REA reference entry", 502)
+            projected.append({
+                "kind": row["kind"],
+                "name": row["name"],
+                "reported_full_name": row["reported_full_name"],
+                "containing_class": row["containing_class"],
+                "direct_invokes_exhaustive": row.get("direct_invokes_exhaustive")
+                if type(row.get("direct_invokes_exhaustive")) is bool else None
+            })
+        direct_coverage = report.get("direct_invokes_coverage")
+        position_coverage = "not_reported"
+        if isinstance(direct_coverage, dict):
+            counts = [direct_coverage.get(field) for field in
+                      ("complete_using_nodes", "partial_using_nodes",
+                       "unknown_using_nodes", "recorded_sites")]
+            if all(type(count) is int and 0 <= count <= 10000000 for count in counts):
+                position_coverage = ("complete" if counts[1] == 0 and counts[2] == 0 and
+                                     counts[0] == total else "partial_or_unknown")
+        return {
+            "schema": REFERENCE_SCHEMA, "state": "ANALYZED",
+            "apk_sha256": sha, "evidence_sha256": hashlib.sha256(raw).hexdigest(),
+            "class_name": class_name, "method_name": method_name,
+            "overload_index": overload, "reference_count": total,
+            "references": projected, "truncated": total > len(projected),
+            "reference_unit": "using_node", "coverage": "complete",
+            "position_coverage": position_coverage,
+            "scope": "static-method-references-only",
+            "limitations": "Direct static DEX references only. Reflection, dispatch, runtime invocation and actual call sites may be unknown."
+        }
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "JarvisREA/1"
     def _respond(self, status, result):
@@ -572,7 +674,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path not in ("/v1/apk/analyze", "/v1/apk/classes/search",
-                             "/v1/apk/classes/inspect", "/v1/apk/method/inspect"):
+                             "/v1/apk/classes/inspect", "/v1/apk/method/inspect",
+                             "/v1/apk/method/references"):
             return self._respond(404, {"error": "NOT_FOUND"})
         token = os.environ.get("JARVIS_REA_TOKEN", "")
         if not verify_token(self.headers.get("Authorization", ""), token):
@@ -591,11 +694,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             payload = self.rfile.read(length)
             if len(payload) != length:
                 raise BridgeError("TRUNCATED_UPLOAD", "Incomplete APK upload")
-            if self.path == "/v1/apk/method/inspect":
+            if self.path in ("/v1/apk/method/inspect", "/v1/apk/method/references"):
                 overload_raw = self.headers.get("X-REA-OVERLOAD-INDEX", "")
                 if not re.fullmatch(r"[0-9]{1,6}", overload_raw):
                     raise BridgeError("METHOD_SELECTOR", "Invalid overload index")
-                result = inspect_apk_method(payload,
+                analysis_fn = (trace_apk_method_references
+                               if self.path == "/v1/apk/method/references"
+                               else inspect_apk_method)
+                result = analysis_fn(payload,
                     self.headers.get("X-APK-SHA256", "").strip(),
                     self.headers.get("X-REA-CLASS-NAME", "").strip(),
                     self.headers.get("X-REA-METHOD-NAME", "").strip(),

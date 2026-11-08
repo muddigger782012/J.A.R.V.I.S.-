@@ -217,6 +217,22 @@ was partial or truncated it is explicitly labeled. A reviewed Developer
 source proposal may reuse at most 1,200 characters of this method excerpt
 as untrusted data. The output never grants source write or install authority.
 
+## Trace static method references
+
+After inspecting a method, tap Trace references to ask the authenticated
+REA host where the method is referenced in DEX using nodes. This calls
+POST /v1/apk/method/references with the same selected APK SHA-256, exact
+class name, method name and overload index. The host invokes only the fixed
+REA trace-android-references command.
+
+The response contains a bounded inventory of reported using nodes, a
+count of any omitted results, original REA output SHA-256, and separate
+position coverage indicating when direct invoke site details are partial,
+unknown or not reported. It does not claim reflective calls, virtual
+dispatch, runtime call sites or execution; it does not install or run
+an APK. These read-only findings can be included as clearly untrusted
+evidence in the existing Developer source review flow.
+
 ## AI-assisted implementation handoff
 
 After REA evidence appears in chat, type a **specific Developer feature
