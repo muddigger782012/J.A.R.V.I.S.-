@@ -22,7 +22,7 @@ internal object ProjectGenerationWorkbench {
     fun attach(activity: Activity, send: Button, cancel: Button, provider: Spinner, key: EditText, model: EditText,
         prompt: EditText, output: TextView, status: TextView, target: () -> Int, targetView: () -> View?,
         selected: () -> String?, select: (String) -> Unit, store: ProjectGenerationStore,
-        changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }): Handle {
+        changed: () -> Unit, services: Services = Services(), githubToken: () -> String = { "" }, onReply: (String) -> Unit = {}, onRequest: () -> Unit = {}): Handle {
         data class Running(val ticket: ProjectGenerationStore.Ticket, val cancellation: PatchPreviewCancellation)
         var running: Running? = null
         var disposed = false
@@ -51,6 +51,7 @@ internal object ProjectGenerationWorkbench {
         cancel.setOnClickListener { stop(false) }
         send.setOnClickListener {
             if (!alive() || running != null) return@setOnClickListener
+            onRequest()
             val task = prompt.text.toString().trim()
             if (task.isEmpty()) { status.setText(R.string.project_generation_describe); prompt.requestFocus(); return@setOnClickListener }
             val secret = key.text.toString().trim()
@@ -99,6 +100,7 @@ internal object ProjectGenerationWorkbench {
                             status.setText(R.string.project_generation_changed)
                         } else reply.onSuccess { text ->
                             output.text = text
+                            onReply(text)
                             status.text = if (saved == ProjectGenerationStore.Result.SAVED)
                                 activity.getString(R.string.project_generation_received, providerName)
                                 else activity.getString(R.string.project_generation_response_unsaved)

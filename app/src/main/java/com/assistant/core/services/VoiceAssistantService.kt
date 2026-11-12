@@ -255,9 +255,11 @@ class VoiceAssistantService(
         stopSpeaking()
         tts.shutdown()
         neuralSpeech?.shutdown()
+        voiceboxSpeech?.shutdown()
     }
 
     private var neuralSpeech: NeuralAssistantSpeech? = null
+    private var voiceboxSpeech: com.jarvis.voicebox.VoiceboxSpeech? = null
     private var afterSpeech: (() -> Unit)? = null
     private var wakeReplyIndex = 0
     private var speechSequence = 0L
@@ -278,6 +280,7 @@ class VoiceAssistantService(
     fun stopSpeaking() {
         if (activeSpeechPrefix != null) observe(VoiceInteractionState.IDLE)
         neuralSpeech?.stop()
+        voiceboxSpeech?.stop()
         afterSpeech = null
         activeSpeechPrefix = null
         finalSpeechId = null
@@ -310,6 +313,22 @@ class VoiceAssistantService(
         if (!VoiceResponsePreferences.load(context).allowsSpeech(channel)) {
             // Completion still advances silent live turns and rearms wake capture.
             finishSpeech()
+            return
+        }
+        if (text.isNotBlank() && com.jarvis.voicebox.VoiceboxPreferences.load(context).enabled) {
+            val prefix = "jarvis-voicebox-${++speechSequence}-"
+            activeSpeechPrefix = prefix
+            if (after == null) onSpeechStarted()
+            onStatus("Voicebox · generating speech on your configured host")
+            val engine = voiceboxSpeech ?: com.jarvis.voicebox.VoiceboxSpeech(context).also { voiceboxSpeech = it }
+            engine.speak(text,
+                done = { if (activeSpeechPrefix == prefix) finishSpeech() },
+                onAudio = { if (activeSpeechPrefix == prefix) noteSpeechProgress() },
+                onProgress = { if (activeSpeechPrefix == prefix) noteSpeechProgress() },
+                error = { failure -> if (activeSpeechPrefix == prefix) {
+                    onStatus("$failure Using Android speech for this reply.")
+                    speakAndroidResponse(text)
+                } })
             return
         }
         val selection = speechPreferences.load()

@@ -14,6 +14,7 @@ import com.assistant.core.services.AssistantVoiceProfile
 class AssistantVoiceSettingsActivity : MenuActivity("Assistant voice", R.id.btnCloseAssistantVoice) {
     private lateinit var speech: TextToSpeech
     private lateinit var preferences: AssistantVoicePreferences
+    private var voiceboxPanel: com.jarvis.voicebox.VoiceboxSettingsPanel? = null
     private var ready = false
     private var closed = false
     private var previewing = false
@@ -50,6 +51,10 @@ class AssistantVoiceSettingsActivity : MenuActivity("Assistant voice", R.id.btnC
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_assistant_voice)
+        val voiceboxColor = android.util.TypedValue().also { theme.resolveAttribute(R.attr.jarvis_on_dark, it, true) }.data
+        voiceboxPanel = com.jarvis.voicebox.VoiceboxSettingsPanel(this, voiceboxColor).also {
+            findViewById<android.widget.LinearLayout>(R.id.voiceboxSettingsHost).addView(it)
+        }
         bindResponseOptions()
         bindPersonality()
         preferences = AssistantVoicePreferences(this)
@@ -342,11 +347,13 @@ class AssistantVoiceSettingsActivity : MenuActivity("Assistant voice", R.id.btnC
 
     override fun onStop() {
         stopPreview()
+        voiceboxPanel?.stop()
         super.onStop()
     }
 
     override fun onDestroy() {
         closed = true
+        voiceboxPanel?.close()
         downloadCancelled.set(true)
         neuralSpeech?.shutdown()
         if (::speech.isInitialized) speech.shutdown()
