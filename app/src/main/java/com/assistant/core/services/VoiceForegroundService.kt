@@ -92,6 +92,7 @@ class VoiceForegroundService : Service() {
         }
     }
     private val ambientParticipation = AmbientParticipationPolicy()
+    private val manualVoiceTurn = LiveChatManualVoiceTurn()
     private val ambientContext = AmbientContextWindow()
     private val liveHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val liveCapture by lazy { LiveSpeechCapture(this) }
@@ -164,11 +165,16 @@ class VoiceForegroundService : Service() {
                     when (liveSession.microphoneTapped(
                             liveCapture.isActive && capturedSpeech && !liveCapture.isFinishing)) {
                         LiveChatSession.MicrophoneTap.FINISH_CAPTURE -> {
+                            // Explicit tap finishes this utterance. It is a request for
+                            // a conversational reply, not authorization for phone actions.
+                            if (packageName == "com.assistant.core") manualVoiceTurn.requestCurrent(liveSession.token)
                             pcmSource?.finishTurn()
                             liveCapture.finish()
                             liveStatus(VoiceInteractionState.TRANSCRIBING, "Finishing voice input…")
                         }
                         LiveChatSession.MicrophoneTap.RESTART_LISTENING -> {
+                            // Bind manual intent only to the next recognizer turn.
+                            if (packageName == "com.assistant.core") manualVoiceTurn.requestNext()
                             hybridAssistantService.cancelActiveResponse()
                             liveCapture.stop()
                             pcmSource?.closeTurn()
@@ -276,6 +282,7 @@ class VoiceForegroundService : Service() {
                         liveSession.configurePersistentListening(packageName == "com.assistant.core" &&
                             LiveChatCompanionSettings.load(this).keepListeningUntilStopped)
                         liveSession.start()
+                        manualVoiceTurn.reset()
                         ambientParticipation.reset()
                         ambientContext.clear()
                         hybridAssistantService.clearAmbientConversation()
@@ -414,6 +421,7 @@ class VoiceForegroundService : Service() {
         if (liveChatActive) {
             liveChatActive = false
             liveSession.stop()
+            manualVoiceTurn.reset()
             LiveChatStore.state(this, false, VoiceInteractionState.IDLE, "Live chat stopped.")
             sendBroadcast(Intent(ACTION_EVENT).setPackage(packageName).putExtra(EXTRA_LIVE_CHAT, true))
         }
@@ -509,6 +517,7 @@ class VoiceForegroundService : Service() {
                 if (liveSession.expired()) finishLiveChat("Live chat reached your configured inactivity limit.")
                 return@postDelayed
             }
+            if (packageName == "com.assistant.core") manualVoiceTurn.started(turn)
             liveStatus(VoiceInteractionState.IDLE, "Starting speech capture; waiting for the recognizer.")
             // LiveSpeechCapture owns the activity-aware recognizer watchdog:
             // it expires idle or stalled providers, but permits active speech
@@ -548,7 +557,17 @@ class VoiceForegroundService : Service() {
                             ambientContext.clear()
                             hybridAssistantService.clearAmbientConversation()
                         }
-                        val participation = ambientParticipation.decide(text, companionSettings)
+                        val automaticDecision = ambientParticipation.decide(
+                            text, companionSettings,
+                            allowNaturalHelp = packageName == "com.assistant.core"
+                        )
+                        // Keep commercial Beta behavior independent from the
+                        // experimental Personal companion participation changes.
+                        val participation = if (packageName == "com.assistant.core")
+                            manualVoiceTurn.decide(turn, automaticDecision) {
+                                ambientParticipation.markManualConversation()
+                            }
+                        else automaticDecision
                         // Ambient observations must never reach command execution or the AI router.
                         // STOP remains a reliable explicit exit even in Quiet mode.
                         if (participation == AmbientParticipationPolicy.Decision.OBSERVE &&
@@ -640,6 +659,7 @@ class VoiceForegroundService : Service() {
                 onError = { error ->
                     if (!liveChatActive || liveSession.token != turn ||
                         liveSession.phase != LiveChatSession.Phase.LISTENING) return@listen
+                    manualVoiceTurn.cancelled(turn)
                     if (injected != null) {
                         // Some vendor recognizers silently ignore an injected PCM source.
                         // If our stream contained speech but no transcript arrived,
@@ -758,6 +778,7 @@ class VoiceForegroundService : Service() {
         dialogueOverlay.hide()
         liveChatActive = false
         liveSession.stop()
+        manualVoiceTurn.reset()
         ambientContext.clear()
         if (::hybridAssistantService.isInitialized) hybridAssistantService.clearAmbientConversation()
         liveHandler.removeCallbacksAndMessages(null)

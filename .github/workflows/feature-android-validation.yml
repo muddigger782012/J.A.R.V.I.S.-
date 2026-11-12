@@ -6,6 +6,7 @@ on:
       - feature/companion-integrated
       - improve/grounded-technical-search
       - feature/personal-lfm3-uncensored-loopback-20261107
+      - feature/personal-livechat-manual-turn-20261107
       - fix/voice-default-tts-fallback-20261102
   workflow_dispatch:
 permissions:
