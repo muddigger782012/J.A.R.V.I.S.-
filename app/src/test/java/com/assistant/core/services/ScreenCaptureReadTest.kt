@@ -4,6 +4,40 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ScreenCaptureReadTest {
+    @Test fun platformFreshNodesDoNotTriggerExtraRemoteRefreshes() {
+        val freshness = ScreenCaptureRead.Freshness(platformFresh = true)
+        repeat(4) { freshness.validate { error("No second remote read is needed for fresh Android nodes") } }
+        assertEquals(0, freshness.refreshes)
+    }
+    @Test fun fallbackNodesMustRefreshAndAnInvalidNodeRejectsTheWholeCapture() {
+        val freshness = ScreenCaptureRead.Freshness(platformFresh = false)
+        var calls = 0
+        freshness.validate { calls++; true }
+        freshness.validate { calls++; true }
+        assertThrows(ScreenCaptureRead.Changed::class.java) { freshness.validate { calls++; false } }
+        assertEquals(3, freshness.refreshes); assertEquals(3, calls)
+    }
+    @Test fun aFailedFallbackRootCannotReturnPartialDataOrRetryBeyondTheExistingLimit() {
+        var attempts = 0; var returned = false
+        assertThrows(ScreenCaptureRead.Changed::class.java) {
+            ScreenCaptureRead.read({ true }) {
+                attempts++
+                ScreenCaptureRead.Freshness(false).validate { false }
+                returned = true
+            }
+        }
+        assertEquals(2, attempts); assertFalse(returned)
+    }
+    @Test fun disconnectionDuringRequiredRefreshIsNotRetried() {
+        var attempts = 0
+        val failure = assertThrows(ScreenReadFailure::class.java) {
+            ScreenCaptureRead.read({ true }) {
+                attempts++
+                ScreenCaptureRead.Freshness(false).validate { throw ScreenReadFailure(ScreenReadFailure.Reason.DISCONNECTED) }
+            }
+        }
+        assertEquals(ScreenReadFailure.Reason.DISCONNECTED, failure.reason); assertEquals(1, attempts)
+    }
     @Test fun aChangedTreeIsDiscardedAndOnlyAFreshCompleteReadCanSucceed() {
         var attempts = 0
         val result = ScreenCaptureRead.read({ true }) {

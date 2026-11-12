@@ -18,13 +18,32 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
     override fun readDiagnostics() = lastRead
     private class ReadTrace {
         val started = SystemClock.uptimeMillis()
+        private val queued = requestQueueWait.get() ?: 0L
+        private val phaseTimes = LongArray(ScreenReadDiagnostics.Stage.values().size)
+        private var phaseStarted = started
         var stage = ScreenReadDiagnostics.Stage.PREPARE
+            set(value) {
+                val now = SystemClock.uptimeMillis()
+                phaseTimes[field.ordinal] += (now - phaseStarted).coerceAtLeast(0)
+                field = value; phaseStarted = now
+            }
         var nodes = 0
         var cache = ScreenReadDiagnostics.Cache.UNKNOWN
         var protectedScreen = false
-        fun result(reason: ScreenReadFailure.Reason? = null, blocked: Boolean = protectedScreen) =
-            ScreenReadDiagnostics(reason, blocked, stage, if (blocked) 0 else nodes.coerceIn(0, 300),
-                (SystemClock.uptimeMillis() - started).coerceIn(0, 60_000), cache)
+        var freshness: ScreenCaptureRead.Freshness? = null
+        fun result(reason: ScreenReadFailure.Reason? = null, blocked: Boolean = protectedScreen): ScreenReadDiagnostics {
+            val now = SystemClock.uptimeMillis()
+            val times = phaseTimes.copyOf().also { it[stage.ordinal] += (now - phaseStarted).coerceAtLeast(0) }
+            return ScreenReadDiagnostics(reason, blocked, stage, if (blocked) 0 else nodes.coerceIn(0, 300),
+                (now - started).coerceIn(0, 60_000), cache, queued,
+                ScreenReadDiagnostics.Phases(times[0], times[1], times[2], times[3], times[4]),
+                if (blocked) 0 else freshness?.refreshes ?: 0,
+                when (freshness?.platformFresh) {
+                    true -> ScreenReadDiagnostics.RefreshPolicy.PLATFORM_FRESH
+                    false -> ScreenReadDiagnostics.RefreshPolicy.EXPLICIT_REQUIRED
+                    null -> ScreenReadDiagnostics.RefreshPolicy.UNKNOWN
+                })
+        }
     }
     private fun readFailure(failure: Exception): ScreenReadFailure = when {
         requestCancelled.get()?.invoke() == true -> ScreenReadFailure(ScreenReadFailure.Reason.CANCELLED)
@@ -59,11 +78,12 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
             val caching = if (Build.VERSION.SDK_INT >= 33) service.isCacheEnabled else null
             trace.cache = when (caching) { true -> ScreenReadDiagnostics.Cache.ENABLED; false -> ScreenReadDiagnostics.Cache.DISABLED; null -> ScreenReadDiagnostics.Cache.UNKNOWN }
             val freshHierarchy = Build.VERSION.SDK_INT >= 33 && (caching == false || service.clearCache())
+            val freshness = ScreenCaptureRead.Freshness(freshHierarchy).also { trace.freshness = it }
             val generation = service.screenGeneration
             trace.stage = ScreenReadDiagnostics.Stage.ROOT
             val root = service.rootInActiveWindow ?: throw ScreenCaptureRead.Changed()
             owned.add(root)
-            if (!root.refresh()) throw ScreenCaptureRead.Changed()
+            freshness.validate { root.refresh() }
             val pkg = root.packageName?.toString()?.takeIf { it.length in 1..200 } ?: error("No active package")
             trace.stage = ScreenReadDiagnostics.Stage.WINDOW
             val window = root.window ?: throw ScreenCaptureRead.Changed()
@@ -101,7 +121,8 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
                 // API 33+ either cleared the cache before this root or has caching
                 // disabled. Both paths supply fresh getChild results. Refreshing
                 // them again duplicates remote IPC on cold Compose screens.
-                if (!freshHierarchy && !node.refresh()) throw ScreenCaptureRead.Changed()
+                // The fallback root was already refreshed before package/window validation.
+                if (path != "0") freshness.validate { node.refresh() }
                 if (!node.isVisibleToUser) continue
                 val variation = node.inputType and InputType.TYPE_MASK_VARIATION
                 val password = node.isPassword || ((node.inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_TEXT &&
@@ -181,7 +202,7 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
             capture().use { it.snapshot }
         } } catch (failure: Exception) {
             val safeFailure = readFailure(failure)
-            lastRead = if (!attempted) ScreenReadDiagnostics(reason = safeFailure.reason)
+            lastRead = if (!attempted) ScreenReadDiagnostics(reason = safeFailure.reason, queueMillis = requestQueueWait.get() ?: 0L)
                 else lastRead?.copy(reason = safeFailure.reason) ?: ScreenReadDiagnostics(reason = safeFailure.reason)
             throw safeFailure
         }
@@ -223,12 +244,14 @@ class AndroidScreenPlatform(private val context: Context) : ScreenControls.Platf
     companion object {
         private val requestDeadline = ThreadLocal<Long>()
         private val requestCancelled = ThreadLocal<() -> Boolean>()
+        private val requestQueueWait = ThreadLocal<Long>()
         private fun requestExpired() = SystemClock.uptimeMillis() >= (requestDeadline.get() ?: Long.MAX_VALUE) ||
             requestCancelled.get()?.invoke() == true
-        fun <T> withDeadline(deadline: Long, cancelled: () -> Boolean = { false }, block: () -> T): T {
+        fun <T> withDeadline(deadline: Long, cancelled: () -> Boolean = { false }, queueWaitMillis: Long = 0, block: () -> T): T {
             requestDeadline.set(deadline)
             requestCancelled.set(cancelled)
-            return try { block() } finally { requestDeadline.remove(); requestCancelled.remove() }
+            requestQueueWait.set(queueWaitMillis.coerceIn(0, 60_000))
+            return try { block() } finally { requestDeadline.remove(); requestCancelled.remove(); requestQueueWait.remove() }
         }
         private fun display(value: String, limit: Int) = value.replace(Regex("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]+"), " ")
             .replace(Regex("\\s+"), " ").trim().take(limit)

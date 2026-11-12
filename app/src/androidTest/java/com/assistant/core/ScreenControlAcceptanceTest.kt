@@ -112,11 +112,17 @@ class ScreenControlAcceptanceTest {
             assertTrue(platform.snapshot().text.contains("Screen control fixture"))
             val successful = requireNotNull(platform.readDiagnostics())
             assertNull(successful.reason); assertTrue(successful.nodes > 0)
+            assertEquals(0L, successful.queueMillis)
             assertEquals(successful, platform.readDiagnostics())
+            AndroidScreenPlatform.withDeadline(android.os.SystemClock.uptimeMillis() + 3000, queueWaitMillis = 321) { platform.snapshot() }
+            assertEquals(321L, requireNotNull(platform.readDiagnostics()).queueMillis)
+            assertTrue(platform.snapshot().text.contains("Screen control fixture"))
+            assertEquals(0L, requireNotNull(platform.readDiagnostics()).queueMillis)
             assertTrue(remote("read my screen").contains("Screen control fixture"))
             val report = remote("screen read diagnostics")
             assertTrue(report, report.contains("Last screen-read attempt: completed"))
             assertTrue(report, report.contains("not the current screen"))
+            assertTrue(report, report.contains("Queue wait:")); assertTrue(report, report.contains("Capture phases (ms):"))
             assertFalse(report.contains("Screen control fixture")); assertFalse(report.contains("Practice button"))
             assertFalse(report.contains(context.packageName))
             scenario.onActivity { assertEquals(0, it.tapCount) }
@@ -316,7 +322,15 @@ class ScreenControlAcceptanceTest {
                     screen.text.any { text -> text.contains("NOT TESTED") }
             }.getOrDefault(false) }
             val managerRead = remote("read my screen")
-            assertTrue("Expected Connection Manager content from remote voice bridge, got: $managerRead", managerRead.contains("CONNECTION MANAGER"))
+            val managerDiagnostics = remote("screen read diagnostics")
+            assertTrue("Expected Connection Manager content from remote voice bridge, got: $managerRead; $managerDiagnostics", managerRead.contains("CONNECTION MANAGER"))
+            val examined = Regex("Examined nodes: ([0-9]+)").find(managerDiagnostics)!!.groupValues[1].toInt()
+            val refreshed = Regex("Explicit refresh calls: ([0-9]+)").find(managerDiagnostics)!!.groupValues[1].toInt()
+            if (managerDiagnostics.contains("Read mode: explicit refresh required")) assertEquals(examined, refreshed)
+            else assertEquals(0, refreshed)
+            assertTrue(managerDiagnostics, managerDiagnostics.contains("Capture phases (ms):"))
+            assertFalse(managerDiagnostics.contains("CONNECTION MANAGER")); assertFalse(managerDiagnostics.contains("NOT TESTED"))
+            instrumentation.sendStatus(2, Bundle().apply { putString("jarvis_screen_read_cached", managerDiagnostics) })
             if (android.os.Build.VERSION.SDK_INT >= 33) {
                 val service = requireNotNull(JarvisAccessibilityService.active())
                 val caching = service.isCacheEnabled
@@ -342,7 +356,10 @@ class ScreenControlAcceptanceTest {
                     val diagnostics = remote("screen read diagnostics")
                     assertTrue("Disabled caching must retain the supported fresh-node read: $withoutCache; $diagnostics", withoutCache.contains("CONNECTION MANAGER"))
                     assertTrue(diagnostics, diagnostics.contains("Android cache: disabled"))
+                    assertTrue(diagnostics, diagnostics.contains("Read mode: fresh-node path"))
+                    assertTrue(diagnostics, diagnostics.contains("Explicit refresh calls: 0"))
                     assertFalse(diagnostics.contains("CONNECTION MANAGER")); assertFalse(diagnostics.contains("NOT TESTED"))
+                    instrumentation.sendStatus(2, Bundle().apply { putString("jarvis_screen_read_uncached", diagnostics) })
                 } finally { service.setCacheEnabled(caching) }
             }
             assertFalse(ScreenAccessClient(context).taskState().active)

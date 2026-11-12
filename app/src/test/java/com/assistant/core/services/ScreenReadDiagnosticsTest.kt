@@ -28,11 +28,35 @@ class ScreenReadDiagnosticsTest {
     }
 
     @Test fun protectedReadsExposeNeitherContentNorNodeCounts() {
-        val record = ScreenReadDiagnostics(protectedScreen = true, nodes = 100)
+        val record = ScreenReadDiagnostics(protectedScreen = true, nodes = 100, refreshes = 100)
         assertTrue(record.report().contains("protected screen; no content exposed"))
         assertTrue(record.report().contains("Examined nodes: 0"))
+        assertTrue(record.report().contains("Explicit refresh calls: 0"))
         assertFalse(record.report().contains("completed"))
         assertTrue(record.copy(reason = ScreenReadFailure.Reason.BUSY).report().contains("Examined nodes: 0"))
+    }
+
+    @Test fun phaseQueueAndRefreshMetricsStayBoundedAndExplainOnlyThePreviousAttempt() {
+        val diagnostic = ScreenReadDiagnostics(queueMillis = Long.MAX_VALUE, refreshes = Int.MAX_VALUE,
+            phases = ScreenReadDiagnostics.Phases(-1, Long.MAX_VALUE, 17, 19, 23),
+            refreshPolicy = ScreenReadDiagnostics.RefreshPolicy.EXPLICIT_REQUIRED)
+        val report = diagnostic.report()
+        assertTrue(report.contains("Queue wait: 60000 ms"))
+        assertTrue(report.contains("access 0; root 60000; window 17; controls 19; verification 23"))
+        assertTrue(report.contains("Explicit refresh calls: 300"))
+        assertTrue(report.contains("Read mode: explicit refresh required"))
+        assertTrue(report.contains("not the current screen"))
+        assertTrue(diagnostic.copy(queueMillis = -1, refreshes = -1).report().contains("Queue wait: 0 ms"))
+        assertTrue(diagnostic.copy(refreshes = -1).report().contains("Explicit refresh calls: 0"))
+    }
+
+    @Test fun refreshPolicyCannotTurnATimeoutOrUnknownCaptureIntoASuccessClaim() {
+        for (policy in ScreenReadDiagnostics.RefreshPolicy.values()) {
+            val report = ScreenReadDiagnostics(reason = ScreenReadFailure.Reason.BUSY, refreshPolicy = policy,
+                phases = ScreenReadDiagnostics.Phases(rootMillis = 1400), queueMillis = 900).report()
+            assertTrue(report.contains("time limit reached")); assertFalse(report.contains("attempt: completed"))
+            assertTrue(report.contains("Queue wait: 900 ms")); assertTrue(report.contains("root 1400"))
+        }
     }
 
     @Test fun everyFailureRemainsAFailureInTheDiagnostic() {
