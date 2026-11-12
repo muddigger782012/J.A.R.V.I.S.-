@@ -17,6 +17,9 @@ internal class ProjectGenerationStore(private val preferences: SharedPreferences
 
     fun begin(id: String, task: String, target: Int): Ticket? = synchronized(lock) {
         runCatching {
+            val existing = read(id)
+            if (existing.optString("state") == "generating" &&
+                existing.optString("generation_process") == process) return@synchronized null
             val ticket = Ticket(id, UUID.randomUUID().toString())
             if (write(id, base(id, task, target).put("state", "generating")
                     .put("generation_request", ticket.request).put("generation_process", process))) ticket else null
