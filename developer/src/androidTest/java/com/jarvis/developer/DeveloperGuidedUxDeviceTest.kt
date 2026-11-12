@@ -22,7 +22,8 @@ class DeveloperGuidedUxDeviceTest {
         val active = MainActivity::class.java.getDeclaredField("activeProject").apply { isAccessible = true }
         active.set(activity, project)
         val provider = views(activity.window.decorView).filterIsInstance<Spinner>().single {
-            it.adapter?.count == 2 && it.getItemAtPosition(0).toString() == "Gemini" && it.getItemAtPosition(1).toString() == "OpenAI"
+            it.adapter?.count == 3 && it.getItemAtPosition(0).toString() == "Gemini" &&
+                it.getItemAtPosition(1).toString() == "OpenAI" && it.getItemAtPosition(2).toString() == "Strata"
         }
         val target = views(activity.window.decorView).filterIsInstance<Spinner>().single { it.contentDescription == "Application to improve" }
         val key = field(activity, "Paste your API key here (not a model name)")

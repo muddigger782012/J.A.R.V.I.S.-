@@ -10,12 +10,14 @@ data class IntelligenceOverview(
     companion object {
         fun build(commands: List<ValidatedCommandMemory.SavedPhrase>, intents: List<IntentLearningStore.SavedExample>,
             routines: Int, geminiConfigured: Boolean, gatewayConfigured: Boolean, automaticLearning: Boolean,
-            primaryProvider: IntelligenceRouting.Provider? = null, localConfigured: Boolean = false) = IntelligenceOverview(
+            primaryProvider: IntelligenceRouting.Provider? = null, localConfigured: Boolean = false,
+            strataConfigured: Boolean = false) = IntelligenceOverview(
             commands.size, commands.count { it.failures > 0 }, intents.size, routines.coerceAtLeast(0),
             when (primaryProvider) {
                 IntelligenceRouting.Provider.GEMINI -> if (geminiConfigured) "Gemini" else "Not configured"
                 IntelligenceRouting.Provider.GATEWAY -> if (gatewayConfigured) "Gateway" else "Not configured"
                 IntelligenceRouting.Provider.LOCAL_LFM3 -> if (localConfigured) "Local LFM3" else "Not configured"
+                IntelligenceRouting.Provider.STRATA -> if (strataConfigured) "Strata" else "Not configured"
                 null -> when { geminiConfigured -> "Gemini"; gatewayConfigured -> "Gateway"; else -> "Not configured" }
             }, automaticLearning)
     }

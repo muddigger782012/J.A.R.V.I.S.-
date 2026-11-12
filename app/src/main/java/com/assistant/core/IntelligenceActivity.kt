@@ -98,7 +98,7 @@ class IntelligenceActivity : MenuActivity("Intelligence", R.id.btnCloseIntellige
         val overview = IntelligenceOverview.build(savedCommands, savedExamples, savedRoutines.size,
             direct.hasGeminiKey(), gateway.isConfigured(), prefs.getBoolean("automatic_command_learning", true),
             if (packageName == "com.assistant.core") IntelligenceRouting.selected(prefs.getString("primary_provider", "gemini")) else null,
-            local.isConfigured())
+            local.isConfigured(), StrataAiClient(this).isConfigured())
         val learningPanel = section("Learning on this device")
         text(learningPanel, "Saved command entries: ${overview.commandEntries}\nPaused entries: ${overview.pausedEntries}\nIntent examples: ${overview.intentExamples}\nAvailable approved routines: ${overview.approvedRoutines}")
         text(learningPanel, "Counts describe saved learning, not every action J.A.R.V.I.S. can perform. Paused phrases need a new verified lesson or removal.")

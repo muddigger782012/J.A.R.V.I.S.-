@@ -90,7 +90,9 @@ $original
 Relevant source context:
 ${context.take(12000)}
 """
-        val raw: String = if (provider == "Gemini") {
+        val raw: String = if (provider == "Strata") {
+            CodingAssistantProvider.ask("Strata", key, model, instructions)
+        } else if (provider == "Gemini") {
             val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/${model.ifBlank { CodingAssistantProvider.DEFAULT_GEMINI_MODEL }}:generateContent"
             val req = JSONObject().put("contents", JSONArray().put(JSONObject()
                 .put("parts", JSONArray().put(JSONObject().put("text", instructions)))))

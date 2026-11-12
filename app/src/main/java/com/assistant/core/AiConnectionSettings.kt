@@ -341,6 +341,48 @@ object AiConnectionSettings {
         }
         val endpoint = field("Optional gateway HTTPS URL ending in /chat", "endpoint")
         val token = field("Gateway token", "gateway_token", true)
+        val strataEndpoint = field("Strata server URL (https://host/v1 or http://192.168.x.x:8080/v1)", "strata_endpoint")
+        val strataModel = field("Strata served model ID (usually strata)", "strata_model").apply {
+            if (text.isNullOrBlank()) setText("strata")
+        }
+        val strataToken = field("Strata sharing API key (optional on trusted local installations)", "_strata_unused", true).apply {
+            setText(com.assistant.core.services.ApiKeyStore(activity, "strata").read())
+        }
+        fields.addView(TextView(activity).apply {
+            text = "Run Strata on Windows/Linux/Mac and enable sharing with an API key. HTTPS works remotely; HTTP is limited to literal private LAN or Tailscale IPs. The key is saved in Android Keystore."
+            textSize = 12f
+        })
+        val strataTest = com.google.android.material.button.MaterialButton(activity).apply {
+            text = "Test Strata connection"
+        }
+        val strataTestResult = TextView(activity).apply { textSize = 12f; text = "Only a short text prompt is sent to the configured Strata server." }
+        fields.addView(strataTest)
+        fields.addView(strataTestResult)
+        strataTest.setOnClickListener {
+            val server = strataEndpoint.text.toString().trim()
+            if (!com.jarvis.integration.StrataApi.supported(server)) {
+                strataTestResult.text = "Enter a valid Strata HTTPS or private-LAN URL first."
+            } else {
+                strataTest.isEnabled = false
+                strataTestResult.text = "Testing Strata generation..."
+                val config = com.jarvis.integration.StrataApi.Config(server,
+                    strataToken.text.toString().trim(), strataModel.text.toString().trim().ifBlank { "strata" })
+                kotlin.concurrent.thread(name = "jarvis-strata-connection-test") {
+                    val result = runCatching {
+                        com.jarvis.integration.StrataApi.ask(config,
+                            listOf(com.jarvis.integration.StrataApi.Message("user", "Reply with the word connected.")), 64)
+                    }
+                    activity.runOnUiThread {
+                        if (open && !activity.isFinishing && !activity.isDestroyed) {
+                            strataTest.isEnabled = true
+                            strataTestResult.text = if (result.isSuccess)
+                                "Strata responded successfully. The connection and model are working."
+                            else "Strata did not complete the test. Check server sharing, IP, model and key."
+                        }
+                    }
+                }
+            }
+        }
         val deviceLocation = SwitchMaterial(activity).apply {
             text = "Use my precise phone location for weather"
             isChecked = gatewayPrefs.getBoolean("weather_device_location", false)
@@ -374,6 +416,11 @@ object AiConnectionSettings {
                 val lon = longitude.text.toString().trim()
                 if (url.isNotBlank() && (uri.scheme != "https" || uri.host.isNullOrBlank() || uri.userInfo != null)) {
                     endpoint.error = "Enter a valid HTTPS gateway URL"
+                } else if (strataEndpoint.text.isNotBlank() &&
+                    !com.jarvis.integration.StrataApi.supported(strataEndpoint.text.toString().trim())) {
+                    strataEndpoint.error = "Use HTTPS or HTTP on a private IP, ending with /v1"
+                } else if (!Regex("[A-Za-z0-9._:/-]{1,128}").matches(strataModel.text.toString().trim().ifBlank { "strata" })) {
+                    strataModel.error = "Enter a valid Strata model ID"
                 } else if ((lat.isNotBlank() || lon.isNotBlank()) &&
                     (lat.toDoubleOrNull()?.let { it.isFinite() && it in -90.0..90.0 } != true ||
                      lon.toDoubleOrNull()?.let { it.isFinite() && it in -180.0..180.0 } != true)) {
@@ -388,6 +435,10 @@ object AiConnectionSettings {
                         geminiKey.error = "Couldn't save the API key securely. Try again."
                         return@setOnClickListener
                     }
+                    try { com.assistant.core.services.ApiKeyStore(activity, "strata").save(strataToken.text.toString().trim()) } catch (_: Exception) {
+                        strataToken.error = "Could not save the Strata sharing key securely."
+                        return@setOnClickListener
+                    }
                     if (personal) gatewayPrefs.edit().putString("primary_provider", primaryProvider.key)
                         .putBoolean("provider_fallback", providerFallback.isChecked)
                         .putString("lfm3_variant", localVariant.key)
@@ -395,6 +446,8 @@ object AiConnectionSettings {
                         .putBoolean("lfm3_enabled", localEnabled.isChecked).apply()
                     gatewayPrefs.edit().putBoolean("weather_device_location", deviceLocation.isChecked).putString("gemini_model", geminiModel.text.toString().trim()).putString("endpoint", url)
                         .putString("gateway_token", token.text.toString().trim())
+                        .putString("strata_endpoint", strataEndpoint.text.toString().trim())
+                        .putString("strata_model", strataModel.text.toString().trim().ifBlank { "strata" })
                         .putString("weather_latitude", lat).putString("weather_longitude", lon).apply()
                     dialog.dismiss()
                 }

@@ -73,6 +73,7 @@ class HybridAssistantService(
     private val directOnlineClient = DirectOnlineClient(systemService.context())
     private val assistantConnections = AssistantConnections(systemService.context())
     private val fallbackAiClient = FallbackAiClient(systemService.context())
+    private val strataAiClient = StrataAiClient(systemService.context())
     private val localLfm3Client = LocalLfm3Client(systemService.context())
     private val responseTurns = AssistantResponseTurns()
     private val developmentInstallConsent = DevelopmentInstallConsent()
@@ -206,7 +207,8 @@ class HybridAssistantService(
                     IntelligenceRouting.selected(intelligencePrefs.getString("primary_provider", "gemini")),
                     intelligencePrefs.getBoolean("provider_fallback", true), directOnlineClient.hasGeminiKey(),
                     fallbackAiClient.isConfigured(), intelligencePrefs.getString("gemini_model", GeminiModelDiscovery.DEFAULT_MODEL).orEmpty(),
-                    localLfm3Client.isConfigured(), localLfm3Client.selectedVariant().label))
+                    localLfm3Client.isConfigured(), localLfm3Client.selectedVariant().label,
+                    strataAiClient.isConfigured()))
             }
             ConnectionAssistance.parse(userInput)?.let { command ->
                 clearPendingActionPrompts()
@@ -1384,6 +1386,7 @@ class HybridAssistantService(
                 if (directOnlineClient.hasGeminiKey()) add(IntelligenceRouting.Provider.GEMINI)
                 if (fallbackAiClient.isConfigured()) add(IntelligenceRouting.Provider.GATEWAY)
                 if (localLfm3Client.isConfigured()) add(IntelligenceRouting.Provider.LOCAL_LFM3)
+                if (strataAiClient.isConfigured()) add(IntelligenceRouting.Provider.STRATA)
             }
             val routed = IntelligenceRouting.ask(
                 IntelligenceRouting.selected(intelligencePrefs.getString("primary_provider", "gemini")),
@@ -1396,6 +1399,8 @@ class HybridAssistantService(
                     IntelligenceRouting.Provider.LOCAL_LFM3 ->
                         localLfm3Client.ask(safeQuestion + if (context.isEmpty()) "" else "\nConversation context:\n$context",
                             current = responseTurns::current)
+                    IntelligenceRouting.Provider.STRATA ->
+                        strataAiClient.ask(safeQuestion, contextNote = context)
                     IntelligenceRouting.Provider.GATEWAY ->
                         fallbackAiClient.ask(
                             safeQuestion + if (context.isEmpty()) "" else "\nConversation context:\n$context",
@@ -1807,6 +1812,7 @@ class HybridAssistantService(
                 if (directOnlineClient.hasGeminiKey()) add(IntelligenceRouting.Provider.GEMINI)
                 if (fallbackAiClient.isConfigured()) add(IntelligenceRouting.Provider.GATEWAY)
                 if (localLfm3Client.isConfigured()) add(IntelligenceRouting.Provider.LOCAL_LFM3)
+                if (strataAiClient.isConfigured()) add(IntelligenceRouting.Provider.STRATA)
             }
             IntelligenceRouting.ask(IntelligenceRouting.selected(intelligencePrefs.getString("primary_provider", "gemini")),
                 intelligencePrefs.getBoolean("provider_fallback", true), configured, responseTurns::current) { provider ->
@@ -1815,6 +1821,8 @@ class HybridAssistantService(
                     IntelligenceRouting.Provider.GATEWAY -> fallbackAiClient.ask(userText,
                         capabilityContext = ContextualAction.aiContext(assistantMemory), conversation = conversationTurns())
                     IntelligenceRouting.Provider.LOCAL_LFM3 -> localLfm3Client.ask(userText, conversationTurns(), responseTurns::current)
+                    IntelligenceRouting.Provider.STRATA -> strataAiClient.ask(userText, conversationTurns(),
+                        ContextualAction.aiContext(assistantMemory))
                 }
             }.answer
         } else InterpretationFallback.ask({ directOnlineClient.assistant(userText, getConversationSnapshot(), ContextualAction.aiContext(assistantMemory)) })
